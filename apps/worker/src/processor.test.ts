@@ -40,6 +40,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_1",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 25,
@@ -67,6 +68,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_2",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 25,
@@ -95,6 +97,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_3",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 1,
@@ -139,6 +142,7 @@ describe("processCrawlJob", () => {
       {
         crawlRunId: "crawl_4",
         siteId: "site_1",
+        siteDomain: "example.com",
         requestedByUserId: "user_1",
         startUrl: "https://example.com/",
         maxPages: 25,
@@ -198,6 +202,7 @@ describe("processCrawlJob", () => {
       {
         crawlRunId: "crawl_live",
         siteId: "site_1",
+        siteDomain: "example.com",
         requestedByUserId: "user_1",
         startUrl: "https://example.com/",
         maxPages: 2,
@@ -208,6 +213,7 @@ describe("processCrawlJob", () => {
         async crawlSite(input) {
           expect(input).toMatchObject({
             maxPages: 2,
+            siteDomain: "example.com",
             startUrl: "https://example.com/"
           });
           return [
@@ -224,5 +230,55 @@ describe("processCrawlJob", () => {
     expect(result.status).toBe("completed");
     expect(upserts).toHaveLength(1);
     expect(updates).toHaveLength(1);
+  });
+
+  it("marks the crawl run as failed when runtime crawling fails", async () => {
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    await expect(
+      processAndPersistCrawlJob(
+        {
+          crawlRunId: "crawl_failed",
+          siteId: "site_1",
+          siteDomain: "example.com",
+          requestedByUserId: "user_1",
+          startUrl: "https://example.com/",
+          maxPages: 2,
+          pages: []
+        },
+        persistenceClient,
+        {
+          async crawlSite() {
+            throw new Error("crawl failed");
+          }
+        },
+      ),
+    ).rejects.toThrow(/crawl failed/);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      where: { id: "crawl_failed" },
+      data: {
+        status: "failed",
+        summary: {
+          error: {
+            message: "crawl failed"
+          }
+        }
+      }
+    });
   });
 });

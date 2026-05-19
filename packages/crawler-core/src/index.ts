@@ -4,6 +4,7 @@ export { crawlSite } from "./crawl.js";
 export { fetchUrl, isHtmlFetchResult } from "./fetch.js";
 export { parseHtml } from "./html.js";
 export { isPathAllowedByRobots, parseRobotsTxt } from "./robots.js";
+export { isBlockedHostname, isHostnameWithinDomain, isUrlAllowedForCrawl } from "./scope.js";
 export { extractSeoSignals } from "./signals.js";
 export { parseSitemapXml } from "./sitemap.js";
 export { classifyInternalLink, normalizeUrl } from "./url.js";

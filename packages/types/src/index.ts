@@ -333,6 +333,7 @@ export type CrawlJobPageInput = z.infer<typeof CrawlJobPageInputSchema>;
 export const CrawlJobPayloadSchema = z.object({
   crawlRunId: IdSchema,
   siteId: IdSchema,
+  siteDomain: DomainSchema,
   requestedByUserId: IdSchema,
   startUrl: NormalizedUrlSchema,
   maxPages: z.number().int().positive().max(100),

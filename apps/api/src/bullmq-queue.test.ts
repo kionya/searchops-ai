@@ -19,6 +19,7 @@ describe("BullMQ crawl queue adapter", () => {
     const job = await crawlQueue.enqueueCrawl({
       crawlRunId: "crawl_1",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 3,

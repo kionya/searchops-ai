@@ -10,9 +10,11 @@ export {
 export {
   buildUrlRecordUpsertArgs,
   createPrismaCrawlPersistenceClient,
+  markCrawlRunFailed,
   persistCrawlJobResult,
   type CrawlPersistenceClient,
   type CrawlRunUpdateArgs,
+  type MarkCrawlRunFailedOutput,
   type PersistCrawlJobResultOutput,
   type UrlRecordUpsertArgs
 } from "./crawl.js";

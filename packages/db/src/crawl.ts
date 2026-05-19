@@ -57,6 +57,11 @@ export interface PersistCrawlJobResultOutput {
   urlRecordsUpserted: number;
 }
 
+export interface MarkCrawlRunFailedOutput {
+  crawlRunId: string;
+  status: "failed";
+}
+
 export function createPrismaCrawlPersistenceClient(
   prisma: Pick<SearchOpsPrismaClient, "crawlRun" | "urlRecord">,
 ): CrawlPersistenceClient {
@@ -114,6 +119,32 @@ export async function persistCrawlJobResult(
   };
 }
 
+export async function markCrawlRunFailed(
+  client: CrawlPersistenceClient,
+  input: {
+    crawlRunId: string;
+    error: unknown;
+  },
+): Promise<MarkCrawlRunFailedOutput> {
+  await client.crawlRun.update({
+    where: {
+      id: input.crawlRunId
+    },
+    data: {
+      status: "failed",
+      endedAt: new Date(),
+      summary: {
+        error: serializeError(input.error)
+      }
+    }
+  });
+
+  return {
+    crawlRunId: input.crawlRunId,
+    status: "failed"
+  };
+}
+
 export function buildUrlRecordUpsertArgs(input: {
   crawlRunId: string;
   siteId: string;
@@ -140,6 +171,20 @@ export function buildUrlRecordUpsertArgs(input: {
       ...record
     },
     update: record
+  };
+}
+
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name
+    };
+  }
+
+  return {
+    message: String(error),
+    name: "Error"
   };
 }
 

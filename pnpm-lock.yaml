@@ -47,6 +47,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@searchops/crawler-core':
+        specifier: workspace:*
+        version: link:../../packages/crawler-core
       '@searchops/db':
         specifier: workspace:*
         version: link:../../packages/db

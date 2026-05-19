@@ -40,3 +40,5 @@ The Prisma schema and migration live in `packages/db`. The API uses an in-memory
 
 ## Phase 2 Runtime Crawl Boundary
 Runtime crawl execution is now wired behind ports. `apps/api` uses a Prisma-backed repository and BullMQ-backed crawl queue when started through `apps/api/src/index.ts`; tests can still inject memory repositories and queues. `apps/worker` consumes the shared crawl queue, uses `packages/crawler-core` for bounded live fetching and HTML signal extraction, then persists through the `packages/db` Prisma adapter. Unit tests use mock fetchers and fake persistence clients; they do not call live websites, Redis, or PostgreSQL.
+
+Runtime crawling is scoped to the registered site domain and its subdomains. Localhost, private IP, and link-local IP targets are blocked, and redirects or robots sitemap URLs outside that scope are rejected. Failed crawl execution updates the `CrawlRun` status to `failed` with an error summary.

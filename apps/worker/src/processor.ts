@@ -1,5 +1,5 @@
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
-import { persistCrawlJobResult, type CrawlPersistenceClient } from "@searchops/db";
+import { markCrawlRunFailed, persistCrawlJobResult, type CrawlPersistenceClient } from "@searchops/db";
 import {
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
@@ -41,20 +41,29 @@ export async function processAndPersistCrawlJob(
   options: ProcessAndPersistCrawlJobOptions = {},
 ): Promise<CrawlJobResult> {
   let payload = CrawlJobPayloadSchema.parse(input);
-  if (payload.pages.length === 0) {
-    const pages = await (options.crawlSite ?? crawlSite)({
-      maxPages: payload.maxPages,
-      startUrl: payload.startUrl
-    });
-    payload = {
-      ...payload,
-      pages
-    };
-  }
+  try {
+    if (payload.pages.length === 0) {
+      const pages = await (options.crawlSite ?? crawlSite)({
+        maxPages: payload.maxPages,
+        siteDomain: payload.siteDomain,
+        startUrl: payload.startUrl
+      });
+      payload = {
+        ...payload,
+        pages
+      };
+    }
 
-  const result = processCrawlJob(payload);
-  await persistCrawlJobResult(persistenceClient, result, payload.pages);
-  return result;
+    const result = processCrawlJob(payload);
+    await persistCrawlJobResult(persistenceClient, result, payload.pages);
+    return result;
+  } catch (error) {
+    await markCrawlRunFailed(persistenceClient, {
+      crawlRunId: payload.crawlRunId,
+      error
+    });
+    throw error;
+  }
 }
 
 function extractPageSignals(page: CrawlJobPageInput) {

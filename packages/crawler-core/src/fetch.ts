@@ -1,7 +1,9 @@
 export interface FetchUrlInput {
   readonly url: string;
   readonly fetchImpl?: typeof fetch;
+  readonly isRedirectAllowed?: (url: string) => boolean;
   readonly maxBodyBytes?: number;
+  readonly maxRedirects?: number;
   readonly timeoutMs?: number;
   readonly userAgent?: string;
 }
@@ -16,6 +18,7 @@ export interface FetchUrlResult {
 }
 
 const defaultMaxBodyBytes = 1_000_000;
+const defaultMaxRedirects = 5;
 const defaultTimeoutMs = 10_000;
 const defaultUserAgent = "SearchOpsAI-Crawler/0.1";
 
@@ -29,20 +32,43 @@ export async function fetchUrl(input: FetchUrlInput): Promise<FetchUrlResult> {
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? defaultTimeoutMs);
 
   try {
-    const response = await fetchImpl(input.url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.8",
-        "user-agent": input.userAgent ?? defaultUserAgent
-      },
-      redirect: "follow",
-      signal: controller.signal
-    });
+    let currentUrl = input.url;
+    let response: Response | null = null;
+    const maxRedirects = input.maxRedirects ?? defaultMaxRedirects;
+
+    for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+      response = await fetchImpl(currentUrl, {
+        headers: {
+          accept: "text/html,application/xhtml+xml,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.8",
+          "user-agent": input.userAgent ?? defaultUserAgent
+        },
+        redirect: "manual",
+        signal: controller.signal
+      });
+
+      const location = response.headers.get("location");
+      if (!isRedirectResponse(response.status) || location === null) {
+        break;
+      }
+
+      const redirectUrl = new URL(location, currentUrl).toString();
+      if (input.isRedirectAllowed !== undefined && !input.isRedirectAllowed(redirectUrl)) {
+        throw new Error(`Redirect target is outside the allowed crawl scope: ${redirectUrl}`);
+      }
+
+      currentUrl = redirectUrl;
+    }
+
+    if (response === null || isRedirectResponse(response.status)) {
+      throw new Error(`Too many redirects while fetching ${input.url}`);
+    }
+
     const maxBodyBytes = input.maxBodyBytes ?? defaultMaxBodyBytes;
     const { body, truncated } = await readResponseBody(response, maxBodyBytes);
 
     return {
       url: input.url,
-      finalUrl: response.url || input.url,
+      finalUrl: response.url || currentUrl,
       statusCode: response.status,
       contentType: response.headers.get("content-type"),
       body: truncated ? body.slice(0, maxBodyBytes) : body,
@@ -51,6 +77,10 @@ export async function fetchUrl(input: FetchUrlInput): Promise<FetchUrlResult> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function isRedirectResponse(statusCode: number): boolean {
+  return statusCode >= 300 && statusCode < 400;
 }
 
 async function readResponseBody(response: Response, maxBodyBytes: number) {

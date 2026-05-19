@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildUrlRecordUpsertArgs, persistCrawlJobResult, type CrawlPersistenceClient } from "./crawl.js";
+import {
+  buildUrlRecordUpsertArgs,
+  markCrawlRunFailed,
+  persistCrawlJobResult,
+  type CrawlPersistenceClient
+} from "./crawl.js";
 
 const duplicateHash = "a".repeat(64);
 
@@ -187,6 +192,45 @@ describe("crawl persistence helpers", () => {
       create: {
         url: "https://example.com/new",
         statusCode: 301
+      }
+    });
+  });
+
+  it("marks crawl runs as failed with an error summary", async () => {
+    const crawlRunUpdates: unknown[] = [];
+    const client: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          crawlRunUpdates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const output = await markCrawlRunFailed(client, {
+      crawlRunId: "crawl_1",
+      error: new Error("network failed")
+    });
+
+    expect(output).toEqual({
+      crawlRunId: "crawl_1",
+      status: "failed"
+    });
+    expect(crawlRunUpdates[0]).toMatchObject({
+      where: { id: "crawl_1" },
+      data: {
+        status: "failed",
+        summary: {
+          error: {
+            message: "network failed",
+            name: "Error"
+          }
+        }
       }
     });
   });

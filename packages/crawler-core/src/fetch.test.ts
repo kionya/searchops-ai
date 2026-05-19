@@ -62,4 +62,22 @@ describe("fetchUrl", () => {
 
     expect(isHtmlFetchResult(result)).toBe(false);
   });
+
+  it("blocks redirects outside the allowed crawl scope", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response("", {
+        headers: {
+          location: "http://169.254.169.254/latest/meta-data"
+        },
+        status: 302
+      });
+
+    await expect(
+      fetchUrl({
+        fetchImpl,
+        isRedirectAllowed: (url) => url.startsWith("https://example.com/"),
+        url: "https://example.com/"
+      }),
+    ).rejects.toThrow(/outside the allowed crawl scope/);
+  });
 });

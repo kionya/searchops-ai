@@ -3,11 +3,13 @@ import type { CrawlJobPageInput } from "@searchops/types";
 import { fetchUrl, isHtmlFetchResult, type FetchUrlInput, type FetchUrlResult } from "./fetch.js";
 import { extractSeoSignals } from "./signals.js";
 import { isPathAllowedByRobots, parseRobotsTxt } from "./robots.js";
+import { isUrlAllowedForCrawl } from "./scope.js";
 import { parseSitemapXml } from "./sitemap.js";
-import { classifyInternalLink, normalizeUrl } from "./url.js";
+import { normalizeUrl } from "./url.js";
 
 export interface CrawlSiteInput {
   readonly startUrl: string;
+  readonly siteDomain: string;
   readonly maxPages: number;
   readonly fetchImpl?: typeof fetch;
   readonly fetchUrlImpl?: (input: FetchUrlInput) => Promise<FetchUrlResult>;
@@ -19,6 +21,10 @@ const defaultMaxSitemaps = 2;
 
 export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInput[]> {
   const startUrl = normalizeUrl(input.startUrl);
+  if (!isUrlAllowedForCrawl(startUrl, input.siteDomain)) {
+    throw new Error(`Start URL is outside the allowed crawl scope: ${startUrl}`);
+  }
+
   const maxPages = Math.max(0, input.maxPages);
   if (maxPages === 0) {
     return [];
@@ -37,7 +43,7 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
     }
 
     const normalized = normalizeUrl(nextUrl, startUrl);
-    if (seen.has(normalized) || classifyInternalLink(normalized, startUrl) !== "internal") {
+    if (seen.has(normalized) || !isUrlAllowedForCrawl(normalized, input.siteDomain)) {
       continue;
     }
     seen.add(normalized);
@@ -51,6 +57,10 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
       ...createFetchOptions(input),
       url: normalized
     });
+    const finalUrl = normalizeUrl(fetched.finalUrl, normalized);
+    if (!isUrlAllowedForCrawl(finalUrl, input.siteDomain)) {
+      continue;
+    }
     if (!isHtmlFetchResult(fetched) || fetched.body.trim().length === 0) {
       continue;
     }
@@ -59,7 +69,7 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
       url: normalized,
       html: fetched.body,
       statusCode: fetched.statusCode,
-      ...(fetched.finalUrl === normalized ? {} : { finalUrl: normalizeUrl(fetched.finalUrl, normalized) })
+      ...(finalUrl === normalized ? {} : { finalUrl })
     };
     pages.push(page);
 
@@ -69,8 +79,12 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
       robotsBlocked: false,
       ...(page.finalUrl === undefined ? {} : { finalUrl: page.finalUrl })
     });
-    for (const link of signals.links.internal) {
-      if (!seen.has(link.url) && queue.length + pages.length < maxPages * 5) {
+    for (const link of [...signals.links.internal, ...signals.links.external]) {
+      if (
+        !seen.has(link.url) &&
+        isUrlAllowedForCrawl(link.url, input.siteDomain) &&
+        queue.length + pages.length < maxPages * 5
+      ) {
         queue.push(link.url);
       }
     }
@@ -107,6 +121,10 @@ async function discoverInitialQueue(input: CrawlSiteInput & {
 
   const sitemapUrls = input.robots.sitemaps.slice(0, input.maxSitemaps ?? defaultMaxSitemaps);
   for (const sitemapUrl of sitemapUrls) {
+    if (!isUrlAllowedForCrawl(sitemapUrl, input.siteDomain)) {
+      continue;
+    }
+
     try {
       const fetched = await input.fetchUrlImpl({
         ...createFetchOptions(input),
@@ -118,7 +136,7 @@ async function discoverInitialQueue(input: CrawlSiteInput & {
 
       const parsed = parseSitemapXml(fetched.body);
       for (const entry of parsed.urls) {
-        if (classifyInternalLink(entry.loc, input.startUrl) === "internal") {
+        if (isUrlAllowedForCrawl(entry.loc, input.siteDomain)) {
           queue.push(entry.loc);
         }
       }
@@ -130,9 +148,10 @@ async function discoverInitialQueue(input: CrawlSiteInput & {
   return [...new Set(queue)];
 }
 
-function createFetchOptions(input: Pick<CrawlSiteInput, "fetchImpl" | "timeoutMs">) {
+function createFetchOptions(input: Pick<CrawlSiteInput, "fetchImpl" | "siteDomain" | "timeoutMs">) {
   return {
     ...(input.fetchImpl === undefined ? {} : { fetchImpl: input.fetchImpl }),
+    isRedirectAllowed: (url: string) => isUrlAllowedForCrawl(url, input.siteDomain),
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs })
   };
 }
