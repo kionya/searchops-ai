@@ -1,13 +1,9 @@
 import type { JobsOptions } from "bullmq";
+import type { CrawlJobPayload } from "@searchops/types";
 
 export const workerJobNames = ["crawl", "analyze", "generate", "recheck"] as const;
 
 export type WorkerJobName = (typeof workerJobNames)[number];
-
-export interface CrawlJobPayload {
-  readonly siteId: string;
-  readonly requestedByUserId: string;
-}
 
 export interface AnalyzeJobPayload {
   readonly crawlRunId: string;

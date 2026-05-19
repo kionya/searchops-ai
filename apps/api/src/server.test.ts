@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { Organization } from "@searchops/types";
+import type { Organization, Site } from "@searchops/types";
 
+import { createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 
@@ -11,11 +12,34 @@ const seededOrganization: Organization = {
   name: "Seed Organization",
   createdAt
 };
+const seededSite: Site = {
+  id: "site_seed",
+  organizationId: "org_seed",
+  domain: "exampleclinic.com",
+  name: "Example Clinic",
+  industry: "medical",
+  language: "ko",
+  country: "KR",
+  createdAt
+};
 
 function buildTestServer() {
   return buildApiServer({
     repository: createMemoryRepository({ organizations: [seededOrganization] })
   });
+}
+
+function buildCrawlRunTestContext() {
+  const crawlRunQueue = createMemoryCrawlRunQueue();
+  const server = buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite]
+    }),
+    crawlRunQueue
+  });
+
+  return { server, crawlRunQueue };
 }
 
 describe("api foundation", () => {
@@ -121,5 +145,70 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("domain");
+  });
+
+  it("creates crawl runs and enqueues crawl jobs", async () => {
+    const { server, crawlRunQueue } = buildCrawlRunTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/crawl-runs",
+      headers: {
+        "x-mock-user-id": "user_crawler"
+      },
+      payload: {
+        maxPages: 3
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.crawlRun).toMatchObject({
+      siteId: "site_seed",
+      status: "queued",
+      endedAt: null,
+      summary: {
+        startUrl: "https://exampleclinic.com/",
+        maxPages: 3
+      }
+    });
+    expect(body.job).toMatchObject({
+      id: "job_0001",
+      name: "crawl",
+      payload: {
+        crawlRunId: body.crawlRun.id,
+        siteId: "site_seed",
+        requestedByUserId: "user_crawler",
+        startUrl: "https://exampleclinic.com/",
+        maxPages: 3,
+        pages: []
+      }
+    });
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+  });
+
+  it("returns 404 when creating a crawl run for a missing site", async () => {
+    const { server } = buildCrawlRunTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/crawl-runs",
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "not_found", message: "Site not found" });
+  });
+
+  it("validates crawl run request payloads", async () => {
+    const { server } = buildCrawlRunTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/crawl-runs",
+      payload: {
+        maxPages: 0
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("maxPages");
   });
 });

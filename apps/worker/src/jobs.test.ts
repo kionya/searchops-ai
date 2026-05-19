@@ -13,7 +13,14 @@ describe("worker foundation", () => {
 
   it("types future job payload contracts", () => {
     const payloads: WorkerJobPayloadMap = {
-      crawl: { siteId: "site_1", requestedByUserId: "user_1" },
+      crawl: {
+        crawlRunId: "crawl_1",
+        siteId: "site_1",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 25,
+        pages: []
+      },
       analyze: { crawlRunId: "crawl_1" },
       generate: { workOrderId: "wo_1" },
       recheck: { workOrderId: "wo_1", siteId: "site_1" }
