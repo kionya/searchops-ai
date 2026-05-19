@@ -31,3 +31,6 @@ External APIs must be hidden behind `packages/connectors` and tested with mock f
 
 ## Phase 1 DB Boundary
 The Prisma schema and migration live in `packages/db`. The API uses an in-memory repository for Phase 1 CRUD tests so local PostgreSQL is not required for shell verification.
+
+## Phase 2 Crawl Queue Boundary
+`apps/api` owns the HTTP boundary for creating crawl runs and enqueueing crawl jobs through a queue port. `apps/worker` owns crawl job processing and calls `packages/crawler-core` for deterministic HTML signal extraction. Live fetching, Redis-backed queue execution, and UrlRecord persistence are intentionally deferred to later crawler tasks.

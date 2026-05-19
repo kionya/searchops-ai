@@ -77,6 +77,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@searchops/crawler-core':
+        specifier: workspace:*
+        version: link:../../packages/crawler-core
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types

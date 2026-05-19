@@ -1,5 +1,7 @@
 import type {
+  CrawlRun,
   CreateOrganizationRequest,
+  CreateCrawlRunRequest,
   CreateSiteRequest,
   Organization,
   Site,
@@ -15,11 +17,15 @@ export interface SearchOpsRepository {
   getSite(id: string): Promise<Site | null>;
   updateSite(id: string, input: UpdateSiteRequest): Promise<Site | null>;
   deleteSite(id: string): Promise<boolean>;
+  createCrawlRun(siteId: string, input: CreateCrawlRunRequest): Promise<CrawlRun | null>;
+  getCrawlRun(id: string): Promise<CrawlRun | null>;
+  listCrawlRuns(siteId: string): Promise<CrawlRun[]>;
 }
 
 export interface MemoryRepositorySeed {
   readonly organizations?: readonly Organization[];
   readonly sites?: readonly Site[];
+  readonly crawlRuns?: readonly CrawlRun[];
 }
 
 function nowIso() {
@@ -33,8 +39,10 @@ function createId(prefix: string, index: number) {
 export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchOpsRepository {
   const organizations = new Map<string, Organization>();
   const sites = new Map<string, Site>();
+  const crawlRuns = new Map<string, CrawlRun>();
   let organizationCounter = 1;
   let siteCounter = 1;
+  let crawlRunCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
     organizations.set(organization.id, organization);
@@ -44,6 +52,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const site of seed.sites ?? []) {
     sites.set(site.id, site);
     siteCounter += 1;
+  }
+
+  for (const crawlRun of seed.crawlRuns ?? []) {
+    crawlRuns.set(crawlRun.id, crawlRun);
+    crawlRunCounter += 1;
   }
 
   return {
@@ -116,6 +129,37 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
     async deleteSite(id) {
       return sites.delete(id);
+    },
+
+    async createCrawlRun(siteId, input) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      const crawlRun: CrawlRun = {
+        id: createId("crawl", crawlRunCounter),
+        siteId,
+        status: "queued",
+        startedAt: nowIso(),
+        endedAt: null,
+        summary: {
+          startUrl: input.startUrl ?? null,
+          maxPages: input.maxPages
+        }
+      };
+      crawlRunCounter += 1;
+      crawlRuns.set(crawlRun.id, crawlRun);
+      return crawlRun;
+    },
+
+    async getCrawlRun(id) {
+      return crawlRuns.get(id) ?? null;
+    },
+
+    async listCrawlRuns(siteId) {
+      return [...crawlRuns.values()]
+        .filter((crawlRun) => crawlRun.siteId === siteId)
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
     }
   };
 }

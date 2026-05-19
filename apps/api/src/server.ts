@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { ZodError, z } from "zod";
 
 import {
+  CreateCrawlRunRequestSchema,
+  CreateCrawlRunResponseSchema,
   CreateOrganizationRequestSchema,
   CreateSiteRequestSchema,
   HealthResponseSchema,
@@ -12,6 +14,7 @@ import {
 } from "@searchops/types";
 
 import { resolveMockUserContext } from "./auth.js";
+import { type CrawlRunQueue, createMemoryCrawlRunQueue } from "./queue.js";
 import { type SearchOpsRepository, createMemoryRepository } from "./repository.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
@@ -19,6 +22,7 @@ const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) })
 
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
+  readonly crawlRunQueue?: CrawlRunQueue;
 }
 
 function notFound(message: string) {
@@ -27,6 +31,7 @@ function notFound(message: string) {
 
 export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
+  const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
   const server = Fastify({ logger: false });
 
   server.setErrorHandler((error: unknown, _request, reply) => {
@@ -93,6 +98,35 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(SiteSchema.parse(site));
+  });
+
+  server.post("/sites/:id/crawl-runs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateCrawlRunRequestSchema.parse(request.body ?? {});
+    const startUrl = input.startUrl ?? `https://${site.domain}/`;
+    const crawlRun = await repository.createCrawlRun(id, { ...input, startUrl });
+    if (!crawlRun) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const userContext = resolveMockUserContext(request);
+    const job = await crawlRunQueue.enqueueCrawl({
+      crawlRunId: crawlRun.id,
+      siteId: id,
+      requestedByUserId: userContext.userId,
+      startUrl,
+      maxPages: input.maxPages,
+      pages: []
+    });
+
+    reply.status(202).send(CreateCrawlRunResponseSchema.parse({ crawlRun, job }));
   });
 
   server.patch("/sites/:id", async (request, reply) => {

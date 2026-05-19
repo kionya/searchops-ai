@@ -85,6 +85,13 @@ export const CrawlRunSchema = z.object({
 
 export type CrawlRun = z.infer<typeof CrawlRunSchema>;
 
+export const CreateCrawlRunRequestSchema = z.object({
+  startUrl: HttpUrlSchema.optional(),
+  maxPages: z.number().int().positive().max(100).default(25)
+});
+
+export type CreateCrawlRunRequest = z.infer<typeof CreateCrawlRunRequestSchema>;
+
 export const UrlRecordSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
@@ -312,6 +319,63 @@ export const CrawlerPageSnapshotSchema = z.object({
 });
 
 export type CrawlerPageSnapshot = z.infer<typeof CrawlerPageSnapshotSchema>;
+
+export const CrawlJobPageInputSchema = z.object({
+  url: NormalizedUrlSchema,
+  finalUrl: NormalizedUrlSchema.optional(),
+  html: z.string().min(1),
+  statusCode: z.number().int().positive().nullable().default(null)
+});
+
+export type CrawlJobPageInput = z.infer<typeof CrawlJobPageInputSchema>;
+
+export const CrawlJobPayloadSchema = z.object({
+  crawlRunId: IdSchema,
+  siteId: IdSchema,
+  requestedByUserId: IdSchema,
+  startUrl: NormalizedUrlSchema,
+  maxPages: z.number().int().positive().max(100),
+  pages: z.array(CrawlJobPageInputSchema).default([])
+});
+
+export type CrawlJobPayload = z.infer<typeof CrawlJobPayloadSchema>;
+
+export const QueuedCrawlJobSchema = z.object({
+  id: IdSchema,
+  name: z.literal("crawl"),
+  payload: CrawlJobPayloadSchema
+});
+
+export type QueuedCrawlJob = z.infer<typeof QueuedCrawlJobSchema>;
+
+export const CreateCrawlRunResponseSchema = z.object({
+  crawlRun: CrawlRunSchema,
+  job: QueuedCrawlJobSchema
+});
+
+export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema>;
+
+export const CrawlJobSummarySchema = z.object({
+  pagesRequested: z.number().int().nonnegative(),
+  pagesProcessed: z.number().int().nonnegative(),
+  internalLinks: z.number().int().nonnegative(),
+  externalLinks: z.number().int().nonnegative(),
+  images: z.number().int().nonnegative(),
+  jsonLdBlocks: z.number().int().nonnegative(),
+  noindexPages: z.number().int().nonnegative()
+});
+
+export type CrawlJobSummary = z.infer<typeof CrawlJobSummarySchema>;
+
+export const CrawlJobResultSchema = z.object({
+  crawlRunId: IdSchema,
+  siteId: IdSchema,
+  status: z.enum(["completed", "empty"]),
+  snapshots: z.array(CrawlerPageSnapshotSchema),
+  summary: CrawlJobSummarySchema
+});
+
+export type CrawlJobResult = z.infer<typeof CrawlJobResultSchema>;
 
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),

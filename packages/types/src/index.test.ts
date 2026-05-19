@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CreateCrawlRunRequestSchema,
   CreateSiteRequestSchema,
+  CrawlJobPayloadSchema,
+  CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
   HealthResponseSchema,
   LinkSignalSchema,
@@ -108,5 +111,41 @@ describe("types foundation", () => {
     });
 
     expect(parsed.h1Count).toBe(1);
+  });
+
+  it("defaults crawl run request options", () => {
+    expect(CreateCrawlRunRequestSchema.parse({})).toEqual({ maxPages: 25 });
+  });
+
+  it("validates queued crawl job payloads", () => {
+    const parsed = CrawlJobPayloadSchema.parse({
+      crawlRunId: "crawl_1",
+      siteId: "site_1",
+      requestedByUserId: "user_1",
+      startUrl: "https://example.com/",
+      maxPages: 10
+    });
+
+    expect(parsed.pages).toEqual([]);
+  });
+
+  it("validates crawl job results", () => {
+    expect(
+      CrawlJobResultSchema.parse({
+        crawlRunId: "crawl_1",
+        siteId: "site_1",
+        status: "empty",
+        snapshots: [],
+        summary: {
+          pagesRequested: 0,
+          pagesProcessed: 0,
+          internalLinks: 0,
+          externalLinks: 0,
+          images: 0,
+          jsonLdBlocks: 0,
+          noindexPages: 0
+        }
+      }),
+    ).toMatchObject({ status: "empty" });
   });
 });
