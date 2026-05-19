@@ -1,4 +1,5 @@
 import { extractSeoSignals } from "@searchops/crawler-core";
+import { persistCrawlJobResult, type CrawlPersistenceClient } from "@searchops/db";
 import {
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
@@ -28,6 +29,16 @@ export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
     snapshots,
     summary
   });
+}
+
+export async function processAndPersistCrawlJob(
+  input: CrawlJobPayload,
+  persistenceClient: CrawlPersistenceClient,
+): Promise<CrawlJobResult> {
+  const payload = CrawlJobPayloadSchema.parse(input);
+  const result = processCrawlJob(payload);
+  await persistCrawlJobResult(persistenceClient, result, payload.pages);
+  return result;
 }
 
 function extractPageSignals(page: CrawlJobPageInput) {

@@ -11,6 +11,8 @@ import {
   MockUserContextSchema,
   NormalizedUrlSchema,
   OrganizationSchema,
+  ParsedSitemapSchema,
+  RobotsTxtSchema,
   SearchOpsEnvSchema,
   parseSearchOpsEnv,
   productName
@@ -147,5 +149,38 @@ describe("types foundation", () => {
         }
       }),
     ).toMatchObject({ status: "empty" });
+  });
+
+  it("validates robots parser output", () => {
+    expect(
+      RobotsTxtSchema.parse({
+        rules: [
+          {
+            userAgents: ["*"],
+            allow: ["/public"],
+            disallow: ["/private"],
+            crawlDelay: 2
+          }
+        ],
+        sitemaps: ["https://example.com/sitemap.xml"]
+      }),
+    ).toMatchObject({ sitemaps: ["https://example.com/sitemap.xml"] });
+  });
+
+  it("validates sitemap parser output", () => {
+    expect(
+      ParsedSitemapSchema.parse({
+        type: "urlset",
+        urls: [
+          {
+            loc: "https://example.com/",
+            lastmod: "2026-05-19",
+            changefreq: "daily",
+            priority: 0.8
+          }
+        ],
+        sitemaps: []
+      }),
+    ).toMatchObject({ type: "urlset" });
   });
 });

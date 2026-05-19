@@ -34,3 +34,6 @@ The Prisma schema and migration live in `packages/db`. The API uses an in-memory
 
 ## Phase 2 Crawl Queue Boundary
 `apps/api` owns the HTTP boundary for creating crawl runs and enqueueing crawl jobs through a queue port. `apps/worker` owns crawl job processing and calls `packages/crawler-core` for deterministic HTML signal extraction. Live fetching, Redis-backed queue execution, and UrlRecord persistence are intentionally deferred to later crawler tasks.
+
+## Phase 2 Crawl Persistence Boundary
+`packages/crawler-core` owns deterministic robots.txt and sitemap.xml parsing. `packages/db` owns idempotent crawl result persistence helpers that map worker crawl results to `UrlRecord` upserts and `CrawlRun.summary` updates. `apps/worker` composes those helpers after HTML signal extraction. The helpers are tested against a fake persistence client so local PostgreSQL is not required for CDX-024 verification.

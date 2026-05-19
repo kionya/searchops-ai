@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { processCrawlJob } from "./processor.js";
+import type { CrawlPersistenceClient } from "@searchops/db";
+
+import { processAndPersistCrawlJob, processCrawlJob } from "./processor.js";
 
 const normalHtml = `
 <!doctype html>
@@ -113,5 +115,64 @@ describe("processCrawlJob", () => {
     expect(result.summary.pagesRequested).toBe(2);
     expect(result.summary.pagesProcessed).toBe(1);
     expect(result.summary.noindexPages).toBe(0);
+  });
+
+  it("persists processed crawl results through the DB boundary", async () => {
+    const upserts: unknown[] = [];
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          upserts.push(args);
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_4",
+        siteId: "site_1",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 25,
+        pages: [
+          {
+            url: "https://example.com/",
+            statusCode: 200,
+            html: normalHtml
+          }
+        ]
+      },
+      persistenceClient,
+    );
+
+    expect(result.status).toBe("completed");
+    expect(upserts).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({
+      create: {
+        crawlRunId: "crawl_4",
+        siteId: "site_1",
+        url: "https://example.com/",
+        statusCode: 200,
+        title: "Crawl Fixture"
+      }
+    });
+    expect(updates[0]).toMatchObject({
+      where: { id: "crawl_4" },
+      data: {
+        status: "completed",
+        summary: {
+          pagesProcessed: 1
+        }
+      }
+    });
   });
 });

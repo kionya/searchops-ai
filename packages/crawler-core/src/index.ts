@@ -1,7 +1,9 @@
 import { PageSnapshotSchema } from "@searchops/types";
 
 export { parseHtml } from "./html.js";
+export { isPathAllowedByRobots, parseRobotsTxt } from "./robots.js";
 export { extractSeoSignals } from "./signals.js";
+export { parseSitemapXml } from "./sitemap.js";
 export { classifyInternalLink, normalizeUrl } from "./url.js";
 export type { ExtractSeoSignalsInput } from "./signals.js";
 

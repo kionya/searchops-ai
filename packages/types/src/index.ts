@@ -377,6 +377,46 @@ export const CrawlJobResultSchema = z.object({
 
 export type CrawlJobResult = z.infer<typeof CrawlJobResultSchema>;
 
+export const RobotsRuleSchema = z.object({
+  userAgents: z.array(z.string().min(1)),
+  allow: z.array(z.string()),
+  disallow: z.array(z.string()),
+  crawlDelay: z.number().nonnegative().nullable()
+});
+
+export type RobotsRule = z.infer<typeof RobotsRuleSchema>;
+
+export const RobotsTxtSchema = z.object({
+  rules: z.array(RobotsRuleSchema),
+  sitemaps: z.array(NormalizedUrlSchema)
+});
+
+export type RobotsTxt = z.infer<typeof RobotsTxtSchema>;
+
+export const SitemapUrlEntrySchema = z.object({
+  loc: NormalizedUrlSchema,
+  lastmod: z.string().nullable(),
+  changefreq: z.string().nullable(),
+  priority: z.number().min(0).max(1).nullable()
+});
+
+export type SitemapUrlEntry = z.infer<typeof SitemapUrlEntrySchema>;
+
+export const SitemapIndexEntrySchema = z.object({
+  loc: NormalizedUrlSchema,
+  lastmod: z.string().nullable()
+});
+
+export type SitemapIndexEntry = z.infer<typeof SitemapIndexEntrySchema>;
+
+export const ParsedSitemapSchema = z.object({
+  type: z.enum(["urlset", "sitemapindex"]),
+  urls: z.array(SitemapUrlEntrySchema),
+  sitemaps: z.array(SitemapIndexEntrySchema)
+});
+
+export type ParsedSitemap = z.infer<typeof ParsedSitemapSchema>;
+
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),
   title: z.string().optional(),
