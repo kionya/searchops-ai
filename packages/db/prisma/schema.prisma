@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id              String           @id @default(cuid())
+  name            String
+  createdAt       DateTime         @default(now())
+  users           User[]
+  sites           Site[]
+  workOrders      WorkOrder[]
+  aiPrompts       AiPrompt[]
+  complianceFlags ComplianceFlag[]
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String       @unique
+  name           String?
+  role           String       @default("owner")
+  createdAt      DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model Site {
+  id             String         @id @default(cuid())
+  organizationId String
+  domain         String
+  name           String?
+  industry       String?
+  language       String         @default("ko")
+  country        String         @default("KR")
+  createdAt      DateTime       @default(now())
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  crawlRuns       CrawlRun[]
+  urls            UrlRecord[]
+  workOrders      WorkOrder[]
+  keywords        Keyword[]
+  contentBriefs   ContentBrief[]
+  complianceFlags ComplianceFlag[]
+
+  @@unique([organizationId, domain])
+  @@index([organizationId])
+}
+
+model CrawlRun {
+  id        String      @id @default(cuid())
+  siteId    String
+  status    String
+  startedAt DateTime    @default(now())
+  endedAt   DateTime?
+  summary   Json?
+
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  urls      UrlRecord[]
+  seoIssues SeoIssue[]
+
+  @@index([siteId])
+  @@index([status])
+}
+
+model UrlRecord {
+  id              String     @id @default(cuid())
+  siteId          String
+  crawlRunId      String?
+  url             String
+  statusCode      Int?
+  title           String?
+  metaDescription String?
+  createdAt       DateTime   @default(now())
+
+  site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  crawlRun  CrawlRun?  @relation(fields: [crawlRunId], references: [id], onDelete: SetNull)
+  seoIssues SeoIssue[]
+
+  @@unique([siteId, url])
+  @@index([crawlRunId])
+}
+
+model SeoIssue {
+  id          String    @id @default(cuid())
+  crawlRunId  String
+  urlRecordId String?
+  ruleId      String
+  severity    String
+  status      String    @default("open")
+  title       String
+  evidence    Json?
+  createdAt   DateTime  @default(now())
+
+  crawlRun  CrawlRun   @relation(fields: [crawlRunId], references: [id], onDelete: Cascade)
+  urlRecord UrlRecord? @relation(fields: [urlRecordId], references: [id], onDelete: SetNull)
+  workOrders WorkOrder[]
+
+  @@index([crawlRunId])
+  @@index([ruleId])
+  @@index([status])
+}
+
+model WorkOrder {
+  id             String    @id @default(cuid())
+  organizationId String
+  siteId         String?
+  seoIssueId     String?
+  status         String    @default("open")
+  priority       String    @default("medium")
+  title          String
+  description    String?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  seoIssue     SeoIssue?    @relation(fields: [seoIssueId], references: [id], onDelete: SetNull)
+  complianceFlags ComplianceFlag[]
+
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([status])
+}
+
+model Keyword {
+  id        String   @id @default(cuid())
+  siteId    String
+  phrase    String
+  locale    String   @default("ko-KR")
+  intent    String?
+  createdAt DateTime @default(now())
+
+  site          Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  contentBriefs ContentBrief[]
+
+  @@unique([siteId, phrase, locale])
+  @@index([siteId])
+}
+
+model ContentBrief {
+  id        String   @id @default(cuid())
+  siteId    String
+  keywordId String?
+  title     String
+  status    String   @default("draft")
+  outline   Json?
+  createdAt DateTime @default(now())
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  keyword Keyword? @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([keywordId])
+}
+
+model AiPrompt {
+  id             String   @id @default(cuid())
+  organizationId String
+  purpose        String
+  template       String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  results      AiResult[]
+
+  @@index([organizationId])
+}
+
+model AiResult {
+  id        String   @id @default(cuid())
+  promptId  String
+  status    String   @default("draft")
+  output    Json?
+  createdAt DateTime @default(now())
+
+  prompt AiPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@index([promptId])
+  @@index([status])
+}
+
+model ComplianceFlag {
+  id             String   @id @default(cuid())
+  organizationId String
+  siteId         String?
+  workOrderId    String?
+  riskLevel      String
+  status         String   @default("open")
+  message        String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  workOrder    WorkOrder?   @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([riskLevel])
+}

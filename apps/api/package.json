@@ -1,0 +1,19 @@
+{
+  "name": "@searchops/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@searchops/db": "workspace:*",
+    "@searchops/types": "workspace:*",
+    "fastify": "^5.3.3",
+    "zod": "^3.25.28"
+  }
+}
