@@ -53,6 +53,9 @@ importers:
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types
+      bullmq:
+        specifier: ^5.52.1
+        version: 5.76.8
       fastify:
         specifier: ^5.3.3
         version: 5.8.5

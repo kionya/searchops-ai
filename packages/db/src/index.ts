@@ -3,7 +3,13 @@ export const dbPackage = "db" as const;
 export const prismaSchemaPath = "packages/db/prisma/schema.prisma" as const;
 
 export {
+  createSearchOpsPrismaClient,
+  type SearchOpsPrismaClient
+} from "./client.js";
+
+export {
   buildUrlRecordUpsertArgs,
+  createPrismaCrawlPersistenceClient,
   persistCrawlJobResult,
   type CrawlPersistenceClient,
   type CrawlRunUpdateArgs,

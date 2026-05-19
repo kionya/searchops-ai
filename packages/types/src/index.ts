@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const productName = "SearchOps AI" as const;
+export const crawlQueueName = "searchops:crawl" as const;
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const IdSchema = z.string().min(1);

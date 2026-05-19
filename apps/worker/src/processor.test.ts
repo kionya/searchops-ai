@@ -175,4 +175,54 @@ describe("processCrawlJob", () => {
       }
     });
   });
+
+  it("fetches pages through the crawler when a runtime crawl job has no page fixtures", async () => {
+    const upserts: unknown[] = [];
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          upserts.push(args);
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_live",
+        siteId: "site_1",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 2,
+        pages: []
+      },
+      persistenceClient,
+      {
+        async crawlSite(input) {
+          expect(input).toMatchObject({
+            maxPages: 2,
+            startUrl: "https://example.com/"
+          });
+          return [
+            {
+              url: "https://example.com/",
+              statusCode: 200,
+              html: normalHtml
+            }
+          ];
+        }
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(upserts).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+  });
 });

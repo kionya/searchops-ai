@@ -5,6 +5,8 @@ import {
   type CrawlerPageSnapshot
 } from "@searchops/types";
 
+import type { SearchOpsPrismaClient } from "./client.js";
+
 export interface CrawlRunUpdateArgs {
   where: {
     id: string;
@@ -53,6 +55,23 @@ export interface PersistCrawlJobResultOutput {
   siteId: string;
   status: string;
   urlRecordsUpserted: number;
+}
+
+export function createPrismaCrawlPersistenceClient(
+  prisma: Pick<SearchOpsPrismaClient, "crawlRun" | "urlRecord">,
+): CrawlPersistenceClient {
+  return {
+    crawlRun: {
+      async update(args) {
+        return prisma.crawlRun.update(args);
+      }
+    },
+    urlRecord: {
+      async upsert(args) {
+        return prisma.urlRecord.upsert(args);
+      }
+    }
+  };
 }
 
 export async function persistCrawlJobResult(

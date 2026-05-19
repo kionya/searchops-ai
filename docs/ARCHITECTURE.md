@@ -37,3 +37,6 @@ The Prisma schema and migration live in `packages/db`. The API uses an in-memory
 
 ## Phase 2 Crawl Persistence Boundary
 `packages/crawler-core` owns deterministic robots.txt and sitemap.xml parsing. `packages/db` owns idempotent crawl result persistence helpers that map worker crawl results to `UrlRecord` upserts and `CrawlRun.summary` updates. `apps/worker` composes those helpers after HTML signal extraction. The helpers are tested against a fake persistence client so local PostgreSQL is not required for CDX-024 verification.
+
+## Phase 2 Runtime Crawl Boundary
+Runtime crawl execution is now wired behind ports. `apps/api` uses a Prisma-backed repository and BullMQ-backed crawl queue when started through `apps/api/src/index.ts`; tests can still inject memory repositories and queues. `apps/worker` consumes the shared crawl queue, uses `packages/crawler-core` for bounded live fetching and HTML signal extraction, then persists through the `packages/db` Prisma adapter. Unit tests use mock fetchers and fake persistence clients; they do not call live websites, Redis, or PostgreSQL.
