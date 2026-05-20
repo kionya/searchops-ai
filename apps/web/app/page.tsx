@@ -1,19 +1,11 @@
 import Link from "next/link";
 
-import { productName, type Site } from "@searchops/types";
+import { productName } from "@searchops/types";
 
-const mockSites: Site[] = [
-  {
-    id: "site_demo_rejuel",
-    organizationId: "org_demo",
-    domain: "example-clinic.com",
-    name: "Example Clinic",
-    industry: "medical",
-    language: "ko",
-    country: "KR",
-    createdAt: "2026-05-19T00:00:00.000Z"
-  }
-];
+import { demoSite, demoWorkOrders, summarizeWorkOrders } from "../src/work-order-board";
+
+const mockSites = [demoSite];
+const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
 
 export default function HomePage() {
   return (
@@ -51,6 +43,10 @@ export default function HomePage() {
                   <dd style={{ margin: 0 }}>
                     {site.language}-{site.country}
                   </dd>
+                </div>
+                <div>
+                  <dt style={{ color: "#64748b", fontSize: 12 }}>Open work</dt>
+                  <dd style={{ margin: 0 }}>{workOrderSummary.active}</dd>
                 </div>
               </dl>
               <Link href={`/sites/${site.id}`}>Open site detail</Link>
