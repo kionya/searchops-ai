@@ -197,16 +197,60 @@ export const SeoIssueDraftSchema = z.object({
 
 export type SeoIssueDraft = z.infer<typeof SeoIssueDraftSchema>;
 
+export const WorkOrderOwnerTypeSchema = z.enum(["developer", "marketer", "content", "legal"]);
+
+export type WorkOrderOwnerType = z.infer<typeof WorkOrderOwnerTypeSchema>;
+
+export const WorkOrderPrioritySchema = SeoIssuePrioritySchema;
+
+export type WorkOrderPriority = z.infer<typeof WorkOrderPrioritySchema>;
+
+export const WorkOrderStatusSchema = z.enum(["open", "in_progress", "in_review", "done", "blocked"]);
+
+export type WorkOrderStatus = z.infer<typeof WorkOrderStatusSchema>;
+
+export const EstimatedEffortSchema = z.enum(["s", "m", "l"]);
+
+export type EstimatedEffort = z.infer<typeof EstimatedEffortSchema>;
+
+export const WorkOrderDraftSchema = z.object({
+  title: z.string().min(1),
+  problem: z.string().min(1),
+  evidence: SeoIssueEvidenceSchema,
+  impact: z.string().min(1),
+  instructions: z.array(z.string().min(1)).min(1),
+  ownerType: WorkOrderOwnerTypeSchema,
+  priority: WorkOrderPrioritySchema,
+  acceptanceCriteria: z.array(z.string().min(1)).min(1),
+  verificationMethod: z.string().min(1),
+  estimatedEffort: EstimatedEffortSchema,
+  relatedIssues: z.array(SeoIssueRuleIdSchema)
+});
+
+export type WorkOrderDraft = z.infer<typeof WorkOrderDraftSchema>;
+
 export const WorkOrderSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,
   siteId: IdSchema.nullable(),
   seoIssueId: IdSchema.nullable(),
-  status: z.string().min(1),
-  priority: z.string().min(1),
+  status: WorkOrderStatusSchema,
+  priority: WorkOrderPrioritySchema,
   title: z.string().min(1),
   description: z.string().nullable(),
-  createdAt: IsoDateTimeSchema
+  problem: z.string().min(1),
+  evidence: SeoIssueEvidenceSchema.nullable(),
+  impact: z.string().min(1),
+  instructions: z.array(z.string().min(1)),
+  ownerType: WorkOrderOwnerTypeSchema,
+  acceptanceCriteria: z.array(z.string().min(1)),
+  verificationMethod: z.string().min(1),
+  estimatedEffort: EstimatedEffortSchema,
+  relatedIssues: z.array(SeoIssueRuleIdSchema),
+  assignedTo: IdSchema.nullable(),
+  dueDate: IsoDateTimeSchema.nullable(),
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema
 });
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
