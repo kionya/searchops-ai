@@ -14,6 +14,7 @@ import {
   ParsedSitemapSchema,
   RobotsTxtSchema,
   SearchOpsEnvSchema,
+  SeoIssueDraftSchema,
   parseSearchOpsEnv,
   productName
 } from "./index.js";
@@ -183,5 +184,30 @@ describe("types foundation", () => {
         sitemaps: []
       }),
     ).toMatchObject({ type: "urlset" });
+  });
+
+  it("validates deterministic SEO issue drafts", () => {
+    expect(
+      SeoIssueDraftSchema.parse({
+        ruleId: "TITLE_MISSING",
+        severity: "high",
+        category: "metadata",
+        priority: "p1",
+        title: "Missing title",
+        evidence: {
+          url: "https://example.com/",
+          observedValue: null,
+          expectedValue: "Non-empty title",
+          sourceField: "title"
+        },
+        impactScore: 80,
+        effortScore: 20,
+        priorityScore: 86
+      }),
+    ).toMatchObject({
+      ruleId: "TITLE_MISSING",
+      severity: "high",
+      priority: "p1"
+    });
   });
 });
