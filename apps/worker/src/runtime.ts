@@ -20,6 +20,8 @@ export interface CreateCrawlWorkerOptions {
   readonly redisUrl: string;
   readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
+  readonly queueName?: string;
+  readonly processorOptions?: ProcessAndPersistCrawlJobOptions;
 }
 
 export function createCrawlJobProcessor(
@@ -37,8 +39,8 @@ export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
   const worker = new Worker<CrawlJobPayload, CrawlJobResult, "crawl">(
-    crawlQueueName,
-    createCrawlJobProcessor(persistenceClient),
+    options.queueName ?? crawlQueueName,
+    createCrawlJobProcessor(persistenceClient, options.processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

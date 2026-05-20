@@ -6,6 +6,7 @@ import {
 } from "@searchops/types";
 
 import type { SearchOpsPrismaClient } from "./client.js";
+import type { Prisma } from "./generated/prisma/index.js";
 
 export interface CrawlRunUpdateArgs {
   where: {
@@ -14,7 +15,7 @@ export interface CrawlRunUpdateArgs {
   data: {
     status: string;
     endedAt: Date;
-    summary: Record<string, unknown>;
+    summary: Prisma.InputJsonValue;
   };
 }
 

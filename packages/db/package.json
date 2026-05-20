@@ -13,14 +13,19 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "db:generate": "tsx scripts/generate-prisma.ts",
     "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
-    "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" --max-warnings=0",
+    "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" \"scripts/**/*.ts\" --max-warnings=0",
+    "prebuild": "tsx scripts/generate-prisma.ts",
+    "pretest": "tsx scripts/generate-prisma.ts",
+    "pretypecheck": "tsx scripts/generate-prisma.ts",
+    "postbuild": "tsx scripts/copy-generated-prisma.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@searchops/types": "workspace:*",
-    "@prisma/client": "^6.8.2"
+    "@prisma/client": "6.19.3",
+    "@searchops/types": "workspace:*"
   }
 }
