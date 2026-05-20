@@ -11,6 +11,10 @@ const HttpUrlSchema = z
   .refine((value) => value.startsWith("http://") || value.startsWith("https://"), {
     message: "Expected an HTTP or HTTPS URL"
   });
+export const NormalizedUrlSchema = HttpUrlSchema;
+
+export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
+
 const DomainSchema = z
   .string()
   .min(1)
@@ -119,6 +123,79 @@ export const SeoIssueSchema = z.object({
 });
 
 export type SeoIssue = z.infer<typeof SeoIssueSchema>;
+
+export const SeoIssueRuleIdSchema = z.enum([
+  "TITLE_MISSING",
+  "TITLE_DUPLICATE",
+  "META_DESC_MISSING",
+  "H1_MISSING",
+  "MULTIPLE_H1",
+  "NOINDEX_ON_IMPORTANT_PAGE",
+  "CANONICAL_MISSING",
+  "CANONICAL_MISMATCH",
+  "BROKEN_INTERNAL_LINK",
+  "IMAGE_ALT_MISSING",
+  "SCHEMA_MISSING",
+  "THIN_CONTENT",
+  "ORPHAN_PAGE",
+  "ROBOTS_BLOCKED"
+]);
+
+export type SeoIssueRuleId = z.infer<typeof SeoIssueRuleIdSchema>;
+
+export const SeoIssueSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
+
+export type SeoIssueSeverity = z.infer<typeof SeoIssueSeveritySchema>;
+
+export const SeoIssueCategorySchema = z.enum([
+  "metadata",
+  "headings",
+  "canonical",
+  "indexability",
+  "images",
+  "links",
+  "schema",
+  "content"
+]);
+
+export type SeoIssueCategory = z.infer<typeof SeoIssueCategorySchema>;
+
+export const SeoIssuePrioritySchema = z.enum(["p0", "p1", "p2", "p3"]);
+
+export type SeoIssuePriority = z.infer<typeof SeoIssuePrioritySchema>;
+
+export const SeoIssueEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string())
+]);
+
+export type SeoIssueEvidenceValue = z.infer<typeof SeoIssueEvidenceValueSchema>;
+
+export const SeoIssueEvidenceSchema = z.object({
+  url: NormalizedUrlSchema,
+  observedValue: SeoIssueEvidenceValueSchema,
+  expectedValue: SeoIssueEvidenceValueSchema,
+  sourceField: z.string().min(1)
+});
+
+export type SeoIssueEvidence = z.infer<typeof SeoIssueEvidenceSchema>;
+
+export const SeoIssueDraftSchema = z.object({
+  ruleId: SeoIssueRuleIdSchema,
+  severity: SeoIssueSeveritySchema,
+  category: SeoIssueCategorySchema,
+  priority: SeoIssuePrioritySchema,
+  title: z.string().min(1),
+  evidence: SeoIssueEvidenceSchema,
+  impactScore: z.number().int().min(0).max(100),
+  effortScore: z.number().int().min(0).max(100),
+  priorityScore: z.number().int().min(0).max(100)
+});
+
+export type SeoIssueDraft = z.infer<typeof SeoIssueDraftSchema>;
 
 export const WorkOrderSchema = z.object({
   id: IdSchema,
@@ -235,10 +312,6 @@ export const MockUserContextSchema = z.object({
 });
 
 export type MockUserContext = z.infer<typeof MockUserContextSchema>;
-
-export const NormalizedUrlSchema = HttpUrlSchema;
-
-export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
 
 export const LinkClassificationSchema = z.enum(["internal", "external"]);
 
