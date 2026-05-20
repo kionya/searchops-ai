@@ -1,39 +1,331 @@
+import Link from "next/link";
+import type { CSSProperties } from "react";
+
+import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/types";
+
+import {
+  demoSite,
+  demoWorkOrders,
+  formatDate,
+  formatPriority,
+  groupWorkOrdersByStatus,
+  summarizeWorkOrders,
+  workOrderColumns
+} from "../../../src/work-order-board";
+
 interface SiteDetailPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
 }
 
+const pageStyle: CSSProperties = {
+  color: "#172033",
+  fontFamily:
+    "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+  margin: "32px auto",
+  maxWidth: 1180,
+  padding: 24
+};
+
+const mutedText: CSSProperties = {
+  color: "#64748b",
+  margin: 0
+};
+
+const sectionHeaderStyle: CSSProperties = {
+  alignItems: "end",
+  display: "flex",
+  gap: 16,
+  justifyContent: "space-between",
+  marginBottom: 14
+};
+
+const badgeBaseStyle: CSSProperties = {
+  borderRadius: 999,
+  display: "inline-flex",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1,
+  padding: "7px 9px",
+  whiteSpace: "nowrap"
+};
+
+const statusBadgeStyles: Record<WorkOrderStatus, CSSProperties> = {
+  open: { background: "#eff6ff", color: "#1d4ed8" },
+  in_progress: { background: "#ecfdf5", color: "#047857" },
+  in_review: { background: "#fefce8", color: "#a16207" },
+  done: { background: "#f1f5f9", color: "#475569" },
+  blocked: { background: "#fef2f2", color: "#b91c1c" }
+};
+
+const priorityBadgeStyles: Record<WorkOrderPriority, CSSProperties> = {
+  p0: { background: "#111827", color: "#ffffff" },
+  p1: { background: "#fee2e2", color: "#b91c1c" },
+  p2: { background: "#ffedd5", color: "#c2410c" },
+  p3: { background: "#eef2ff", color: "#4338ca" }
+};
+
+const statusLabels: Record<WorkOrderStatus, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  in_review: "In review",
+  done: "Done",
+  blocked: "Blocked"
+};
+
 export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
   const { siteId } = await params;
+  const site = siteId === demoSite.id ? demoSite : { ...demoSite, id: siteId, name: siteId };
+  const workOrders = demoWorkOrders.filter((workOrder) => workOrder.siteId === demoSite.id);
+  const groupedWorkOrders = groupWorkOrdersByStatus(workOrders);
+  const summary = summarizeWorkOrders(workOrders);
 
   return (
-    <main style={{ fontFamily: "sans-serif", margin: "40px auto", maxWidth: 960, padding: 24 }}>
-      <header style={{ borderBottom: "1px solid #e5e7eb", marginBottom: 32, paddingBottom: 20 }}>
-        <p style={{ color: "#64748b", margin: 0 }}>Site Detail Skeleton</p>
-        <h1 style={{ margin: "4px 0 8px" }}>{siteId}</h1>
-        <p style={{ color: "#475569", margin: 0 }}>
-          Crawl runs, URL records, SEO issues, work orders, keywords, content briefs, and
-          compliance flags will be attached here in later phases.
-        </p>
+    <main style={pageStyle}>
+      <header
+        style={{
+          borderBottom: "1px solid #e5e7eb",
+          display: "grid",
+          gap: 18,
+          marginBottom: 26,
+          paddingBottom: 22
+        }}
+      >
+        <Link href="/" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
+          Back to sites
+        </Link>
+        <div
+          style={{
+            alignItems: "start",
+            display: "grid",
+            gap: 18,
+            gridTemplateColumns: "minmax(0, 1fr) auto"
+          }}
+        >
+          <div>
+            <p style={mutedText}>Work Board</p>
+            <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 10px" }}>
+              {site.name}
+            </h1>
+            <p style={{ color: "#475569", margin: 0 }}>
+              {site.domain} - {site.language}-{site.country} - {site.industry}
+            </p>
+          </div>
+          <div
+            aria-label="Site status"
+            style={{
+              border: "1px solid #dbe4ef",
+              borderRadius: 8,
+              minWidth: 190,
+              padding: 14
+            }}
+          >
+            <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 6px" }}>Current focus</p>
+            <strong style={{ display: "block", fontSize: 22 }}>{summary.active}</strong>
+            <span style={{ color: "#475569", fontSize: 13 }}>active work orders</span>
+          </div>
+        </div>
       </header>
 
-      <section aria-label="Workflow skeleton" style={{ display: "grid", gap: 12 }}>
-        {[
-          "Crawl runs",
-          "URL records",
-          "SEO issues",
-          "Work orders",
-          "Keywords",
-          "Content briefs",
-          "Compliance flags"
-        ].map((label) => (
-          <article key={label} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 16 }}>
-            <h2 style={{ fontSize: 18, margin: "0 0 6px" }}>{label}</h2>
-            <p style={{ color: "#64748b", margin: 0 }}>Phase 1 placeholder</p>
-          </article>
-        ))}
+      <section
+        aria-label="Work order metrics"
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))"
+        }}
+      >
+        <Metric label="Total" value={summary.total} />
+        <Metric label="Urgent" value={summary.urgent} />
+        <Metric label="In review" value={summary.inReview} />
+        <Metric label="Blocked" value={summary.blocked} />
+      </section>
+
+      <section aria-labelledby="board-heading" style={{ marginTop: 28 }}>
+        <div style={sectionHeaderStyle}>
+          <div>
+            <h2 id="board-heading" style={{ fontSize: 22, margin: 0 }}>
+              Kanban
+            </h2>
+            <p style={{ ...mutedText, marginTop: 4 }}>{summary.active} active work orders</p>
+          </div>
+          <span style={{ color: "#475569", fontSize: 14 }}>{summary.inProgress} in progress</span>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(5, minmax(180px, 1fr))",
+            overflowX: "auto",
+            paddingBottom: 4
+          }}
+        >
+          {workOrderColumns.map((column) => (
+            <section
+              aria-label={`${column.label} work orders`}
+              key={column.status}
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+                minHeight: 280,
+                minWidth: 180,
+                padding: 12
+              }}
+            >
+              <div
+                style={{
+                  alignItems: "center",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 12
+                }}
+              >
+                <h3 style={{ fontSize: 14, margin: 0 }}>{column.label}</h3>
+                <span style={{ color: "#64748b", fontSize: 12 }}>
+                  {groupedWorkOrders[column.status].length}
+                </span>
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {groupedWorkOrders[column.status].map((workOrder) => (
+                  <WorkOrderCard key={workOrder.id} workOrder={workOrder} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="list-heading" style={{ marginTop: 32 }}>
+        <div style={sectionHeaderStyle}>
+          <div>
+            <h2 id="list-heading" style={{ fontSize: 22, margin: 0 }}>
+              List
+            </h2>
+            <p style={{ ...mutedText, marginTop: 4 }}>{summary.total} total work orders</p>
+          </div>
+        </div>
+
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", minWidth: 900, width: "100%" }}>
+            <thead style={{ background: "#f8fafc" }}>
+              <tr>
+                {["Work order", "Status", "Owner", "Due", "Evidence", "Verification"].map(
+                  (heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        borderBottom: "1px solid #e5e7eb",
+                        color: "#475569",
+                        fontSize: 12,
+                        padding: "11px 12px",
+                        textAlign: "left",
+                        textTransform: "uppercase"
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  )
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {sortForList(workOrders).map((workOrder) => (
+                <tr key={workOrder.id}>
+                  <td style={tableCellStyle}>
+                    <strong style={{ display: "block", marginBottom: 4 }}>{workOrder.title}</strong>
+                    <span style={{ color: "#64748b", fontSize: 13 }}>
+                      {formatPriority(workOrder.priority)} - {workOrder.estimatedEffort.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={tableCellStyle}>
+                    <Badge style={statusBadgeStyles[workOrder.status]}>
+                      {statusLabels[workOrder.status]}
+                    </Badge>
+                  </td>
+                  <td style={tableCellStyle}>{workOrder.ownerType}</td>
+                  <td style={tableCellStyle}>{formatDate(workOrder.dueDate)}</td>
+                  <td style={{ ...tableCellStyle, maxWidth: 230 }}>
+                    {workOrder.evidence?.url ?? "No URL evidence"}
+                  </td>
+                  <td style={{ ...tableCellStyle, maxWidth: 260 }}>
+                    {workOrder.verificationMethod}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   );
+}
+
+const tableCellStyle: CSSProperties = {
+  borderBottom: "1px solid #eef2f7",
+  color: "#172033",
+  fontSize: 14,
+  padding: 12,
+  verticalAlign: "top"
+};
+
+function Metric({ label, value }: { readonly label: string; readonly value: number }) {
+  return (
+    <article style={{ border: "1px solid #e5e7eb", borderRadius: 8, minHeight: 86, padding: 14 }}>
+      <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 8px" }}>{label}</p>
+      <strong style={{ display: "block", fontSize: 28, lineHeight: 1 }}>{value}</strong>
+    </article>
+  );
+}
+
+function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
+  return (
+    <article style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
+      <div style={{ alignItems: "center", display: "flex", gap: 8, marginBottom: 10 }}>
+        <Badge style={priorityBadgeStyles[workOrder.priority]}>
+          {formatPriority(workOrder.priority)}
+        </Badge>
+        <span style={{ color: "#64748b", fontSize: 12 }}>{workOrder.ownerType}</span>
+      </div>
+      <h4 style={{ fontSize: 15, lineHeight: 1.35, margin: "0 0 8px" }}>{workOrder.title}</h4>
+      <p style={{ color: "#475569", fontSize: 13, lineHeight: 1.45, margin: "0 0 10px" }}>
+        {workOrder.problem}
+      </p>
+      <dl style={{ display: "grid", gap: 8, margin: 0 }}>
+        <div>
+          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>Due</dt>
+          <dd style={{ fontSize: 13, margin: 0 }}>{formatDate(workOrder.dueDate)}</dd>
+        </div>
+        <div>
+          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>URL</dt>
+          <dd
+            style={{
+              color: "#334155",
+              fontSize: 12,
+              margin: 0,
+              overflowWrap: "anywhere"
+            }}
+          >
+            {workOrder.evidence?.url ?? "No URL evidence"}
+          </dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
+function Badge({
+  children,
+  style
+}: {
+  readonly children: string;
+  readonly style: CSSProperties;
+}) {
+  return <span style={{ ...badgeBaseStyle, ...style }}>{children}</span>;
+}
+
+function sortForList(workOrders: readonly WorkOrder[]) {
+  return [...workOrders].sort((left, right) => left.status.localeCompare(right.status));
 }
