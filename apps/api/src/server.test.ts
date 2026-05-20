@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Organization, Site, WorkOrder } from "@searchops/types";
+import type { Organization, SeoIssue, Site, WorkOrder } from "@searchops/types";
 
 import { createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
@@ -50,6 +50,22 @@ const seededWorkOrder: WorkOrder = {
   createdAt,
   updatedAt: createdAt
 };
+const seededSeoIssue: SeoIssue = {
+  id: "issue_seed",
+  crawlRunId: "crawl_seed",
+  urlRecordId: null,
+  ruleId: "H1_MISSING",
+  severity: "high",
+  status: "open",
+  title: "Missing H1",
+  evidence: {
+    url: "https://exampleclinic.com/services",
+    observedValue: 0,
+    expectedValue: 1,
+    sourceField: "h1Count"
+  },
+  createdAt
+};
 
 function buildTestServer() {
   return buildApiServer({
@@ -75,9 +91,25 @@ function buildWorkOrderTestServer() {
     repository: createMemoryRepository({
       organizations: [seededOrganization],
       sites: [seededSite],
+      seoIssues: [seededSeoIssue],
       workOrders: [seededWorkOrder]
     })
   });
+}
+
+function buildWorkOrderRecheckTestContext() {
+  const crawlRunQueue = createMemoryCrawlRunQueue();
+  const server = buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      seoIssues: [seededSeoIssue],
+      workOrders: [seededWorkOrder]
+    }),
+    crawlRunQueue
+  });
+
+  return { server, crawlRunQueue };
 }
 
 describe("api foundation", () => {
@@ -391,5 +423,92 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("status");
+  });
+
+  it("queues a work order recheck from issue evidence", async () => {
+    const { server, crawlRunQueue } = buildWorkOrderRecheckTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/work-orders/wo_seed/recheck",
+      headers: {
+        "x-mock-user-id": "user_recheck"
+      },
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.workOrder).toMatchObject({
+      id: "wo_seed",
+      status: "in_review"
+    });
+    expect(body.crawlRun).toMatchObject({
+      siteId: "site_seed",
+      status: "queued",
+      summary: {
+        startUrl: "https://exampleclinic.com/services",
+        maxPages: 1
+      }
+    });
+    expect(body.job.payload).toMatchObject({
+      crawlRunId: body.crawlRun.id,
+      siteId: "site_seed",
+      siteDomain: "exampleclinic.com",
+      requestedByUserId: "user_recheck",
+      startUrl: "https://exampleclinic.com/services",
+      maxPages: 1,
+      pages: []
+    });
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+  });
+
+  it("rejects work order rechecks outside the site scope", async () => {
+    const { server, crawlRunQueue } = buildWorkOrderRecheckTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/work-orders/wo_seed/recheck",
+      payload: {
+        startUrl: "https://example.net/services"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("recheck startUrl");
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(0);
+  });
+
+  it("marks a work order and linked SEO issue resolved", async () => {
+    const server = buildWorkOrderTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/work-orders/wo_seed/resolve"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      workOrder: {
+        id: "wo_seed",
+        status: "done"
+      },
+      seoIssue: {
+        id: "issue_seed",
+        status: "resolved"
+      }
+    });
+  });
+
+  it("returns 404 for missing work order recheck resources", async () => {
+    const { server } = buildWorkOrderRecheckTestContext();
+    const recheckResponse = await server.inject({
+      method: "POST",
+      url: "/work-orders/wo_missing/recheck"
+    });
+    const resolveResponse = await server.inject({
+      method: "POST",
+      url: "/work-orders/wo_missing/resolve"
+    });
+
+    expect(recheckResponse.statusCode).toBe(404);
+    expect(resolveResponse.statusCode).toBe(404);
   });
 });

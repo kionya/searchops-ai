@@ -270,6 +270,22 @@ export const UpdateWorkOrderRequestSchema = z.object({
 
 export type UpdateWorkOrderRequest = z.infer<typeof UpdateWorkOrderRequestSchema>;
 
+export const RecheckWorkOrderRequestSchema = z.object({
+  startUrl: HttpUrlSchema.optional(),
+  maxPages: z.number().int().positive().max(10).default(1)
+});
+
+export type RecheckWorkOrderRequest = z.infer<typeof RecheckWorkOrderRequestSchema>;
+
+export const ResolveWorkOrderIssueResponseSchema = z.object({
+  workOrder: WorkOrderSchema,
+  seoIssue: SeoIssueSchema.nullable()
+});
+
+export type ResolveWorkOrderIssueResponse = z.infer<
+  typeof ResolveWorkOrderIssueResponseSchema
+>;
+
 export const KeywordSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
@@ -488,6 +504,14 @@ export const CreateCrawlRunResponseSchema = z.object({
 });
 
 export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema>;
+
+export const RecheckWorkOrderResponseSchema = z.object({
+  workOrder: WorkOrderSchema,
+  crawlRun: CrawlRunSchema,
+  job: QueuedCrawlJobSchema
+});
+
+export type RecheckWorkOrderResponse = z.infer<typeof RecheckWorkOrderResponseSchema>;
 
 export const CrawlJobSummarySchema = z.object({
   pagesRequested: z.number().int().nonnegative(),

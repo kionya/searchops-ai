@@ -1,10 +1,12 @@
 import {
   CrawlRunSchema,
   OrganizationSchema,
+  SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
   type CrawlRun,
   type Organization,
+  type SeoIssue,
   type Site,
   type WorkOrder
 } from "@searchops/types";
@@ -17,6 +19,7 @@ type OrganizationRecord = Awaited<
 >;
 type SiteRecord = Awaited<ReturnType<SearchOpsPrismaClient["site"]["findFirst"]>>;
 type CrawlRunRecord = Awaited<ReturnType<SearchOpsPrismaClient["crawlRun"]["findFirst"]>>;
+type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 
 export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOpsRepository {
@@ -220,6 +223,39 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           where: { id }
         }),
       );
+    },
+
+    async resolveWorkOrderIssue(id) {
+      const existing = await prisma.workOrder.findUnique({
+        select: { id: true, seoIssueId: true },
+        where: { id }
+      });
+      if (existing === null) {
+        return null;
+      }
+
+      const workOrder = await prisma.workOrder.update({
+        data: {
+          status: "done"
+        },
+        where: { id }
+      });
+      const seoIssue =
+        existing.seoIssueId === null
+          ? null
+          : await prisma.seoIssue.update({
+              data: {
+                status: "resolved"
+              },
+              where: {
+                id: existing.seoIssueId
+              }
+            });
+
+      return {
+        workOrder: toWorkOrder(workOrder),
+        seoIssue: toNullableSeoIssue(seoIssue)
+      };
     }
   };
 }
@@ -296,4 +332,22 @@ function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {
 
 function toNullableWorkOrder(record: WorkOrderRecord): WorkOrder | null {
   return record === null ? null : toWorkOrder(record);
+}
+
+function toSeoIssue(record: NonNullable<SeoIssueRecord>): SeoIssue {
+  return SeoIssueSchema.parse({
+    id: record.id,
+    crawlRunId: record.crawlRunId,
+    urlRecordId: record.urlRecordId,
+    ruleId: record.ruleId,
+    severity: record.severity,
+    status: record.status,
+    title: record.title,
+    evidence: record.evidence,
+    createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toNullableSeoIssue(record: SeoIssueRecord): SeoIssue | null {
+  return record === null ? null : toSeoIssue(record);
 }

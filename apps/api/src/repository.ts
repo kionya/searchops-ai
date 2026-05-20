@@ -4,6 +4,8 @@ import type {
   CreateCrawlRunRequest,
   CreateSiteRequest,
   Organization,
+  ResolveWorkOrderIssueResponse,
+  SeoIssue,
   Site,
   UpdateSiteRequest,
   UpdateWorkOrderRequest,
@@ -25,12 +27,14 @@ export interface SearchOpsRepository {
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
+  resolveWorkOrderIssue(id: string): Promise<ResolveWorkOrderIssueResponse | null>;
 }
 
 export interface MemoryRepositorySeed {
   readonly organizations?: readonly Organization[];
   readonly sites?: readonly Site[];
   readonly crawlRuns?: readonly CrawlRun[];
+  readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
 
@@ -46,6 +50,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const organizations = new Map<string, Organization>();
   const sites = new Map<string, Site>();
   const crawlRuns = new Map<string, CrawlRun>();
+  const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
   let siteCounter = 1;
@@ -64,6 +69,10 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const crawlRun of seed.crawlRuns ?? []) {
     crawlRuns.set(crawlRun.id, crawlRun);
     crawlRunCounter += 1;
+  }
+
+  for (const seoIssue of seed.seoIssues ?? []) {
+    seoIssues.set(seoIssue.id, seoIssue);
   }
 
   for (const workOrder of seed.workOrders ?? []) {
@@ -203,6 +212,39 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       };
       workOrders.set(id, updated);
       return updated;
+    },
+
+    async resolveWorkOrderIssue(id) {
+      const existing = workOrders.get(id);
+      if (!existing) {
+        return null;
+      }
+
+      const updatedWorkOrder: WorkOrder = {
+        ...existing,
+        status: "done",
+        updatedAt: nowIso()
+      };
+      workOrders.set(id, updatedWorkOrder);
+
+      const existingSeoIssue =
+        existing.seoIssueId === null ? null : seoIssues.get(existing.seoIssueId) ?? null;
+      const updatedSeoIssue: SeoIssue | null =
+        existingSeoIssue === null
+          ? null
+          : {
+              ...existingSeoIssue,
+              status: "resolved"
+            };
+
+      if (updatedSeoIssue !== null) {
+        seoIssues.set(updatedSeoIssue.id, updatedSeoIssue);
+      }
+
+      return {
+        workOrder: updatedWorkOrder,
+        seoIssue: updatedSeoIssue
+      };
     }
   };
 }

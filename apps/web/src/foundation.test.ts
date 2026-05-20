@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
 
 import {
+  canRecheckWorkOrder,
   demoSite,
   demoWorkOrders,
   groupWorkOrdersByStatus,
@@ -39,5 +40,15 @@ describe("web foundation", () => {
     expect(grouped.open).toHaveLength(1);
     expect(grouped.in_progress[0]?.id).toBe("wo_h1_service");
     expect(grouped.done[0]?.id).toBe("wo_canonical_blog");
+  });
+
+  it("keeps recheck actions limited to active unblocked work", () => {
+    const doneWorkOrder = demoWorkOrders.find((workOrder) => workOrder.status === "done");
+    const blockedWorkOrder = demoWorkOrders.find((workOrder) => workOrder.status === "blocked");
+    const openWorkOrder = demoWorkOrders.find((workOrder) => workOrder.status === "open");
+
+    expect(doneWorkOrder && canRecheckWorkOrder(doneWorkOrder)).toBe(false);
+    expect(blockedWorkOrder && canRecheckWorkOrder(blockedWorkOrder)).toBe(false);
+    expect(openWorkOrder && canRecheckWorkOrder(openWorkOrder)).toBe(true);
   });
 });

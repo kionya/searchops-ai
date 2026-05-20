@@ -255,3 +255,7 @@ export function summarizeWorkOrders(workOrders: readonly WorkOrder[]) {
     ).length
   };
 }
+
+export function canRecheckWorkOrder(workOrder: WorkOrder) {
+  return workOrder.status !== "done" && workOrder.status !== "blocked";
+}
