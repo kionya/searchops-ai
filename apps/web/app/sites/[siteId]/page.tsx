@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/types";
 
 import {
+  canRecheckWorkOrder,
   demoSite,
   demoWorkOrders,
   formatDate,
@@ -312,6 +313,26 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
           </dd>
         </div>
       </dl>
+      <button
+        aria-label={`Recheck ${workOrder.title}`}
+        disabled={!canRecheckWorkOrder(workOrder)}
+        style={{
+          background: canRecheckWorkOrder(workOrder) ? "#2563eb" : "#e2e8f0",
+          border: 0,
+          borderRadius: 6,
+          color: canRecheckWorkOrder(workOrder) ? "#ffffff" : "#64748b",
+          cursor: canRecheckWorkOrder(workOrder) ? "pointer" : "not-allowed",
+          fontSize: 13,
+          fontWeight: 700,
+          marginTop: 12,
+          minHeight: 34,
+          padding: "8px 10px",
+          width: "100%"
+        }}
+        type="button"
+      >
+        {workOrder.status === "done" ? "Resolved" : "Recheck"}
+      </button>
     </article>
   );
 }

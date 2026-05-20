@@ -3,7 +3,7 @@
 ## Phase 4 Status
 `packages/workorders` maps deterministic SEO issue drafts into actionable work order drafts.
 
-The API exposes work board read/update routes for persisted work orders.
+The API exposes work board read/update routes, recheck enqueue, and deterministic resolution for persisted work orders.
 
 Supported SEO rule templates:
 
@@ -42,5 +42,11 @@ Persistence belongs to API/worker layers. The mapper returns `WorkOrderDraft` va
 - `GET /sites/:siteId/work-orders`
 - `GET /work-orders/:workOrderId`
 - `PATCH /work-orders/:workOrderId`
+- `POST /work-orders/:workOrderId/recheck`
+- `POST /work-orders/:workOrderId/resolve`
 
 Board updates can change status, priority, assignee, and due date.
+
+Recheck enqueue creates a crawl run from the work order evidence URL when available, validates that URL against the site domain/subdomains, enqueues a crawl job, and moves the work order to `in_review`.
+
+Resolution marks the work order `done` and marks the linked SEO issue `resolved` when the issue still exists.

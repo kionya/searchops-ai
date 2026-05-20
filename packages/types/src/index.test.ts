@@ -12,8 +12,12 @@ import {
   NormalizedUrlSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
+  RecheckWorkOrderRequestSchema,
+  RecheckWorkOrderResponseSchema,
+  ResolveWorkOrderIssueResponseSchema,
   RobotsTxtSchema,
   SearchOpsEnvSchema,
+  SeoIssueSchema,
   SeoIssueDraftSchema,
   WorkOrderDraftSchema,
   WorkOrderListResponseSchema,
@@ -320,5 +324,84 @@ describe("types foundation", () => {
       }),
     ).toMatchObject({ status: "in_progress", assignedTo: "user_1" });
     expect(() => UpdateWorkOrderRequestSchema.parse({ status: "shipped" })).toThrow();
+  });
+
+  it("validates work order recheck request defaults", () => {
+    expect(RecheckWorkOrderRequestSchema.parse({})).toEqual({ maxPages: 1 });
+    expect(() => RecheckWorkOrderRequestSchema.parse({ maxPages: 11 })).toThrow();
+  });
+
+  it("validates work order recheck and resolve responses", () => {
+    const workOrder = WorkOrderSchema.parse({
+      id: "wo_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      seoIssueId: "issue_1",
+      status: "in_review",
+      priority: "p1",
+      title: "/services missing H1 fix",
+      description: null,
+      problem: "The page has no H1 heading.",
+      evidence: {
+        url: "https://example.com/services",
+        observedValue: 0,
+        expectedValue: 1,
+        sourceField: "h1Count"
+      },
+      impact: "Search and answer engines may not identify the primary page topic.",
+      instructions: ["Add one descriptive H1 near the top of the page."],
+      ownerType: "content",
+      acceptanceCriteria: ["Re-crawl reports h1Count = 1."],
+      verificationMethod: "Run a crawler recheck for the URL.",
+      estimatedEffort: "s",
+      relatedIssues: ["MULTIPLE_H1"],
+      assignedTo: null,
+      dueDate: null,
+      createdAt: "2026-05-20T00:00:00.000Z",
+      updatedAt: "2026-05-20T00:00:00.000Z"
+    });
+    const seoIssue = SeoIssueSchema.parse({
+      id: "issue_1",
+      crawlRunId: "crawl_1",
+      urlRecordId: null,
+      ruleId: "H1_MISSING",
+      severity: "high",
+      status: "resolved",
+      title: "Missing H1",
+      evidence: { sourceField: "h1Count" },
+      createdAt: "2026-05-20T00:00:00.000Z"
+    });
+
+    expect(
+      RecheckWorkOrderResponseSchema.parse({
+        workOrder,
+        crawlRun: {
+          id: "crawl_2",
+          siteId: "site_1",
+          status: "queued",
+          startedAt: "2026-05-20T00:00:00.000Z",
+          endedAt: null,
+          summary: { startUrl: "https://example.com/services", maxPages: 1 }
+        },
+        job: {
+          id: "job_1",
+          name: "crawl",
+          payload: {
+            crawlRunId: "crawl_2",
+            siteId: "site_1",
+            siteDomain: "example.com",
+            requestedByUserId: "user_1",
+            startUrl: "https://example.com/services",
+            maxPages: 1,
+            pages: []
+          }
+        }
+      }),
+    ).toMatchObject({ workOrder: { status: "in_review" } });
+    expect(ResolveWorkOrderIssueResponseSchema.parse({ workOrder, seoIssue }).seoIssue).toMatchObject(
+      {
+        status: "resolved"
+      },
+    );
   });
 });

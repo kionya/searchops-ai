@@ -8,6 +8,9 @@ import {
   CreateSiteRequestSchema,
   HealthResponseSchema,
   OrganizationListResponseSchema,
+  RecheckWorkOrderRequestSchema,
+  RecheckWorkOrderResponseSchema,
+  ResolveWorkOrderIssueResponseSchema,
   SiteListResponseSchema,
   SiteSchema,
   UpdateSiteRequestSchema,
@@ -174,6 +177,79 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(WorkOrderSchema.parse(workOrder));
+  });
+
+  server.post("/work-orders/:id/recheck", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const workOrder = await repository.getWorkOrder(id);
+    if (!workOrder) {
+      reply.status(404).send(notFound("Work order not found"));
+      return;
+    }
+
+    if (workOrder.siteId === null) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Work order must be attached to a site before recheck"
+      });
+      return;
+    }
+
+    const site = await repository.getSite(workOrder.siteId);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = RecheckWorkOrderRequestSchema.parse(request.body ?? {});
+    const startUrl = input.startUrl ?? workOrder.evidence?.url ?? `https://${site.domain}/`;
+    if (!isUrlAllowedForCrawl(startUrl, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "recheck startUrl must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const crawlRun = await repository.createCrawlRun(site.id, {
+      maxPages: input.maxPages,
+      startUrl
+    });
+    if (!crawlRun) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const userContext = resolveMockUserContext(request);
+    const job = await crawlRunQueue.enqueueCrawl({
+      crawlRunId: crawlRun.id,
+      siteId: site.id,
+      siteDomain: site.domain,
+      requestedByUserId: userContext.userId,
+      startUrl,
+      maxPages: input.maxPages,
+      pages: []
+    });
+    const updatedWorkOrder = await repository.updateWorkOrder(id, { status: "in_review" });
+    if (!updatedWorkOrder) {
+      reply.status(404).send(notFound("Work order not found"));
+      return;
+    }
+
+    reply
+      .status(202)
+      .send(RecheckWorkOrderResponseSchema.parse({ workOrder: updatedWorkOrder, crawlRun, job }));
+  });
+
+  server.post("/work-orders/:id/resolve", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const result = await repository.resolveWorkOrderIssue(id);
+    if (!result) {
+      reply.status(404).send(notFound("Work order not found"));
+      return;
+    }
+
+    reply.send(ResolveWorkOrderIssueResponseSchema.parse(result));
   });
 
   server.patch("/work-orders/:id", async (request, reply) => {
