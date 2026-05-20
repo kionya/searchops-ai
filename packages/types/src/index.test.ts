@@ -15,6 +15,9 @@ import {
   RobotsTxtSchema,
   SearchOpsEnvSchema,
   SeoIssueDraftSchema,
+  WorkOrderDraftSchema,
+  WorkOrderOwnerTypeSchema,
+  WorkOrderSchema,
   parseSearchOpsEnv,
   productName
 } from "./index.js";
@@ -209,5 +212,70 @@ describe("types foundation", () => {
       severity: "high",
       priority: "p1"
     });
+  });
+
+  it("validates work order owner types", () => {
+    expect(WorkOrderOwnerTypeSchema.parse("developer")).toBe("developer");
+    expect(() => WorkOrderOwnerTypeSchema.parse("designer")).toThrow();
+  });
+
+  it("validates deterministic work order drafts", () => {
+    expect(
+      WorkOrderDraftSchema.parse({
+        title: "/services missing H1 fix",
+        problem: "The page has no H1 heading.",
+        evidence: {
+          url: "https://example.com/services",
+          observedValue: 0,
+          expectedValue: 1,
+          sourceField: "h1Count"
+        },
+        impact: "Search and answer engines may not identify the primary page topic.",
+        instructions: ["Add one descriptive H1 near the top of the page."],
+        ownerType: "content",
+        priority: "p1",
+        acceptanceCriteria: ["Re-crawl reports h1Count = 1."],
+        verificationMethod: "Run a crawler recheck for the URL.",
+        estimatedEffort: "s",
+        relatedIssues: ["MULTIPLE_H1"]
+      }),
+    ).toMatchObject({
+      ownerType: "content",
+      priority: "p1",
+      estimatedEffort: "s"
+    });
+  });
+
+  it("validates persisted work orders", () => {
+    expect(
+      WorkOrderSchema.parse({
+        id: "wo_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        seoIssueId: "issue_1",
+        status: "open",
+        priority: "p1",
+        title: "/services missing H1 fix",
+        description: null,
+        problem: "The page has no H1 heading.",
+        evidence: {
+          url: "https://example.com/services",
+          observedValue: 0,
+          expectedValue: 1,
+          sourceField: "h1Count"
+        },
+        impact: "Search and answer engines may not identify the primary page topic.",
+        instructions: ["Add one descriptive H1 near the top of the page."],
+        ownerType: "content",
+        acceptanceCriteria: ["Re-crawl reports h1Count = 1."],
+        verificationMethod: "Run a crawler recheck for the URL.",
+        estimatedEffort: "s",
+        relatedIssues: ["MULTIPLE_H1"],
+        assignedTo: null,
+        dueDate: null,
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z"
+      }),
+    ).toMatchObject({ status: "open", priority: "p1" });
   });
 });

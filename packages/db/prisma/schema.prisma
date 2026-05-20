@@ -109,15 +109,27 @@ model SeoIssue {
 }
 
 model WorkOrder {
-  id             String    @id @default(cuid())
-  organizationId String
-  siteId         String?
-  seoIssueId     String?
-  status         String    @default("open")
-  priority       String    @default("medium")
-  title          String
-  description    String?
-  createdAt      DateTime  @default(now())
+  id                 String    @id @default(cuid())
+  organizationId     String
+  siteId             String?
+  seoIssueId         String?
+  status             String    @default("open")
+  priority           String    @default("p2")
+  title              String
+  description        String?
+  problem            String    @default("")
+  evidence           Json?
+  impact             String    @default("")
+  instructions       Json      @default("[]")
+  ownerType          String    @default("developer")
+  acceptanceCriteria Json      @default("[]")
+  verificationMethod String    @default("")
+  estimatedEffort    String    @default("m")
+  relatedIssues      Json      @default("[]")
+  assignedTo         String?
+  dueDate            DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
@@ -127,6 +139,8 @@ model WorkOrder {
   @@index([organizationId])
   @@index([siteId])
   @@index([status])
+  @@index([priority])
+  @@index([ownerType])
 }
 
 model Keyword {
