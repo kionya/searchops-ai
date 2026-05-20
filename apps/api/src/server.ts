@@ -10,7 +10,10 @@ import {
   OrganizationListResponseSchema,
   SiteListResponseSchema,
   SiteSchema,
-  UpdateSiteRequestSchema
+  UpdateSiteRequestSchema,
+  UpdateWorkOrderRequestSchema,
+  WorkOrderListResponseSchema,
+  WorkOrderSchema
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
@@ -101,6 +104,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(SiteSchema.parse(site));
   });
 
+  server.get("/sites/:id/work-orders", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const workOrders = await repository.listWorkOrders(id);
+    if (!workOrders) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(WorkOrderListResponseSchema.parse({ workOrders }));
+  });
+
   server.post("/sites/:id/crawl-runs", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const site = await repository.getSite(id);
@@ -149,6 +163,29 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(SiteSchema.parse(site));
+  });
+
+  server.get("/work-orders/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const workOrder = await repository.getWorkOrder(id);
+    if (!workOrder) {
+      reply.status(404).send(notFound("Work order not found"));
+      return;
+    }
+
+    reply.send(WorkOrderSchema.parse(workOrder));
+  });
+
+  server.patch("/work-orders/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const input = UpdateWorkOrderRequestSchema.parse(request.body);
+    const workOrder = await repository.updateWorkOrder(id, input);
+    if (!workOrder) {
+      reply.status(404).send(notFound("Work order not found"));
+      return;
+    }
+
+    reply.send(WorkOrderSchema.parse(workOrder));
   });
 
   server.delete("/sites/:id", async (request, reply) => {

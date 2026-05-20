@@ -16,8 +16,10 @@ import {
   SearchOpsEnvSchema,
   SeoIssueDraftSchema,
   WorkOrderDraftSchema,
+  WorkOrderListResponseSchema,
   WorkOrderOwnerTypeSchema,
   WorkOrderSchema,
+  UpdateWorkOrderRequestSchema,
   parseSearchOpsEnv,
   productName
 } from "./index.js";
@@ -277,5 +279,46 @@ describe("types foundation", () => {
         updatedAt: "2026-05-20T00:00:00.000Z"
       }),
     ).toMatchObject({ status: "open", priority: "p1" });
+  });
+
+  it("validates work order list responses", () => {
+    const workOrder = WorkOrderSchema.parse({
+      id: "wo_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      seoIssueId: null,
+      status: "open",
+      priority: "p2",
+      title: "/services meta description fix",
+      description: null,
+      problem: "The page is missing a meta description.",
+      evidence: null,
+      impact: "Search snippets may have weaker context.",
+      instructions: ["Add one meta description."],
+      ownerType: "content",
+      acceptanceCriteria: ["Re-crawl reports a non-empty metaDescription value."],
+      verificationMethod: "Run a crawler recheck.",
+      estimatedEffort: "s",
+      relatedIssues: ["TITLE_MISSING"],
+      assignedTo: null,
+      dueDate: null,
+      createdAt: "2026-05-20T00:00:00.000Z",
+      updatedAt: "2026-05-20T00:00:00.000Z"
+    });
+
+    expect(WorkOrderListResponseSchema.parse({ workOrders: [workOrder] }).workOrders).toHaveLength(
+      1,
+    );
+  });
+
+  it("validates work order board update requests", () => {
+    expect(
+      UpdateWorkOrderRequestSchema.parse({
+        status: "in_progress",
+        assignedTo: "user_1",
+        dueDate: "2026-05-21T00:00:00.000Z"
+      }),
+    ).toMatchObject({ status: "in_progress", assignedTo: "user_1" });
+    expect(() => UpdateWorkOrderRequestSchema.parse({ status: "shipped" })).toThrow();
   });
 });

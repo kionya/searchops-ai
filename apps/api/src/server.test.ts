@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Organization, Site } from "@searchops/types";
+import type { Organization, Site, WorkOrder } from "@searchops/types";
 
 import { createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
@@ -22,6 +22,34 @@ const seededSite: Site = {
   country: "KR",
   createdAt
 };
+const seededWorkOrder: WorkOrder = {
+  id: "wo_seed",
+  organizationId: "org_seed",
+  siteId: "site_seed",
+  seoIssueId: "issue_seed",
+  status: "open",
+  priority: "p1",
+  title: "/services missing H1 fix",
+  description: null,
+  problem: "The page has no H1 heading.",
+  evidence: {
+    url: "https://exampleclinic.com/services",
+    observedValue: 0,
+    expectedValue: 1,
+    sourceField: "h1Count"
+  },
+  impact: "Search and answer engines may not identify the primary page topic.",
+  instructions: ["Add one descriptive H1 near the top of the page."],
+  ownerType: "content",
+  acceptanceCriteria: ["Re-crawl reports h1Count = 1."],
+  verificationMethod: "Run a crawler recheck for the URL.",
+  estimatedEffort: "s",
+  relatedIssues: ["MULTIPLE_H1", "TITLE_MISSING"],
+  assignedTo: null,
+  dueDate: null,
+  createdAt,
+  updatedAt: createdAt
+};
 
 function buildTestServer() {
   return buildApiServer({
@@ -42,6 +70,16 @@ function buildCrawlRunTestContext() {
   return { server, crawlRunQueue };
 }
 
+function buildWorkOrderTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      workOrders: [seededWorkOrder]
+    })
+  });
+}
+
 describe("api foundation", () => {
   it("serves a health check", async () => {
     const server = buildTestServer();
@@ -49,7 +87,7 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true, service: "api" });
-  });
+  }, 10_000);
 
   it("provides mock auth context without real login", async () => {
     const server = buildTestServer();
@@ -254,5 +292,104 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("maxPages");
+  });
+
+  it("lists work orders for a site", async () => {
+    const server = buildWorkOrderTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/work-orders"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().workOrders).toHaveLength(1);
+    expect(response.json().workOrders[0]).toMatchObject({
+      id: "wo_seed",
+      siteId: "site_seed",
+      status: "open",
+      priority: "p1",
+      ownerType: "content"
+    });
+  });
+
+  it("reads and updates work order board fields", async () => {
+    const server = buildWorkOrderTestServer();
+    const readResponse = await server.inject({
+      method: "GET",
+      url: "/work-orders/wo_seed"
+    });
+
+    expect(readResponse.statusCode).toBe(200);
+    expect(readResponse.json()).toMatchObject({ id: "wo_seed", assignedTo: null });
+
+    const updateResponse = await server.inject({
+      method: "PATCH",
+      url: "/work-orders/wo_seed",
+      payload: {
+        status: "in_progress",
+        priority: "p0",
+        assignedTo: "user_content_1",
+        dueDate: "2026-05-21T00:00:00.000Z"
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      id: "wo_seed",
+      status: "in_progress",
+      priority: "p0",
+      assignedTo: "user_content_1",
+      dueDate: "2026-05-21T00:00:00.000Z"
+    });
+    expect(updateResponse.json().updatedAt).not.toBe(createdAt);
+  });
+
+  it("clears work order assignee and due date", async () => {
+    const server = buildWorkOrderTestServer();
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/work-orders/wo_seed",
+      payload: {
+        assignedTo: null,
+        dueDate: null
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ assignedTo: null, dueDate: null });
+  });
+
+  it("returns 404 for missing work board resources", async () => {
+    const server = buildWorkOrderTestServer();
+    const missingSiteResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/work-orders"
+    });
+    const missingWorkOrderResponse = await server.inject({
+      method: "GET",
+      url: "/work-orders/wo_missing"
+    });
+
+    expect(missingSiteResponse.statusCode).toBe(404);
+    expect(missingSiteResponse.json()).toEqual({ error: "not_found", message: "Site not found" });
+    expect(missingWorkOrderResponse.statusCode).toBe(404);
+    expect(missingWorkOrderResponse.json()).toEqual({
+      error: "not_found",
+      message: "Work order not found"
+    });
+  });
+
+  it("validates work order update payloads", async () => {
+    const server = buildWorkOrderTestServer();
+    const response = await server.inject({
+      method: "PATCH",
+      url: "/work-orders/wo_seed",
+      payload: {
+        status: "shipped"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("status");
   });
 });
