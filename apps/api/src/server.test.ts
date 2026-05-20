@@ -177,6 +177,7 @@ describe("api foundation", () => {
       payload: {
         crawlRunId: body.crawlRun.id,
         siteId: "site_seed",
+        siteDomain: "exampleclinic.com",
         requestedByUserId: "user_crawler",
         startUrl: "https://exampleclinic.com/",
         maxPages: 3,
@@ -184,6 +185,49 @@ describe("api foundation", () => {
       }
     });
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+  });
+
+  it("allows crawl start URLs on site subdomains", async () => {
+    const { server, crawlRunQueue } = buildCrawlRunTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/crawl-runs",
+      payload: {
+        startUrl: "https://blog.exampleclinic.com/",
+        maxPages: 3
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(crawlRunQueue.listQueuedCrawlJobs()[0]?.payload).toMatchObject({
+      siteDomain: "exampleclinic.com",
+      startUrl: "https://blog.exampleclinic.com/"
+    });
+  });
+
+  it("rejects crawl start URLs outside the site domain or private network", async () => {
+    const { server } = buildCrawlRunTestContext();
+    const externalResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/crawl-runs",
+      payload: {
+        startUrl: "https://example.net/",
+        maxPages: 3
+      }
+    });
+    const privateResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/crawl-runs",
+      payload: {
+        startUrl: "http://169.254.169.254/latest/meta-data",
+        maxPages: 3
+      }
+    });
+
+    expect(externalResponse.statusCode).toBe(400);
+    expect(privateResponse.statusCode).toBe(400);
+    expect(externalResponse.json().message).toContain("startUrl");
+    expect(privateResponse.json().message).toContain("startUrl");
   });
 
   it("returns 404 when creating a crawl run for a missing site", async () => {

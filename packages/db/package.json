@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@searchops/types": "workspace:*",
     "@prisma/client": "^6.8.2"
   }
 }

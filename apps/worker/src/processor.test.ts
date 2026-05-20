@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { processCrawlJob } from "./processor.js";
+import type { CrawlPersistenceClient } from "@searchops/db";
+
+import { processAndPersistCrawlJob, processCrawlJob } from "./processor.js";
 
 const normalHtml = `
 <!doctype html>
@@ -38,6 +40,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_1",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 25,
@@ -65,6 +68,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_2",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 25,
@@ -93,6 +97,7 @@ describe("processCrawlJob", () => {
     const result = processCrawlJob({
       crawlRunId: "crawl_3",
       siteId: "site_1",
+      siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
       maxPages: 1,
@@ -113,5 +118,167 @@ describe("processCrawlJob", () => {
     expect(result.summary.pagesRequested).toBe(2);
     expect(result.summary.pagesProcessed).toBe(1);
     expect(result.summary.noindexPages).toBe(0);
+  });
+
+  it("persists processed crawl results through the DB boundary", async () => {
+    const upserts: unknown[] = [];
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          upserts.push(args);
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_4",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 25,
+        pages: [
+          {
+            url: "https://example.com/",
+            statusCode: 200,
+            html: normalHtml
+          }
+        ]
+      },
+      persistenceClient,
+    );
+
+    expect(result.status).toBe("completed");
+    expect(upserts).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({
+      create: {
+        crawlRunId: "crawl_4",
+        siteId: "site_1",
+        url: "https://example.com/",
+        statusCode: 200,
+        title: "Crawl Fixture"
+      }
+    });
+    expect(updates[0]).toMatchObject({
+      where: { id: "crawl_4" },
+      data: {
+        status: "completed",
+        summary: {
+          pagesProcessed: 1
+        }
+      }
+    });
+  });
+
+  it("fetches pages through the crawler when a runtime crawl job has no page fixtures", async () => {
+    const upserts: unknown[] = [];
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          upserts.push(args);
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_live",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 2,
+        pages: []
+      },
+      persistenceClient,
+      {
+        async crawlSite(input) {
+          expect(input).toMatchObject({
+            maxPages: 2,
+            siteDomain: "example.com",
+            startUrl: "https://example.com/"
+          });
+          return [
+            {
+              url: "https://example.com/",
+              statusCode: 200,
+              html: normalHtml
+            }
+          ];
+        }
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(upserts).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+  });
+
+  it("marks the crawl run as failed when runtime crawling fails", async () => {
+    const updates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          updates.push(args);
+          return args;
+        }
+      }
+    };
+
+    await expect(
+      processAndPersistCrawlJob(
+        {
+          crawlRunId: "crawl_failed",
+          siteId: "site_1",
+          siteDomain: "example.com",
+          requestedByUserId: "user_1",
+          startUrl: "https://example.com/",
+          maxPages: 2,
+          pages: []
+        },
+        persistenceClient,
+        {
+          async crawlSite() {
+            throw new Error("crawl failed");
+          }
+        },
+      ),
+    ).rejects.toThrow(/crawl failed/);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      where: { id: "crawl_failed" },
+      data: {
+        status: "failed",
+        summary: {
+          error: {
+            message: "crawl failed"
+          }
+        }
+      }
+    });
   });
 });

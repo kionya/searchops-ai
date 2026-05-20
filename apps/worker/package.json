@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@searchops/crawler-core": "workspace:*",
+    "@searchops/db": "workspace:*",
     "@searchops/types": "workspace:*",
     "bullmq": "^5.52.1"
   }

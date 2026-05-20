@@ -16,6 +16,7 @@ describe("worker foundation", () => {
       crawl: {
         crawlRunId: "crawl_1",
         siteId: "site_1",
+        siteDomain: "example.com",
         requestedByUserId: "user_1",
         startUrl: "https://example.com/",
         maxPages: 25,

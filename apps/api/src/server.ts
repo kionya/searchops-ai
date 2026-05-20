@@ -12,6 +12,7 @@ import {
   SiteSchema,
   UpdateSiteRequestSchema
 } from "@searchops/types";
+import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
 import { resolveMockUserContext } from "./auth.js";
 import { type CrawlRunQueue, createMemoryCrawlRunQueue } from "./queue.js";
@@ -110,6 +111,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     const input = CreateCrawlRunRequestSchema.parse(request.body ?? {});
     const startUrl = input.startUrl ?? `https://${site.domain}/`;
+    if (!isUrlAllowedForCrawl(startUrl, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "startUrl must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
     const crawlRun = await repository.createCrawlRun(id, { ...input, startUrl });
     if (!crawlRun) {
       reply.status(404).send(notFound("Site not found"));
@@ -120,6 +129,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: id,
+      siteDomain: site.domain,
       requestedByUserId: userContext.userId,
       startUrl,
       maxPages: input.maxPages,
