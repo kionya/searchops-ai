@@ -17,6 +17,7 @@ export default [
       "**/.next/**",
       "**/coverage/**",
       "**/node_modules/**",
+      "**/src/generated/**",
       "**/pnpm-lock.yaml"
     ]
   },

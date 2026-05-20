@@ -11,6 +11,9 @@ importers:
       '@eslint/js':
         specifier: ^9.27.0
         version: 9.39.4
+      '@prisma/client':
+        specifier: 6.19.3
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@types/node':
         specifier: ^22.15.18
         version: 22.19.19
@@ -27,7 +30,7 @@ importers:
         specifier: ^3.5.3
         version: 3.8.3
       prisma:
-        specifier: ^6.8.2
+        specifier: 6.19.3
         version: 6.19.3(typescript@5.9.3)
       tsx:
         specifier: ^4.19.4
@@ -128,7 +131,7 @@ importers:
   packages/db:
     dependencies:
       '@prisma/client':
-        specifier: ^6.8.2
+        specifier: 6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@searchops/types':
         specifier: workspace:*
