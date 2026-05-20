@@ -238,13 +238,13 @@ export const WorkOrderSchema = z.object({
   priority: WorkOrderPrioritySchema,
   title: z.string().min(1),
   description: z.string().nullable(),
-  problem: z.string().min(1),
+  problem: z.string(),
   evidence: SeoIssueEvidenceSchema.nullable(),
-  impact: z.string().min(1),
+  impact: z.string(),
   instructions: z.array(z.string().min(1)),
   ownerType: WorkOrderOwnerTypeSchema,
   acceptanceCriteria: z.array(z.string().min(1)),
-  verificationMethod: z.string().min(1),
+  verificationMethod: z.string(),
   estimatedEffort: EstimatedEffortSchema,
   relatedIssues: z.array(SeoIssueRuleIdSchema),
   assignedTo: IdSchema.nullable(),
@@ -254,6 +254,21 @@ export const WorkOrderSchema = z.object({
 });
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
+
+export const WorkOrderListResponseSchema = z.object({
+  workOrders: z.array(WorkOrderSchema)
+});
+
+export type WorkOrderListResponse = z.infer<typeof WorkOrderListResponseSchema>;
+
+export const UpdateWorkOrderRequestSchema = z.object({
+  status: WorkOrderStatusSchema.optional(),
+  priority: WorkOrderPrioritySchema.optional(),
+  assignedTo: IdSchema.nullable().optional(),
+  dueDate: IsoDateTimeSchema.nullable().optional()
+});
+
+export type UpdateWorkOrderRequest = z.infer<typeof UpdateWorkOrderRequestSchema>;
 
 export const KeywordSchema = z.object({
   id: IdSchema,

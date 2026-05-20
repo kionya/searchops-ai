@@ -2,9 +2,11 @@ import {
   CrawlRunSchema,
   OrganizationSchema,
   SiteSchema,
+  WorkOrderSchema,
   type CrawlRun,
   type Organization,
-  type Site
+  type Site,
+  type WorkOrder
 } from "@searchops/types";
 import type { SearchOpsPrismaClient } from "@searchops/db";
 
@@ -15,6 +17,7 @@ type OrganizationRecord = Awaited<
 >;
 type SiteRecord = Awaited<ReturnType<SearchOpsPrismaClient["site"]["findFirst"]>>;
 type CrawlRunRecord = Awaited<ReturnType<SearchOpsPrismaClient["crawlRun"]["findFirst"]>>;
+type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 
 export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOpsRepository {
   return {
@@ -167,6 +170,56 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         }
       });
       return crawlRuns.map(toCrawlRun);
+    },
+
+    async listWorkOrders(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const workOrders = await prisma.workOrder.findMany({
+        orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
+        where: {
+          siteId
+        }
+      });
+      return workOrders.map(toWorkOrder);
+    },
+
+    async getWorkOrder(id) {
+      return toNullableWorkOrder(
+        await prisma.workOrder.findUnique({
+          where: { id }
+        }),
+      );
+    },
+
+    async updateWorkOrder(id, input) {
+      const existing = await prisma.workOrder.findUnique({
+        select: { id: true },
+        where: { id }
+      });
+      if (existing === null) {
+        return null;
+      }
+
+      return toWorkOrder(
+        await prisma.workOrder.update({
+          data: {
+            ...(input.assignedTo === undefined ? {} : { assignedTo: input.assignedTo }),
+            ...(input.dueDate === undefined
+              ? {}
+              : { dueDate: input.dueDate === null ? null : new Date(input.dueDate) }),
+            ...(input.priority === undefined ? {} : { priority: input.priority }),
+            ...(input.status === undefined ? {} : { status: input.status })
+          },
+          where: { id }
+        }),
+      );
     }
   };
 }
@@ -213,4 +266,34 @@ function toCrawlRun(record: NonNullable<CrawlRunRecord>): CrawlRun {
 
 function toNullableCrawlRun(record: CrawlRunRecord): CrawlRun | null {
   return record === null ? null : toCrawlRun(record);
+}
+
+function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {
+  return WorkOrderSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    seoIssueId: record.seoIssueId,
+    status: record.status,
+    priority: record.priority,
+    title: record.title,
+    description: record.description,
+    problem: record.problem,
+    evidence: record.evidence,
+    impact: record.impact,
+    instructions: record.instructions,
+    ownerType: record.ownerType,
+    acceptanceCriteria: record.acceptanceCriteria,
+    verificationMethod: record.verificationMethod,
+    estimatedEffort: record.estimatedEffort,
+    relatedIssues: record.relatedIssues,
+    assignedTo: record.assignedTo,
+    dueDate: record.dueDate?.toISOString() ?? null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  });
+}
+
+function toNullableWorkOrder(record: WorkOrderRecord): WorkOrder | null {
+  return record === null ? null : toWorkOrder(record);
 }

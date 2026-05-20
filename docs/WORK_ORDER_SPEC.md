@@ -3,6 +3,8 @@
 ## Phase 4 Status
 `packages/workorders` maps deterministic SEO issue drafts into actionable work order drafts.
 
+The API exposes work board read/update routes for persisted work orders.
+
 Supported SEO rule templates:
 
 - `TITLE_MISSING`
@@ -35,3 +37,10 @@ Work order generation must use static templates only.
 It must not call LLM providers, DB clients, network clients, random sources, or current time.
 
 Persistence belongs to API/worker layers. The mapper returns `WorkOrderDraft` values only.
+
+## Board API
+- `GET /sites/:siteId/work-orders`
+- `GET /work-orders/:workOrderId`
+- `PATCH /work-orders/:workOrderId`
+
+Board updates can change status, priority, assignee, and due date.
