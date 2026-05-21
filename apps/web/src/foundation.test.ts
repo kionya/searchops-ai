@@ -8,6 +8,11 @@ import {
   siteRouteItems
 } from "./dashboard-shell";
 import {
+  calculateSiteOverviewKpis,
+  demoSiteOverviewInput,
+  summarizeSiteOverview
+} from "./site-overview-kpis";
+import {
   canRecheckWorkOrder,
   demoSite,
   demoWorkOrders,
@@ -81,5 +86,28 @@ describe("web foundation", () => {
       "issues",
       "urls"
     ]);
+  });
+
+  it("calculates deterministic site overview KPIs", () => {
+    expect(calculateSiteOverviewKpis(demoSiteOverviewInput)).toEqual({
+      crawlSuccessRate: "80%",
+      indexableUrlRatio: "75%",
+      criticalIssueCount: "2",
+      workOrderCompletionRate: "20%",
+      resolvedIssueRate: "20%",
+      nonBrandQueryCoverage: "0%",
+      aiMentionRate: "0%",
+      aiCitationRate: "0%"
+    });
+  });
+
+  it("summarizes site overview decision counts", () => {
+    expect(summarizeSiteOverview(demoSiteOverviewInput)).toEqual({
+      activeWorkOrders: 4,
+      rechecksInReview: 1,
+      blockedWorkOrders: 1,
+      totalUrls: 8,
+      openIssues: 4
+    });
   });
 });
