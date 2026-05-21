@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import { productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
 
 import {
+  dashboardPlaceholders,
+  getSiteDashboardPath,
+  siteRouteItems
+} from "./dashboard-shell";
+import {
   canRecheckWorkOrder,
   demoSite,
   demoWorkOrders,
@@ -50,5 +55,31 @@ describe("web foundation", () => {
     expect(doneWorkOrder && canRecheckWorkOrder(doneWorkOrder)).toBe(false);
     expect(blockedWorkOrder && canRecheckWorkOrder(blockedWorkOrder)).toBe(false);
     expect(openWorkOrder && canRecheckWorkOrder(openWorkOrder)).toBe(true);
+  });
+
+  it("defines the Phase 5 site route shell", () => {
+    expect(siteRouteItems.map((item) => item.segment)).toEqual([
+      "",
+      "crawls",
+      "urls",
+      "issues",
+      "workorders",
+      "content",
+      "geo",
+      "compliance"
+    ]);
+    expect(getSiteDashboardPath("site_1", "")).toBe("/sites/site_1");
+    expect(getSiteDashboardPath("site_1", "workorders")).toBe("/sites/site_1/workorders");
+  });
+
+  it("keeps placeholder modules wired for non-workorder dashboard sections", () => {
+    expect(Object.keys(dashboardPlaceholders).sort()).toEqual([
+      "compliance",
+      "content",
+      "crawls",
+      "geo",
+      "issues",
+      "urls"
+    ]);
   });
 });
