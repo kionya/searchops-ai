@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { Organization, SeoIssue, Site, WorkOrder } from "@searchops/types";
+import type {
+  ConnectorSyncResult,
+  ConnectorSyncRun,
+  Organization,
+  SeoIssue,
+  Site,
+  WorkOrder
+} from "@searchops/types";
 
 import { createMemoryConnectorSyncQueue, createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
@@ -20,6 +27,55 @@ const seededSite: Site = {
   industry: "medical",
   language: "ko",
   country: "KR",
+  createdAt
+};
+const seededConnectorSyncRun: ConnectorSyncRun = {
+  id: "sync_seed",
+  organizationId: "org_seed",
+  siteId: "site_seed",
+  status: "completed",
+  providers: ["pagespeed"],
+  requestedByUserId: "user_connector",
+  fixture: true,
+  startedAt: "2026-05-22T00:00:00.000Z",
+  endedAt: "2026-05-22T00:01:00.000Z",
+  summary: {
+    failedProviders: 0,
+    okProviders: 1,
+    partialProviders: 0,
+    recordCountsByProvider: {
+      bing: 0,
+      cms: 0,
+      ga4: 0,
+      gsc: 0,
+      pagespeed: 1
+    },
+    totalProviders: 1,
+    totalRecords: 1
+  }
+};
+const seededConnectorSyncResult: ConnectorSyncResult = {
+  id: "sync_result_seed",
+  syncRunId: "sync_seed",
+  provider: "pagespeed",
+  status: "ok",
+  fetchedAt: "2026-05-22T00:00:00.000Z",
+  fixture: true,
+  recordCount: 1,
+  records: [
+    {
+      provider: "pagespeed",
+      url: "https://exampleclinic.com/",
+      strategy: "mobile",
+      performanceScore: 91,
+      accessibilityScore: 88,
+      seoScore: 95,
+      largestContentfulPaintMs: 2120,
+      cumulativeLayoutShift: 0.03,
+      interactionToNextPaintMs: 180,
+      fetchedAt: "2026-05-22T00:00:00.000Z"
+    }
+  ],
   createdAt
 };
 const seededWorkOrder: WorkOrder = {
@@ -97,6 +153,17 @@ function buildConnectorSyncTestContext() {
   });
 
   return { server, connectorSyncQueue };
+}
+
+function buildConnectorSyncHistoryTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      connectorSyncRuns: [seededConnectorSyncRun],
+      connectorSyncResults: [seededConnectorSyncResult]
+    })
+  });
 }
 
 function buildWorkOrderTestServer() {
@@ -417,6 +484,70 @@ describe("api foundation", () => {
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "not_found", message: "Site not found" });
     expect(connectorSyncQueue.listQueuedConnectorSyncJobs()).toHaveLength(0);
+  });
+
+  it("lists connector sync run history for a site", async () => {
+    const server = buildConnectorSyncHistoryTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/connector-sync-runs"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().connectorSyncRuns).toHaveLength(1);
+    expect(response.json().connectorSyncRuns[0]).toMatchObject({
+      id: "sync_seed",
+      siteId: "site_seed",
+      status: "completed",
+      providers: ["pagespeed"],
+      summary: {
+        totalProviders: 1,
+        totalRecords: 1
+      }
+    });
+  });
+
+  it("reads connector sync run details with persisted results", async () => {
+    const server = buildConnectorSyncHistoryTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/connector-sync-runs/sync_seed"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      connectorSyncRun: {
+        id: "sync_seed",
+        status: "completed"
+      },
+      results: [
+        {
+          id: "sync_result_seed",
+          provider: "pagespeed",
+          recordCount: 1
+        }
+      ]
+    });
+  });
+
+  it("returns 404 for missing connector sync history resources", async () => {
+    const server = buildConnectorSyncHistoryTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/connector-sync-runs"
+    });
+    const detailResponse = await server.inject({
+      method: "GET",
+      url: "/connector-sync-runs/sync_missing"
+    });
+
+    expect(listResponse.statusCode).toBe(404);
+    expect(detailResponse.statusCode).toBe(404);
+    expect(listResponse.json()).toEqual({ error: "not_found", message: "Site not found" });
+    expect(detailResponse.json()).toEqual({
+      error: "not_found",
+      message: "Connector sync run not found"
+    });
   });
 
   it("validates crawl run request payloads", async () => {

@@ -4,6 +4,8 @@ import { ZodError, z } from "zod";
 import {
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
+  ConnectorSyncRunDetailResponseSchema,
+  ConnectorSyncRunListResponseSchema,
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
   CreateOrganizationRequestSchema,
@@ -197,6 +199,28 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply
       .status(202)
       .send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
+  });
+
+  server.get("/sites/:id/connector-sync-runs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const connectorSyncRuns = await repository.listConnectorSyncRuns(id);
+    if (!connectorSyncRuns) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(ConnectorSyncRunListResponseSchema.parse({ connectorSyncRuns }));
+  });
+
+  server.get("/connector-sync-runs/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const result = await repository.getConnectorSyncRun(id);
+    if (!result) {
+      reply.status(404).send(notFound("Connector sync run not found"));
+      return;
+    }
+
+    reply.send(ConnectorSyncRunDetailResponseSchema.parse(result));
   });
 
   server.patch("/sites/:id", async (request, reply) => {

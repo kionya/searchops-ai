@@ -813,6 +813,23 @@ export const CreateConnectorSyncRunResponseSchema = z.object({
 
 export type CreateConnectorSyncRunResponse = z.infer<typeof CreateConnectorSyncRunResponseSchema>;
 
+export const ConnectorSyncRunListResponseSchema = z.object({
+  connectorSyncRuns: z.array(ConnectorSyncRunSchema)
+});
+
+export type ConnectorSyncRunListResponse = z.infer<
+  typeof ConnectorSyncRunListResponseSchema
+>;
+
+export const ConnectorSyncRunDetailResponseSchema = z.object({
+  connectorSyncRun: ConnectorSyncRunSchema,
+  results: z.array(ConnectorSyncResultSchema)
+});
+
+export type ConnectorSyncRunDetailResponse = z.infer<
+  typeof ConnectorSyncRunDetailResponseSchema
+>;
+
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),
   title: z.string().optional(),

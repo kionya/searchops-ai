@@ -1,5 +1,6 @@
 import type {
   ConnectorProviderList,
+  ConnectorSyncResult,
   ConnectorSyncRun,
   CrawlRun,
   CreateOrganizationRequest,
@@ -19,6 +20,11 @@ export interface CreateConnectorSyncRunInput {
   requestedByUserId: string;
 }
 
+export interface ConnectorSyncRunDetail {
+  connectorSyncRun: ConnectorSyncRun;
+  results: ConnectorSyncResult[];
+}
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
@@ -35,6 +41,8 @@ export interface SearchOpsRepository {
     siteId: string,
     input: CreateConnectorSyncRunInput,
   ): Promise<ConnectorSyncRun | null>;
+  listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
+  getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -46,6 +54,7 @@ export interface MemoryRepositorySeed {
   readonly sites?: readonly Site[];
   readonly crawlRuns?: readonly CrawlRun[];
   readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
+  readonly connectorSyncResults?: readonly ConnectorSyncResult[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
@@ -63,6 +72,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const sites = new Map<string, Site>();
   const crawlRuns = new Map<string, CrawlRun>();
   const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
+  const connectorSyncResults = new Map<string, ConnectorSyncResult>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
@@ -88,6 +98,10 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const connectorSyncRun of seed.connectorSyncRuns ?? []) {
     connectorSyncRuns.set(connectorSyncRun.id, connectorSyncRun);
     connectorSyncRunCounter += 1;
+  }
+
+  for (const connectorSyncResult of seed.connectorSyncResults ?? []) {
+    connectorSyncResults.set(connectorSyncResult.id, connectorSyncResult);
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
@@ -222,6 +236,30 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       connectorSyncRunCounter += 1;
       connectorSyncRuns.set(connectorSyncRun.id, connectorSyncRun);
       return connectorSyncRun;
+    },
+
+    async listConnectorSyncRuns(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...connectorSyncRuns.values()]
+        .filter((connectorSyncRun) => connectorSyncRun.siteId === siteId)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    },
+
+    async getConnectorSyncRun(id) {
+      const connectorSyncRun = connectorSyncRuns.get(id);
+      if (!connectorSyncRun) {
+        return null;
+      }
+
+      return {
+        connectorSyncRun,
+        results: [...connectorSyncResults.values()]
+          .filter((result) => result.syncRunId === id)
+          .sort((a, b) => a.provider.localeCompare(b.provider))
+      };
     },
 
     async listWorkOrders(siteId) {

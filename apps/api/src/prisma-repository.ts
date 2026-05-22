@@ -1,10 +1,12 @@
 import {
+  ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
   CrawlRunSchema,
   OrganizationSchema,
   SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
+  type ConnectorSyncResult,
   type ConnectorSyncRun,
   type CrawlRun,
   type Organization,
@@ -23,6 +25,9 @@ type SiteRecord = Awaited<ReturnType<SearchOpsPrismaClient["site"]["findFirst"]>
 type CrawlRunRecord = Awaited<ReturnType<SearchOpsPrismaClient["crawlRun"]["findFirst"]>>;
 type ConnectorSyncRunRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["connectorSyncRun"]["findFirst"]>
+>;
+type ConnectorSyncResultRecord = Awaited<
+  ReturnType<SearchOpsPrismaClient["connectorSyncResult"]["findFirst"]>
 >;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
@@ -203,6 +208,49 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       );
     },
 
+    async listConnectorSyncRuns(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const connectorSyncRuns = await prisma.connectorSyncRun.findMany({
+        orderBy: {
+          startedAt: "desc"
+        },
+        where: {
+          siteId
+        }
+      });
+      return connectorSyncRuns.map(toConnectorSyncRun);
+    },
+
+    async getConnectorSyncRun(id) {
+      const connectorSyncRun = await prisma.connectorSyncRun.findUnique({
+        where: { id }
+      });
+      if (connectorSyncRun === null) {
+        return null;
+      }
+
+      const results = await prisma.connectorSyncResult.findMany({
+        orderBy: {
+          provider: "asc"
+        },
+        where: {
+          syncRunId: id
+        }
+      });
+
+      return {
+        connectorSyncRun: toConnectorSyncRun(connectorSyncRun),
+        results: results.map(toConnectorSyncResult)
+      };
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -344,6 +392,22 @@ function toConnectorSyncRun(record: NonNullable<ConnectorSyncRunRecord>): Connec
     startedAt: record.startedAt.toISOString(),
     endedAt: record.endedAt?.toISOString() ?? null,
     summary: record.summary
+  });
+}
+
+function toConnectorSyncResult(
+  record: NonNullable<ConnectorSyncResultRecord>,
+): ConnectorSyncResult {
+  return ConnectorSyncResultSchema.parse({
+    id: record.id,
+    syncRunId: record.syncRunId,
+    provider: record.provider,
+    status: record.status,
+    fetchedAt: record.fetchedAt.toISOString(),
+    fixture: record.fixture,
+    recordCount: record.recordCount,
+    records: record.records,
+    createdAt: record.createdAt.toISOString()
   });
 }
 
