@@ -575,6 +575,116 @@ export const ParsedSitemapSchema = z.object({
 
 export type ParsedSitemap = z.infer<typeof ParsedSitemapSchema>;
 
+const ConnectorDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const NonNegativeIntegerSchema = z.number().int().nonnegative();
+const NonNegativeNumberSchema = z.number().nonnegative();
+
+export const ConnectorProviderSchema = z.enum(["gsc", "ga4", "pagespeed", "bing", "cms"]);
+
+export type ConnectorProvider = z.infer<typeof ConnectorProviderSchema>;
+
+export const ConnectorAuthModeSchema = z.enum(["oauth", "api_key", "none"]);
+
+export type ConnectorAuthMode = z.infer<typeof ConnectorAuthModeSchema>;
+
+export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
+
+export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
+
+export const GscSearchMetricSchema = z.object({
+  provider: z.literal("gsc"),
+  siteUrl: NormalizedUrlSchema,
+  query: z.string().min(1),
+  page: NormalizedUrlSchema,
+  country: z.string().min(2),
+  device: z.string().min(1),
+  clicks: NonNegativeIntegerSchema,
+  impressions: NonNegativeIntegerSchema,
+  ctr: z.number().min(0).max(1),
+  position: NonNegativeNumberSchema,
+  startDate: ConnectorDateSchema,
+  endDate: ConnectorDateSchema
+});
+
+export type GscSearchMetric = z.infer<typeof GscSearchMetricSchema>;
+
+export const Ga4PageMetricSchema = z.object({
+  provider: z.literal("ga4"),
+  propertyId: z.string().min(1),
+  pagePath: z.string().min(1),
+  sessions: NonNegativeIntegerSchema,
+  engagedSessions: NonNegativeIntegerSchema,
+  conversions: NonNegativeNumberSchema,
+  totalUsers: NonNegativeIntegerSchema,
+  startDate: ConnectorDateSchema,
+  endDate: ConnectorDateSchema
+});
+
+export type Ga4PageMetric = z.infer<typeof Ga4PageMetricSchema>;
+
+export const PageSpeedMetricSchema = z.object({
+  provider: z.literal("pagespeed"),
+  url: NormalizedUrlSchema,
+  strategy: z.enum(["mobile", "desktop"]),
+  performanceScore: z.number().min(0).max(100),
+  accessibilityScore: z.number().min(0).max(100),
+  seoScore: z.number().min(0).max(100),
+  largestContentfulPaintMs: NonNegativeNumberSchema,
+  cumulativeLayoutShift: NonNegativeNumberSchema,
+  interactionToNextPaintMs: NonNegativeNumberSchema,
+  fetchedAt: IsoDateTimeSchema
+});
+
+export type PageSpeedMetric = z.infer<typeof PageSpeedMetricSchema>;
+
+export const BingUrlMetricSchema = z.object({
+  provider: z.literal("bing"),
+  siteUrl: NormalizedUrlSchema,
+  url: NormalizedUrlSchema,
+  indexed: z.boolean(),
+  clicks: NonNegativeIntegerSchema,
+  impressions: NonNegativeIntegerSchema,
+  discoveredAt: IsoDateTimeSchema.nullable(),
+  lastCrawledAt: IsoDateTimeSchema.nullable()
+});
+
+export type BingUrlMetric = z.infer<typeof BingUrlMetricSchema>;
+
+export const CmsPageRecordSchema = z.object({
+  provider: z.literal("cms"),
+  cmsType: z.string().min(1),
+  externalId: z.string().min(1),
+  url: NormalizedUrlSchema,
+  title: z.string().min(1),
+  status: z.enum(["draft", "published", "archived"]),
+  updatedAt: IsoDateTimeSchema
+});
+
+export type CmsPageRecord = z.infer<typeof CmsPageRecordSchema>;
+
+export const ConnectorRecordSchema = z.discriminatedUnion("provider", [
+  GscSearchMetricSchema,
+  Ga4PageMetricSchema,
+  PageSpeedMetricSchema,
+  BingUrlMetricSchema,
+  CmsPageRecordSchema
+]);
+
+export type ConnectorRecord = z.infer<typeof ConnectorRecordSchema>;
+
+export const ConnectorRunResultSchema = z.object({
+  provider: ConnectorProviderSchema,
+  status: ConnectorSyncStatusSchema,
+  fetchedAt: IsoDateTimeSchema,
+  fixture: z.boolean(),
+  records: z.array(ConnectorRecordSchema)
+}).refine((result) => result.records.every((record) => record.provider === result.provider), {
+  message: "Connector run provider must match every normalized record provider",
+  path: ["records"]
+});
+
+export type ConnectorRunResult = z.infer<typeof ConnectorRunResultSchema>;
+
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),
   title: z.string().optional(),

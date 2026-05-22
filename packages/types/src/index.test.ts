@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   CreateCrawlRunRequestSchema,
   CreateSiteRequestSchema,
+  ConnectorProviderSchema,
+  ConnectorRecordSchema,
+  ConnectorRunResultSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
@@ -193,6 +196,79 @@ describe("types foundation", () => {
         sitemaps: []
       }),
     ).toMatchObject({ type: "urlset" });
+  });
+
+  it("validates connector providers and normalized records", () => {
+    expect(ConnectorProviderSchema.options).toEqual(["gsc", "ga4", "pagespeed", "bing", "cms"]);
+
+    const record = ConnectorRecordSchema.parse({
+      provider: "pagespeed",
+      url: "https://example.com/",
+      strategy: "mobile",
+      performanceScore: 91,
+      accessibilityScore: 88,
+      seoScore: 95,
+      largestContentfulPaintMs: 2120,
+      cumulativeLayoutShift: 0.03,
+      interactionToNextPaintMs: 180,
+      fetchedAt: "2026-05-22T00:00:00.000Z"
+    });
+
+    expect(record).toMatchObject({ provider: "pagespeed", seoScore: 95 });
+  });
+
+  it("validates connector run results", () => {
+    const parsed = ConnectorRunResultSchema.parse({
+      provider: "gsc",
+      status: "ok",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: true,
+      records: [
+        {
+          provider: "gsc",
+          siteUrl: "https://example.com/",
+          query: "seo clinic",
+          page: "https://example.com/service/seo",
+          country: "KR",
+          device: "mobile",
+          clicks: 12,
+          impressions: 120,
+          ctr: 0.1,
+          position: 3.2,
+          startDate: "2026-05-01",
+          endDate: "2026-05-20"
+        }
+      ]
+    });
+
+    expect(parsed.records).toHaveLength(1);
+  });
+
+  it("rejects connector run results with mismatched record providers", () => {
+    expect(() =>
+      ConnectorRunResultSchema.parse({
+        provider: "ga4",
+        status: "ok",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: true,
+        records: [
+          {
+            provider: "gsc",
+            siteUrl: "https://example.com/",
+            query: "seo clinic",
+            page: "https://example.com/service/seo",
+            country: "KR",
+            device: "mobile",
+            clicks: 12,
+            impressions: 120,
+            ctr: 0.1,
+            position: 3.2,
+            startDate: "2026-05-01",
+            endDate: "2026-05-20"
+          }
+        ]
+      }),
+    ).toThrow(/provider/);
   });
 
   it("validates deterministic SEO issue drafts", () => {
