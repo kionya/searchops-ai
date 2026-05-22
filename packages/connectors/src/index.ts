@@ -113,6 +113,22 @@ export type ConnectorFixtureInput =
   | GscSearchAnalyticsFixture
   | PageSpeedFixture;
 
+export interface ConnectorSyncRequest {
+  readonly fetchedAt: string;
+}
+
+export interface ConnectorAdapter {
+  readonly authMode: ConnectorAuthMode;
+  readonly liveExternalApis: typeof liveExternalApisDefault;
+  readonly provider: ConnectorProvider;
+  sync(request: ConnectorSyncRequest): Promise<ConnectorRunResult>;
+}
+
+export interface FixtureConnectorAdapterConfig {
+  readonly fixture: ConnectorFixtureInput;
+  readonly provider: ConnectorProvider;
+}
+
 export const mockGscSearchAnalyticsFixture: GscSearchAnalyticsFixture = {
   siteUrl: "https://example-clinic.com/",
   startDate: "2026-05-01",
@@ -343,6 +359,60 @@ export function createConnectorRunResult({
     fixture: true,
     records
   });
+}
+
+export function createFixtureConnectorAdapter({
+  fixture,
+  provider
+}: FixtureConnectorAdapterConfig): ConnectorAdapter {
+  return {
+    authMode: connectorAuthModes[provider],
+    liveExternalApis: liveExternalApisDefault,
+    provider,
+    async sync(request) {
+      const records = normalizeConnectorFixture(provider, fixture);
+
+      return createConnectorRunResult({
+        fetchedAt: request.fetchedAt,
+        provider,
+        records
+      });
+    }
+  };
+}
+
+export const fixtureConnectorAdapters = {
+  bing: createFixtureConnectorAdapter({
+    fixture: mockBingUrlInspectionFixture,
+    provider: "bing"
+  }),
+  cms: createFixtureConnectorAdapter({
+    fixture: mockCmsPagesFixture,
+    provider: "cms"
+  }),
+  ga4: createFixtureConnectorAdapter({
+    fixture: mockGa4ReportFixture,
+    provider: "ga4"
+  }),
+  gsc: createFixtureConnectorAdapter({
+    fixture: mockGscSearchAnalyticsFixture,
+    provider: "gsc"
+  }),
+  pagespeed: createFixtureConnectorAdapter({
+    fixture: mockPageSpeedFixture,
+    provider: "pagespeed"
+  })
+} as const satisfies Record<ConnectorProvider, ConnectorAdapter>;
+
+export function getFixtureConnectorAdapter(provider: ConnectorProvider): ConnectorAdapter {
+  return fixtureConnectorAdapters[provider];
+}
+
+export async function syncFixtureConnector(
+  provider: ConnectorProvider,
+  request: ConnectorSyncRequest,
+): Promise<ConnectorRunResult> {
+  return getFixtureConnectorAdapter(provider).sync(request);
 }
 
 function parseIntegerMetric(value: string) {
