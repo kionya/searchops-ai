@@ -20,7 +20,9 @@ import {
   normalizeGa4Report,
   normalizeGscSearchAnalytics,
   normalizePageSpeed,
-  syncFixtureConnector
+  summarizeConnectorRunResults,
+  syncFixtureConnector,
+  syncFixtureConnectors
 } from "./index.js";
 
 describe("connectors foundation", () => {
@@ -164,5 +166,69 @@ describe("connectors foundation", () => {
 
     expect(adapter.liveExternalApis).toBe("disabled");
     expect(result.records.map((record) => record.provider)).toEqual(["cms", "cms"]);
+  });
+
+  it("syncs all fixture adapters as a deterministic batch", async () => {
+    const batch = await syncFixtureConnectors({
+      fetchedAt: "2026-05-22T03:00:00.000Z"
+    });
+
+    expect(batch.results.map((result) => result.provider)).toEqual([
+      "gsc",
+      "ga4",
+      "pagespeed",
+      "bing",
+      "cms"
+    ]);
+    expect(batch.summary).toEqual({
+      failedProviders: 0,
+      okProviders: 5,
+      partialProviders: 0,
+      recordCountsByProvider: {
+        bing: 2,
+        cms: 2,
+        ga4: 2,
+        gsc: 2,
+        pagespeed: 1
+      },
+      totalProviders: 5,
+      totalRecords: 9
+    });
+  });
+
+  it("syncs selected fixture providers in canonical provider order", async () => {
+    const batch = await syncFixtureConnectors({
+      fetchedAt: "2026-05-22T04:00:00.000Z",
+      providers: ["cms", "gsc"]
+    });
+
+    expect(batch.results.map((result) => result.provider)).toEqual(["gsc", "cms"]);
+    expect(batch.summary.recordCountsByProvider).toMatchObject({ cms: 2, gsc: 2 });
+    expect(batch.summary.totalRecords).toBe(4);
+  });
+
+  it("summarizes mixed connector run statuses", () => {
+    const pagespeedRecords = normalizeConnectorFixture("pagespeed", mockPageSpeedFixture);
+    const summary = summarizeConnectorRunResults([
+      createConnectorRunResult({
+        fetchedAt: "2026-05-22T05:00:00.000Z",
+        provider: "pagespeed",
+        records: pagespeedRecords
+      }),
+      createConnectorRunResult({
+        fetchedAt: "2026-05-22T05:00:00.000Z",
+        provider: "cms",
+        records: normalizeConnectorFixture("cms", mockCmsPagesFixture),
+        status: "partial"
+      })
+    ]);
+
+    expect(summary).toMatchObject({
+      failedProviders: 0,
+      okProviders: 1,
+      partialProviders: 1,
+      totalProviders: 2,
+      totalRecords: 3
+    });
   });
 });
