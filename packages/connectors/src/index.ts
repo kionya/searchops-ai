@@ -129,6 +129,24 @@ export interface FixtureConnectorAdapterConfig {
   readonly provider: ConnectorProvider;
 }
 
+export interface ConnectorBatchSyncRequest extends ConnectorSyncRequest {
+  readonly providers?: readonly ConnectorProvider[];
+}
+
+export interface ConnectorBatchSyncSummary {
+  readonly failedProviders: number;
+  readonly okProviders: number;
+  readonly partialProviders: number;
+  readonly recordCountsByProvider: Readonly<Record<ConnectorProvider, number>>;
+  readonly totalProviders: number;
+  readonly totalRecords: number;
+}
+
+export interface ConnectorBatchSyncResult {
+  readonly results: readonly ConnectorRunResult[];
+  readonly summary: ConnectorBatchSyncSummary;
+}
+
 export const mockGscSearchAnalyticsFixture: GscSearchAnalyticsFixture = {
   siteUrl: "https://example-clinic.com/",
   startDate: "2026-05-01",
@@ -413,6 +431,48 @@ export async function syncFixtureConnector(
   request: ConnectorSyncRequest,
 ): Promise<ConnectorRunResult> {
   return getFixtureConnectorAdapter(provider).sync(request);
+}
+
+export async function syncFixtureConnectors({
+  fetchedAt,
+  providers = connectorProviders
+}: ConnectorBatchSyncRequest): Promise<ConnectorBatchSyncResult> {
+  const orderedProviders = orderConnectorProviders(providers);
+  const results = await Promise.all(
+    orderedProviders.map((provider) => syncFixtureConnector(provider, { fetchedAt })),
+  );
+
+  return {
+    results,
+    summary: summarizeConnectorRunResults(results)
+  };
+}
+
+export function summarizeConnectorRunResults(
+  results: readonly ConnectorRunResult[],
+): ConnectorBatchSyncSummary {
+  const recordCountsByProvider = Object.fromEntries(
+    connectorProviders.map((provider) => [provider, 0]),
+  ) as Record<ConnectorProvider, number>;
+
+  for (const result of results) {
+    recordCountsByProvider[result.provider] += result.records.length;
+  }
+
+  return {
+    failedProviders: results.filter((result) => result.status === "failed").length,
+    okProviders: results.filter((result) => result.status === "ok").length,
+    partialProviders: results.filter((result) => result.status === "partial").length,
+    recordCountsByProvider,
+    totalProviders: results.length,
+    totalRecords: results.reduce((total, result) => total + result.records.length, 0)
+  };
+}
+
+function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
+  const requested = new Set(providers);
+
+  return connectorProviders.filter((provider) => requested.has(provider));
 }
 
 function parseIntegerMetric(value: string) {
