@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ConnectorProviderListSchema,
   CreateCrawlRunRequestSchema,
+  CreateConnectorSyncRunRequestSchema,
+  CreateConnectorSyncRunResponseSchema,
   CreateSiteRequestSchema,
   ConnectorProviderSchema,
   ConnectorRecordSchema,
   ConnectorRunResultSchema,
+  ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
@@ -242,6 +246,66 @@ describe("types foundation", () => {
     });
 
     expect(parsed.records).toHaveLength(1);
+  });
+
+  it("validates connector provider lists", () => {
+    expect(ConnectorProviderListSchema.parse(["ga4", "gsc"])).toEqual(["ga4", "gsc"]);
+    expect(() => ConnectorProviderListSchema.parse(["gsc", "gsc"])).toThrow(/unique/);
+  });
+
+  it("defaults connector sync job providers", () => {
+    const parsed = ConnectorSyncJobPayloadSchema.parse({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "Example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z"
+    });
+
+    expect(parsed).toMatchObject({
+      organizationId: "org_1",
+      siteDomain: "example.com",
+      providers: ["gsc", "ga4", "pagespeed", "bing", "cms"]
+    });
+  });
+
+  it("validates connector sync run API contracts", () => {
+    expect(CreateConnectorSyncRunRequestSchema.parse({}).providers).toEqual([
+      "gsc",
+      "ga4",
+      "pagespeed",
+      "bing",
+      "cms"
+    ]);
+
+    const request = CreateConnectorSyncRunRequestSchema.parse({
+      providers: ["pagespeed", "cms"]
+    });
+
+    expect(request.providers).toEqual(["pagespeed", "cms"]);
+    expect(
+      CreateConnectorSyncRunResponseSchema.parse({
+        job: {
+          id: "job_1",
+          name: "connector-sync",
+          payload: {
+            organizationId: "org_1",
+            siteId: "site_1",
+            siteDomain: "example.com",
+            requestedByUserId: "user_1",
+            fetchedAt: "2026-05-22T00:00:00.000Z",
+            providers: ["pagespeed", "cms"]
+          }
+        }
+      }),
+    ).toMatchObject({
+      job: {
+        name: "connector-sync",
+        payload: {
+          providers: ["pagespeed", "cms"]
+        }
+      }
+    });
   });
 
   it("rejects connector run results with mismatched record providers", () => {

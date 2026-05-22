@@ -4,7 +4,7 @@ import { defaultJobOptions, workerJobNames, type WorkerJobPayloadMap } from "./j
 
 describe("worker foundation", () => {
   it("declares the core job names", () => {
-    expect(workerJobNames).toEqual(["crawl", "analyze", "generate", "recheck"]);
+    expect(workerJobNames).toEqual(["crawl", "connector-sync", "analyze", "generate", "recheck"]);
   });
 
   it("uses retry defaults for future BullMQ jobs", () => {
@@ -22,11 +22,20 @@ describe("worker foundation", () => {
         maxPages: 25,
         pages: []
       },
+      "connector-sync": {
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        providers: ["gsc", "ga4"]
+      },
       analyze: { crawlRunId: "crawl_1" },
       generate: { workOrderId: "wo_1" },
       recheck: { workOrderId: "wo_1", siteId: "site_1" }
     };
 
     expect(payloads.crawl.siteId).toBe("site_1");
+    expect(payloads["connector-sync"].providers).toEqual(["gsc", "ga4"]);
   });
 });
