@@ -1,21 +1,27 @@
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
-import { createCrawlWorker } from "./runtime.js";
+import { createConnectorSyncWorker, createCrawlWorker } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
-const runtime = createCrawlWorker({ redisUrl: env.REDIS_URL });
+const crawlRuntime = createCrawlWorker({ redisUrl: env.REDIS_URL });
+const connectorSyncRuntime = createConnectorSyncWorker({ redisUrl: env.REDIS_URL });
 
-runtime.worker.on("completed", (job) => {
-  console.log(`SearchOps worker completed ${job.name} job ${job.id}`);
-});
+for (const runtime of [crawlRuntime, connectorSyncRuntime]) {
+  runtime.worker.on("completed", (job) => {
+    console.log(`SearchOps worker completed ${job.name} job ${job.id}`);
+  });
 
-runtime.worker.on("failed", (job, error) => {
-  console.error(`SearchOps worker failed ${job?.name ?? "unknown"} job ${job?.id ?? "unknown"}`, error);
-});
+  runtime.worker.on("failed", (job, error) => {
+    console.error(
+      `SearchOps worker failed ${job?.name ?? "unknown"} job ${job?.id ?? "unknown"}`,
+      error,
+    );
+  });
+}
 
 async function shutdown() {
-  await runtime.close();
+  await Promise.all([crawlRuntime.close(), connectorSyncRuntime.close()]);
 }
 
 process.once("SIGINT", () => {

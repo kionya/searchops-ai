@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@searchops/connectors": "workspace:*",
     "@searchops/crawler-core": "workspace:*",
     "@searchops/db": "workspace:*",
     "@searchops/types": "workspace:*",

@@ -1,8 +1,15 @@
+import {
+  syncFixtureConnectors,
+  type ConnectorBatchSyncRequest,
+  type ConnectorBatchSyncResult
+} from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
 import { markCrawlRunFailed, persistCrawlJobResult, type CrawlPersistenceClient } from "@searchops/db";
 import {
+  ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
+  type ConnectorSyncJobPayload,
   type CrawlJobPageInput,
   type CrawlJobPayload,
   type CrawlJobResult
@@ -10,6 +17,18 @@ import {
 
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
+}
+
+export interface ProcessConnectorSyncJobOptions {
+  readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
+}
+
+export interface ConnectorSyncJobResult extends ConnectorBatchSyncResult {
+  readonly fetchedAt: string;
+  readonly organizationId: string;
+  readonly requestedByUserId: string;
+  readonly siteDomain: string;
+  readonly siteId: string;
 }
 
 export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
@@ -33,6 +52,27 @@ export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
     snapshots,
     summary
   });
+}
+
+export async function processConnectorSyncJob(
+  input: ConnectorSyncJobPayload,
+  options: ProcessConnectorSyncJobOptions = {},
+): Promise<ConnectorSyncJobResult> {
+  const payload = ConnectorSyncJobPayloadSchema.parse(input);
+  const result = await (options.syncConnectors ?? syncFixtureConnectors)({
+    fetchedAt: payload.fetchedAt,
+    providers: payload.providers
+  });
+
+  return {
+    fetchedAt: payload.fetchedAt,
+    organizationId: payload.organizationId,
+    requestedByUserId: payload.requestedByUserId,
+    siteDomain: payload.siteDomain,
+    siteId: payload.siteId,
+    results: result.results,
+    summary: result.summary
+  };
 }
 
 export async function processAndPersistCrawlJob(
