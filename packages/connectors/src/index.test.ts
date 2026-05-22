@@ -5,6 +5,9 @@ import {
   connectorProviders,
   connectorsPackage,
   createConnectorRunResult,
+  createFixtureConnectorAdapter,
+  fixtureConnectorAdapters,
+  getFixtureConnectorAdapter,
   liveExternalApisDefault,
   mockBingUrlInspectionFixture,
   mockCmsPagesFixture,
@@ -16,7 +19,8 @@ import {
   normalizeConnectorFixture,
   normalizeGa4Report,
   normalizeGscSearchAnalytics,
-  normalizePageSpeed
+  normalizePageSpeed,
+  syncFixtureConnector
 } from "./index.js";
 
 describe("connectors foundation", () => {
@@ -126,5 +130,39 @@ describe("connectors foundation", () => {
       status: "ok"
     });
     expect(result.records).toHaveLength(1);
+  });
+
+  it("registers fixture adapters for every supported provider", () => {
+    expect(Object.keys(fixtureConnectorAdapters).sort()).toEqual([...connectorProviders].sort());
+    expect(getFixtureConnectorAdapter("gsc")).toMatchObject({
+      authMode: "oauth",
+      liveExternalApis: "disabled",
+      provider: "gsc"
+    });
+  });
+
+  it("syncs fixture adapters through a common async port", async () => {
+    const result = await syncFixtureConnector("pagespeed", {
+      fetchedAt: "2026-05-22T01:00:00.000Z"
+    });
+
+    expect(result).toMatchObject({
+      fetchedAt: "2026-05-22T01:00:00.000Z",
+      fixture: true,
+      provider: "pagespeed",
+      status: "ok"
+    });
+    expect(result.records).toHaveLength(1);
+  });
+
+  it("builds custom fixture adapters without enabling live APIs", async () => {
+    const adapter = createFixtureConnectorAdapter({
+      fixture: mockCmsPagesFixture,
+      provider: "cms"
+    });
+    const result = await adapter.sync({ fetchedAt: "2026-05-22T02:00:00.000Z" });
+
+    expect(adapter.liveExternalApis).toBe("disabled");
+    expect(result.records.map((record) => record.provider)).toEqual(["cms", "cms"]);
   });
 });
