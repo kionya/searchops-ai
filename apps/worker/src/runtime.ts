@@ -1,8 +1,10 @@
 import { Worker, type Job } from "bullmq";
 
 import {
+  createPrismaConnectorSyncPersistenceClient,
   createPrismaCrawlPersistenceClient,
   createSearchOpsPrismaClient,
+  type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type SearchOpsPrismaClient
 } from "@searchops/db";
@@ -14,14 +16,14 @@ import {
   crawlQueueName,
   type connectorSyncJobName,
   type ConnectorSyncJobPayload,
+  type ConnectorSyncJobResult,
   type CrawlJobPayload,
   type CrawlJobResult
 } from "@searchops/types";
 
 import {
+  processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
-  processConnectorSyncJob,
-  type ConnectorSyncJobResult,
   type ProcessAndPersistCrawlJobOptions,
   type ProcessConnectorSyncJobOptions
 } from "./processor.js";
@@ -36,6 +38,7 @@ export interface CreateCrawlWorkerOptions {
 
 export interface CreateConnectorSyncWorkerOptions {
   readonly redisUrl: string;
+  readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
   readonly processorOptions?: ProcessConnectorSyncJobOptions;
   readonly queueName?: string;
@@ -52,7 +55,10 @@ export function createCrawlJobProcessor(
   };
 }
 
-export function createConnectorSyncJobProcessor(options: ProcessConnectorSyncJobOptions = {}) {
+export function createConnectorSyncJobProcessor(
+  persistenceClient: ConnectorSyncPersistenceClient,
+  options: ProcessConnectorSyncJobOptions = {},
+) {
   return async (
     job: Pick<
       Job<ConnectorSyncJobPayload, ConnectorSyncJobResult, typeof connectorSyncJobName>,
@@ -60,7 +66,7 @@ export function createConnectorSyncJobProcessor(options: ProcessConnectorSyncJob
     >,
   ) => {
     const payload = ConnectorSyncJobPayloadSchema.parse(job.data);
-    return processConnectorSyncJob(payload, options);
+    return processAndPersistConnectorSyncJob(payload, persistenceClient, options);
   };
 }
 
@@ -90,21 +96,30 @@ export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
 }
 
 export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOptions) {
+  const prisma = options.prisma ?? createSearchOpsPrismaClient();
+  const persistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
   const worker = new Worker<
     ConnectorSyncJobPayload,
     ConnectorSyncJobResult,
     typeof connectorSyncJobName
-  >(options.queueName ?? connectorQueueName, createConnectorSyncJobProcessor(options.processorOptions), {
-    concurrency: options.concurrency ?? 2,
-    connection: {
-      url: options.redisUrl
-    }
-  });
+  >(
+    options.queueName ?? connectorQueueName,
+    createConnectorSyncJobProcessor(persistenceClient, options.processorOptions),
+    {
+      concurrency: options.concurrency ?? 2,
+      connection: {
+        url: options.redisUrl
+      }
+    },
+  );
 
   return {
     worker,
     async close() {
       await worker.close();
+      if (options.prisma === undefined) {
+        await prisma.$disconnect();
+      }
     }
   };
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { CrawlPersistenceClient } from "@searchops/db";
+import type { ConnectorSyncPersistenceClient, CrawlPersistenceClient } from "@searchops/db";
 
 import {
+  processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
   processConnectorSyncJob,
   processCrawlJob
@@ -288,6 +289,7 @@ describe("processCrawlJob", () => {
 
   it("processes connector sync jobs through fixture batch sync", async () => {
     const result = await processConnectorSyncJob({
+      connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteId: "site_1",
       siteDomain: "example.com",
@@ -316,6 +318,7 @@ describe("processCrawlJob", () => {
     const result = await processConnectorSyncJob(
       {
         organizationId: "org_2",
+        connectorSyncRunId: "sync_2",
         siteId: "site_2",
         siteDomain: "example.org",
         requestedByUserId: "user_2",
@@ -352,9 +355,114 @@ describe("processCrawlJob", () => {
 
     expect(result).toMatchObject({
       organizationId: "org_2",
+      connectorSyncRunId: "sync_2",
       siteId: "site_2",
       summary: {
         totalRecords: 0
+      }
+    });
+  });
+
+  it("persists connector sync job results through the DB boundary", async () => {
+    const runUpdates: unknown[] = [];
+    const resultUpserts: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          runUpdates.push(args);
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          resultUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_3",
+        organizationId: "org_3",
+        siteId: "site_3",
+        siteDomain: "example.net",
+        requestedByUserId: "user_3",
+        fetchedAt: "2026-05-22T02:00:00.000Z",
+        providers: ["pagespeed"]
+      },
+      persistenceClient,
+    );
+
+    expect(result).toMatchObject({
+      connectorSyncRunId: "sync_3",
+      summary: {
+        totalProviders: 1
+      }
+    });
+    expect(resultUpserts).toHaveLength(1);
+    expect(runUpdates[0]).toMatchObject({
+      where: { id: "sync_3" },
+      data: {
+        status: "completed",
+        summary: {
+          totalProviders: 1
+        }
+      }
+    });
+  });
+
+  it("marks connector sync runs failed when connector processing fails", async () => {
+    const runUpdates: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          runUpdates.push(args);
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          return args;
+        }
+      }
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_failed",
+          organizationId: "org_3",
+          siteId: "site_3",
+          siteDomain: "example.net",
+          requestedByUserId: "user_3",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["pagespeed"]
+        },
+        persistenceClient,
+        {
+          async syncConnectors() {
+            throw new Error("connector failed");
+          }
+        },
+      ),
+    ).rejects.toThrow(/connector failed/);
+
+    expect(runUpdates[0]).toMatchObject({
+      where: { id: "sync_failed" },
+      data: {
+        status: "failed",
+        summary: {
+          error: {
+            message: "connector failed"
+          }
+        }
       }
     });
   });

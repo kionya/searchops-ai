@@ -338,10 +338,22 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(202);
     const body = response.json();
+    expect(body.connectorSyncRun).toMatchObject({
+      id: "sync_0001",
+      organizationId: "org_seed",
+      siteId: "site_seed",
+      status: "queued",
+      providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
+      requestedByUserId: "user_connector",
+      fixture: true,
+      endedAt: null,
+      summary: null
+    });
     expect(body.job).toMatchObject({
       id: "job_0001",
       name: "connector-sync",
       payload: {
+        connectorSyncRunId: "sync_0001",
         organizationId: "org_seed",
         siteId: "site_seed",
         siteDomain: "exampleclinic.com",
@@ -364,7 +376,13 @@ describe("api foundation", () => {
     });
 
     expect(response.statusCode).toBe(202);
+    expect(response.json().connectorSyncRun).toMatchObject({
+      id: "sync_0001",
+      providers: ["pagespeed", "cms"],
+      status: "queued"
+    });
     expect(response.json().job.payload).toMatchObject({
+      connectorSyncRunId: "sync_0001",
       providers: ["pagespeed", "cms"]
     });
     expect(connectorSyncQueue.listQueuedConnectorSyncJobs()[0]?.payload.providers).toEqual([

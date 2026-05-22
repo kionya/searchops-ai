@@ -15,6 +15,7 @@ model Organization {
   users           User[]
   sites           Site[]
   workOrders      WorkOrder[]
+  connectorSyncRuns ConnectorSyncRun[]
   aiPrompts       AiPrompt[]
   complianceFlags ComplianceFlag[]
 }
@@ -46,6 +47,7 @@ model Site {
   crawlRuns       CrawlRun[]
   urls            UrlRecord[]
   workOrders      WorkOrder[]
+  connectorSyncRuns ConnectorSyncRun[]
   keywords        Keyword[]
   contentBriefs   ContentBrief[]
   complianceFlags ComplianceFlag[]
@@ -86,6 +88,46 @@ model UrlRecord {
 
   @@unique([siteId, url])
   @@index([crawlRunId])
+}
+
+model ConnectorSyncRun {
+  id                String   @id @default(cuid())
+  organizationId    String
+  siteId            String
+  status            String   @default("queued")
+  providers         Json     @default("[]")
+  requestedByUserId String
+  fixture           Boolean  @default(true)
+  startedAt         DateTime @default(now())
+  endedAt           DateTime?
+  summary           Json?
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  results      ConnectorSyncResult[]
+
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model ConnectorSyncResult {
+  id          String   @id @default(cuid())
+  syncRunId   String
+  provider    String
+  status      String
+  fetchedAt   DateTime
+  fixture     Boolean  @default(true)
+  recordCount Int      @default(0)
+  records     Json     @default("[]")
+  createdAt   DateTime @default(now())
+
+  syncRun ConnectorSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@unique([syncRunId, provider])
+  @@index([provider])
+  @@index([status])
 }
 
 model SeoIssue {

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   ConnectorProviderListSchema,
+  ConnectorSyncJobResultSchema,
   CreateCrawlRunRequestSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
   CreateSiteRequestSchema,
+  ConnectorSyncRunSchema,
+  ConnectorSyncResultSchema,
   ConnectorProviderSchema,
   ConnectorRecordSchema,
   ConnectorRunResultSchema,
@@ -255,6 +258,7 @@ describe("types foundation", () => {
 
   it("defaults connector sync job providers", () => {
     const parsed = ConnectorSyncJobPayloadSchema.parse({
+      connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteId: "site_1",
       siteDomain: "Example.com",
@@ -263,6 +267,7 @@ describe("types foundation", () => {
     });
 
     expect(parsed).toMatchObject({
+      connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteDomain: "example.com",
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"]
@@ -289,6 +294,7 @@ describe("types foundation", () => {
           id: "job_1",
           name: "connector-sync",
           payload: {
+            connectorSyncRunId: "sync_1",
             organizationId: "org_1",
             siteId: "site_1",
             siteDomain: "example.com",
@@ -296,9 +302,25 @@ describe("types foundation", () => {
             fetchedAt: "2026-05-22T00:00:00.000Z",
             providers: ["pagespeed", "cms"]
           }
+        },
+        connectorSyncRun: {
+          id: "sync_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          status: "queued",
+          providers: ["pagespeed", "cms"],
+          requestedByUserId: "user_1",
+          fixture: true,
+          startedAt: "2026-05-22T00:00:00.000Z",
+          endedAt: null,
+          summary: null
         }
       }),
     ).toMatchObject({
+      connectorSyncRun: {
+        id: "sync_1",
+        status: "queued"
+      },
       job: {
         name: "connector-sync",
         payload: {
@@ -306,6 +328,99 @@ describe("types foundation", () => {
         }
       }
     });
+  });
+
+  it("validates connector sync run history records", () => {
+    expect(
+      ConnectorSyncRunSchema.parse({
+        id: "sync_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        status: "completed",
+        providers: ["gsc"],
+        requestedByUserId: "user_1",
+        fixture: true,
+        startedAt: "2026-05-22T00:00:00.000Z",
+        endedAt: "2026-05-22T00:01:00.000Z",
+        summary: {
+          failedProviders: 0,
+          okProviders: 1,
+          partialProviders: 0,
+          recordCountsByProvider: {
+            bing: 0,
+            cms: 0,
+            ga4: 0,
+            gsc: 1,
+            pagespeed: 0
+          },
+          totalProviders: 1,
+          totalRecords: 1
+        }
+      }),
+    ).toMatchObject({ status: "completed" });
+  });
+
+  it("validates persisted connector sync results and job output", () => {
+    const runResult = {
+      provider: "pagespeed",
+      status: "ok",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: true,
+      records: [
+        {
+          provider: "pagespeed",
+          url: "https://example.com/",
+          strategy: "mobile",
+          performanceScore: 91,
+          accessibilityScore: 88,
+          seoScore: 95,
+          largestContentfulPaintMs: 2120,
+          cumulativeLayoutShift: 0.03,
+          interactionToNextPaintMs: 180,
+          fetchedAt: "2026-05-22T00:00:00.000Z"
+        }
+      ]
+    };
+    const summary = {
+      failedProviders: 0,
+      okProviders: 1,
+      partialProviders: 0,
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 1
+      },
+      totalProviders: 1,
+      totalRecords: 1
+    };
+
+    expect(
+      ConnectorSyncResultSchema.parse({
+        id: "result_1",
+        syncRunId: "sync_1",
+        provider: "pagespeed",
+        status: "ok",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: true,
+        recordCount: 1,
+        records: runResult.records,
+        createdAt: "2026-05-22T00:00:00.000Z"
+      }),
+    ).toMatchObject({ provider: "pagespeed", recordCount: 1 });
+    expect(
+      ConnectorSyncJobResultSchema.parse({
+        connectorSyncRunId: "sync_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        results: [runResult],
+        summary
+      }),
+    ).toMatchObject({ summary: { totalRecords: 1 } });
   });
 
   it("rejects connector run results with mismatched record providers", () => {

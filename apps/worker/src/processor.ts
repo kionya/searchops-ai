@@ -4,12 +4,21 @@ import {
   type ConnectorBatchSyncResult
 } from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
-import { markCrawlRunFailed, persistCrawlJobResult, type CrawlPersistenceClient } from "@searchops/db";
+import {
+  markConnectorSyncRunFailed,
+  markCrawlRunFailed,
+  persistConnectorSyncJobResult,
+  persistCrawlJobResult,
+  type ConnectorSyncPersistenceClient,
+  type CrawlPersistenceClient
+} from "@searchops/db";
 import {
   ConnectorSyncJobPayloadSchema,
+  ConnectorSyncJobResultSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   type ConnectorSyncJobPayload,
+  type ConnectorSyncJobResult,
   type CrawlJobPageInput,
   type CrawlJobPayload,
   type CrawlJobResult
@@ -21,14 +30,6 @@ export interface ProcessAndPersistCrawlJobOptions {
 
 export interface ProcessConnectorSyncJobOptions {
   readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
-}
-
-export interface ConnectorSyncJobResult extends ConnectorBatchSyncResult {
-  readonly fetchedAt: string;
-  readonly organizationId: string;
-  readonly requestedByUserId: string;
-  readonly siteDomain: string;
-  readonly siteId: string;
 }
 
 export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
@@ -64,7 +65,8 @@ export async function processConnectorSyncJob(
     providers: payload.providers
   });
 
-  return {
+  return ConnectorSyncJobResultSchema.parse({
+    connectorSyncRunId: payload.connectorSyncRunId,
     fetchedAt: payload.fetchedAt,
     organizationId: payload.organizationId,
     requestedByUserId: payload.requestedByUserId,
@@ -72,7 +74,26 @@ export async function processConnectorSyncJob(
     siteId: payload.siteId,
     results: result.results,
     summary: result.summary
-  };
+  });
+}
+
+export async function processAndPersistConnectorSyncJob(
+  input: ConnectorSyncJobPayload,
+  persistenceClient: ConnectorSyncPersistenceClient,
+  options: ProcessConnectorSyncJobOptions = {},
+): Promise<ConnectorSyncJobResult> {
+  const payload = ConnectorSyncJobPayloadSchema.parse(input);
+  try {
+    const result = await processConnectorSyncJob(payload, options);
+    await persistConnectorSyncJobResult(persistenceClient, result);
+    return result;
+  } catch (error) {
+    await markConnectorSyncRunFailed(persistenceClient, {
+      connectorSyncRunId: payload.connectorSyncRunId,
+      error
+    });
+    throw error;
+  }
 }
 
 export async function processAndPersistCrawlJob(
