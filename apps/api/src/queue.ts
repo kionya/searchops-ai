@@ -1,7 +1,12 @@
 import {
+  ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
+  QueuedConnectorSyncJobSchema,
   QueuedCrawlJobSchema,
+  connectorSyncJobName,
+  type ConnectorSyncJobPayload,
   type CrawlJobPayload,
+  type QueuedConnectorSyncJob,
   type QueuedCrawlJob
 } from "@searchops/types";
 
@@ -9,8 +14,16 @@ export interface CrawlRunQueue {
   enqueueCrawl(payload: CrawlJobPayload): Promise<QueuedCrawlJob>;
 }
 
+export interface ConnectorSyncQueue {
+  enqueueConnectorSync(payload: ConnectorSyncJobPayload): Promise<QueuedConnectorSyncJob>;
+}
+
 export interface MemoryCrawlRunQueue extends CrawlRunQueue {
   listQueuedCrawlJobs(): readonly QueuedCrawlJob[];
+}
+
+export interface MemoryConnectorSyncQueue extends ConnectorSyncQueue {
+  listQueuedConnectorSyncJobs(): readonly QueuedConnectorSyncJob[];
 }
 
 function createJobId(index: number) {
@@ -34,6 +47,28 @@ export function createMemoryCrawlRunQueue(): MemoryCrawlRunQueue {
     },
 
     listQueuedCrawlJobs() {
+      return jobs;
+    }
+  };
+}
+
+export function createMemoryConnectorSyncQueue(): MemoryConnectorSyncQueue {
+  const jobs: QueuedConnectorSyncJob[] = [];
+  let jobCounter = 1;
+
+  return {
+    async enqueueConnectorSync(payload) {
+      const job = QueuedConnectorSyncJobSchema.parse({
+        id: createJobId(jobCounter),
+        name: connectorSyncJobName,
+        payload: ConnectorSyncJobPayloadSchema.parse(payload)
+      });
+      jobCounter += 1;
+      jobs.push(job);
+      return job;
+    },
+
+    listQueuedConnectorSyncJobs() {
       return jobs;
     }
   };

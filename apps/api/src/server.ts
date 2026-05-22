@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { ZodError, z } from "zod";
 
 import {
+  CreateConnectorSyncRunRequestSchema,
+  CreateConnectorSyncRunResponseSchema,
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
   CreateOrganizationRequestSchema,
@@ -21,7 +23,12 @@ import {
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
 import { resolveMockUserContext } from "./auth.js";
-import { type CrawlRunQueue, createMemoryCrawlRunQueue } from "./queue.js";
+import {
+  type ConnectorSyncQueue,
+  type CrawlRunQueue,
+  createMemoryConnectorSyncQueue,
+  createMemoryCrawlRunQueue
+} from "./queue.js";
 import { type SearchOpsRepository, createMemoryRepository } from "./repository.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
@@ -30,6 +37,7 @@ const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) })
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
   readonly crawlRunQueue?: CrawlRunQueue;
+  readonly connectorSyncQueue?: ConnectorSyncQueue;
 }
 
 function notFound(message: string) {
@@ -39,6 +47,7 @@ function notFound(message: string) {
 export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
+  const connectorSyncQueue = options.connectorSyncQueue ?? createMemoryConnectorSyncQueue();
   const server = Fastify({ logger: false });
 
   server.setErrorHandler((error: unknown, _request, reply) => {
@@ -154,6 +163,28 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     });
 
     reply.status(202).send(CreateCrawlRunResponseSchema.parse({ crawlRun, job }));
+  });
+
+  server.post("/sites/:id/connector-sync-runs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateConnectorSyncRunRequestSchema.parse(request.body ?? {});
+    const userContext = resolveMockUserContext(request);
+    const job = await connectorSyncQueue.enqueueConnectorSync({
+      organizationId: site.organizationId,
+      siteId: site.id,
+      siteDomain: site.domain,
+      requestedByUserId: userContext.userId,
+      fetchedAt: new Date().toISOString(),
+      providers: input.providers
+    });
+
+    reply.status(202).send(CreateConnectorSyncRunResponseSchema.parse({ job }));
   });
 
   server.patch("/sites/:id", async (request, reply) => {

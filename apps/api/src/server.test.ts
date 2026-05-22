@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Organization, SeoIssue, Site, WorkOrder } from "@searchops/types";
 
-import { createMemoryCrawlRunQueue } from "./queue.js";
+import { createMemoryConnectorSyncQueue, createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 
@@ -84,6 +84,19 @@ function buildCrawlRunTestContext() {
   });
 
   return { server, crawlRunQueue };
+}
+
+function buildConnectorSyncTestContext() {
+  const connectorSyncQueue = createMemoryConnectorSyncQueue();
+  const server = buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite]
+    }),
+    connectorSyncQueue
+  });
+
+  return { server, connectorSyncQueue };
 }
 
 function buildWorkOrderTestServer() {
@@ -310,6 +323,82 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "not_found", message: "Site not found" });
+  });
+
+  it("enqueues connector sync jobs with default providers", async () => {
+    const { server, connectorSyncQueue } = buildConnectorSyncTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/connector-sync-runs",
+      headers: {
+        "x-mock-user-id": "user_connector"
+      },
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.job).toMatchObject({
+      id: "job_0001",
+      name: "connector-sync",
+      payload: {
+        organizationId: "org_seed",
+        siteId: "site_seed",
+        siteDomain: "exampleclinic.com",
+        requestedByUserId: "user_connector",
+        providers: ["gsc", "ga4", "pagespeed", "bing", "cms"]
+      }
+    });
+    expect(body.job.payload.fetchedAt).toEqual(expect.any(String));
+    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()).toHaveLength(1);
+  });
+
+  it("enqueues connector sync jobs for selected providers", async () => {
+    const { server, connectorSyncQueue } = buildConnectorSyncTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/connector-sync-runs",
+      payload: {
+        providers: ["pagespeed", "cms"]
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json().job.payload).toMatchObject({
+      providers: ["pagespeed", "cms"]
+    });
+    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()[0]?.payload.providers).toEqual([
+      "pagespeed",
+      "cms"
+    ]);
+  });
+
+  it("validates connector sync provider lists", async () => {
+    const { server, connectorSyncQueue } = buildConnectorSyncTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/connector-sync-runs",
+      payload: {
+        providers: ["gsc", "gsc"]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("providers");
+    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()).toHaveLength(0);
+  });
+
+  it("returns 404 when creating connector sync jobs for a missing site", async () => {
+    const { server, connectorSyncQueue } = buildConnectorSyncTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/connector-sync-runs",
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "not_found", message: "Site not found" });
+    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()).toHaveLength(0);
   });
 
   it("validates crawl run request payloads", async () => {
