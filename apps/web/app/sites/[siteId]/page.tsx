@@ -12,6 +12,10 @@ import {
   summarizeSiteOverview,
   type SiteOverviewKpis
 } from "../../../src/site-overview-kpis";
+import {
+  demoWorkOrders,
+  summarizeWorkOrders
+} from "../../../src/work-order-board";
 
 interface SiteOverviewPageProps {
   readonly params: Promise<{
@@ -23,6 +27,7 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
   const { siteId } = await params;
   const kpis = calculateSiteOverviewKpis(demoSiteOverviewInput);
   const summary = summarizeSiteOverview(demoSiteOverviewInput);
+  const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
 
   return (
     <section aria-labelledby="site-overview-heading">
@@ -62,9 +67,66 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
           <ActionLink href={getSiteDashboardPath(siteId, "crawls")} label="Check crawl history" />
         </div>
       </section>
+      <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
       <p style={{ color: "#64748b", fontSize: 13, marginTop: 14 }}>
         KPI values use deterministic dashboard fixtures until live API fetching is wired.
       </p>
+    </section>
+  );
+}
+
+function WorkOrderSummaryBand({
+  siteId,
+  summary
+}: {
+  readonly siteId: string;
+  readonly summary: ReturnType<typeof summarizeWorkOrders>;
+}) {
+  const stats = [
+    { label: "Active", value: summary.active },
+    { label: "Urgent", value: summary.urgent },
+    { label: "In review", value: summary.inReview },
+    { label: "Blocked", value: summary.blocked }
+  ] as const;
+
+  return (
+    <section
+      aria-labelledby="work-order-summary-heading"
+      style={{ borderTop: "1px solid #e5e7eb", marginTop: 18, paddingTop: 18 }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          display: "grid",
+          gap: 14,
+          gridTemplateColumns: "minmax(0, 1fr) auto"
+        }}
+      >
+        <div>
+          <h3 id="work-order-summary-heading" style={{ fontSize: 18, margin: "0 0 6px" }}>
+            Work order summary
+          </h3>
+          <p style={{ color: "#64748b", margin: 0 }}>
+            Overview stays decision-only; the full Kanban and list views live on the work board.
+          </p>
+        </div>
+        <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="Open work board" />
+      </div>
+      <dl
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+          margin: "14px 0 0"
+        }}
+      >
+        {stats.map((stat) => (
+          <div key={stat.label}>
+            <dt style={{ color: "#64748b", fontSize: 12 }}>{stat.label}</dt>
+            <dd style={{ fontSize: 24, fontWeight: 800, margin: "5px 0 0" }}>{stat.value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }
