@@ -1,5 +1,5 @@
-import { dashboardPlaceholders, PlaceholderPage } from "../../../../src/dashboard-shell";
+import { FutureModulePage } from "../../../../src/future-module-skeletons";
 
 export default function CompliancePage() {
-  return <PlaceholderPage content={dashboardPlaceholders.compliance} />;
+  return <FutureModulePage moduleKey="compliance" />;
 }

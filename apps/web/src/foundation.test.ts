@@ -8,6 +8,11 @@ import {
   siteRouteItems
 } from "./dashboard-shell";
 import {
+  futureModuleKeys,
+  futureModuleSkeletons,
+  summarizeFutureModules
+} from "./future-module-skeletons";
+import {
   calculateSiteOverviewKpis,
   demoSiteOverviewInput,
   summarizeSiteOverview
@@ -156,5 +161,18 @@ describe("web foundation", () => {
       "IMAGE_ALT_MISSING",
       "CANONICAL_MISSING"
     ]);
+  });
+
+  it("defines deterministic future module skeletons", () => {
+    const modules = futureModuleKeys.map((key) => futureModuleSkeletons[key]);
+
+    expect(futureModuleKeys).toEqual(["content", "geo", "compliance"]);
+    expect(summarizeFutureModules(modules)).toEqual({
+      total: 3,
+      planned: 3,
+      placeholderMetrics: 9,
+      emptyStates: 3
+    });
+    expect(futureModuleSkeletons.compliance.dependsOn).toContain("Medical ad rules");
   });
 });
