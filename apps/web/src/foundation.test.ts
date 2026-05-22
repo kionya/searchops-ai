@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
 
@@ -7,6 +7,13 @@ import {
   getSiteDashboardPath,
   siteRouteItems
 } from "./dashboard-shell";
+import {
+  createDemoConnectorSyncHistory,
+  formatSyncDuration,
+  getConnectorSyncRunTone,
+  loadConnectorSyncHistory,
+  summarizeConnectorSyncHistory
+} from "./connector-sync-history";
 import {
   futureModuleKeys,
   futureModuleSkeletons,
@@ -35,6 +42,11 @@ import {
 } from "./work-order-board";
 
 describe("web foundation", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it("can import shared workspace types", () => {
     expect(productName).toBe("SearchOps AI");
   });
@@ -83,12 +95,14 @@ describe("web foundation", () => {
       "urls",
       "issues",
       "workorders",
+      "connectors",
       "content",
       "geo",
       "compliance"
     ]);
     expect(getSiteDashboardPath("site_1", "")).toBe("/sites/site_1");
     expect(getSiteDashboardPath("site_1", "workorders")).toBe("/sites/site_1/workorders");
+    expect(getSiteDashboardPath("site_1", "connectors")).toBe("/sites/site_1/connectors");
   });
 
   it("keeps placeholder modules wired for non-workorder dashboard sections", () => {
@@ -100,6 +114,65 @@ describe("web foundation", () => {
       "issues",
       "urls"
     ]);
+  });
+
+  it("summarizes deterministic connector sync history", () => {
+    const history = createDemoConnectorSyncHistory("site_1");
+
+    expect(summarizeConnectorSyncHistory(history)).toEqual({
+      completed: 1,
+      failed: 1,
+      latestStatus: "completed",
+      okResults: 4,
+      partial: 1,
+      queued: 0,
+      total: 3,
+      totalRecords: 5
+    });
+    expect(getConnectorSyncRunTone("partial")).toBe("partial");
+    expect(formatSyncDuration("2026-05-22T09:00:00.000Z", "2026-05-22T09:01:18.000Z")).toBe(
+      "1m 18s",
+    );
+  });
+
+  it("loads connector sync history through the API response contracts", async () => {
+    const fixture = createDemoConnectorSyncHistory("site_1");
+    const connectorSyncRun = fixture.runs[0];
+    const connectorSyncResult = connectorSyncRun
+      ? fixture.resultsByRunId[connectorSyncRun.id]?.[0]
+      : undefined;
+    if (!connectorSyncRun || !connectorSyncResult) {
+      throw new Error("Connector sync API fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.endsWith("/sites/site_1/connector-sync-runs")) {
+          return Response.json({
+            connectorSyncRuns: [connectorSyncRun]
+          });
+        }
+
+        if (url.endsWith(`/connector-sync-runs/${connectorSyncRun.id}`)) {
+          return Response.json({
+            connectorSyncRun,
+            results: [connectorSyncResult]
+          });
+        }
+
+        return new Response(null, { status: 404 });
+      }),
+    );
+
+    const history = await loadConnectorSyncHistory("site_1");
+
+    expect(history.source).toBe("api");
+    expect(history.runs).toHaveLength(1);
+    expect(history.resultsByRunId[connectorSyncRun.id]).toHaveLength(1);
   });
 
   it("calculates deterministic site overview KPIs", () => {
