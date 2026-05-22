@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CrawlPersistenceClient } from "@searchops/db";
 
-import { createCrawlJobProcessor } from "./runtime.js";
+import { createConnectorSyncJobProcessor, createCrawlJobProcessor } from "./runtime.js";
 
 const html = `
 <!doctype html>
@@ -63,5 +63,53 @@ describe("worker runtime", () => {
     });
     expect(upserts).toHaveLength(1);
     expect(updates).toHaveLength(1);
+  });
+
+  it("processes BullMQ connector sync job data through fixture sync", async () => {
+    const processor = createConnectorSyncJobProcessor({
+      async syncConnectors(input) {
+        expect(input).toEqual({
+          fetchedAt: "2026-05-22T00:00:00.000Z",
+          providers: ["gsc", "ga4"]
+        });
+
+        return {
+          results: [],
+          summary: {
+            failedProviders: 0,
+            okProviders: 0,
+            partialProviders: 0,
+            recordCountsByProvider: {
+              bing: 0,
+              cms: 0,
+              ga4: 0,
+              gsc: 0,
+              pagespeed: 0
+            },
+            totalProviders: 0,
+            totalRecords: 0
+          }
+        };
+      }
+    });
+
+    const result = await processor({
+      data: {
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        providers: ["gsc", "ga4"]
+      }
+    });
+
+    expect(result).toMatchObject({
+      organizationId: "org_1",
+      siteId: "site_1",
+      summary: {
+        totalRecords: 0
+      }
+    });
   });
 });

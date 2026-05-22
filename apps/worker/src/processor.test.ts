@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { CrawlPersistenceClient } from "@searchops/db";
 
-import { processAndPersistCrawlJob, processCrawlJob } from "./processor.js";
+import {
+  processAndPersistCrawlJob,
+  processConnectorSyncJob,
+  processCrawlJob
+} from "./processor.js";
 
 const normalHtml = `
 <!doctype html>
@@ -278,6 +282,79 @@ describe("processCrawlJob", () => {
             message: "crawl failed"
           }
         }
+      }
+    });
+  });
+
+  it("processes connector sync jobs through fixture batch sync", async () => {
+    const result = await processConnectorSyncJob({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      providers: ["pagespeed", "gsc"]
+    });
+
+    expect(result).toMatchObject({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      summary: {
+        failedProviders: 0,
+        okProviders: 2,
+        totalProviders: 2
+      }
+    });
+    expect(result.results.map((syncResult) => syncResult.provider)).toEqual(["gsc", "pagespeed"]);
+    expect(result.summary.totalRecords).toBeGreaterThan(0);
+  });
+
+  it("passes connector sync payload fields into the sync adapter", async () => {
+    const result = await processConnectorSyncJob(
+      {
+        organizationId: "org_2",
+        siteId: "site_2",
+        siteDomain: "example.org",
+        requestedByUserId: "user_2",
+        fetchedAt: "2026-05-22T01:00:00.000Z",
+        providers: ["cms"]
+      },
+      {
+        async syncConnectors(input) {
+          expect(input).toEqual({
+            fetchedAt: "2026-05-22T01:00:00.000Z",
+            providers: ["cms"]
+          });
+
+          return {
+            results: [],
+            summary: {
+              failedProviders: 0,
+              okProviders: 0,
+              partialProviders: 0,
+              recordCountsByProvider: {
+                bing: 0,
+                cms: 0,
+                ga4: 0,
+                gsc: 0,
+                pagespeed: 0
+              },
+              totalProviders: 0,
+              totalRecords: 0
+            }
+          };
+        }
+      },
+    );
+
+    expect(result).toMatchObject({
+      organizationId: "org_2",
+      siteId: "site_2",
+      summary: {
+        totalRecords: 0
       }
     });
   });
