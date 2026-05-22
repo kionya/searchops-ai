@@ -1,7 +1,7 @@
 import type { JobsOptions } from "bullmq";
-import type { CrawlJobPayload } from "@searchops/types";
+import type { ConnectorSyncJobPayload, CrawlJobPayload } from "@searchops/types";
 
-export const workerJobNames = ["crawl", "analyze", "generate", "recheck"] as const;
+export const workerJobNames = ["crawl", "connector-sync", "analyze", "generate", "recheck"] as const;
 
 export type WorkerJobName = (typeof workerJobNames)[number];
 
@@ -20,6 +20,7 @@ export interface RecheckJobPayload {
 
 export interface WorkerJobPayloadMap {
   readonly crawl: CrawlJobPayload;
+  readonly "connector-sync": ConnectorSyncJobPayload;
   readonly analyze: AnalyzeJobPayload;
   readonly generate: GenerateJobPayload;
   readonly recheck: RecheckJobPayload;

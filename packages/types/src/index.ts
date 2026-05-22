@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const productName = "SearchOps AI" as const;
 export const crawlQueueName = "searchops-crawl" as const;
+export const connectorQueueName = "searchops-connectors" as const;
+export const connectorSyncJobName = "connector-sync" as const;
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const IdSchema = z.string().min(1);
@@ -583,6 +585,17 @@ export const ConnectorProviderSchema = z.enum(["gsc", "ga4", "pagespeed", "bing"
 
 export type ConnectorProvider = z.infer<typeof ConnectorProviderSchema>;
 
+const DefaultConnectorProviders = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const;
+
+export const ConnectorProviderListSchema = z
+  .array(ConnectorProviderSchema)
+  .min(1)
+  .refine((providers) => new Set(providers).size === providers.length, {
+    message: "Connector providers must be unique"
+  });
+
+export type ConnectorProviderList = z.infer<typeof ConnectorProviderListSchema>;
+
 export const ConnectorAuthModeSchema = z.enum(["oauth", "api_key", "none"]);
 
 export type ConnectorAuthMode = z.infer<typeof ConnectorAuthModeSchema>;
@@ -684,6 +697,37 @@ export const ConnectorRunResultSchema = z.object({
 });
 
 export type ConnectorRunResult = z.infer<typeof ConnectorRunResultSchema>;
+
+export const ConnectorSyncJobPayloadSchema = z.object({
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  fetchedAt: IsoDateTimeSchema,
+  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders])
+});
+
+export type ConnectorSyncJobPayload = z.infer<typeof ConnectorSyncJobPayloadSchema>;
+
+export const QueuedConnectorSyncJobSchema = z.object({
+  id: IdSchema,
+  name: z.literal(connectorSyncJobName),
+  payload: ConnectorSyncJobPayloadSchema
+});
+
+export type QueuedConnectorSyncJob = z.infer<typeof QueuedConnectorSyncJobSchema>;
+
+export const CreateConnectorSyncRunRequestSchema = z.object({
+  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders])
+});
+
+export type CreateConnectorSyncRunRequest = z.infer<typeof CreateConnectorSyncRunRequestSchema>;
+
+export const CreateConnectorSyncRunResponseSchema = z.object({
+  job: QueuedConnectorSyncJobSchema
+});
+
+export type CreateConnectorSyncRunResponse = z.infer<typeof CreateConnectorSyncRunResponseSchema>;
 
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),
