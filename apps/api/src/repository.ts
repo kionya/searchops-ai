@@ -1,4 +1,6 @@
 import type {
+  ConnectorProviderList,
+  ConnectorSyncRun,
   CrawlRun,
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
@@ -12,6 +14,11 @@ import type {
   WorkOrder
 } from "@searchops/types";
 
+export interface CreateConnectorSyncRunInput {
+  providers: ConnectorProviderList;
+  requestedByUserId: string;
+}
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
@@ -24,6 +31,10 @@ export interface SearchOpsRepository {
   createCrawlRun(siteId: string, input: CreateCrawlRunRequest): Promise<CrawlRun | null>;
   getCrawlRun(id: string): Promise<CrawlRun | null>;
   listCrawlRuns(siteId: string): Promise<CrawlRun[]>;
+  createConnectorSyncRun(
+    siteId: string,
+    input: CreateConnectorSyncRunInput,
+  ): Promise<ConnectorSyncRun | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -34,6 +45,7 @@ export interface MemoryRepositorySeed {
   readonly organizations?: readonly Organization[];
   readonly sites?: readonly Site[];
   readonly crawlRuns?: readonly CrawlRun[];
+  readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
@@ -50,11 +62,13 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const organizations = new Map<string, Organization>();
   const sites = new Map<string, Site>();
   const crawlRuns = new Map<string, CrawlRun>();
+  const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
   let siteCounter = 1;
   let crawlRunCounter = 1;
+  let connectorSyncRunCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
     organizations.set(organization.id, organization);
@@ -69,6 +83,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const crawlRun of seed.crawlRuns ?? []) {
     crawlRuns.set(crawlRun.id, crawlRun);
     crawlRunCounter += 1;
+  }
+
+  for (const connectorSyncRun of seed.connectorSyncRuns ?? []) {
+    connectorSyncRuns.set(connectorSyncRun.id, connectorSyncRun);
+    connectorSyncRunCounter += 1;
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
@@ -180,6 +199,29 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       return [...crawlRuns.values()]
         .filter((crawlRun) => crawlRun.siteId === siteId)
         .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    },
+
+    async createConnectorSyncRun(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site) {
+        return null;
+      }
+
+      const connectorSyncRun: ConnectorSyncRun = {
+        id: createId("sync", connectorSyncRunCounter),
+        organizationId: site.organizationId,
+        siteId,
+        status: "queued",
+        providers: input.providers,
+        requestedByUserId: input.requestedByUserId,
+        fixture: true,
+        startedAt: nowIso(),
+        endedAt: null,
+        summary: null
+      };
+      connectorSyncRunCounter += 1;
+      connectorSyncRuns.set(connectorSyncRun.id, connectorSyncRun);
+      return connectorSyncRun;
     },
 
     async listWorkOrders(siteId) {

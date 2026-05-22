@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CrawlPersistenceClient } from "@searchops/db";
+import type { ConnectorSyncPersistenceClient, CrawlPersistenceClient } from "@searchops/db";
 
 import { createConnectorSyncJobProcessor, createCrawlJobProcessor } from "./runtime.js";
 
@@ -66,7 +66,26 @@ describe("worker runtime", () => {
   });
 
   it("processes BullMQ connector sync job data through fixture sync", async () => {
-    const processor = createConnectorSyncJobProcessor({
+    const runUpdates: unknown[] = [];
+    const resultUpserts: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          runUpdates.push(args);
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          resultUpserts.push(args);
+          return args;
+        }
+      }
+    };
+    const processor = createConnectorSyncJobProcessor(persistenceClient, {
       async syncConnectors(input) {
         expect(input).toEqual({
           fetchedAt: "2026-05-22T00:00:00.000Z",
@@ -95,6 +114,7 @@ describe("worker runtime", () => {
 
     const result = await processor({
       data: {
+        connectorSyncRunId: "sync_1",
         organizationId: "org_1",
         siteId: "site_1",
         siteDomain: "example.com",
@@ -103,8 +123,11 @@ describe("worker runtime", () => {
         providers: ["gsc", "ga4"]
       }
     });
+    expect(runUpdates).toHaveLength(1);
+    expect(resultUpserts).toHaveLength(0);
 
     expect(result).toMatchObject({
+      connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteId: "site_1",
       summary: {

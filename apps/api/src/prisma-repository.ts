@@ -1,9 +1,11 @@
 import {
+  ConnectorSyncRunSchema,
   CrawlRunSchema,
   OrganizationSchema,
   SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
+  type ConnectorSyncRun,
   type CrawlRun,
   type Organization,
   type SeoIssue,
@@ -19,6 +21,9 @@ type OrganizationRecord = Awaited<
 >;
 type SiteRecord = Awaited<ReturnType<SearchOpsPrismaClient["site"]["findFirst"]>>;
 type CrawlRunRecord = Awaited<ReturnType<SearchOpsPrismaClient["crawlRun"]["findFirst"]>>;
+type ConnectorSyncRunRecord = Awaited<
+  ReturnType<SearchOpsPrismaClient["connectorSyncRun"]["findFirst"]>
+>;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 
@@ -175,6 +180,29 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return crawlRuns.map(toCrawlRun);
     },
 
+    async createConnectorSyncRun(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true, organizationId: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      return toConnectorSyncRun(
+        await prisma.connectorSyncRun.create({
+          data: {
+            fixture: true,
+            organizationId: site.organizationId,
+            providers: input.providers,
+            requestedByUserId: input.requestedByUserId,
+            siteId,
+            status: "queued"
+          }
+        }),
+      );
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -302,6 +330,21 @@ function toCrawlRun(record: NonNullable<CrawlRunRecord>): CrawlRun {
 
 function toNullableCrawlRun(record: CrawlRunRecord): CrawlRun | null {
   return record === null ? null : toCrawlRun(record);
+}
+
+function toConnectorSyncRun(record: NonNullable<ConnectorSyncRunRecord>): ConnectorSyncRun {
+  return ConnectorSyncRunSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    status: record.status,
+    providers: record.providers,
+    requestedByUserId: record.requestedByUserId,
+    fixture: record.fixture,
+    startedAt: record.startedAt.toISOString(),
+    endedAt: record.endedAt?.toISOString() ?? null,
+    summary: record.summary
+  });
 }
 
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {

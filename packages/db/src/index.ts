@@ -19,6 +19,21 @@ export {
   type UrlRecordUpsertArgs
 } from "./crawl.js";
 
+export {
+  buildConnectorSyncResultUpsertArgs,
+  classifyConnectorSyncRunStatus,
+  createConnectorSyncRun,
+  createPrismaConnectorSyncPersistenceClient,
+  markConnectorSyncRunFailed,
+  persistConnectorSyncJobResult,
+  type ConnectorSyncPersistenceClient,
+  type ConnectorSyncResultUpsertArgs,
+  type ConnectorSyncRunCreateArgs,
+  type ConnectorSyncRunUpdateArgs,
+  type MarkConnectorSyncRunFailedOutput,
+  type PersistConnectorSyncJobResultOutput
+} from "./connector-sync.js";
+
 export const phaseOneSeedIds = {
   organizationId: "org_demo",
   userId: "user_demo_owner",

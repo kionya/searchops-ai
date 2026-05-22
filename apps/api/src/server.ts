@@ -175,7 +175,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     const input = CreateConnectorSyncRunRequestSchema.parse(request.body ?? {});
     const userContext = resolveMockUserContext(request);
+    const connectorSyncRun = await repository.createConnectorSyncRun(site.id, {
+      providers: input.providers,
+      requestedByUserId: userContext.userId
+    });
+    if (!connectorSyncRun) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
     const job = await connectorSyncQueue.enqueueConnectorSync({
+      connectorSyncRunId: connectorSyncRun.id,
       organizationId: site.organizationId,
       siteId: site.id,
       siteDomain: site.domain,
@@ -184,7 +194,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       providers: input.providers
     });
 
-    reply.status(202).send(CreateConnectorSyncRunResponseSchema.parse({ job }));
+    reply
+      .status(202)
+      .send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
   });
 
   server.patch("/sites/:id", async (request, reply) => {

@@ -26,6 +26,15 @@ export const seedFixture = {
     siteId: "site_demo_rejuel",
     status: "queued",
     summary: { pagesDiscovered: 0, pagesAnalyzed: 0 }
+  },
+  connectorSyncRun: {
+    id: "sync_demo_initial",
+    organizationId: "org_demo",
+    siteId: "site_demo_rejuel",
+    status: "queued",
+    providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
+    requestedByUserId: "user_demo_owner",
+    fixture: true
   }
 } as const;
 
@@ -77,6 +86,17 @@ async function main() {
         summary: seedFixture.crawlRun.summary
       },
       create: seedFixture.crawlRun
+    });
+
+    await prisma.connectorSyncRun.upsert({
+      where: { id: seedFixture.connectorSyncRun.id },
+      update: {
+        fixture: seedFixture.connectorSyncRun.fixture,
+        providers: seedFixture.connectorSyncRun.providers,
+        requestedByUserId: seedFixture.connectorSyncRun.requestedByUserId,
+        status: seedFixture.connectorSyncRun.status
+      },
+      create: seedFixture.connectorSyncRun
     });
 
     console.log("SearchOps AI seed fixture inserted.");

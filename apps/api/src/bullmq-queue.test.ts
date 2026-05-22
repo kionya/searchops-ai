@@ -63,6 +63,7 @@ describe("BullMQ queue adapters", () => {
     const connectorQueue = createBullMqConnectorSyncQueueFromQueue(queue);
 
     const job = await connectorQueue.enqueueConnectorSync({
+      connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteId: "site_1",
       siteDomain: "example.com",
@@ -75,6 +76,7 @@ describe("BullMQ queue adapters", () => {
       id: "43",
       name: "connector-sync",
       payload: {
+        connectorSyncRunId: "sync_1",
         siteId: "site_1",
         providers: ["gsc", "pagespeed"]
       }

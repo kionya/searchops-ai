@@ -23,6 +23,7 @@ describe("worker foundation", () => {
         pages: []
       },
       "connector-sync": {
+        connectorSyncRunId: "sync_1",
         organizationId: "org_1",
         siteId: "site_1",
         siteDomain: "example.com",

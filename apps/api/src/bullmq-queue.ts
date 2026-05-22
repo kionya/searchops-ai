@@ -92,7 +92,7 @@ export function createBullMqConnectorSyncQueueFromQueue(
       const job = await queue.add(connectorSyncJobName, payload, defaultJobOptions);
 
       return QueuedConnectorSyncJobSchema.parse({
-        id: String(job.id ?? `${payload.siteId}:connector-sync`),
+        id: String(job.id ?? `${payload.connectorSyncRunId}:connector-sync`),
         name: connectorSyncJobName,
         payload
       });

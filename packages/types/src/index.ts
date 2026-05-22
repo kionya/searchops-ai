@@ -604,6 +604,16 @@ export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
+export const ConnectorSyncRunStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "partial",
+  "failed"
+]);
+
+export type ConnectorSyncRunStatus = z.infer<typeof ConnectorSyncRunStatusSchema>;
+
 export const GscSearchMetricSchema = z.object({
   provider: z.literal("gsc"),
   siteUrl: NormalizedUrlSchema,
@@ -698,7 +708,67 @@ export const ConnectorRunResultSchema = z.object({
 
 export type ConnectorRunResult = z.infer<typeof ConnectorRunResultSchema>;
 
+export const ConnectorRecordCountsByProviderSchema = z.object({
+  bing: NonNegativeIntegerSchema,
+  cms: NonNegativeIntegerSchema,
+  ga4: NonNegativeIntegerSchema,
+  gsc: NonNegativeIntegerSchema,
+  pagespeed: NonNegativeIntegerSchema
+});
+
+export type ConnectorRecordCountsByProvider = z.infer<
+  typeof ConnectorRecordCountsByProviderSchema
+>;
+
+export const ConnectorBatchSyncSummarySchema = z.object({
+  failedProviders: NonNegativeIntegerSchema,
+  okProviders: NonNegativeIntegerSchema,
+  partialProviders: NonNegativeIntegerSchema,
+  recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
+  totalProviders: NonNegativeIntegerSchema,
+  totalRecords: NonNegativeIntegerSchema
+});
+
+export type ConnectorBatchSyncSummary = z.infer<typeof ConnectorBatchSyncSummarySchema>;
+
+export const ConnectorSyncRunSummarySchema = z.union([
+  ConnectorBatchSyncSummarySchema,
+  z.record(z.unknown())
+]);
+
+export type ConnectorSyncRunSummary = z.infer<typeof ConnectorSyncRunSummarySchema>;
+
+export const ConnectorSyncResultSchema = z.object({
+  id: IdSchema,
+  syncRunId: IdSchema,
+  provider: ConnectorProviderSchema,
+  status: ConnectorSyncStatusSchema,
+  fetchedAt: IsoDateTimeSchema,
+  fixture: z.boolean(),
+  recordCount: NonNegativeIntegerSchema,
+  records: z.array(ConnectorRecordSchema),
+  createdAt: IsoDateTimeSchema
+});
+
+export type ConnectorSyncResult = z.infer<typeof ConnectorSyncResultSchema>;
+
+export const ConnectorSyncRunSchema = z.object({
+  id: IdSchema,
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  status: ConnectorSyncRunStatusSchema,
+  providers: ConnectorProviderListSchema,
+  requestedByUserId: IdSchema,
+  fixture: z.boolean(),
+  startedAt: IsoDateTimeSchema,
+  endedAt: IsoDateTimeSchema.nullable(),
+  summary: ConnectorSyncRunSummarySchema.nullable()
+});
+
+export type ConnectorSyncRun = z.infer<typeof ConnectorSyncRunSchema>;
+
 export const ConnectorSyncJobPayloadSchema = z.object({
+  connectorSyncRunId: IdSchema,
   organizationId: IdSchema,
   siteId: IdSchema,
   siteDomain: DomainSchema,
@@ -708,6 +778,19 @@ export const ConnectorSyncJobPayloadSchema = z.object({
 });
 
 export type ConnectorSyncJobPayload = z.infer<typeof ConnectorSyncJobPayloadSchema>;
+
+export const ConnectorSyncJobResultSchema = z.object({
+  connectorSyncRunId: IdSchema,
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  fetchedAt: IsoDateTimeSchema,
+  results: z.array(ConnectorRunResultSchema),
+  summary: ConnectorBatchSyncSummarySchema
+});
+
+export type ConnectorSyncJobResult = z.infer<typeof ConnectorSyncJobResultSchema>;
 
 export const QueuedConnectorSyncJobSchema = z.object({
   id: IdSchema,
@@ -724,6 +807,7 @@ export const CreateConnectorSyncRunRequestSchema = z.object({
 export type CreateConnectorSyncRunRequest = z.infer<typeof CreateConnectorSyncRunRequestSchema>;
 
 export const CreateConnectorSyncRunResponseSchema = z.object({
+  connectorSyncRun: ConnectorSyncRunSchema,
   job: QueuedConnectorSyncJobSchema
 });
 
