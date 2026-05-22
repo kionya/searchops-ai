@@ -1,5 +1,5 @@
-import { dashboardPlaceholders, PlaceholderPage } from "../../../../src/dashboard-shell";
+import { FutureModulePage } from "../../../../src/future-module-skeletons";
 
 export default function GeoPage() {
-  return <PlaceholderPage content={dashboardPlaceholders.geo} />;
+  return <FutureModulePage moduleKey="geo" />;
 }

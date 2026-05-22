@@ -1,5 +1,5 @@
-import { dashboardPlaceholders, PlaceholderPage } from "../../../../src/dashboard-shell";
+import { FutureModulePage } from "../../../../src/future-module-skeletons";
 
 export default function ContentPage() {
-  return <PlaceholderPage content={dashboardPlaceholders.content} />;
+  return <FutureModulePage moduleKey="content" />;
 }
