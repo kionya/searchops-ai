@@ -3,6 +3,11 @@ import type { CSSProperties } from "react";
 import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/types";
 
 import {
+  MetricCard,
+  metricGridStyle,
+  SectionHeader
+} from "../../../../src/dashboard-shell";
+import {
   canRecheckWorkOrder,
   demoWorkOrders,
   formatDate,
@@ -65,25 +70,26 @@ export default function WorkOrdersPage() {
 
   return (
     <>
+      <SectionHeader
+        description="Kanban and list views for generated SEO work orders, owner handoff, due dates, and recheck actions."
+        eyebrow="Work Orders"
+        title="Work order board"
+      />
       <section
         aria-label="Work order metrics"
-        style={{
-          display: "grid",
-          gap: 12,
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))"
-        }}
+        style={metricGridStyle}
       >
-        <Metric label="Total" value={summary.total} />
-        <Metric label="Urgent" value={summary.urgent} />
-        <Metric label="In review" value={summary.inReview} />
-        <Metric label="Blocked" value={summary.blocked} />
+        <MetricCard label="Total" value={String(summary.total)} />
+        <MetricCard label="Urgent" value={String(summary.urgent)} />
+        <MetricCard label="In review" value={String(summary.inReview)} />
+        <MetricCard label="Blocked" value={String(summary.blocked)} />
       </section>
 
       <section aria-labelledby="board-heading" style={{ marginTop: 28 }}>
         <div style={sectionHeaderStyle}>
           <div>
             <h2 id="board-heading" style={{ fontSize: 22, margin: 0 }}>
-              Kanban
+              Kanban board
             </h2>
             <p style={{ ...mutedText, marginTop: 4 }}>{summary.active} active work orders</p>
           </div>
@@ -207,15 +213,6 @@ const tableCellStyle: CSSProperties = {
   padding: 12,
   verticalAlign: "top"
 };
-
-function Metric({ label, value }: { readonly label: string; readonly value: number }) {
-  return (
-    <article style={{ border: "1px solid #e5e7eb", borderRadius: 8, minHeight: 86, padding: 14 }}>
-      <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 8px" }}>{label}</p>
-      <strong style={{ display: "block", fontSize: 28, lineHeight: 1 }}>{value}</strong>
-    </article>
-  );
-}
 
 function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
   return (
