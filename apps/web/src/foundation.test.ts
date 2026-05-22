@@ -13,6 +13,15 @@ import {
   summarizeSiteOverview
 } from "./site-overview-kpis";
 import {
+  demoCrawlRunRows,
+  demoIssueListRows,
+  demoUrlInventoryRows,
+  formatDuration,
+  summarizeCrawlRuns,
+  summarizeIssues,
+  summarizeUrlInventory
+} from "./site-detail-views";
+import {
   canRecheckWorkOrder,
   demoSite,
   demoWorkOrders,
@@ -109,5 +118,43 @@ describe("web foundation", () => {
       totalUrls: 8,
       openIssues: 4
     });
+  });
+
+  it("summarizes deterministic crawl history rows", () => {
+    expect(summarizeCrawlRuns(demoCrawlRunRows)).toEqual({
+      total: 5,
+      completed: 4,
+      failed: 1,
+      pagesCrawled: 31,
+      latestStatus: "failed"
+    });
+    expect(formatDuration(252)).toBe("4m 12s");
+  });
+
+  it("summarizes deterministic URL inventory rows", () => {
+    expect(summarizeUrlInventory(demoUrlInventoryRows)).toEqual({
+      total: 8,
+      indexable: 6,
+      nonIndexable: 2,
+      withIssues: 4,
+      healthy: 2
+    });
+  });
+
+  it("summarizes deterministic issue list rows", () => {
+    expect(summarizeIssues(demoIssueListRows)).toEqual({
+      total: 5,
+      open: 4,
+      resolved: 1,
+      critical: 2,
+      inReview: 1
+    });
+    expect(demoIssueListRows.map((issue) => issue.ruleId)).toEqual([
+      "TITLE_MISSING",
+      "H1_MISSING",
+      "META_DESC_MISSING",
+      "IMAGE_ALT_MISSING",
+      "CANONICAL_MISSING"
+    ]);
   });
 });
