@@ -7,6 +7,7 @@ import {
   calculateAeoReadinessScore,
   classifyKeywordTargetIntent,
   contentDepthRule,
+  createContentBriefDraft,
   defaultAeoReadinessRules,
   evaluateAeoReadiness,
   evaluateAeoReadinessRule,
@@ -17,7 +18,13 @@ import {
   questionCoverageRule,
   scoreKeywordIntent
 } from "./index.js";
-import type { AeoPageSignal, KeywordAeoInput, KeywordTarget } from "@searchops/types";
+import type {
+  AeoFaqGapSet,
+  AeoPageSignal,
+  AeoReadinessReport,
+  KeywordAeoInput,
+  KeywordTarget
+} from "@searchops/types";
 
 const evaluatedAt = "2026-05-23T00:00:00.000Z";
 
@@ -294,5 +301,170 @@ describe("AEO readiness engine", () => {
   it("calculates readiness score boundaries", () => {
     expect(calculateAeoReadinessScore([{ ...contentDepthRule.evaluate({ candidatePage: readyPage, keyword: createInput().keyword }), score: 80 }])).toBe(80);
     expect(() => calculateAeoReadinessScore([])).toThrow(/at least one check/);
+  });
+});
+
+describe("ContentBrief draft mapper", () => {
+  function createGapSet(keyword = createInput().keyword): AeoFaqGapSet {
+    return {
+      evaluatedAt,
+      gaps: [
+        {
+          evidence: {
+            expectedValue: ["What does SEO clinic include?"],
+            observedValue: [],
+            sourceField: "questionHeadings",
+            url: readyPage.url
+          },
+          intent: "definition",
+          priority: "p2",
+          question: "What does SEO clinic include?",
+          suggestedAnswerAngle: "Define the service scope in a short answer block."
+        },
+        {
+          evidence: {
+            expectedValue: ["How much does SEO clinic cost?"],
+            observedValue: [],
+            sourceField: "questionHeadings",
+            url: readyPage.url
+          },
+          intent: "pricing",
+          priority: "p2",
+          question: "How much does SEO clinic cost?",
+          suggestedAnswerAngle: "Explain price factors without making unsupported claims."
+        }
+      ],
+      generatedBy: "deterministic",
+      keyword,
+      pageUrl: readyPage.url
+    };
+  }
+
+  it("creates a draft-only content brief from readiness and FAQ gaps", () => {
+    const readinessReport = evaluateAeoReadiness(createInput(), { evaluatedAt });
+    const draft = createContentBriefDraft({
+      candidatePage: readyPage,
+      faqGapSet: createGapSet(readinessReport.keyword),
+      keyword: createInput().keyword,
+      keywordId: "keyword_1",
+      readinessReport
+    });
+
+    expect(draft).toMatchObject({
+      generationMode: "deterministic",
+      intent: "commercial",
+      keywordId: "keyword_1",
+      primaryKeyword: "seo clinic price comparison",
+      publishPolicy: "draft_only",
+      status: "draft",
+      title: "SEO clinic content brief"
+    });
+    expect(draft.faqQuestions).toEqual([
+      "What does SEO clinic include?",
+      "How much does SEO clinic cost?",
+      "What does seo clinic price comparison include?",
+      "How much does seo clinic price comparison cost?",
+      "How should users compare seo clinic price comparison options?"
+    ]);
+    expect(draft.acceptanceCriteria).toContain(
+      "Do not auto-publish the brief to any CMS or external channel.",
+    );
+    expect(draft.outline.map((section) => section.heading)).toEqual([
+      "Seo Clinic Price Comparison direct answer",
+      "Question coverage",
+      "Evidence and page structure",
+      "Review checklist"
+    ]);
+  });
+
+  it("creates a deterministic fallback draft when no candidate page exists", () => {
+    const draft = createContentBriefDraft({
+      candidatePage: null,
+      evaluatedAt,
+      keyword: {
+        ...baseKeyword,
+        intent: null,
+        phrase: "what is answer engine optimization"
+      }
+    });
+
+    expect(draft).toMatchObject({
+      generationMode: "deterministic",
+      intent: "informational",
+      keywordId: null,
+      publishPolicy: "draft_only",
+      status: "draft",
+      title: "What Is Answer Engine Optimization content brief"
+    });
+    expect(draft.faqQuestions).toEqual([
+      "What is answer engine optimization?",
+      "How does answer engine optimization work?",
+      "What should users know before choosing answer engine optimization?"
+    ]);
+    expect(draft.acceptanceCriteria).toContain(
+      "Add at least one concise answer block near the top of the page.",
+    );
+    expect(draft.outline[2]?.acceptanceCriteria).toContain(
+      "Mark source content as missing and request a candidate page before publishing.",
+    );
+  });
+
+  it("maps weak readiness checks into acceptance criteria", () => {
+    const readinessReport: AeoReadinessReport = evaluateAeoReadiness(
+      createInput({}, {
+        ...readyPage,
+        answerBlocks: [],
+        h2: ["What does SEO clinic include?"],
+        questionHeadings: ["What does SEO clinic include?"],
+        schemaTypes: [],
+        wordCount: 320
+      }),
+      { evaluatedAt },
+    );
+    const draft = createContentBriefDraft({
+      candidatePage: readyPage,
+      keyword: readinessReport.keyword,
+      readinessReport
+    });
+
+    expect(draft.acceptanceCriteria).toEqual(
+      expect.arrayContaining([
+        "Add at least one concise answer block near the top of the page.",
+        "Structure FAQ candidates so they can later support FAQPage schema.",
+        "Use one H1 plan and at least two supporting H2 sections.",
+        "Plan enough supporting sections to reach at least 600 words."
+      ]),
+    );
+    expect(draft.summary).toContain("needs_work AEO readiness with score 71");
+  });
+
+  it("is deterministic for the same mapper input", () => {
+    const readinessReport = evaluateAeoReadiness(createInput(), { evaluatedAt });
+    const input = {
+      candidatePage: readyPage,
+      faqGapSet: createGapSet(readinessReport.keyword),
+      keyword: readinessReport.keyword,
+      readinessReport
+    };
+
+    expect(createContentBriefDraft(input)).toEqual(createContentBriefDraft(input));
+  });
+
+  it("rejects ambiguous mapper inputs", () => {
+    expect(() =>
+      createContentBriefDraft({
+        candidatePage: readyPage,
+        keyword: createInput().keyword
+      }),
+    ).toThrow(/evaluatedAt/);
+
+    expect(() =>
+      createContentBriefDraft({
+        candidatePage: readyPage,
+        faqGapSet: createGapSet({ ...baseKeyword, phrase: "different keyword" }),
+        keyword: createInput().keyword,
+        readinessReport: evaluateAeoReadiness(createInput(), { evaluatedAt })
+      }),
+    ).toThrow(/faqGapSet/);
   });
 });
