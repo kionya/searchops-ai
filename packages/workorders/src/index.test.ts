@@ -1,14 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createWorkOrderFromSchemaRecommendation,
   createWorkOrderFromSeoIssue,
+  createWorkOrdersFromSchemaRecommendations,
   createWorkOrdersFromSeoIssues,
+  hasSchemaWorkOrderTemplate,
   hasWorkOrderTemplate,
+  supportedSchemaRecommendationTypes,
   supportedSeoIssueRuleIds,
   workOrderInputSources,
   workordersPackage
 } from "./index.js";
-import type { SeoIssueDraft, SeoIssueRuleId } from "@searchops/types";
+import type {
+  SchemaJsonLdType,
+  SchemaRecommendationRecord,
+  SeoIssueDraft,
+  SeoIssueRuleId
+} from "@searchops/types";
 
 type IssueOverrides = Partial<Omit<SeoIssueDraft, "evidence">> & {
   readonly evidence?: Partial<SeoIssueDraft["evidence"]>;
@@ -136,13 +145,131 @@ function createIssueForRule(ruleId: SeoIssueRuleId): SeoIssueDraft {
   }
 }
 
+function createSchemaRecommendation(
+  type: SchemaJsonLdType = "Service",
+  overrides: Partial<SchemaRecommendationRecord> = {},
+): SchemaRecommendationRecord {
+  return {
+    id: `schema_rec_${type}`,
+    siteId: "site_1",
+    pageUrl: "https://example.com/services/seo",
+    type,
+    priority: type === "MedicalClinic" || type === "Service" ? "p1" : "p2",
+    status: "open",
+    reason: `The page has no ${type} JSON-LD block.`,
+    evidence: {
+      url: "https://example.com/services/seo",
+      observedTypes: ["WebPage"],
+      expectedType: type,
+      sourceField: "jsonLd"
+    },
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": type,
+      name: `${type} draft`,
+      url: "https://example.com/services/seo"
+    },
+    instructions: [`Add ${type} JSON-LD to the page.`],
+    requiredFields: ["@context", "@type", "name", "url"],
+    recommendedFields: ["description"],
+    generatedBy: "deterministic",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    updatedAt: "2026-05-24T00:00:00.000Z",
+    ...overrides
+  };
+}
+
 describe("workorders foundation", () => {
-  it("declares SEO and compliance as future input sources", () => {
-    expect(workOrderInputSources).toEqual(["seo-core", "compliance"]);
+  it("declares deterministic input sources", () => {
+    expect(workOrderInputSources).toEqual(["seo-core", "compliance", "schema-core"]);
   });
 
   it("identifies the package", () => {
     expect(workordersPackage).toBe("workorders");
+  });
+});
+
+describe("Schema recommendation to work order mapper", () => {
+  it("maps every supported schema recommendation type to a template", () => {
+    for (const schemaType of supportedSchemaRecommendationTypes) {
+      expect(hasSchemaWorkOrderTemplate(schemaType)).toBe(true);
+
+      const workOrder = createWorkOrderFromSchemaRecommendation(
+        createSchemaRecommendation(schemaType),
+      );
+
+      expect(workOrder.title).toContain("/services/seo");
+      expect(workOrder.title).toContain(schemaType);
+      expect(workOrder.relatedIssues).toEqual(["SCHEMA_MISSING"]);
+      expect(workOrder.verificationMethod).toContain("schema recommendation recheck");
+    }
+  });
+
+  it("creates a deterministic Service JSON-LD work order", () => {
+    const recommendation = createSchemaRecommendation("Service");
+
+    expect(createWorkOrderFromSchemaRecommendation(recommendation)).toEqual({
+      title: "/services/seo Service JSON-LD implementation",
+      problem: "The page has no Service JSON-LD block.",
+      evidence: {
+        url: "https://example.com/services/seo",
+        observedValue: ["WebPage"],
+        expectedValue: "Service",
+        sourceField: "jsonLd"
+      },
+      impact:
+        "Structured service data helps search and answer engines understand the offering, provider, and service URL.",
+      instructions: [
+        "Add Service JSON-LD to the service detail page.",
+        "Keep service names factual and avoid unsupported claims.",
+        "Add Service JSON-LD to the page.",
+        "Required JSON-LD fields: @context, @type, name, url."
+      ],
+      ownerType: "developer",
+      priority: "p1",
+      acceptanceCriteria: [
+        "Schema recommendation recheck no longer returns Service for the URL.",
+        "JSON-LD includes service name, provider, and URL.",
+        "The service description matches visible page content."
+      ],
+      verificationMethod:
+        "Run schema recommendation recheck for https://example.com/services/seo and confirm no open Service recommendation remains.",
+      estimatedEffort: "m",
+      relatedIssues: ["SCHEMA_MISSING"]
+    });
+  });
+
+  it("routes MedicalClinic recommendations to legal review", () => {
+    const workOrder = createWorkOrderFromSchemaRecommendation(
+      createSchemaRecommendation("MedicalClinic"),
+    );
+
+    expect(workOrder.ownerType).toBe("legal");
+    expect(workOrder.title).toBe("/services/seo MedicalClinic JSON-LD compliance review");
+    expect(workOrder.acceptanceCriteria).toContain(
+      "Compliance review confirms no unsupported medical claims.",
+    );
+  });
+
+  it("maps schema recommendation lists without shared state", () => {
+    const workOrders = createWorkOrdersFromSchemaRecommendations([
+      createSchemaRecommendation("WebPage"),
+      createSchemaRecommendation("BreadcrumbList")
+    ]);
+
+    expect(workOrders.map((workOrder) => workOrder.title)).toEqual([
+      "/services/seo WebPage JSON-LD implementation",
+      "/services/seo BreadcrumbList JSON-LD implementation"
+    ]);
+  });
+
+  it("rejects invalid schema recommendation inputs", () => {
+    expect(() =>
+      createWorkOrderFromSchemaRecommendation({
+        ...createSchemaRecommendation("Service"),
+        generatedBy: "llm"
+      } as unknown as SchemaRecommendationRecord),
+    ).toThrow();
   });
 });
 

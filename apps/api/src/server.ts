@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 import { recommendJsonLdForSnapshots } from "@searchops/schema-core";
+import { createWorkOrderFromSchemaRecommendation } from "@searchops/workorders";
 
 import {
   AeoReadinessReportListResponseSchema,
@@ -18,6 +19,7 @@ import {
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
   CreateOrganizationRequestSchema,
+  CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
@@ -431,6 +433,32 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(SchemaRecommendationDetailResponseSchema.parse({ recommendation }));
+  });
+
+  server.post("/schema-recommendations/:id/work-order", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const recommendation = await repository.getSchemaRecommendation(id);
+    if (!recommendation) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    if (recommendation.status === "dismissed") {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Dismissed schema recommendations cannot be converted to work orders"
+      });
+      return;
+    }
+
+    const draft = createWorkOrderFromSchemaRecommendation(recommendation);
+    const result = await repository.createSchemaRecommendationWorkOrder(id, { draft });
+    if (!result) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    reply.status(201).send(CreateSchemaRecommendationWorkOrderResponseSchema.parse(result));
   });
 
   server.get("/content-briefs/:id", async (request, reply) => {

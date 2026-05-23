@@ -67,9 +67,10 @@ Phase 8 foundation status:
 - Initial rules cover WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service recommendations.
 - Schema recommendation API and Prisma persistence are connected through `apps/api` and `packages/db`.
 - Schema recommendation reruns are idempotent by site, page URL, and schema type.
+- Schema recommendations can be converted into idempotent WorkOrders through deterministic templates.
 
 Phase 8 remaining limitations:
-- No dashboard surface, work order mapper, or recheck status flow is connected yet.
+- No dashboard surface or schema recheck status flow is connected yet.
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
 - Schema validation against live rich result tooling remains future scope.
 

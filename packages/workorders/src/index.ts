@@ -1,8 +1,15 @@
 import { compliancePackage } from "@searchops/compliance";
+import { schemaCorePackage } from "@searchops/schema-core";
 import { seoCorePackage } from "@searchops/seo-core";
-import { SeoIssueDraftSchema, WorkOrderDraftSchema } from "@searchops/types";
+import {
+  SchemaRecommendationRecordSchema,
+  SeoIssueDraftSchema,
+  WorkOrderDraftSchema
+} from "@searchops/types";
 import type {
   EstimatedEffort,
+  SchemaJsonLdType,
+  SchemaRecommendationRecord,
   SeoIssueDraft,
   SeoIssueRuleId,
   WorkOrderDraft,
@@ -11,7 +18,11 @@ import type {
 
 export const workordersPackage = "workorders" as const;
 
-export const workOrderInputSources = [seoCorePackage, compliancePackage] as const;
+export const workOrderInputSources = [
+  seoCorePackage,
+  compliancePackage,
+  schemaCorePackage
+] as const;
 
 interface WorkOrderTemplate {
   readonly ownerType: WorkOrderOwnerType;
@@ -25,6 +36,15 @@ interface WorkOrderTemplate {
   readonly verificationMethod: string;
 }
 
+interface SchemaWorkOrderTemplate {
+  readonly ownerType: WorkOrderOwnerType;
+  readonly estimatedEffort: EstimatedEffort;
+  readonly impact: string;
+  readonly title: (path: string, type: SchemaJsonLdType) => string;
+  readonly instructions: readonly string[];
+  readonly acceptanceCriteria: (type: SchemaJsonLdType) => readonly string[];
+}
+
 export const supportedSeoIssueRuleIds = [
   "TITLE_MISSING",
   "META_DESC_MISSING",
@@ -35,6 +55,17 @@ export const supportedSeoIssueRuleIds = [
   "CANONICAL_MISMATCH",
   "IMAGE_ALT_MISSING"
 ] as const satisfies readonly SeoIssueRuleId[];
+
+export const supportedSchemaRecommendationTypes = [
+  "WebSite",
+  "WebPage",
+  "Article",
+  "FAQPage",
+  "BreadcrumbList",
+  "LocalBusiness",
+  "MedicalClinic",
+  "Service"
+] as const satisfies readonly SchemaJsonLdType[];
 
 const workOrderTemplates = {
   TITLE_MISSING: {
@@ -204,6 +235,138 @@ const workOrderTemplates = {
   }
 } satisfies Record<(typeof supportedSeoIssueRuleIds)[number], WorkOrderTemplate>;
 
+const schemaWorkOrderTemplates = {
+  Article: {
+    ownerType: "developer",
+    estimatedEffort: "m",
+    impact:
+      "Article JSON-LD helps search and answer engines understand the page as editorial content with a headline, author, and publisher.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add the reviewed Article JSON-LD block to the page.",
+      "Confirm headline, author, publisher, and visible content alignment before release."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "JSON-LD validates as an Article object with required fields present.",
+      "The JSON-LD values match visible page content."
+    ]
+  },
+  BreadcrumbList: {
+    ownerType: "developer",
+    estimatedEffort: "s",
+    impact:
+      "Breadcrumb structured data clarifies page hierarchy for search results and answer engine citation context.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add BreadcrumbList JSON-LD for the nested page.",
+      "Keep every breadcrumb item aligned with visible navigation and canonical URLs."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "Each breadcrumb item has name, item, and position fields.",
+      "Breadcrumb URLs resolve within the same site scope."
+    ]
+  },
+  FAQPage: {
+    ownerType: "content",
+    estimatedEffort: "m",
+    impact:
+      "FAQPage JSON-LD can make reviewed question-and-answer content easier for search and answer engines to extract.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add FAQPage JSON-LD only for reviewed visible FAQ content.",
+      "Keep every JSON-LD question and answer synchronized with visible page copy."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "Every JSON-LD question has a matching visible question on the page.",
+      "Every answer has been reviewed before release."
+    ]
+  },
+  LocalBusiness: {
+    ownerType: "developer",
+    estimatedEffort: "m",
+    impact:
+      "LocalBusiness JSON-LD helps search systems understand location, contact, and local entity context.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add LocalBusiness JSON-LD to the location or contact page.",
+      "Confirm address, phone, and opening hours before adding optional fields."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "Required name and URL fields are present.",
+      "Optional contact fields match official business information."
+    ]
+  },
+  MedicalClinic: {
+    ownerType: "legal",
+    estimatedEffort: "m",
+    impact:
+      "MedicalClinic JSON-LD can clarify medical entity context, but medical claims and specialties require compliance review.",
+    title: (path, type) => `${path} ${type} JSON-LD compliance review`,
+    instructions: [
+      "Review the MedicalClinic JSON-LD draft before implementation.",
+      "Confirm specialties, contact details, and claims comply with medical advertising rules.",
+      "Hand off approved structured data to a developer for release."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL after approved implementation.`,
+      "Compliance review confirms no unsupported medical claims.",
+      "Required name and URL fields are present."
+    ]
+  },
+  Service: {
+    ownerType: "developer",
+    estimatedEffort: "m",
+    impact:
+      "Structured service data helps search and answer engines understand the offering, provider, and service URL.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add Service JSON-LD to the service detail page.",
+      "Keep service names factual and avoid unsupported claims."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "JSON-LD includes service name, provider, and URL.",
+      "The service description matches visible page content."
+    ]
+  },
+  WebPage: {
+    ownerType: "developer",
+    estimatedEffort: "s",
+    impact:
+      "WebPage JSON-LD gives search and answer engines a clear page entity tied to the canonical URL.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add WebPage JSON-LD to the page.",
+      "Align the JSON-LD URL with the canonical URL after canonical issues are resolved."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "JSON-LD includes page name and URL.",
+      "The page URL matches the canonical page URL."
+    ]
+  },
+  WebSite: {
+    ownerType: "developer",
+    estimatedEffort: "s",
+    impact:
+      "WebSite JSON-LD helps search systems identify the site entity and homepage URL.",
+    title: (path, type) => `${path} ${type} JSON-LD implementation`,
+    instructions: [
+      "Add WebSite JSON-LD to the homepage.",
+      "Keep the site name and URL aligned with the registered site."
+    ],
+    acceptanceCriteria: (type) => [
+      `Schema recommendation recheck no longer returns ${type} for the URL.`,
+      "JSON-LD includes site name and homepage URL.",
+      "The homepage URL resolves within the same site scope."
+    ]
+  }
+} satisfies Record<(typeof supportedSchemaRecommendationTypes)[number], SchemaWorkOrderTemplate>;
+
 export function createWorkOrderFromSeoIssue(issue: SeoIssueDraft): WorkOrderDraft {
   const parsedIssue = SeoIssueDraftSchema.parse(issue);
   const template = getWorkOrderTemplate(parsedIssue.ruleId);
@@ -230,8 +393,51 @@ export function createWorkOrdersFromSeoIssues(
   return issues.map((issue) => createWorkOrderFromSeoIssue(issue));
 }
 
+export function createWorkOrderFromSchemaRecommendation(
+  recommendation: SchemaRecommendationRecord,
+): WorkOrderDraft {
+  const parsedRecommendation = SchemaRecommendationRecordSchema.parse(recommendation);
+  const template = getSchemaWorkOrderTemplate(parsedRecommendation.type);
+  const path = formatUrlPath(parsedRecommendation.pageUrl);
+
+  return WorkOrderDraftSchema.parse({
+    title: template.title(path, parsedRecommendation.type),
+    problem: parsedRecommendation.reason,
+    evidence: {
+      url: parsedRecommendation.pageUrl,
+      observedValue: parsedRecommendation.evidence.observedTypes,
+      expectedValue: parsedRecommendation.evidence.expectedType,
+      sourceField: parsedRecommendation.evidence.sourceField
+    },
+    impact: template.impact,
+    instructions: [
+      ...template.instructions,
+      ...parsedRecommendation.instructions,
+      `Required JSON-LD fields: ${parsedRecommendation.requiredFields.join(", ")}.`
+    ],
+    ownerType: template.ownerType,
+    priority: parsedRecommendation.priority,
+    acceptanceCriteria: [...template.acceptanceCriteria(parsedRecommendation.type)],
+    verificationMethod: `Run schema recommendation recheck for ${parsedRecommendation.pageUrl} and confirm no open ${parsedRecommendation.type} recommendation remains.`,
+    estimatedEffort: template.estimatedEffort,
+    relatedIssues: ["SCHEMA_MISSING"]
+  });
+}
+
+export function createWorkOrdersFromSchemaRecommendations(
+  recommendations: readonly SchemaRecommendationRecord[],
+): readonly WorkOrderDraft[] {
+  return recommendations.map((recommendation) =>
+    createWorkOrderFromSchemaRecommendation(recommendation),
+  );
+}
+
 export function hasWorkOrderTemplate(ruleId: SeoIssueRuleId) {
   return Object.hasOwn(workOrderTemplates, ruleId);
+}
+
+export function hasSchemaWorkOrderTemplate(type: SchemaJsonLdType) {
+  return Object.hasOwn(schemaWorkOrderTemplates, type);
 }
 
 function getWorkOrderTemplate(ruleId: SeoIssueRuleId) {
@@ -240,6 +446,14 @@ function getWorkOrderTemplate(ruleId: SeoIssueRuleId) {
   }
 
   return workOrderTemplates[ruleId as (typeof supportedSeoIssueRuleIds)[number]];
+}
+
+function getSchemaWorkOrderTemplate(type: SchemaJsonLdType) {
+  if (!hasSchemaWorkOrderTemplate(type)) {
+    throw new Error(`No work order template for schema recommendation: ${type}`);
+  }
+
+  return schemaWorkOrderTemplates[type as (typeof supportedSchemaRecommendationTypes)[number]];
 }
 
 function formatUrlPath(url: string) {
