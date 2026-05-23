@@ -716,6 +716,64 @@ export const JsonLdBlockSchema = z.object({
 
 export type JsonLdBlock = z.infer<typeof JsonLdBlockSchema>;
 
+export const SchemaJsonLdTypeSchema = z.enum([
+  "WebSite",
+  "WebPage",
+  "Article",
+  "FAQPage",
+  "BreadcrumbList",
+  "LocalBusiness",
+  "MedicalClinic",
+  "Service"
+]);
+
+export type SchemaJsonLdType = z.infer<typeof SchemaJsonLdTypeSchema>;
+
+export const SchemaRecommendationPrioritySchema = SeoIssuePrioritySchema;
+
+export type SchemaRecommendationPriority = z.infer<
+  typeof SchemaRecommendationPrioritySchema
+>;
+
+export const JsonLdObjectSchema = z.record(z.unknown());
+
+export type JsonLdObject = z.infer<typeof JsonLdObjectSchema>;
+
+export const JsonLdRecommendationEvidenceSchema = z.object({
+  url: NormalizedUrlSchema,
+  observedTypes: z.array(SchemaJsonLdTypeSchema),
+  expectedType: SchemaJsonLdTypeSchema,
+  sourceField: z.string().min(1)
+});
+
+export type JsonLdRecommendationEvidence = z.infer<
+  typeof JsonLdRecommendationEvidenceSchema
+>;
+
+export const JsonLdRecommendationSchema = z.object({
+  type: SchemaJsonLdTypeSchema,
+  url: NormalizedUrlSchema,
+  priority: SchemaRecommendationPrioritySchema,
+  reason: NonEmptyStringSchema,
+  evidence: JsonLdRecommendationEvidenceSchema,
+  jsonLd: JsonLdObjectSchema,
+  instructions: z.array(NonEmptyStringSchema).min(1),
+  requiredFields: z.array(NonEmptyStringSchema).min(1),
+  recommendedFields: z.array(NonEmptyStringSchema).default([]),
+  generatedBy: z.literal("deterministic")
+});
+
+export type JsonLdRecommendation = z.infer<typeof JsonLdRecommendationSchema>;
+
+export const JsonLdRecommendationSetSchema = z.object({
+  siteId: IdSchema,
+  pageUrl: NormalizedUrlSchema,
+  recommendations: z.array(JsonLdRecommendationSchema),
+  generatedBy: z.literal("deterministic")
+});
+
+export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
+
 export const HeadingSignalSchema = z.object({
   h1: z.array(z.string()),
   h2: z.array(z.string())

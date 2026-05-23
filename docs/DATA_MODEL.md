@@ -60,3 +60,8 @@ AeoReadinessReport records store deterministic Keyword/AEO readiness history for
 - `evaluatedAt` records the scoring timestamp, while `createdAt` records persistence time.
 
 The API may create or reuse a Keyword record when persisting a report. Reports do not depend on LLM output, live connector fetches, or CMS publishing.
+
+## Phase 8 Schema Recommendation Persistence
+CDX-081 does not add a Prisma model. JSON-LD recommendations are deterministic outputs from crawler snapshots and site context, validated through shared Zod contracts.
+
+Future persistence should store recommendation sets as reviewable drafts before they become work orders or CMS changes. No schema recommendation may be treated as an auto-publish payload.

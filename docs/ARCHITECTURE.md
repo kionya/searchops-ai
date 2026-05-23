@@ -16,6 +16,7 @@ Allowed:
 - `packages/connectors -> packages/types`
 - `packages/compliance -> packages/types`
 - `packages/aeo-core -> packages/types`
+- `packages/schema-core -> packages/types`
 
 Forbidden:
 - `packages/* -> apps/*`
@@ -24,6 +25,9 @@ Forbidden:
 - `packages/aeo-core -> packages/ai-core`
 - `packages/aeo-core -> packages/db`
 - `packages/aeo-core -> packages/connectors`
+- `packages/schema-core -> packages/ai-core`
+- `packages/schema-core -> packages/db`
+- `packages/schema-core -> packages/connectors`
 - `packages/crawler-core -> packages/seo-core`
 - `packages/ui -> packages/db | packages/connectors | apps/worker`
 
@@ -68,3 +72,8 @@ ContentBrief outputs are draft-only planning artifacts. They must never auto-pub
 `packages/db` owns AEO readiness and ContentBrief persistence. `AeoReadinessReport` stores deterministic report history for dashboard use, while `ContentBrief` stores draft-only planning output. Retrying or re-running a readiness evaluation can create another history row; the dashboard orders the latest evaluations first.
 
 `apps/web` may read AEO readiness and ContentBrief history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable or not configured, it renders deterministic fixture fallback states and labels them as fixture data.
+
+## Phase 8 Schema Engine Boundary
+Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logic. The `packages/schema-core` package owns schema type extraction from crawler snapshots and JSON-LD recommendation drafts for WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service.
+
+`packages/schema-core` must have no LLM, DB, network, connector, or CMS dependency. It receives typed crawler snapshots plus site context, returns Zod-validated recommendation sets, and remains independently unit testable. Optional explanation text, code generation assistance, persistence, dashboard surfaces, work order mapping, and recheck automation belong to later Phase 8 tasks.
