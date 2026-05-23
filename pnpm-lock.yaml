@@ -149,6 +149,12 @@ importers:
         specifier: workspace:*
         version: link:../types
 
+  packages/schema-core:
+    dependencies:
+      '@searchops/types':
+        specifier: workspace:*
+        version: link:../types
+
   packages/seo-core:
     dependencies:
       '@searchops/types':

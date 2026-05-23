@@ -55,6 +55,22 @@ Phase 7 remaining limitations:
 ## Phase 8. Schema engine
 Generate and validate structured data recommendations, including JSON-LD work orders and schema-specific recheck rules.
 
+Phase 8 non-negotiables:
+- Deterministic first. JSON-LD recommendations must be reproducible from crawler snapshots and site context.
+- No LLM is required for schema detection, recommendation selection, or JSON-LD draft construction.
+- Schema recommendations are drafts and must be reviewed before publishing to a CMS or production page.
+- Public contracts are Zod-validated and independently unit tested.
+
+Phase 8 foundation status:
+- JSON-LD recommendation contracts are in `packages/types` with Zod tests.
+- Deterministic schema type extraction and JSON-LD recommendation rules are in `packages/schema-core`.
+- Initial rules cover WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service recommendations.
+
+Phase 8 remaining limitations:
+- No API, DB persistence, dashboard surface, work order mapper, or recheck status flow is connected yet.
+- JSON-LD output is a recommendation draft, not an auto-publish payload.
+- Schema validation against live rich result tooling remains future scope.
+
 ## Phase 9. GEO monitor
 Monitor AI visibility signals and generative engine readiness using deterministic inputs where possible and clearly separated AI-assisted analysis where needed.
 

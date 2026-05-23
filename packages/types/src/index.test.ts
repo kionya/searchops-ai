@@ -32,6 +32,8 @@ import {
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
   HealthResponseSchema,
+  JsonLdRecommendationSchema,
+  JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
   KeywordIntentSchema,
   KeywordSchema,
@@ -45,6 +47,7 @@ import {
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
   RobotsTxtSchema,
+  SchemaJsonLdTypeSchema,
   SearchOpsEnvSchema,
   SeoIssueSchema,
   SeoIssueDraftSchema,
@@ -152,6 +155,60 @@ describe("types foundation", () => {
     });
 
     expect(parsed.h1Count).toBe(1);
+  });
+
+  it("validates deterministic JSON-LD recommendation contracts", () => {
+    expect(SchemaJsonLdTypeSchema.options).toEqual([
+      "WebSite",
+      "WebPage",
+      "Article",
+      "FAQPage",
+      "BreadcrumbList",
+      "LocalBusiness",
+      "MedicalClinic",
+      "Service"
+    ]);
+
+    const recommendation = JsonLdRecommendationSchema.parse({
+      type: "WebPage",
+      url: "https://example.com/services",
+      priority: "p2",
+      reason: "The page has no WebPage JSON-LD block.",
+      evidence: {
+        url: "https://example.com/services",
+        observedTypes: [],
+        expectedType: "WebPage",
+        sourceField: "jsonLd"
+      },
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        url: "https://example.com/services",
+        name: "Services"
+      },
+      instructions: ["Add the recommended WebPage JSON-LD to the page head."],
+      requiredFields: ["@context", "@type", "url", "name"],
+      generatedBy: "deterministic"
+    });
+
+    expect(recommendation).toMatchObject({
+      type: "WebPage",
+      generatedBy: "deterministic"
+    });
+    expect(
+      JsonLdRecommendationSetSchema.parse({
+        siteId: "site_1",
+        pageUrl: "https://example.com/services",
+        recommendations: [recommendation],
+        generatedBy: "deterministic"
+      }).recommendations,
+    ).toHaveLength(1);
+    expect(() =>
+      JsonLdRecommendationSchema.parse({
+        ...recommendation,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
   });
 
   it("defaults crawl run request options", () => {
