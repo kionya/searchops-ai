@@ -7,6 +7,8 @@ export const connectorSyncJobName = "connector-sync" as const;
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const IdSchema = z.string().min(1);
+const NonEmptyStringSchema = z.string().trim().min(1);
+const PercentageScoreSchema = z.number().int().min(0).max(100);
 const HttpUrlSchema = z
   .string()
   .url()
@@ -288,24 +290,209 @@ export type ResolveWorkOrderIssueResponse = z.infer<
   typeof ResolveWorkOrderIssueResponseSchema
 >;
 
+export const KeywordIntentSchema = z.enum([
+  "informational",
+  "commercial",
+  "transactional",
+  "navigational",
+  "local",
+  "mixed"
+]);
+
+export type KeywordIntent = z.infer<typeof KeywordIntentSchema>;
+
+export const KeywordSourceSchema = z.enum(["manual", "gsc", "ga4", "bing", "cms", "fixture"]);
+
+export type KeywordSource = z.infer<typeof KeywordSourceSchema>;
+
+export const KeywordTargetSchema = z.object({
+  siteId: IdSchema,
+  phrase: NonEmptyStringSchema,
+  locale: z.string().min(2).default("ko-KR"),
+  language: z.string().min(2).default("ko"),
+  country: z.string().min(2).default("KR"),
+  intent: KeywordIntentSchema.nullable().default(null),
+  source: KeywordSourceSchema.default("manual")
+});
+
+export type KeywordTarget = z.infer<typeof KeywordTargetSchema>;
+
 export const KeywordSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
-  phrase: z.string().min(1),
+  phrase: NonEmptyStringSchema,
   locale: z.string().min(2).default("ko-KR"),
-  intent: z.string().nullable(),
+  intent: KeywordIntentSchema.nullable(),
   createdAt: IsoDateTimeSchema
 });
 
 export type Keyword = z.infer<typeof KeywordSchema>;
 
+export const AeoAnswerBlockSchema = z.object({
+  question: NonEmptyStringSchema,
+  answer: NonEmptyStringSchema,
+  sourceField: z.string().min(1)
+});
+
+export type AeoAnswerBlock = z.infer<typeof AeoAnswerBlockSchema>;
+
+export const AeoPageSignalSchema = z.object({
+  url: NormalizedUrlSchema,
+  title: z.string().nullable(),
+  metaDescription: z.string().nullable(),
+  h1: z.string().nullable(),
+  h2: z.array(z.string()),
+  wordCount: z.number().int().nonnegative(),
+  schemaTypes: z.array(NonEmptyStringSchema).default([]),
+  questionHeadings: z.array(NonEmptyStringSchema).default([]),
+  answerBlocks: z.array(AeoAnswerBlockSchema).default([])
+});
+
+export type AeoPageSignal = z.infer<typeof AeoPageSignalSchema>;
+
+export const KeywordAeoInputSchema = z.object({
+  keyword: KeywordTargetSchema,
+  candidatePage: AeoPageSignalSchema.nullable()
+});
+
+export type KeywordAeoInput = z.infer<typeof KeywordAeoInputSchema>;
+
+export const AeoReadinessStatusSchema = z.enum(["ready", "needs_work", "not_ready"]);
+
+export type AeoReadinessStatus = z.infer<typeof AeoReadinessStatusSchema>;
+
+export const AeoReadinessCheckIdSchema = z.enum([
+  "KEYWORD_INTENT_DEFINED",
+  "ANSWER_SUMMARY_PRESENT",
+  "QUESTION_COVERAGE",
+  "FAQ_SCHEMA_PRESENT",
+  "STRUCTURED_HEADINGS",
+  "CITABLE_SOURCE_PRESENT",
+  "CONTENT_DEPTH"
+]);
+
+export type AeoReadinessCheckId = z.infer<typeof AeoReadinessCheckIdSchema>;
+
+export const AeoReadinessCheckStatusSchema = z.enum(["pass", "warning", "fail"]);
+
+export type AeoReadinessCheckStatus = z.infer<typeof AeoReadinessCheckStatusSchema>;
+
+export const AeoEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string())
+]);
+
+export type AeoEvidenceValue = z.infer<typeof AeoEvidenceValueSchema>;
+
+export const AeoEvidenceSchema = z.object({
+  url: NormalizedUrlSchema.nullable(),
+  observedValue: AeoEvidenceValueSchema,
+  expectedValue: AeoEvidenceValueSchema,
+  sourceField: z.string().min(1)
+});
+
+export type AeoEvidence = z.infer<typeof AeoEvidenceSchema>;
+
+export const AeoReadinessCheckSchema = z.object({
+  checkId: AeoReadinessCheckIdSchema,
+  status: AeoReadinessCheckStatusSchema,
+  score: PercentageScoreSchema,
+  evidence: AeoEvidenceSchema
+});
+
+export type AeoReadinessCheck = z.infer<typeof AeoReadinessCheckSchema>;
+
+export const AeoReadinessReportSchema = z.object({
+  keyword: KeywordTargetSchema,
+  pageUrl: NormalizedUrlSchema.nullable(),
+  status: AeoReadinessStatusSchema,
+  score: PercentageScoreSchema,
+  checks: z.array(AeoReadinessCheckSchema).min(1),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema
+});
+
+export type AeoReadinessReport = z.infer<typeof AeoReadinessReportSchema>;
+
+export const AeoQuestionIntentSchema = z.enum([
+  "definition",
+  "how_to",
+  "comparison",
+  "pricing",
+  "eligibility",
+  "local",
+  "aftercare",
+  "risk",
+  "other"
+]);
+
+export type AeoQuestionIntent = z.infer<typeof AeoQuestionIntentSchema>;
+
+export const AeoFaqGapSchema = z.object({
+  question: NonEmptyStringSchema,
+  intent: AeoQuestionIntentSchema,
+  priority: SeoIssuePrioritySchema,
+  suggestedAnswerAngle: NonEmptyStringSchema,
+  evidence: AeoEvidenceSchema
+});
+
+export type AeoFaqGap = z.infer<typeof AeoFaqGapSchema>;
+
+export const AeoFaqGapSetSchema = z.object({
+  keyword: KeywordTargetSchema,
+  pageUrl: NormalizedUrlSchema.nullable(),
+  gaps: z.array(AeoFaqGapSchema),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema
+});
+
+export type AeoFaqGapSet = z.infer<typeof AeoFaqGapSetSchema>;
+
+export const ContentBriefStatusSchema = z.enum(["draft", "archived"]);
+
+export type ContentBriefStatus = z.infer<typeof ContentBriefStatusSchema>;
+
+export const ContentBriefSectionSchema = z.object({
+  heading: NonEmptyStringSchema,
+  purpose: NonEmptyStringSchema,
+  targetQuestions: z.array(NonEmptyStringSchema).default([]),
+  acceptanceCriteria: z.array(NonEmptyStringSchema).default([])
+});
+
+export type ContentBriefSection = z.infer<typeof ContentBriefSectionSchema>;
+
+export const ContentBriefOutlineSchema = z.array(ContentBriefSectionSchema).min(1);
+
+export type ContentBriefOutline = z.infer<typeof ContentBriefOutlineSchema>;
+
+export const ContentBriefDraftSchema = z.object({
+  siteId: IdSchema,
+  keywordId: IdSchema.nullable().default(null),
+  primaryKeyword: NonEmptyStringSchema,
+  locale: z.string().min(2).default("ko-KR"),
+  intent: KeywordIntentSchema,
+  title: NonEmptyStringSchema,
+  status: z.literal("draft"),
+  summary: NonEmptyStringSchema,
+  outline: ContentBriefOutlineSchema,
+  faqQuestions: z.array(NonEmptyStringSchema).default([]),
+  acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
+  generationMode: z.literal("deterministic"),
+  publishPolicy: z.literal("draft_only")
+});
+
+export type ContentBriefDraft = z.infer<typeof ContentBriefDraftSchema>;
+
 export const ContentBriefSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
   keywordId: IdSchema.nullable(),
-  title: z.string().min(1),
-  status: z.string().min(1),
-  outline: z.record(z.unknown()).nullable(),
+  title: NonEmptyStringSchema,
+  status: ContentBriefStatusSchema,
+  outline: ContentBriefOutlineSchema.nullable(),
   createdAt: IsoDateTimeSchema
 });
 

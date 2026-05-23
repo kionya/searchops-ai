@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AeoFaqGapSetSchema,
+  AeoPageSignalSchema,
+  AeoReadinessReportSchema,
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
+  ContentBriefDraftSchema,
+  ContentBriefSchema,
   CreateCrawlRunRequestSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
@@ -19,6 +24,10 @@ import {
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
   HealthResponseSchema,
+  KeywordAeoInputSchema,
+  KeywordIntentSchema,
+  KeywordSchema,
+  KeywordTargetSchema,
   LinkSignalSchema,
   MockUserContextSchema,
   NormalizedUrlSchema,
@@ -205,6 +214,191 @@ describe("types foundation", () => {
         sitemaps: []
       }),
     ).toMatchObject({ type: "urlset" });
+  });
+
+  it("validates deterministic Keyword/AEO keyword contracts", () => {
+    expect(KeywordIntentSchema.options).toEqual([
+      "informational",
+      "commercial",
+      "transactional",
+      "navigational",
+      "local",
+      "mixed"
+    ]);
+
+    expect(
+      KeywordTargetSchema.parse({
+        siteId: "site_1",
+        phrase: "  seo clinic  "
+      }),
+    ).toEqual({
+      siteId: "site_1",
+      phrase: "seo clinic",
+      locale: "ko-KR",
+      language: "ko",
+      country: "KR",
+      intent: null,
+      source: "manual"
+    });
+
+    expect(
+      KeywordSchema.parse({
+        id: "keyword_1",
+        siteId: "site_1",
+        phrase: "seo clinic",
+        locale: "ko-KR",
+        intent: "commercial",
+        createdAt: "2026-05-23T00:00:00.000Z"
+      }),
+    ).toMatchObject({ intent: "commercial" });
+    expect(() =>
+      KeywordSchema.parse({
+        id: "keyword_1",
+        siteId: "site_1",
+        phrase: "seo clinic",
+        locale: "ko-KR",
+        intent: "ai_generated",
+        createdAt: "2026-05-23T00:00:00.000Z"
+      }),
+    ).toThrow();
+  });
+
+  it("validates Keyword/AEO page signal inputs without LLM fields", () => {
+    const page = AeoPageSignalSchema.parse({
+      url: "https://example.com/service/seo",
+      title: "SEO clinic service",
+      metaDescription: "SEO clinic page",
+      h1: "SEO clinic",
+      h2: ["What is included?"],
+      wordCount: 420
+    });
+
+    expect(page).toMatchObject({
+      schemaTypes: [],
+      questionHeadings: [],
+      answerBlocks: []
+    });
+    expect(
+      KeywordAeoInputSchema.parse({
+        keyword: {
+          siteId: "site_1",
+          phrase: "seo clinic"
+        },
+        candidatePage: page
+      }).candidatePage,
+    ).toMatchObject({ wordCount: 420 });
+  });
+
+  it("validates deterministic AEO readiness reports", () => {
+    const report = AeoReadinessReportSchema.parse({
+      keyword: {
+        siteId: "site_1",
+        phrase: "seo clinic",
+        intent: "commercial"
+      },
+      pageUrl: "https://example.com/service/seo",
+      status: "needs_work",
+      score: 68,
+      checks: [
+        {
+          checkId: "ANSWER_SUMMARY_PRESENT",
+          status: "warning",
+          score: 60,
+          evidence: {
+            url: "https://example.com/service/seo",
+            observedValue: false,
+            expectedValue: true,
+            sourceField: "answerBlocks"
+          }
+        }
+      ],
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-23T00:00:00.000Z"
+    });
+
+    expect(report).toMatchObject({ generatedBy: "deterministic", score: 68 });
+    expect(() =>
+      AeoReadinessReportSchema.parse({
+        ...report,
+        score: 101
+      }),
+    ).toThrow();
+    expect(() =>
+      AeoReadinessReportSchema.parse({
+        ...report,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
+  });
+
+  it("validates FAQ gaps and draft-only content brief contracts", () => {
+    const gapSet = AeoFaqGapSetSchema.parse({
+      keyword: {
+        siteId: "site_1",
+        phrase: "seo clinic"
+      },
+      pageUrl: "https://example.com/service/seo",
+      gaps: [
+        {
+          question: "What does SEO clinic include?",
+          intent: "definition",
+          priority: "p2",
+          suggestedAnswerAngle: "Define the service scope in a short answer block.",
+          evidence: {
+            url: "https://example.com/service/seo",
+            observedValue: [],
+            expectedValue: ["What does SEO clinic include?"],
+            sourceField: "questionHeadings"
+          }
+        }
+      ],
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-23T00:00:00.000Z"
+    });
+
+    const draft = ContentBriefDraftSchema.parse({
+      siteId: "site_1",
+      primaryKeyword: "seo clinic",
+      intent: "commercial",
+      title: "SEO clinic service content brief",
+      status: "draft",
+      summary: "Create a service page brief for the target keyword.",
+      outline: [
+        {
+          heading: "Service overview",
+          purpose: "Answer the primary query directly.",
+          targetQuestions: gapSet.gaps.map((gap) => gap.question),
+          acceptanceCriteria: ["Includes one concise answer block."]
+        }
+      ],
+      acceptanceCriteria: ["Brief remains draft-only until reviewed."],
+      generationMode: "deterministic",
+      publishPolicy: "draft_only"
+    });
+
+    expect(draft).toMatchObject({
+      keywordId: null,
+      status: "draft",
+      generationMode: "deterministic",
+      publishPolicy: "draft_only"
+    });
+    expect(
+      ContentBriefSchema.parse({
+        id: "brief_1",
+        siteId: "site_1",
+        keywordId: null,
+        title: draft.title,
+        status: "draft",
+        outline: draft.outline,
+        createdAt: "2026-05-23T00:00:00.000Z"
+      }),
+    ).toMatchObject({ status: "draft" });
+    expect(() =>
+      ContentBriefDraftSchema.parse({
+        ...draft,
+        status: "published"
+      }),
+    ).toThrow();
   });
 
   it("validates connector providers and normalized records", () => {
