@@ -15,9 +15,11 @@ import {
   thStyle
 } from "../../../../src/dashboard-table-styles";
 import {
+  connectorProviderOptions,
   formatConnectorProvider,
   formatConnectorProviders,
   formatSyncDuration,
+  getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
   getConnectorSyncRunTone,
   loadConnectorSyncHistory,
@@ -25,18 +27,28 @@ import {
   type ConnectorSyncResultTone,
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
+import { runConnectorSyncAction } from "./actions";
 
 interface ConnectorsPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
+  readonly searchParams: Promise<{
+    readonly runId?: string;
+    readonly sync?: string;
+  }>;
 }
 
-export default async function ConnectorsPage({ params }: ConnectorsPageProps) {
+export default async function ConnectorsPage({ params, searchParams }: ConnectorsPageProps) {
   const { siteId } = await params;
+  const triggerSearchParams = await searchParams;
   const history = await loadConnectorSyncHistory(siteId);
   const summary = summarizeConnectorSyncHistory(history);
   const allResults = Object.values(history.resultsByRunId).flat();
+  const triggerFeedback = getConnectorSyncTriggerFeedback(
+    triggerSearchParams.sync,
+    triggerSearchParams.runId,
+  );
 
   return (
     <section aria-labelledby="connector-sync-history-heading">
@@ -51,6 +63,7 @@ export default async function ConnectorsPage({ params }: ConnectorsPageProps) {
         <MetricCard label="Partial or failed" value={String(summary.partial + summary.failed)} />
         <MetricCard label="Synced records" value={String(summary.totalRecords)} />
       </div>
+      <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
       <section aria-label="Connector sync runs" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -176,6 +189,46 @@ export default async function ConnectorsPage({ params }: ConnectorsPageProps) {
   );
 }
 
+function ConnectorSyncTriggerPanel({
+  siteId,
+  triggerFeedback
+}: {
+  readonly siteId: string;
+  readonly triggerFeedback: ReturnType<typeof getConnectorSyncTriggerFeedback>;
+}) {
+  const action = runConnectorSyncAction.bind(null, siteId);
+
+  return (
+    <section aria-label="Run connector sync" style={triggerPanelStyle}>
+      <div>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Run connector sync</h3>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          Queue a deterministic fixture-backed sync job for selected providers.
+        </p>
+        {triggerFeedback ? (
+          <p style={{ ...triggerFeedbackStyle[triggerFeedback.tone], margin: "10px 0 0" }}>
+            {triggerFeedback.message}
+          </p>
+        ) : null}
+      </div>
+      <form action={action} style={triggerFormStyle}>
+        <fieldset style={providerFieldsetStyle}>
+          <legend style={providerLegendStyle}>Providers</legend>
+          {connectorProviderOptions.map((provider) => (
+            <label key={provider} style={providerOptionStyle}>
+              <input defaultChecked name="providers" type="checkbox" value={provider} />
+              <span>{formatConnectorProvider(provider)}</span>
+            </label>
+          ))}
+        </fieldset>
+        <button style={triggerButtonStyle} type="submit">
+          Run sync
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function RunStatusPill({
   label,
   tone
@@ -212,3 +265,80 @@ function ResultStatusPill({
 function formatDateTime(isoDate: string | null) {
   return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "Pending";
 }
+
+const triggerPanelStyle = {
+  alignItems: "start",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  display: "grid",
+  gap: 16,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  marginTop: 14,
+  padding: 16
+} as const;
+
+const triggerFormStyle = {
+  alignItems: "end",
+  display: "grid",
+  gap: 12,
+  justifyItems: "end"
+} as const;
+
+const providerFieldsetStyle = {
+  border: 0,
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "end",
+  margin: 0,
+  maxWidth: 420,
+  padding: 0
+} as const;
+
+const providerLegendStyle = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 700,
+  marginBottom: 8,
+  width: "100%"
+} as const;
+
+const providerOptionStyle = {
+  alignItems: "center",
+  border: "1px solid #e5e7eb",
+  borderRadius: 8,
+  color: "#172033",
+  display: "inline-flex",
+  fontSize: 13,
+  fontWeight: 700,
+  gap: 6,
+  minHeight: 34,
+  padding: "7px 9px"
+} as const;
+
+const triggerButtonStyle = {
+  background: "#2563eb",
+  border: 0,
+  borderRadius: 8,
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 800,
+  minHeight: 40,
+  padding: "10px 14px"
+} as const;
+
+const triggerFeedbackStyle = {
+  info: {
+    color: "#3730a3",
+    fontSize: 13
+  },
+  success: {
+    color: "#047857",
+    fontSize: 13
+  },
+  warning: {
+    color: "#b91c1c",
+    fontSize: 13
+  }
+} as const;
