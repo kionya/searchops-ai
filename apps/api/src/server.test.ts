@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  AeoReadinessReportRecord,
   ConnectorSyncResult,
   ConnectorSyncRun,
   ContentBrief,
@@ -103,6 +104,33 @@ const seededContentBrief: ContentBrief = {
   publishPolicy: "draft_only",
   createdAt
 };
+const seededAeoReadinessReport: AeoReadinessReportRecord = {
+  id: "aeo_report_seed",
+  siteId: "site_seed",
+  keywordId: "keyword_seed",
+  phrase: "seo clinic",
+  locale: "ko-KR",
+  intent: "commercial",
+  pageUrl: "https://exampleclinic.com/service/seo",
+  status: "needs_work",
+  score: 68,
+  checks: [
+    {
+      checkId: "ANSWER_SUMMARY_PRESENT",
+      status: "warning",
+      score: 60,
+      evidence: {
+        url: "https://exampleclinic.com/service/seo",
+        observedValue: false,
+        expectedValue: true,
+        sourceField: "answerBlocks"
+      }
+    }
+  ],
+  generatedBy: "deterministic",
+  evaluatedAt: "2026-05-23T00:00:00.000Z",
+  createdAt
+};
 const seededWorkOrder: WorkOrder = {
   id: "wo_seed",
   organizationId: "org_seed",
@@ -197,6 +225,16 @@ function buildContentBriefTestServer() {
       organizations: [seededOrganization],
       sites: [seededSite],
       contentBriefs: [seededContentBrief]
+    })
+  });
+}
+
+function buildAeoReadinessTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      aeoReadinessReports: [seededAeoReadinessReport]
     })
   });
 }
@@ -583,6 +621,114 @@ describe("api foundation", () => {
       error: "not_found",
       message: "Connector sync run not found"
     });
+  });
+
+  it("creates deterministic AEO readiness reports and persists them", async () => {
+    const server = buildAeoReadinessTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-readiness-reports",
+      payload: {
+        keyword: {
+          phrase: "seo clinic price comparison",
+          intent: "commercial"
+        },
+        candidatePage: {
+          url: "https://exampleclinic.com/service/seo",
+          title: "SEO clinic service",
+          metaDescription: "SEO clinic service page",
+          h1: "SEO clinic",
+          h2: ["What does SEO clinic include?"],
+          wordCount: 320,
+          schemaTypes: [],
+          questionHeadings: ["What does SEO clinic include?"],
+          answerBlocks: []
+        },
+        evaluatedAt: "2026-05-23T00:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      report: {
+        siteId: "site_seed",
+        keywordId: "keyword_0001",
+        phrase: "seo clinic price comparison",
+        locale: "ko-KR",
+        intent: "commercial",
+        status: "needs_work",
+        generatedBy: "deterministic",
+        evaluatedAt: "2026-05-23T00:00:00.000Z"
+      },
+      readinessReport: {
+        status: "needs_work",
+        generatedBy: "deterministic"
+      }
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/aeo-readiness-reports"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().reports).toHaveLength(2);
+    expect(listResponse.json().reports[0]).toMatchObject({
+      phrase: "seo clinic price comparison",
+      generatedBy: "deterministic"
+    });
+  });
+
+  it("lists persisted AEO readiness report history", async () => {
+    const server = buildAeoReadinessTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/aeo-readiness-reports"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().reports).toHaveLength(1);
+    expect(response.json().reports[0]).toMatchObject({
+      id: "aeo_report_seed",
+      phrase: "seo clinic",
+      score: 68,
+      generatedBy: "deterministic"
+    });
+  });
+
+  it("returns 404 for missing AEO readiness report site resources", async () => {
+    const server = buildAeoReadinessTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/aeo-readiness-reports"
+    });
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/aeo-readiness-reports",
+      payload: {
+        keyword: {
+          phrase: "seo clinic"
+        }
+      }
+    });
+
+    expect(listResponse.statusCode).toBe(404);
+    expect(createResponse.statusCode).toBe(404);
+  });
+
+  it("validates AEO readiness report request payloads", async () => {
+    const server = buildAeoReadinessTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-readiness-reports",
+      payload: {
+        keyword: {
+          phrase: ""
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("keyword");
   });
 
   it("creates deterministic content brief drafts and persists them", async () => {

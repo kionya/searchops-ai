@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AeoFaqGapSetSchema,
   AeoPageSignalSchema,
+  AeoReadinessReportListResponseSchema,
+  AeoReadinessReportRecordSchema,
   AeoReadinessReportSchema,
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
@@ -10,6 +12,8 @@ import {
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
   ContentBriefSchema,
+  CreateAeoReadinessReportRequestSchema,
+  CreateAeoReadinessReportResponseSchema,
   CreateContentBriefDraftRequestSchema,
   CreateContentBriefDraftResponseSchema,
   CreateCrawlRunRequestSchema,
@@ -329,6 +333,77 @@ describe("types foundation", () => {
     ).toThrow();
     expect(() =>
       AeoReadinessReportSchema.parse({
+        ...report,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
+  });
+
+  it("validates persisted AEO readiness report API contracts", () => {
+    const request = CreateAeoReadinessReportRequestSchema.parse({
+      keyword: {
+        phrase: "seo clinic",
+        intent: "commercial"
+      },
+      candidatePage: null,
+      evaluatedAt: "2026-05-23T00:00:00.000Z"
+    });
+    const readinessReport = AeoReadinessReportSchema.parse({
+      keyword: {
+        siteId: "site_1",
+        phrase: request.keyword.phrase,
+        intent: request.keyword.intent
+      },
+      pageUrl: null,
+      status: "not_ready",
+      score: 14,
+      checks: [
+        {
+          checkId: "KEYWORD_INTENT_DEFINED",
+          status: "pass",
+          score: 100,
+          evidence: {
+            url: null,
+            observedValue: "commercial",
+            expectedValue: "Non-null deterministic keyword intent",
+            sourceField: "keyword.intent"
+          }
+        }
+      ],
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-23T00:00:00.000Z"
+    });
+    const report = AeoReadinessReportRecordSchema.parse({
+      id: "aeo_report_1",
+      siteId: "site_1",
+      keywordId: "keyword_1",
+      phrase: "seo clinic",
+      locale: "ko-KR",
+      intent: "commercial",
+      pageUrl: null,
+      status: "not_ready",
+      score: 14,
+      checks: readinessReport.checks,
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
+      createdAt: "2026-05-23T00:00:00.000Z"
+    });
+
+    expect(
+      CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }),
+    ).toMatchObject({
+      report: {
+        generatedBy: "deterministic",
+        phrase: "seo clinic"
+      },
+      readinessReport: {
+        generatedBy: "deterministic"
+      }
+    });
+    expect(AeoReadinessReportListResponseSchema.parse({ reports: [report] }).reports)
+      .toHaveLength(1);
+    expect(() =>
+      AeoReadinessReportRecordSchema.parse({
         ...report,
         generatedBy: "llm"
       }),

@@ -417,6 +417,26 @@ export const AeoReadinessReportSchema = z.object({
 
 export type AeoReadinessReport = z.infer<typeof AeoReadinessReportSchema>;
 
+export const AeoReadinessReportRecordSchema = z.object({
+  id: IdSchema,
+  siteId: IdSchema,
+  keywordId: IdSchema.nullable(),
+  phrase: NonEmptyStringSchema,
+  locale: z.string().min(2),
+  intent: KeywordIntentSchema.nullable(),
+  pageUrl: NormalizedUrlSchema.nullable(),
+  status: AeoReadinessStatusSchema,
+  score: PercentageScoreSchema,
+  checks: z.array(AeoReadinessCheckSchema).min(1),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema,
+  createdAt: IsoDateTimeSchema
+});
+
+export type AeoReadinessReportRecord = z.infer<
+  typeof AeoReadinessReportRecordSchema
+>;
+
 export const AeoQuestionIntentSchema = z.enum([
   "definition",
   "how_to",
@@ -530,6 +550,34 @@ export const CreateContentBriefDraftRequestSchema = z.object({
 
 export type CreateContentBriefDraftRequest = z.infer<
   typeof CreateContentBriefDraftRequestSchema
+>;
+
+export const CreateAeoReadinessReportRequestSchema = z.object({
+  keyword: CreateContentBriefDraftKeywordSchema,
+  keywordId: IdSchema.nullable().optional(),
+  candidatePage: AeoPageSignalSchema.nullable().optional(),
+  evaluatedAt: IsoDateTimeSchema.optional()
+});
+
+export type CreateAeoReadinessReportRequest = z.infer<
+  typeof CreateAeoReadinessReportRequestSchema
+>;
+
+export const CreateAeoReadinessReportResponseSchema = z.object({
+  report: AeoReadinessReportRecordSchema,
+  readinessReport: AeoReadinessReportSchema
+});
+
+export type CreateAeoReadinessReportResponse = z.infer<
+  typeof CreateAeoReadinessReportResponseSchema
+>;
+
+export const AeoReadinessReportListResponseSchema = z.object({
+  reports: z.array(AeoReadinessReportRecordSchema)
+});
+
+export type AeoReadinessReportListResponse = z.infer<
+  typeof AeoReadinessReportListResponseSchema
 >;
 
 export const CreateContentBriefDraftResponseSchema = z.object({
