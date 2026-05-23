@@ -23,8 +23,26 @@ Build the dashboard views for crawl runs, issues, work orders, recheck status, a
 ## Phase 6. Data connectors
 Add external adapters behind connector boundaries for GSC, GA4, PageSpeed, Bing, CMS systems, and fixture-based tests.
 
+Phase 6 foundation status:
+- Connector contracts, deterministic fixture adapters, sync enqueue, worker consumption, persistence, history API, dashboard history, and dashboard trigger UI are in place.
+- Live provider credentials and live external API calls remain deferred until explicitly scoped.
+- Connector outputs must continue through adapter ports and normalized persistence before they are used by dashboard or planning features.
+
 ## Phase 7. Keyword / AEO engine
 Add keyword intent modeling, answer-readiness checks, FAQ/content planning signals, and AEO workflow outputs.
+
+Phase 7 non-negotiables:
+- Deterministic first. No LLM is required for keyword classification, answer-readiness checks, or content planning signals.
+- AI support may be added later through `packages/ai-core` for explanation or draft assistance only.
+- ContentBrief outputs are draft-only and must never auto-publish.
+- Public contracts are Zod-validated and independently unit tested.
+
+Recommended PR sequence:
+- `CDX-071`: Keyword/AEO contracts.
+- `CDX-072`: Deterministic intent and answer-readiness rules.
+- `CDX-073`: ContentBrief draft mapper.
+- `CDX-074`: API and persistence connection.
+- `CDX-075`: Dashboard content workflow connection.
 
 ## Phase 8. Schema engine
 Generate and validate structured data recommendations, including JSON-LD work orders and schema-specific recheck rules.

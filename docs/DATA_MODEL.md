@@ -27,3 +27,18 @@ Crawler persistence is idempotent by `UrlRecord`'s existing `@@unique([siteId, u
 The API runtime creates crawl runs through Prisma and enqueues crawl jobs through BullMQ. The worker runtime consumes those jobs and writes results through the same `UrlRecord` and `CrawlRun` tables. The write path remains idempotent by site URL, so retrying a crawl job updates the existing URL record instead of creating duplicates.
 
 If runtime crawling fails, the worker updates the crawl run to `failed`, sets `endedAt`, and stores a compact error summary. This prevents failed BullMQ jobs from leaving crawl runs permanently in `queued`.
+
+## Phase 6 Connector Persistence
+- ConnectorSyncRun: one connector sync request for a site. It stores the site, organization, requested user, selected providers, sync mode, status, timestamps, and summary JSON.
+- ConnectorSyncResult: one persisted provider result for a connector sync run. It stores provider, status, fetched timestamp, fixture flag, record count, normalized records JSON, and provider-specific metadata JSON.
+
+Connector sync persistence is idempotent by sync run and provider. Retrying a provider update should replace that provider result for the same run and then recompute the run summary. Fixture records must not contain secrets or real customer data.
+
+Expected connector sync statuses:
+- Run status: `queued`, `running`, `completed`, `partial`, `failed`.
+- Provider result status: `ok`, `partial`, `failed`.
+
+## Phase 7 Keyword and AEO Guardrails
+Keyword records represent deterministic query targets for SEO/AEO planning. ContentBrief records are draft planning outputs only; they must not be treated as publishable CMS content.
+
+The first Keyword/AEO contracts should model deterministic inputs and outputs before any AI-assisted drafting is introduced. Optional AI explanations or drafts belong in `AiPrompt`, `AiResult`, and `packages/ai-core`, not in the deterministic rule contracts.

@@ -29,6 +29,8 @@ SearchOps AI is a SaaS platform for SEO/AEO/GEO diagnosis, content planning, str
 - Do not commit secrets, API keys, tokens, or real customer data.
 - Use mock fixtures for external data by default.
 - SEO issue detection must be deterministic first. LLM may explain or draft, but must not be the only source of truth.
+- Keyword/AEO planning must be deterministic first. LLM must not be required for keyword intent, answer-readiness, FAQ gap, or ContentBrief draft generation.
+- ContentBrief output must remain draft-only and must not auto-publish to a CMS or external channel.
 - Medical content must never be auto-published. It can only be generated as a draft with compliance flags.
 
 ## Done Means
