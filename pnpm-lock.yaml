@@ -102,6 +102,12 @@ importers:
         specifier: ^5.52.1
         version: 5.76.8
 
+  packages/aeo-core:
+    dependencies:
+      '@searchops/types':
+        specifier: workspace:*
+        version: link:../types
+
   packages/ai-core:
     dependencies:
       '@searchops/types':

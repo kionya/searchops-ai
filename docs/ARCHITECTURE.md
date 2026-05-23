@@ -15,7 +15,7 @@ Allowed:
 - `packages/crawler-core -> packages/types`
 - `packages/connectors -> packages/types`
 - `packages/compliance -> packages/types`
-- Phase 7 planned: `packages/aeo-core -> packages/types`
+- `packages/aeo-core -> packages/types`
 
 Forbidden:
 - `packages/* -> apps/*`
@@ -57,7 +57,7 @@ Runtime crawling is scoped to the registered site domain and its subdomains. Loc
 `apps/web` may trigger syncs and read sync history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable in local shell views, the dashboard may render deterministic fixture-facing states, but those states must not be confused with live external provider data.
 
 ## Phase 7 Keyword and AEO Boundary
-Phase 7 should introduce deterministic Keyword/AEO contracts before any generation layer. The planned `packages/aeo-core` package owns keyword intent, answer-readiness, FAQ gap, and content planning signal logic.
+Phase 7 introduces deterministic Keyword/AEO contracts before any generation layer. The `packages/aeo-core` package owns keyword intent, answer-readiness, FAQ gap, and content planning signal logic.
 
 `packages/aeo-core` must have no LLM, DB, network, or connector dependency. It receives typed inputs, returns typed drafts/signals, and remains independently unit testable. Optional explanations, copy drafts, or prompt-driven variants belong later in `packages/ai-core`.
 
