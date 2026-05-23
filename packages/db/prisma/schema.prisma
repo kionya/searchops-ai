@@ -51,6 +51,7 @@ model Site {
   keywords        Keyword[]
   contentBriefs   ContentBrief[]
   aeoReadinessReports AeoReadinessReport[]
+  schemaRecommendations SchemaRecommendation[]
   complianceFlags ComplianceFlag[]
 
   @@unique([organizationId, domain])
@@ -248,6 +249,33 @@ model AeoReadinessReport {
   @@index([keywordId])
   @@index([status])
   @@index([evaluatedAt])
+}
+
+model SchemaRecommendation {
+  id                String   @id @default(cuid())
+  siteId            String
+  pageUrl           String
+  type              String
+  priority          String   @default("p2")
+  status            String   @default("open")
+  reason            String
+  evidence          Json
+  jsonLd            Json
+  instructions      Json     @default("[]")
+  requiredFields    Json     @default("[]")
+  recommendedFields Json     @default("[]")
+  generatedBy       String   @default("deterministic")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, pageUrl, type])
+  @@index([siteId])
+  @@index([type])
+  @@index([priority])
+  @@index([status])
+  @@index([updatedAt])
 }
 
 model AiPrompt {

@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
+import { recommendJsonLdForSnapshots } from "@searchops/schema-core";
 
 import {
   AeoReadinessReportListResponseSchema,
@@ -17,12 +18,16 @@ import {
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
   CreateOrganizationRequestSchema,
+  CreateSchemaRecommendationsRequestSchema,
+  CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
   HealthResponseSchema,
   OrganizationListResponseSchema,
   RecheckWorkOrderRequestSchema,
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
+  SchemaRecommendationDetailResponseSchema,
+  SchemaRecommendationListResponseSchema,
   SiteListResponseSchema,
   SiteSchema,
   UpdateSiteRequestSchema,
@@ -158,6 +163,57 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(AeoReadinessReportListResponseSchema.parse({ reports }));
+  });
+
+  server.get("/sites/:id/schema-recommendations", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const recommendations = await repository.listSchemaRecommendations(id);
+    if (!recommendations) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(SchemaRecommendationListResponseSchema.parse({ recommendations }));
+  });
+
+  server.post("/sites/:id/schema-recommendations", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateSchemaRecommendationsRequestSchema.parse(request.body ?? {});
+    if (input.snapshots.some((snapshot) => !isUrlAllowedForCrawl(snapshot.url, site.domain))) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "schema recommendation snapshot URLs must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const recommendationSets = recommendJsonLdForSnapshots({
+      ...(input.organizationName === undefined ? {} : { organizationName: input.organizationName }),
+      site,
+      snapshots: input.snapshots
+    });
+    const recommendations = await repository.createSchemaRecommendations(id, {
+      recommendationSets
+    });
+    if (!recommendations) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply
+      .status(201)
+      .send(
+        CreateSchemaRecommendationsResponseSchema.parse({
+          recommendationSets,
+          recommendations
+        }),
+      );
   });
 
   server.post("/sites/:id/aeo-readiness-reports", async (request, reply) => {
@@ -364,6 +420,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ConnectorSyncRunDetailResponseSchema.parse(result));
+  });
+
+  server.get("/schema-recommendations/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const recommendation = await repository.getSchemaRecommendation(id);
+    if (!recommendation) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    reply.send(SchemaRecommendationDetailResponseSchema.parse({ recommendation }));
   });
 
   server.get("/content-briefs/:id", async (request, reply) => {

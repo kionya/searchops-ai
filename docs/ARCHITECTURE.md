@@ -77,3 +77,7 @@ ContentBrief outputs are draft-only planning artifacts. They must never auto-pub
 Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logic. The `packages/schema-core` package owns schema type extraction from crawler snapshots and JSON-LD recommendation drafts for WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service.
 
 `packages/schema-core` must have no LLM, DB, network, connector, or CMS dependency. It receives typed crawler snapshots plus site context, returns Zod-validated recommendation sets, and remains independently unit testable. Optional explanation text, code generation assistance, persistence, dashboard surfaces, work order mapping, and recheck automation belong to later Phase 8 tasks.
+
+`apps/api` owns the HTTP boundary for schema recommendation creation/history. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, and persist recommendation drafts through repository ports. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
+
+`packages/db` owns schema recommendation persistence. Recommendations are idempotent by site, page URL, and schema type so rerunning the same deterministic analysis updates the existing draft instead of creating duplicates.

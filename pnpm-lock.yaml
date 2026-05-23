@@ -59,6 +59,9 @@ importers:
       '@searchops/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@searchops/schema-core':
+        specifier: workspace:*
+        version: link:../../packages/schema-core
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types

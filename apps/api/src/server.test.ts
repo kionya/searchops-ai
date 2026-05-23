@@ -5,7 +5,9 @@ import type {
   ConnectorSyncResult,
   ConnectorSyncRun,
   ContentBrief,
+  CrawlerPageSnapshot,
   Organization,
+  SchemaRecommendationRecord,
   SeoIssue,
   Site,
   WorkOrder
@@ -131,6 +133,37 @@ const seededAeoReadinessReport: AeoReadinessReportRecord = {
   evaluatedAt: "2026-05-23T00:00:00.000Z",
   createdAt
 };
+const seededSchemaRecommendation: SchemaRecommendationRecord = {
+  id: "schema_rec_seed",
+  siteId: "site_seed",
+  pageUrl: "https://exampleclinic.com/services/seo",
+  type: "Service",
+  priority: "p1",
+  status: "open",
+  reason: "The service page has no Service JSON-LD block.",
+  evidence: {
+    url: "https://exampleclinic.com/services/seo",
+    observedTypes: ["WebPage"],
+    expectedType: "Service",
+    sourceField: "jsonLd"
+  },
+  jsonLd: {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: "SEO clinic",
+    provider: {
+      "@type": "MedicalClinic",
+      name: "Example Clinic"
+    },
+    url: "https://exampleclinic.com/services/seo"
+  },
+  instructions: ["Add Service JSON-LD to the service detail page."],
+  requiredFields: ["@context", "@type", "name", "provider", "url"],
+  recommendedFields: ["description", "serviceType"],
+  generatedBy: "deterministic",
+  createdAt,
+  updatedAt: createdAt
+};
 const seededWorkOrder: WorkOrder = {
   id: "wo_seed",
   organizationId: "org_seed",
@@ -239,6 +272,16 @@ function buildAeoReadinessTestServer() {
   });
 }
 
+function buildSchemaRecommendationTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      schemaRecommendations: [seededSchemaRecommendation]
+    })
+  });
+}
+
 function buildWorkOrderTestServer() {
   return buildApiServer({
     repository: createMemoryRepository({
@@ -248,6 +291,43 @@ function buildWorkOrderTestServer() {
       workOrders: [seededWorkOrder]
     })
   });
+}
+
+function createSchemaSnapshot(
+  overrides: Partial<CrawlerPageSnapshot> = {},
+): CrawlerPageSnapshot {
+  return {
+    canonicalUrl: "https://exampleclinic.com/services/seo",
+    content: {
+      duplicateHash: "a".repeat(64),
+      textLength: 900,
+      wordCount: 140
+    },
+    finalUrl: null,
+    h1Count: 1,
+    h2Count: 1,
+    headings: {
+      h1: ["SEO Clinic"],
+      h2: ["What does SEO clinic include?"]
+    },
+    images: [],
+    indexability: {
+      canonicalMismatch: false,
+      nofollow: false,
+      noindex: false,
+      robotsBlocked: null
+    },
+    jsonLd: [],
+    links: {
+      external: [],
+      internal: []
+    },
+    metaDescription: "SEO clinic service page",
+    robotsMeta: "index,follow",
+    title: "SEO Clinic Service",
+    url: "https://exampleclinic.com/services/seo",
+    ...overrides
+  };
 }
 
 function buildWorkOrderRecheckTestContext() {
@@ -729,6 +809,150 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("keyword");
+  });
+
+  it("creates deterministic schema recommendations and persists them", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/schema-recommendations",
+      payload: {
+        organizationName: "Example Group",
+        snapshots: [createSchemaSnapshot()]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      recommendationSets: [
+        {
+          siteId: "site_seed",
+          pageUrl: "https://exampleclinic.com/services/seo",
+          generatedBy: "deterministic"
+        }
+      ]
+    });
+    expect(response.json().recommendations.map((recommendation: { type: string }) => recommendation.type))
+      .toEqual(["WebPage", "BreadcrumbList", "FAQPage", "Service", "MedicalClinic"]);
+    expect(response.json().recommendations[3]).toMatchObject({
+      siteId: "site_seed",
+      pageUrl: "https://exampleclinic.com/services/seo",
+      type: "Service",
+      priority: "p1",
+      status: "open",
+      generatedBy: "deterministic"
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/schema-recommendations"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().recommendations).toHaveLength(5);
+  });
+
+  it("updates existing schema recommendations idempotently", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/schema-recommendations",
+      payload: {
+        snapshots: [createSchemaSnapshot()]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const serviceRecommendation = response
+      .json()
+      .recommendations.find((recommendation: { type: string }) => recommendation.type === "Service");
+    expect(serviceRecommendation).toMatchObject({
+      id: "schema_rec_seed",
+      type: "Service",
+      status: "open"
+    });
+  });
+
+  it("lists and reads persisted schema recommendations", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/schema-recommendations"
+    });
+    const detailResponse = await server.inject({
+      method: "GET",
+      url: "/schema-recommendations/schema_rec_seed"
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().recommendations).toHaveLength(1);
+    expect(listResponse.json().recommendations[0]).toMatchObject({
+      id: "schema_rec_seed",
+      type: "Service",
+      generatedBy: "deterministic"
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      recommendation: {
+        id: "schema_rec_seed",
+        pageUrl: "https://exampleclinic.com/services/seo"
+      }
+    });
+  });
+
+  it("returns 404 for missing schema recommendation resources", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/schema-recommendations"
+    });
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/schema-recommendations",
+      payload: {
+        snapshots: [createSchemaSnapshot()]
+      }
+    });
+    const detailResponse = await server.inject({
+      method: "GET",
+      url: "/schema-recommendations/schema_rec_missing"
+    });
+
+    expect(listResponse.statusCode).toBe(404);
+    expect(createResponse.statusCode).toBe(404);
+    expect(detailResponse.statusCode).toBe(404);
+  });
+
+  it("validates schema recommendation request payloads", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/schema-recommendations",
+      payload: {
+        snapshots: []
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("snapshots");
+  });
+
+  it("rejects schema recommendation snapshots outside the site scope", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/schema-recommendations",
+      payload: {
+        snapshots: [
+          createSchemaSnapshot({
+            canonicalUrl: "https://example.net/services/seo",
+            url: "https://example.net/services/seo"
+          })
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("snapshot URLs");
   });
 
   it("creates deterministic content brief drafts and persists them", async () => {

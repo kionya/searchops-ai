@@ -6,6 +6,7 @@ export {
   createSearchOpsPrismaClient,
   type SearchOpsPrismaClient
 } from "./client.js";
+export type { Prisma } from "./generated/prisma/index.js";
 
 export {
   buildUrlRecordUpsertArgs,
