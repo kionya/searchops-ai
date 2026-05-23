@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
+import { ContentBriefSchema, productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
 
 import {
   dashboardPlaceholders,
@@ -16,6 +16,14 @@ import {
   summarizeConnectorSyncHistory,
   triggerConnectorSync
 } from "./connector-sync-history";
+import {
+  createDemoContentBriefHistory,
+  demoContentBriefs,
+  formatContentBriefDate,
+  getContentBriefStatusTone,
+  loadContentBriefHistory,
+  summarizeContentBriefHistory
+} from "./content-brief-history";
 import {
   futureModuleKeys,
   futureModuleSkeletons,
@@ -110,12 +118,64 @@ describe("web foundation", () => {
   it("keeps placeholder modules wired for non-workorder dashboard sections", () => {
     expect(Object.keys(dashboardPlaceholders).sort()).toEqual([
       "compliance",
-      "content",
       "crawls",
       "geo",
       "issues",
       "urls"
     ]);
+  });
+
+  it("summarizes deterministic content brief history", () => {
+    const history = createDemoContentBriefHistory("site_1");
+
+    expect(history.briefs.map((brief) => ContentBriefSchema.parse(brief))).toHaveLength(2);
+    expect(summarizeContentBriefHistory(history)).toEqual({
+      archived: 0,
+      draft: 2,
+      latestCreatedAt: "2026-05-23T00:00:00.000Z",
+      total: 2,
+      totalFaqQuestions: 3
+    });
+    expect(getContentBriefStatusTone("draft")).toBe("draft");
+    expect(formatContentBriefDate("2026-05-23T00:00:00.000Z")).toBe("2026-05-23 00:00");
+  });
+
+  it("loads content brief history through the API response contract", async () => {
+    const contentBrief = demoContentBriefs[0];
+    if (!contentBrief) {
+      throw new Error("Content brief API fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/content-briefs");
+
+        return Response.json({
+          contentBriefs: [{ ...contentBrief, siteId: "site_1" }]
+        });
+      }),
+    );
+
+    const history = await loadContentBriefHistory("site_1");
+
+    expect(history.source).toBe("api");
+    expect(history.briefs).toHaveLength(1);
+    expect(history.briefs[0]?.siteId).toBe("site_1");
+  });
+
+  it("keeps content brief history deterministic without an API base URL", async () => {
+    await expect(loadContentBriefHistory("site_1")).resolves.toMatchObject({
+      briefs: expect.arrayContaining([
+        expect.objectContaining({
+          generationMode: "deterministic",
+          publishPolicy: "draft_only",
+          siteId: "site_1"
+        })
+      ]),
+      source: "fixture"
+    });
   });
 
   it("summarizes deterministic connector sync history", () => {
@@ -303,12 +363,12 @@ describe("web foundation", () => {
   it("defines deterministic future module skeletons", () => {
     const modules = futureModuleKeys.map((key) => futureModuleSkeletons[key]);
 
-    expect(futureModuleKeys).toEqual(["content", "geo", "compliance"]);
+    expect(futureModuleKeys).toEqual(["geo", "compliance"]);
     expect(summarizeFutureModules(modules)).toEqual({
-      total: 3,
-      planned: 3,
-      placeholderMetrics: 9,
-      emptyStates: 3
+      total: 2,
+      planned: 2,
+      placeholderMetrics: 6,
+      emptyStates: 2
     });
     expect(futureModuleSkeletons.compliance.dependsOn).toContain("Medical ad rules");
   });

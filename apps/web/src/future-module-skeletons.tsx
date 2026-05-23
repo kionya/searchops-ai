@@ -10,7 +10,7 @@ import {
   tableSectionStyle
 } from "./dashboard-table-styles";
 
-export type FutureModuleKey = "compliance" | "content" | "geo";
+export type FutureModuleKey = "compliance" | "geo";
 export type FutureModuleStatus = "planned";
 
 export interface FutureModuleMetric {
@@ -31,25 +31,9 @@ export interface FutureModuleSkeleton {
   readonly nextMilestones: readonly string[];
 }
 
-export const futureModuleKeys = ["content", "geo", "compliance"] as const satisfies readonly FutureModuleKey[];
+export const futureModuleKeys = ["geo", "compliance"] as const satisfies readonly FutureModuleKey[];
 
 export const futureModuleSkeletons: Record<FutureModuleKey, FutureModuleSkeleton> = {
-  content: {
-    key: "content",
-    eyebrow: "Content Briefs",
-    title: "Content briefs",
-    description: "Keyword, topic, and page planning workspace for future content workflows.",
-    status: "planned",
-    metrics: [
-      { label: "Briefs", value: "0" },
-      { label: "Drafts", value: "0" },
-      { label: "Ready", value: "0" }
-    ],
-    emptyTitle: "No content briefs",
-    emptyDescription: "Content briefs will appear after keyword and content planning modules are connected.",
-    dependsOn: ["Keyword inventory", "Content brief schema", "Work order linking"],
-    nextMilestones: ["CDX-070 Keyword / AEO engine", "CDX-080 Schema engine"]
-  },
   geo: {
     key: "geo",
     eyebrow: "GEO Monitor",

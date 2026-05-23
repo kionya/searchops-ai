@@ -36,7 +36,7 @@ export interface PlaceholderPageContent {
 }
 
 export const dashboardPlaceholders: Record<
-  Exclude<SiteRouteSegment, "" | "connectors" | "workorders">,
+  Exclude<SiteRouteSegment, "" | "connectors" | "content" | "workorders">,
   PlaceholderPageContent
 > = {
   crawls: {
@@ -71,17 +71,6 @@ export const dashboardPlaceholders: Record<
       { label: "Resolved", value: "0" }
     ],
     emptyTitle: "No issue rows"
-  },
-  content: {
-    eyebrow: "Content Briefs",
-    title: "Content briefs",
-    description: "Keyword, topic, and page planning work for content teams.",
-    metrics: [
-      { label: "Briefs", value: "0" },
-      { label: "Drafts", value: "0" },
-      { label: "Ready", value: "0" }
-    ],
-    emptyTitle: "No content briefs"
   },
   geo: {
     eyebrow: "GEO Monitor",
