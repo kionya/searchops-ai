@@ -18,6 +18,7 @@ SearchOps AI is a SaaS platform for SEO/AEO/GEO diagnosis, content planning, str
 - apps/worker: async jobs
 - packages/db: schema and migrations
 - packages/seo-core: deterministic SEO rules
+- packages/aeo-core: deterministic Keyword/AEO rules
 - packages/crawler-core: crawl and parse logic
 - packages/workorders: issue-to-task conversion
 - packages/ai-core: LLM provider adapters and prompts
