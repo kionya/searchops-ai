@@ -17,9 +17,12 @@ import {
   triggerConnectorSync
 } from "./connector-sync-history";
 import {
+  createContentBriefFromForm,
+  createContentBriefRequestFromForm,
   createDemoContentBriefHistory,
   demoContentBriefs,
   formatContentBriefDate,
+  getContentBriefCreateFeedback,
   getContentBriefStatusTone,
   loadContentBriefHistory,
   summarizeContentBriefHistory
@@ -165,6 +168,122 @@ describe("web foundation", () => {
     expect(history.briefs[0]?.siteId).toBe("site_1");
   });
 
+  it("builds deterministic content brief create requests from form data", () => {
+    const formData = new FormData();
+    formData.set("phrase", "seo clinic price comparison");
+    formData.set("intent", "commercial");
+    formData.set("candidateUrl", "https://example-clinic.com/service/seo");
+    formData.set("pageTitle", "SEO clinic service");
+    formData.set("metaDescription", "SEO clinic service page");
+    formData.set("h1", "SEO clinic");
+    formData.set("wordCount", "320");
+    formData.set("schemaTypes", "FAQPage, LocalBusiness");
+    formData.set("questionHeadings", "What does SEO clinic include?\nHow much does it cost?");
+    formData.set("h2", "What does SEO clinic include?");
+
+    expect(
+      createContentBriefRequestFromForm(formData, {
+        evaluatedAt: "2026-05-23T00:00:00.000Z"
+      }),
+    ).toMatchObject({
+      candidatePage: {
+        h2: ["What does SEO clinic include?"],
+        questionHeadings: ["What does SEO clinic include?", "How much does it cost?"],
+        schemaTypes: ["FAQPage", "LocalBusiness"],
+        wordCount: 320
+      },
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
+      keyword: {
+        intent: "commercial",
+        phrase: "seo clinic price comparison"
+      }
+    });
+  });
+
+  it("creates content brief requests through the API contract", async () => {
+    const contentBrief = demoContentBriefs[0];
+    if (!contentBrief) {
+      throw new Error("Content brief create fixture is missing");
+    }
+
+    const formData = new FormData();
+    formData.set("phrase", contentBrief.primaryKeyword);
+    formData.set("intent", contentBrief.intent);
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/content-briefs");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          keyword: {
+            intent: contentBrief.intent,
+            phrase: contentBrief.primaryKeyword
+          }
+        });
+
+        return Response.json({
+          contentBrief: { ...contentBrief, id: "brief_created", siteId: "site_1" },
+          draft: {
+            acceptanceCriteria: contentBrief.acceptanceCriteria,
+            faqQuestions: contentBrief.faqQuestions,
+            generationMode: "deterministic",
+            intent: contentBrief.intent,
+            keywordId: null,
+            locale: contentBrief.locale,
+            outline: contentBrief.outline,
+            primaryKeyword: contentBrief.primaryKeyword,
+            publishPolicy: "draft_only",
+            siteId: "site_1",
+            status: "draft",
+            summary: contentBrief.summary,
+            title: contentBrief.title
+          },
+          readinessReport: {
+            checks: [
+              {
+                checkId: "KEYWORD_INTENT_DEFINED",
+                evidence: {
+                  expectedValue: "Non-null deterministic keyword intent",
+                  observedValue: contentBrief.intent,
+                  sourceField: "keyword.intent",
+                  url: null
+                },
+                score: 100,
+                status: "pass"
+              }
+            ],
+            evaluatedAt: "2026-05-23T00:00:00.000Z",
+            generatedBy: "deterministic",
+            keyword: {
+              country: "KR",
+              intent: contentBrief.intent,
+              language: "ko",
+              locale: contentBrief.locale,
+              phrase: contentBrief.primaryKeyword,
+              siteId: "site_1",
+              source: "manual"
+            },
+            pageUrl: null,
+            score: 0,
+            status: "not_ready"
+          }
+        });
+      }),
+    );
+
+    await expect(createContentBriefFromForm("site_1", formData)).resolves.toMatchObject({
+      contentBriefId: "brief_created",
+      primaryKeyword: contentBrief.primaryKeyword,
+      source: "api",
+      status: "created"
+    });
+    expect(getContentBriefCreateFeedback("created", "brief_created", undefined)?.message).toContain(
+      "brief_created",
+    );
+  });
+
   it("keeps content brief history deterministic without an API base URL", async () => {
     await expect(loadContentBriefHistory("site_1")).resolves.toMatchObject({
       briefs: expect.arrayContaining([
@@ -176,6 +295,22 @@ describe("web foundation", () => {
       ]),
       source: "fixture"
     });
+  });
+
+  it("keeps content brief create deterministic without an API base URL", async () => {
+    const formData = new FormData();
+    formData.set("phrase", "medical seo checklist");
+    formData.set("intent", "informational");
+
+    await expect(createContentBriefFromForm("site_1", formData)).resolves.toMatchObject({
+      contentBriefId: null,
+      primaryKeyword: "medical seo checklist",
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getContentBriefCreateFeedback("fixture", undefined, "medical seo checklist")?.tone).toBe(
+      "info",
+    );
   });
 
   it("summarizes deterministic connector sync history", () => {
