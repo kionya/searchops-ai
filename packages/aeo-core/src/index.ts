@@ -1,16 +1,21 @@
 ﻿import {
+  AeoFaqGapSetSchema,
   AeoReadinessCheckSchema,
   AeoReadinessReportSchema,
+  ContentBriefDraftSchema,
   KeywordAeoInputSchema,
   KeywordTargetSchema
 } from "@searchops/types";
 import type {
   AeoEvidenceValue,
+  AeoFaqGapSet,
   AeoPageSignal,
   AeoReadinessCheck,
   AeoReadinessCheckId,
   AeoReadinessCheckStatus,
   AeoReadinessReport,
+  ContentBriefDraft,
+  ContentBriefSection,
   KeywordAeoInput,
   KeywordIntent,
   KeywordTarget
@@ -40,6 +45,15 @@ export interface AeoReadinessRule {
 export interface AeoReadinessEvaluationOptions {
   readonly evaluatedAt: string;
   readonly rules?: readonly AeoReadinessRule[];
+}
+
+export interface ContentBriefDraftMapperInput {
+  readonly candidatePage?: AeoPageSignal | null;
+  readonly evaluatedAt?: string;
+  readonly faqGapSet?: AeoFaqGapSet;
+  readonly keyword: KeywordTarget;
+  readonly keywordId?: string | null;
+  readonly readinessReport?: AeoReadinessReport;
 }
 
 const scorableKeywordIntents = [
@@ -537,6 +551,110 @@ export function evaluateAeoReadiness(
   });
 }
 
+export function createContentBriefDraft(
+  input: ContentBriefDraftMapperInput,
+): ContentBriefDraft {
+  const keyword = classifyKeywordTargetIntent(input.keyword);
+  const candidatePage = input.candidatePage ?? null;
+  const readinessReport = resolveReadinessReport(input, keyword, candidatePage);
+  const faqGapSet = input.faqGapSet ? AeoFaqGapSetSchema.parse(input.faqGapSet) : null;
+
+  assertKeywordAlignment(keyword, readinessReport.keyword, "readinessReport.keyword");
+
+  if (faqGapSet) {
+    assertKeywordAlignment(keyword, faqGapSet.keyword, "faqGapSet.keyword");
+  }
+
+  const faqQuestions = collectContentBriefQuestions(keyword, candidatePage, faqGapSet);
+  const acceptanceCriteria = createContentBriefAcceptanceCriteria(readinessReport);
+  const outline = createContentBriefOutline({
+    acceptanceCriteria,
+    candidatePage,
+    faqQuestions,
+    keyword,
+    readinessReport
+  });
+  const intent = keyword.intent ?? "informational";
+
+  return ContentBriefDraftSchema.parse({
+    acceptanceCriteria,
+    faqQuestions,
+    generationMode: aeoCoreGenerationMode,
+    intent,
+    keywordId: input.keywordId ?? null,
+    locale: keyword.locale,
+    outline,
+    primaryKeyword: keyword.phrase,
+    publishPolicy: "draft_only",
+    siteId: keyword.siteId,
+    status: "draft",
+    summary: createContentBriefSummary(keyword, readinessReport),
+    title: createContentBriefTitle(keyword, candidatePage)
+  });
+}
+
+export function createContentBriefOutline({
+  acceptanceCriteria,
+  candidatePage,
+  faqQuestions,
+  keyword,
+  readinessReport
+}: {
+  readonly acceptanceCriteria: readonly string[];
+  readonly candidatePage: AeoPageSignal | null;
+  readonly faqQuestions: readonly string[];
+  readonly keyword: KeywordTarget;
+  readonly readinessReport: AeoReadinessReport;
+}): ContentBriefSection[] {
+  const intent = keyword.intent ?? "informational";
+  const firstQuestion = faqQuestions.slice(0, 1);
+  const remainingQuestions = faqQuestions.slice(1);
+  const weakChecks = readinessReport.checks
+    .filter((check) => check.status !== "pass")
+    .map((check) => check.checkId);
+
+  return [
+    {
+      acceptanceCriteria: [
+        "Open with a concise answer block before long supporting copy.",
+        `Match ${intent} search intent for the primary keyword.`
+      ],
+      heading: `${toTitleCase(keyword.phrase)} direct answer`,
+      purpose: createIntentPurpose(intent),
+      targetQuestions: firstQuestion
+    },
+    {
+      acceptanceCriteria: [
+        "Cover each planned question with a direct answer and supporting detail.",
+        "Keep question headings clear enough to become future FAQ candidates."
+      ],
+      heading: "Question coverage",
+      purpose: "Close answer gaps that search engines and answer engines can extract.",
+      targetQuestions: remainingQuestions.length > 0 ? remainingQuestions : firstQuestion
+    },
+    {
+      acceptanceCriteria: [
+        candidatePage
+          ? "Use the existing page topic as source context, but keep the brief in draft state."
+          : "Mark source content as missing and request a candidate page before publishing.",
+        "Use one H1 plan, supporting H2 sections, and enough depth for a complete answer."
+      ],
+      heading: "Evidence and page structure",
+      purpose: "Turn readiness signals into concrete page structure requirements.",
+      targetQuestions: []
+    },
+    {
+      acceptanceCriteria: [...acceptanceCriteria],
+      heading: "Review checklist",
+      purpose:
+        weakChecks.length > 0
+          ? `Resolve weak readiness checks: ${weakChecks.join(", ")}.`
+          : "Confirm the page remains ready after human review.",
+      targetQuestions: []
+    }
+  ];
+}
+
 export function calculateAeoReadinessScore(checks: readonly AeoReadinessCheck[]) {
   if (checks.length === 0) {
     throw new Error("AEO readiness scoring requires at least one check");
@@ -587,6 +705,185 @@ function createAeoReadinessCheck({
   });
 }
 
+function resolveReadinessReport(
+  input: ContentBriefDraftMapperInput,
+  keyword: KeywordTarget,
+  candidatePage: AeoPageSignal | null,
+) {
+  if (input.readinessReport) {
+    return AeoReadinessReportSchema.parse(input.readinessReport);
+  }
+
+  if (!input.evaluatedAt) {
+    throw new Error("Content brief draft mapping requires evaluatedAt when readinessReport is absent");
+  }
+
+  return evaluateAeoReadiness(
+    {
+      candidatePage,
+      keyword
+    },
+    { evaluatedAt: input.evaluatedAt },
+  );
+}
+
+function assertKeywordAlignment(
+  expectedKeyword: KeywordTarget,
+  observedKeyword: KeywordTarget,
+  sourceField: string,
+) {
+  if (
+    expectedKeyword.siteId !== observedKeyword.siteId ||
+    normalizeKeywordPhrase(expectedKeyword.phrase) !== normalizeKeywordPhrase(observedKeyword.phrase)
+  ) {
+    throw new Error(`Content brief ${sourceField} must match the mapper keyword`);
+  }
+}
+
+function collectContentBriefQuestions(
+  keyword: KeywordTarget,
+  candidatePage: AeoPageSignal | null,
+  faqGapSet: AeoFaqGapSet | null,
+) {
+  return uniqueNonBlankStrings([
+    ...(faqGapSet?.gaps.map((gap) => gap.question) ?? []),
+    ...(candidatePage?.questionHeadings ?? []),
+    ...(candidatePage?.answerBlocks.map((block) => block.question) ?? []),
+    ...createDefaultQuestions(keyword)
+  ]).slice(0, 6);
+}
+
+function createDefaultQuestions(keyword: KeywordTarget) {
+  const phrase = createQuestionTopic(keyword.phrase);
+  const intent = keyword.intent ?? "informational";
+
+  switch (intent) {
+    case "commercial":
+      return [
+        `What does ${phrase} include?`,
+        `How much does ${phrase} cost?`,
+        `How should users compare ${phrase} options?`
+      ];
+    case "local":
+      return [
+        `Where is ${phrase} available?`,
+        `How can users choose a local provider for ${phrase}?`,
+        `What should users check before visiting for ${phrase}?`
+      ];
+    case "mixed":
+      return [
+        `What is ${phrase}?`,
+        `What does ${phrase} include?`,
+        `How should users decide if ${phrase} is right for them?`
+      ];
+    case "navigational":
+      return [
+        `Where can users find ${phrase}?`,
+        `What is the official page for ${phrase}?`,
+        `How can users get support for ${phrase}?`
+      ];
+    case "transactional":
+      return [
+        `How can users book ${phrase}?`,
+        `What information is needed before ${phrase}?`,
+        `What happens after requesting ${phrase}?`
+      ];
+    case "informational":
+      return [
+        `What is ${phrase}?`,
+        `How does ${phrase} work?`,
+        `What should users know before choosing ${phrase}?`
+      ];
+  }
+}
+
+function createQuestionTopic(phrase: string) {
+  return normalizeKeywordPhrase(phrase).replace(/^(what is|what are|how to|how does)\s+/u, "");
+}
+
+function createContentBriefAcceptanceCriteria(readinessReport: AeoReadinessReport) {
+  const criteria = [
+    "Keep the content brief in draft status until human review is complete.",
+    "Do not auto-publish the brief to any CMS or external channel.",
+    "Use the primary keyword naturally in the title, H1 plan, and direct answer."
+  ];
+
+  for (const check of readinessReport.checks) {
+    if (check.status === "pass") {
+      continue;
+    }
+
+    criteria.push(acceptanceCriterionByCheckId[check.checkId]);
+  }
+
+  return uniqueNonBlankStrings(criteria);
+}
+
+const acceptanceCriterionByCheckId = {
+  ANSWER_SUMMARY_PRESENT: "Add at least one concise answer block near the top of the page.",
+  CITABLE_SOURCE_PRESENT: "Plan a citable page title and primary heading.",
+  CONTENT_DEPTH: "Plan enough supporting sections to reach at least 600 words.",
+  FAQ_SCHEMA_PRESENT: "Structure FAQ candidates so they can later support FAQPage schema.",
+  KEYWORD_INTENT_DEFINED: "State the deterministic keyword intent in the brief.",
+  QUESTION_COVERAGE: "Include at least two question-led subsections.",
+  STRUCTURED_HEADINGS: "Use one H1 plan and at least two supporting H2 sections."
+} as const satisfies Record<AeoReadinessCheckId, string>;
+
+function createContentBriefSummary(
+  keyword: KeywordTarget,
+  readinessReport: AeoReadinessReport,
+) {
+  const intent = keyword.intent ?? "informational";
+
+  return `${keyword.phrase} has ${readinessReport.status} AEO readiness with score ${String(
+    readinessReport.score,
+  )}. Create a draft-only ${intent} brief that closes readiness gaps before human review.`;
+}
+
+function createContentBriefTitle(keyword: KeywordTarget, candidatePage: AeoPageSignal | null) {
+  const topic = isNonBlank(candidatePage?.h1 ?? null)
+    ? candidatePage?.h1 ?? keyword.phrase
+    : toTitleCase(keyword.phrase);
+
+  return `${topic} content brief`;
+}
+
+function createIntentPurpose(intent: KeywordIntent) {
+  switch (intent) {
+    case "commercial":
+      return "Help users compare options and understand value before they choose a provider.";
+    case "local":
+      return "Answer location-sensitive questions and make the local next step clear.";
+    case "mixed":
+      return "Cover definition, comparison, and decision criteria in one structured draft.";
+    case "navigational":
+      return "Help users reach the official destination and understand what to do there.";
+    case "transactional":
+      return "Help users understand the action, requirements, and next step.";
+    case "informational":
+      return "Explain the topic clearly with a direct answer and supporting context.";
+  }
+}
+
+function uniqueNonBlankStrings(values: readonly string[]) {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim().replace(/\s+/g, " ");
+    const key = normalized.toLowerCase();
+
+    if (normalized.length === 0 || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(normalized);
+  }
+
+  return unique;
+}
+
 function countUniqueQuestions(page: AeoPageSignal) {
   return new Set([
     ...page.questionHeadings.map(normalizeKeywordPhrase),
@@ -618,4 +915,11 @@ function phraseMatchesTerm(normalizedPhrase: string, term: string) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function toTitleCase(value: string) {
+  return normalizeKeywordPhrase(value)
+    .split(" ")
+    .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
 }
