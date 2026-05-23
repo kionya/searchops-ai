@@ -1,6 +1,9 @@
 import {
+  ConnectorProviderListSchema,
   ConnectorSyncRunDetailResponseSchema,
   ConnectorSyncRunListResponseSchema,
+  CreateConnectorSyncRunRequestSchema,
+  CreateConnectorSyncRunResponseSchema,
   type ConnectorProvider,
   type ConnectorSyncResult,
   type ConnectorSyncRun
@@ -9,8 +12,11 @@ import {
 import { demoSite } from "./work-order-board";
 
 export type ConnectorSyncHistorySource = "api" | "fixture";
+export type ConnectorSyncTriggerStatus = "failed" | "fixture" | "queued";
 export type ConnectorSyncRunTone = "complete" | "failed" | "partial" | "queued";
 export type ConnectorSyncResultTone = "failed" | "ok" | "partial";
+
+export const connectorProviderOptions = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
 export interface ConnectorSyncHistoryData {
   readonly errorMessage: string | null;
@@ -28,6 +34,20 @@ export interface ConnectorSyncHistorySummary {
   readonly queued: number;
   readonly total: number;
   readonly totalRecords: number;
+}
+
+export interface ConnectorSyncTriggerResult {
+  readonly connectorSyncRunId: string | null;
+  readonly errorMessage: string | null;
+  readonly jobId: string | null;
+  readonly providers: readonly ConnectorProvider[];
+  readonly source: ConnectorSyncHistorySource;
+  readonly status: ConnectorSyncTriggerStatus;
+}
+
+export interface ConnectorSyncTriggerFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
 }
 
 const fixtureStartedAt = "2026-05-22T00:00:00.000Z";
@@ -297,6 +317,57 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
   }
 }
 
+export async function triggerConnectorSync(
+  siteId: string,
+  providers: readonly ConnectorProvider[],
+): Promise<ConnectorSyncTriggerResult> {
+  const input = CreateConnectorSyncRunRequestSchema.parse({ providers });
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      connectorSyncRunId: null,
+      errorMessage: null,
+      jobId: null,
+      providers: input.providers,
+      source: "fixture",
+      status: "fixture"
+    };
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connector-sync-runs`, {
+      body: JSON.stringify(input),
+      cache: "no-store",
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    });
+    if (!response.ok) {
+      throw new Error(`Connector sync trigger failed with ${response.status}`);
+    }
+
+    const output = CreateConnectorSyncRunResponseSchema.parse(await response.json());
+    return {
+      connectorSyncRunId: output.connectorSyncRun.id,
+      errorMessage: null,
+      jobId: output.job.id,
+      providers: output.connectorSyncRun.providers,
+      source: "api",
+      status: "queued"
+    };
+  } catch (error) {
+    return {
+      connectorSyncRunId: null,
+      errorMessage: error instanceof Error ? error.message : "Connector sync trigger failed",
+      jobId: null,
+      providers: input.providers,
+      source: "api",
+      status: "failed"
+    };
+  }
+}
+
 export function createDemoConnectorSyncHistory(siteId: string = demoSite.id): ConnectorSyncHistoryData {
   return {
     errorMessage: null,
@@ -304,6 +375,38 @@ export function createDemoConnectorSyncHistory(siteId: string = demoSite.id): Co
     runs: demoConnectorSyncRuns.map((run) => ({ ...run, siteId })),
     source: "fixture"
   };
+}
+
+export function parseConnectorProviders(input: readonly FormDataEntryValue[]) {
+  return ConnectorProviderListSchema.parse(input.map((value) => String(value)));
+}
+
+export function getConnectorSyncTriggerFeedback(
+  status: string | undefined,
+  runId: string | undefined,
+): ConnectorSyncTriggerFeedback | null {
+  if (status === "queued") {
+    return {
+      message: runId ? `Connector sync queued: ${runId}` : "Connector sync queued.",
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: "Fixture mode: set SEARCHOPS_API_BASE_URL to queue a real connector sync job.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "Connector sync request failed. Check the API server and retry.",
+      tone: "warning"
+    };
+  }
+
+  return null;
 }
 
 export function groupConnectorSyncResultsByRun(

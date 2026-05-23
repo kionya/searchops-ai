@@ -11,8 +11,10 @@ import {
   createDemoConnectorSyncHistory,
   formatSyncDuration,
   getConnectorSyncRunTone,
+  getConnectorSyncTriggerFeedback,
   loadConnectorSyncHistory,
-  summarizeConnectorSyncHistory
+  summarizeConnectorSyncHistory,
+  triggerConnectorSync
 } from "./connector-sync-history";
 import {
   futureModuleKeys,
@@ -173,6 +175,68 @@ describe("web foundation", () => {
     expect(history.source).toBe("api");
     expect(history.runs).toHaveLength(1);
     expect(history.resultsByRunId[connectorSyncRun.id]).toHaveLength(1);
+  });
+
+  it("queues connector sync trigger requests through the API contract", async () => {
+    const fixture = createDemoConnectorSyncHistory("site_1");
+    const connectorSyncRun = fixture.runs[0];
+    if (!connectorSyncRun) {
+      throw new Error("Connector sync trigger fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/connector-sync-runs");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ providers: ["gsc", "pagespeed"] });
+
+        return Response.json({
+          connectorSyncRun: {
+            ...connectorSyncRun,
+            id: "sync_queued",
+            providers: ["gsc", "pagespeed"],
+            status: "queued",
+            endedAt: null,
+            summary: null
+          },
+          job: {
+            id: "job_queued",
+            name: "connector-sync",
+            payload: {
+              connectorSyncRunId: "sync_queued",
+              organizationId: connectorSyncRun.organizationId,
+              siteId: "site_1",
+              siteDomain: "example-clinic.com",
+              requestedByUserId: connectorSyncRun.requestedByUserId,
+              fetchedAt: "2026-05-22T09:00:00.000Z",
+              providers: ["gsc", "pagespeed"]
+            }
+          }
+        });
+      }),
+    );
+
+    await expect(triggerConnectorSync("site_1", ["gsc", "pagespeed"])).resolves.toMatchObject({
+      connectorSyncRunId: "sync_queued",
+      jobId: "job_queued",
+      source: "api",
+      status: "queued"
+    });
+    expect(getConnectorSyncTriggerFeedback("queued", "sync_queued")?.message).toContain(
+      "sync_queued",
+    );
+  });
+
+  it("keeps connector sync trigger deterministic without an API base URL", async () => {
+    await expect(triggerConnectorSync("site_1", ["gsc"])).resolves.toMatchObject({
+      connectorSyncRunId: null,
+      providers: ["gsc"],
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getConnectorSyncTriggerFeedback("fixture", undefined)?.tone).toBe("info");
   });
 
   it("calculates deterministic site overview KPIs", () => {
