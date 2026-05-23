@@ -201,13 +201,21 @@ model Keyword {
 }
 
 model ContentBrief {
-  id        String   @id @default(cuid())
-  siteId    String
-  keywordId String?
-  title     String
-  status    String   @default("draft")
-  outline   Json?
-  createdAt DateTime @default(now())
+  id                 String   @id @default(cuid())
+  siteId             String
+  keywordId          String?
+  primaryKeyword     String
+  locale             String   @default("ko-KR")
+  intent             String   @default("informational")
+  title              String
+  status             String   @default("draft")
+  summary            String   @default("Draft content brief.")
+  outline            Json?
+  faqQuestions       Json     @default("[]")
+  acceptanceCriteria Json     @default("[]")
+  generationMode     String   @default("deterministic")
+  publishPolicy      String   @default("draft_only")
+  createdAt          DateTime @default(now())
 
   site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   keyword Keyword? @relation(fields: [keywordId], references: [id], onDelete: SetNull)

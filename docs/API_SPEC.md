@@ -12,6 +12,9 @@ The work board API lists work orders for a site, allows board fields to be updat
 ## Phase 6 API
 The connector sync API creates connector sync runs, enqueues connector jobs, lists sync history, and reads persisted provider results. It does not call live external provider APIs inside the API process.
 
+## Phase 7 API
+The ContentBrief API creates deterministic draft-only content briefs from Keyword/AEO signals and reads persisted draft history. It does not call LLM providers or publish to a CMS.
+
 ## Routes
 - `GET /health`
 - `GET /auth/context`
@@ -31,6 +34,9 @@ The connector sync API creates connector sync runs, enqueues connector jobs, lis
 - `POST /sites/:siteId/connector-sync-runs`
 - `GET /sites/:siteId/connector-sync-runs`
 - `GET /connector-sync-runs/:connectorSyncRunId`
+- `POST /sites/:siteId/content-briefs`
+- `GET /sites/:siteId/content-briefs`
+- `GET /content-briefs/:contentBriefId`
 
 ## Contract Rule
 Public APIs must use Zod schemas from `packages/types` or schemas colocated with the API boundary and exported through shared types when reused.
@@ -65,6 +71,26 @@ The response is `202 Accepted` with:
 `GET /connector-sync-runs/:connectorSyncRunId` returns `ConnectorSyncRunDetailResponse` with persisted provider results.
 
 Connector sync APIs use the same mock auth context as the rest of the API. Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default; fixture adapters remain the default test and local-development behavior.
+
+## Content Briefs
+`POST /sites/:siteId/content-briefs` accepts:
+- `keyword` required phrase and optional locale/language/country/intent/source.
+- `keywordId` optional existing keyword id.
+- `candidatePage` optional AEO page signal.
+- `readinessReport` optional deterministic AEO readiness report.
+- `faqGapSet` optional deterministic FAQ gap set.
+- `evaluatedAt` optional ISO datetime used when the API computes readiness.
+
+If `readinessReport` is absent, the API computes deterministic readiness through `packages/aeo-core`. The response is `201 Created` with:
+- `contentBrief`, the persisted draft row.
+- `draft`, the deterministic `ContentBriefDraft` mapper output.
+- `readinessReport`, the deterministic report used for the draft.
+
+`GET /sites/:siteId/content-briefs` returns `ContentBriefListResponse`.
+
+`GET /content-briefs/:contentBriefId` returns `ContentBriefDetailResponse`.
+
+Content brief creation is draft-only. The API persists `status = draft`, `generationMode = deterministic`, and `publishPolicy = draft_only`; it does not publish to CMS or call `packages/ai-core`.
 
 ## Work Orders
 `GET /sites/:siteId/work-orders` returns `WorkOrderListResponse`.

@@ -1,11 +1,13 @@
 import {
   ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
+  ContentBriefSchema,
   CrawlRunSchema,
   OrganizationSchema,
   SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
+  type ContentBrief,
   type ConnectorSyncResult,
   type ConnectorSyncRun,
   type CrawlRun,
@@ -17,6 +19,7 @@ import {
 import type { SearchOpsPrismaClient } from "@searchops/db";
 
 import type { SearchOpsRepository } from "./repository.js";
+import type { ContentBriefDraft } from "@searchops/types";
 
 type OrganizationRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["organization"]["findFirst"]>
@@ -29,6 +32,7 @@ type ConnectorSyncRunRecord = Awaited<
 type ConnectorSyncResultRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["connectorSyncResult"]["findFirst"]>
 >;
+type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 
@@ -251,6 +255,65 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       };
     },
 
+    async createContentBriefDraft(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.draft.siteId !== siteId) {
+        return null;
+      }
+
+      const keyword = await resolveContentBriefKeyword(prisma, siteId, input.draft);
+      if (keyword === null) {
+        return null;
+      }
+
+      return toContentBrief(
+        await prisma.contentBrief.create({
+          data: {
+            acceptanceCriteria: input.draft.acceptanceCriteria,
+            faqQuestions: input.draft.faqQuestions,
+            generationMode: input.draft.generationMode,
+            intent: input.draft.intent,
+            keywordId: keyword.id,
+            locale: input.draft.locale,
+            outline: input.draft.outline,
+            primaryKeyword: input.draft.primaryKeyword,
+            publishPolicy: input.draft.publishPolicy,
+            siteId,
+            status: input.draft.status,
+            summary: input.draft.summary,
+            title: input.draft.title
+          }
+        }),
+      );
+    },
+
+    async listContentBriefs(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const contentBriefs = await prisma.contentBrief.findMany({
+        orderBy: [{ createdAt: "desc" }, { title: "asc" }],
+        where: { siteId }
+      });
+      return contentBriefs.map(toContentBrief);
+    },
+
+    async getContentBrief(id) {
+      return toNullableContentBrief(
+        await prisma.contentBrief.findUnique({
+          where: { id }
+        }),
+      );
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -336,6 +399,42 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
   };
 }
 
+async function resolveContentBriefKeyword(
+  prisma: SearchOpsPrismaClient,
+  siteId: string,
+  draft: ContentBriefDraft,
+) {
+  if (draft.keywordId !== null) {
+    return prisma.keyword.findFirst({
+      select: { id: true },
+      where: {
+        id: draft.keywordId,
+        siteId
+      }
+    });
+  }
+
+  return prisma.keyword.upsert({
+    create: {
+      intent: draft.intent,
+      locale: draft.locale,
+      phrase: draft.primaryKeyword,
+      siteId
+    },
+    select: { id: true },
+    update: {
+      intent: draft.intent
+    },
+    where: {
+      siteId_phrase_locale: {
+        locale: draft.locale,
+        phrase: draft.primaryKeyword,
+        siteId
+      }
+    }
+  });
+}
+
 function toOrganization(record: NonNullable<OrganizationRecord>): Organization {
   return OrganizationSchema.parse({
     id: record.id,
@@ -409,6 +508,30 @@ function toConnectorSyncResult(
     records: record.records,
     createdAt: record.createdAt.toISOString()
   });
+}
+
+function toContentBrief(record: NonNullable<ContentBriefRecord>): ContentBrief {
+  return ContentBriefSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    keywordId: record.keywordId,
+    primaryKeyword: record.primaryKeyword,
+    locale: record.locale,
+    intent: record.intent,
+    title: record.title,
+    status: record.status,
+    summary: record.summary,
+    outline: record.outline,
+    faqQuestions: record.faqQuestions,
+    acceptanceCriteria: record.acceptanceCriteria,
+    generationMode: record.generationMode,
+    publishPolicy: record.publishPolicy,
+    createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toNullableContentBrief(record: ContentBriefRecord): ContentBrief | null {
+  return record === null ? null : toContentBrief(record);
 }
 
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {

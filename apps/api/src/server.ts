@@ -1,9 +1,14 @@
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
+import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 
 import {
+  ContentBriefDetailResponseSchema,
+  ContentBriefListResponseSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
+  CreateContentBriefDraftRequestSchema,
+  CreateContentBriefDraftResponseSchema,
   ConnectorSyncRunDetailResponseSchema,
   ConnectorSyncRunListResponseSchema,
   CreateCrawlRunRequestSchema,
@@ -20,7 +25,8 @@ import {
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
   WorkOrderListResponseSchema,
-  WorkOrderSchema
+  WorkOrderSchema,
+  type KeywordTarget
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
@@ -129,6 +135,79 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(WorkOrderListResponseSchema.parse({ workOrders }));
   });
 
+  server.get("/sites/:id/content-briefs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const contentBriefs = await repository.listContentBriefs(id);
+    if (!contentBriefs) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(ContentBriefListResponseSchema.parse({ contentBriefs }));
+  });
+
+  server.post("/sites/:id/content-briefs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateContentBriefDraftRequestSchema.parse(request.body ?? {});
+    const candidatePage = input.candidatePage ?? null;
+    const evaluatedAt =
+      input.evaluatedAt ??
+      input.readinessReport?.evaluatedAt ??
+      input.faqGapSet?.evaluatedAt ??
+      new Date().toISOString();
+    const keyword: KeywordTarget = {
+      siteId: site.id,
+      phrase: input.keyword.phrase,
+      locale: input.keyword.locale ?? `${site.language}-${site.country}`,
+      language: input.keyword.language ?? site.language,
+      country: input.keyword.country ?? site.country,
+      intent: input.keyword.intent ?? null,
+      source: input.keyword.source ?? "manual"
+    };
+
+    let readinessReport;
+    let draft;
+    try {
+      readinessReport =
+        input.readinessReport ??
+        evaluateAeoReadiness(
+          {
+            candidatePage,
+            keyword
+          },
+          { evaluatedAt },
+        );
+      draft = createContentBriefDraft({
+        candidatePage,
+        evaluatedAt,
+        keyword,
+        keywordId: input.keywordId ?? null,
+        readinessReport,
+        ...(input.faqGapSet === undefined ? {} : { faqGapSet: input.faqGapSet })
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid content brief input";
+      reply.status(400).send({ error: "validation_error", message });
+      return;
+    }
+
+    const contentBrief = await repository.createContentBriefDraft(id, { draft });
+    if (!contentBrief) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply
+      .status(201)
+      .send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
+  });
+
   server.post("/sites/:id/crawl-runs", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const site = await repository.getSite(id);
@@ -221,6 +300,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ConnectorSyncRunDetailResponseSchema.parse(result));
+  });
+
+  server.get("/content-briefs/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const contentBrief = await repository.getContentBrief(id);
+    if (!contentBrief) {
+      reply.status(404).send(notFound("Content brief not found"));
+      return;
+    }
+
+    reply.send(ContentBriefDetailResponseSchema.parse({ contentBrief }));
   });
 
   server.patch("/sites/:id", async (request, reply) => {

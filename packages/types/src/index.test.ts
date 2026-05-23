@@ -7,7 +7,11 @@ import {
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
   ContentBriefDraftSchema,
+  ContentBriefDetailResponseSchema,
+  ContentBriefListResponseSchema,
   ContentBriefSchema,
+  CreateContentBriefDraftRequestSchema,
+  CreateContentBriefDraftResponseSchema,
   CreateCrawlRunRequestSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
@@ -387,9 +391,17 @@ describe("types foundation", () => {
         id: "brief_1",
         siteId: "site_1",
         keywordId: null,
+        primaryKeyword: draft.primaryKeyword,
+        locale: draft.locale,
+        intent: draft.intent,
         title: draft.title,
         status: "draft",
+        summary: draft.summary,
         outline: draft.outline,
+        faqQuestions: draft.faqQuestions,
+        acceptanceCriteria: draft.acceptanceCriteria,
+        generationMode: "deterministic",
+        publishPolicy: "draft_only",
         createdAt: "2026-05-23T00:00:00.000Z"
       }),
     ).toMatchObject({ status: "draft" });
@@ -399,6 +411,98 @@ describe("types foundation", () => {
         status: "published"
       }),
     ).toThrow();
+  });
+
+  it("validates ContentBrief draft API contracts", () => {
+    const request = CreateContentBriefDraftRequestSchema.parse({
+      keyword: {
+        phrase: "seo clinic",
+        intent: "commercial"
+      },
+      candidatePage: null,
+      evaluatedAt: "2026-05-23T00:00:00.000Z"
+    });
+    const draft = ContentBriefDraftSchema.parse({
+      siteId: "site_1",
+      keywordId: "keyword_1",
+      primaryKeyword: request.keyword.phrase,
+      locale: "ko-KR",
+      intent: "commercial",
+      title: "SEO clinic content brief",
+      status: "draft",
+      summary: "Draft summary",
+      outline: [
+        {
+          heading: "Overview",
+          purpose: "Answer the target query.",
+          targetQuestions: ["What is seo clinic?"],
+          acceptanceCriteria: ["Includes direct answer."]
+        }
+      ],
+      faqQuestions: ["What is seo clinic?"],
+      acceptanceCriteria: ["Do not auto-publish."],
+      generationMode: "deterministic",
+      publishPolicy: "draft_only"
+    });
+    const contentBrief = ContentBriefSchema.parse({
+      id: "brief_1",
+      siteId: "site_1",
+      keywordId: "keyword_1",
+      primaryKeyword: draft.primaryKeyword,
+      locale: draft.locale,
+      intent: draft.intent,
+      title: draft.title,
+      status: "draft",
+      summary: draft.summary,
+      outline: draft.outline,
+      faqQuestions: draft.faqQuestions,
+      acceptanceCriteria: draft.acceptanceCriteria,
+      generationMode: "deterministic",
+      publishPolicy: "draft_only",
+      createdAt: "2026-05-23T00:00:00.000Z"
+    });
+
+    expect(CreateContentBriefDraftResponseSchema.parse({
+      contentBrief,
+      draft,
+      readinessReport: {
+        keyword: {
+          siteId: "site_1",
+          phrase: "seo clinic",
+          intent: "commercial"
+        },
+        pageUrl: null,
+        status: "not_ready",
+        score: 14,
+        checks: [
+          {
+            checkId: "KEYWORD_INTENT_DEFINED",
+            status: "pass",
+            score: 100,
+            evidence: {
+              url: null,
+              observedValue: "commercial",
+              expectedValue: "Non-null deterministic keyword intent",
+              sourceField: "keyword.intent"
+            }
+          }
+        ],
+        generatedBy: "deterministic",
+        evaluatedAt: "2026-05-23T00:00:00.000Z"
+      }
+    })).toMatchObject({
+      contentBrief: {
+        publishPolicy: "draft_only",
+        status: "draft"
+      },
+      draft: {
+        generationMode: "deterministic"
+      }
+    });
+    expect(ContentBriefListResponseSchema.parse({ contentBriefs: [contentBrief] }).contentBriefs)
+      .toHaveLength(1);
+    expect(ContentBriefDetailResponseSchema.parse({ contentBrief: contentBrief }).contentBrief)
+      .toMatchObject({ id: "brief_1" });
   });
 
   it("validates connector providers and normalized records", () => {

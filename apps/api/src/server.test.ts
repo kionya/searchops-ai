@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ConnectorSyncResult,
   ConnectorSyncRun,
+  ContentBrief,
   Organization,
   SeoIssue,
   Site,
@@ -76,6 +77,30 @@ const seededConnectorSyncResult: ConnectorSyncResult = {
       fetchedAt: "2026-05-22T00:00:00.000Z"
     }
   ],
+  createdAt
+};
+const seededContentBrief: ContentBrief = {
+  id: "brief_seed",
+  siteId: "site_seed",
+  keywordId: "keyword_seed",
+  primaryKeyword: "seo clinic",
+  locale: "ko-KR",
+  intent: "commercial",
+  title: "SEO clinic content brief",
+  status: "draft",
+  summary: "Seed draft-only content brief.",
+  outline: [
+    {
+      heading: "Direct answer",
+      purpose: "Answer the target query.",
+      targetQuestions: ["What does SEO clinic include?"],
+      acceptanceCriteria: ["Includes one concise answer block."]
+    }
+  ],
+  faqQuestions: ["What does SEO clinic include?"],
+  acceptanceCriteria: ["Do not auto-publish the brief to any CMS or external channel."],
+  generationMode: "deterministic",
+  publishPolicy: "draft_only",
   createdAt
 };
 const seededWorkOrder: WorkOrder = {
@@ -162,6 +187,16 @@ function buildConnectorSyncHistoryTestServer() {
       sites: [seededSite],
       connectorSyncRuns: [seededConnectorSyncRun],
       connectorSyncResults: [seededConnectorSyncResult]
+    })
+  });
+}
+
+function buildContentBriefTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      contentBriefs: [seededContentBrief]
     })
   });
 }
@@ -548,6 +583,151 @@ describe("api foundation", () => {
       error: "not_found",
       message: "Connector sync run not found"
     });
+  });
+
+  it("creates deterministic content brief drafts and persists them", async () => {
+    const server = buildContentBriefTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/content-briefs",
+      payload: {
+        keyword: {
+          phrase: "seo clinic price comparison",
+          intent: "commercial"
+        },
+        candidatePage: {
+          url: "https://exampleclinic.com/service/seo",
+          title: "SEO clinic service",
+          metaDescription: "SEO clinic service page",
+          h1: "SEO clinic",
+          h2: ["What does SEO clinic include?"],
+          wordCount: 320,
+          schemaTypes: [],
+          questionHeadings: ["What does SEO clinic include?"],
+          answerBlocks: []
+        },
+        evaluatedAt: "2026-05-23T00:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      contentBrief: {
+        siteId: "site_seed",
+        keywordId: "keyword_0001",
+        primaryKeyword: "seo clinic price comparison",
+        status: "draft",
+        generationMode: "deterministic",
+        publishPolicy: "draft_only"
+      },
+      draft: {
+        keywordId: null,
+        status: "draft",
+        publishPolicy: "draft_only"
+      },
+      readinessReport: {
+        status: "needs_work",
+        generatedBy: "deterministic"
+      }
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/content-briefs"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().contentBriefs).toHaveLength(2);
+    expect(listResponse.json().contentBriefs[0]).toMatchObject({
+      primaryKeyword: "seo clinic price comparison",
+      publishPolicy: "draft_only"
+    });
+  });
+
+  it("reads persisted content brief details", async () => {
+    const server = buildContentBriefTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/content-briefs/brief_seed"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      contentBrief: {
+        id: "brief_seed",
+        primaryKeyword: "seo clinic",
+        status: "draft",
+        outline: [
+          {
+            heading: "Direct answer"
+          }
+        ]
+      }
+    });
+  });
+
+  it("rejects invalid content brief mapper input", async () => {
+    const server = buildContentBriefTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/content-briefs",
+      payload: {
+        keyword: {
+          phrase: "seo clinic"
+        },
+        readinessReport: {
+          keyword: {
+            siteId: "site_seed",
+            phrase: "different keyword"
+          },
+          pageUrl: null,
+          status: "not_ready",
+          score: 14,
+          checks: [
+            {
+              checkId: "KEYWORD_INTENT_DEFINED",
+              status: "pass",
+              score: 100,
+              evidence: {
+                url: null,
+                observedValue: "informational",
+                expectedValue: "Non-null deterministic keyword intent",
+                sourceField: "keyword.intent"
+              }
+            }
+          ],
+          generatedBy: "deterministic",
+          evaluatedAt: "2026-05-23T00:00:00.000Z"
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("readinessReport");
+  });
+
+  it("returns 404 for missing content brief resources", async () => {
+    const server = buildContentBriefTestServer();
+    const missingSiteListResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/content-briefs"
+    });
+    const missingSiteCreateResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/content-briefs",
+      payload: {
+        keyword: {
+          phrase: "seo clinic"
+        }
+      }
+    });
+    const missingBriefResponse = await server.inject({
+      method: "GET",
+      url: "/content-briefs/brief_missing"
+    });
+
+    expect(missingSiteListResponse.statusCode).toBe(404);
+    expect(missingSiteCreateResponse.statusCode).toBe(404);
+    expect(missingBriefResponse.statusCode).toBe(404);
   });
 
   it("validates crawl run request payloads", async () => {
