@@ -2,6 +2,8 @@ import type {
   ConnectorProviderList,
   ConnectorSyncResult,
   ConnectorSyncRun,
+  ContentBrief,
+  ContentBriefDraft,
   CrawlRun,
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
@@ -25,6 +27,10 @@ export interface ConnectorSyncRunDetail {
   results: ConnectorSyncResult[];
 }
 
+export interface CreateContentBriefDraftInput {
+  draft: ContentBriefDraft;
+}
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
@@ -43,6 +49,12 @@ export interface SearchOpsRepository {
   ): Promise<ConnectorSyncRun | null>;
   listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
   getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
+  createContentBriefDraft(
+    siteId: string,
+    input: CreateContentBriefDraftInput,
+  ): Promise<ContentBrief | null>;
+  listContentBriefs(siteId: string): Promise<ContentBrief[] | null>;
+  getContentBrief(id: string): Promise<ContentBrief | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -55,6 +67,7 @@ export interface MemoryRepositorySeed {
   readonly crawlRuns?: readonly CrawlRun[];
   readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
+  readonly contentBriefs?: readonly ContentBrief[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
@@ -73,12 +86,15 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const crawlRuns = new Map<string, CrawlRun>();
   const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
+  const contentBriefs = new Map<string, ContentBrief>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
   let siteCounter = 1;
   let crawlRunCounter = 1;
   let connectorSyncRunCounter = 1;
+  let contentBriefCounter = 1;
+  let keywordCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
     organizations.set(organization.id, organization);
@@ -102,6 +118,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
   for (const connectorSyncResult of seed.connectorSyncResults ?? []) {
     connectorSyncResults.set(connectorSyncResult.id, connectorSyncResult);
+  }
+
+  for (const contentBrief of seed.contentBriefs ?? []) {
+    contentBriefs.set(contentBrief.id, contentBrief);
+    contentBriefCounter += 1;
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
@@ -260,6 +281,53 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           .filter((result) => result.syncRunId === id)
           .sort((a, b) => a.provider.localeCompare(b.provider))
       };
+    },
+
+    async createContentBriefDraft(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site || input.draft.siteId !== siteId) {
+        return null;
+      }
+
+      const keywordId = input.draft.keywordId ?? createId("keyword", keywordCounter);
+      if (input.draft.keywordId === null) {
+        keywordCounter += 1;
+      }
+
+      const contentBrief: ContentBrief = {
+        id: createId("brief", contentBriefCounter),
+        siteId,
+        keywordId,
+        primaryKeyword: input.draft.primaryKeyword,
+        locale: input.draft.locale,
+        intent: input.draft.intent,
+        title: input.draft.title,
+        status: input.draft.status,
+        summary: input.draft.summary,
+        outline: input.draft.outline,
+        faqQuestions: input.draft.faqQuestions,
+        acceptanceCriteria: input.draft.acceptanceCriteria,
+        generationMode: input.draft.generationMode,
+        publishPolicy: input.draft.publishPolicy,
+        createdAt: nowIso()
+      };
+      contentBriefCounter += 1;
+      contentBriefs.set(contentBrief.id, contentBrief);
+      return contentBrief;
+    },
+
+    async listContentBriefs(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...contentBriefs.values()]
+        .filter((contentBrief) => contentBrief.siteId === siteId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.title.localeCompare(b.title));
+    },
+
+    async getContentBrief(id) {
+      return contentBriefs.get(id) ?? null;
     },
 
     async listWorkOrders(siteId) {

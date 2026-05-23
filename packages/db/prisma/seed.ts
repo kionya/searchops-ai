@@ -35,6 +35,40 @@ export const seedFixture = {
     providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
     requestedByUserId: "user_demo_owner",
     fixture: true
+  },
+  keyword: {
+    id: "keyword_demo_aeo",
+    siteId: "site_demo_rejuel",
+    phrase: "answer engine optimization clinic",
+    locale: "ko-KR",
+    intent: "commercial"
+  },
+  contentBrief: {
+    id: "brief_demo_aeo",
+    siteId: "site_demo_rejuel",
+    keywordId: "keyword_demo_aeo",
+    primaryKeyword: "answer engine optimization clinic",
+    locale: "ko-KR",
+    intent: "commercial",
+    title: "Answer Engine Optimization Clinic content brief",
+    status: "draft",
+    summary:
+      "Demo deterministic draft-only content brief for the Phase 7 Keyword/AEO workflow.",
+    outline: [
+      {
+        heading: "Direct answer",
+        purpose: "Answer the primary AEO query clearly.",
+        targetQuestions: ["What does answer engine optimization clinic include?"],
+        acceptanceCriteria: ["Includes one concise answer block."]
+      }
+    ],
+    faqQuestions: ["What does answer engine optimization clinic include?"],
+    acceptanceCriteria: [
+      "Keep the content brief in draft status until human review is complete.",
+      "Do not auto-publish the brief to any CMS or external channel."
+    ],
+    generationMode: "deterministic",
+    publishPolicy: "draft_only"
   }
 } as const;
 
@@ -97,6 +131,34 @@ async function main() {
         status: seedFixture.connectorSyncRun.status
       },
       create: seedFixture.connectorSyncRun
+    });
+
+    await prisma.keyword.upsert({
+      where: { id: seedFixture.keyword.id },
+      update: {
+        intent: seedFixture.keyword.intent,
+        locale: seedFixture.keyword.locale,
+        phrase: seedFixture.keyword.phrase
+      },
+      create: seedFixture.keyword
+    });
+
+    await prisma.contentBrief.upsert({
+      where: { id: seedFixture.contentBrief.id },
+      update: {
+        acceptanceCriteria: seedFixture.contentBrief.acceptanceCriteria,
+        faqQuestions: seedFixture.contentBrief.faqQuestions,
+        generationMode: seedFixture.contentBrief.generationMode,
+        intent: seedFixture.contentBrief.intent,
+        locale: seedFixture.contentBrief.locale,
+        outline: seedFixture.contentBrief.outline,
+        primaryKeyword: seedFixture.contentBrief.primaryKeyword,
+        publishPolicy: seedFixture.contentBrief.publishPolicy,
+        status: seedFixture.contentBrief.status,
+        summary: seedFixture.contentBrief.summary,
+        title: seedFixture.contentBrief.title
+      },
+      create: seedFixture.contentBrief
     });
 
     console.log("SearchOps AI seed fixture inserted.");

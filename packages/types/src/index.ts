@@ -490,13 +490,69 @@ export const ContentBriefSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
   keywordId: IdSchema.nullable(),
+  primaryKeyword: NonEmptyStringSchema,
+  locale: z.string().min(2),
+  intent: KeywordIntentSchema,
   title: NonEmptyStringSchema,
   status: ContentBriefStatusSchema,
+  summary: NonEmptyStringSchema,
   outline: ContentBriefOutlineSchema.nullable(),
+  faqQuestions: z.array(NonEmptyStringSchema),
+  acceptanceCriteria: z.array(NonEmptyStringSchema),
+  generationMode: z.literal("deterministic"),
+  publishPolicy: z.literal("draft_only"),
   createdAt: IsoDateTimeSchema
 });
 
 export type ContentBrief = z.infer<typeof ContentBriefSchema>;
+
+export const CreateContentBriefDraftKeywordSchema = z.object({
+  phrase: NonEmptyStringSchema,
+  locale: z.string().min(2).optional(),
+  language: z.string().min(2).optional(),
+  country: z.string().min(2).optional(),
+  intent: KeywordIntentSchema.nullable().optional(),
+  source: KeywordSourceSchema.optional()
+});
+
+export type CreateContentBriefDraftKeyword = z.infer<
+  typeof CreateContentBriefDraftKeywordSchema
+>;
+
+export const CreateContentBriefDraftRequestSchema = z.object({
+  keyword: CreateContentBriefDraftKeywordSchema,
+  keywordId: IdSchema.nullable().optional(),
+  candidatePage: AeoPageSignalSchema.nullable().optional(),
+  readinessReport: AeoReadinessReportSchema.optional(),
+  faqGapSet: AeoFaqGapSetSchema.optional(),
+  evaluatedAt: IsoDateTimeSchema.optional()
+});
+
+export type CreateContentBriefDraftRequest = z.infer<
+  typeof CreateContentBriefDraftRequestSchema
+>;
+
+export const CreateContentBriefDraftResponseSchema = z.object({
+  contentBrief: ContentBriefSchema,
+  draft: ContentBriefDraftSchema,
+  readinessReport: AeoReadinessReportSchema
+});
+
+export type CreateContentBriefDraftResponse = z.infer<
+  typeof CreateContentBriefDraftResponseSchema
+>;
+
+export const ContentBriefListResponseSchema = z.object({
+  contentBriefs: z.array(ContentBriefSchema)
+});
+
+export type ContentBriefListResponse = z.infer<typeof ContentBriefListResponseSchema>;
+
+export const ContentBriefDetailResponseSchema = z.object({
+  contentBrief: ContentBriefSchema
+});
+
+export type ContentBriefDetailResponse = z.infer<typeof ContentBriefDetailResponseSchema>;
 
 export const AiPromptSchema = z.object({
   id: IdSchema,

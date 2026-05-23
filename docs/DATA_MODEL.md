@@ -42,3 +42,12 @@ Expected connector sync statuses:
 Keyword records represent deterministic query targets for SEO/AEO planning. ContentBrief records are draft planning outputs only; they must not be treated as publishable CMS content.
 
 The first Keyword/AEO contracts should model deterministic inputs and outputs before any AI-assisted drafting is introduced. Optional AI explanations or drafts belong in `AiPrompt`, `AiResult`, and `packages/ai-core`, not in the deterministic rule contracts.
+
+## Phase 7 ContentBrief Persistence
+ContentBrief persistence stores deterministic draft planning fields:
+- `primaryKeyword`, `locale`, and `intent` capture the keyword target used to generate the draft.
+- `summary`, `outline`, `faqQuestions`, and `acceptanceCriteria` capture the actionable planning output.
+- `generationMode` must remain `deterministic` for rule-generated drafts.
+- `publishPolicy` must remain `draft_only`; CMS publishing belongs to a future explicitly scoped workflow.
+
+The API may create or reuse a Keyword record when persisting a ContentBrief, but the brief itself remains a draft artifact and must not depend on LLM output.

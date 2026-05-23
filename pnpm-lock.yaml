@@ -50,6 +50,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@searchops/aeo-core':
+        specifier: workspace:*
+        version: link:../../packages/aeo-core
       '@searchops/crawler-core':
         specifier: workspace:*
         version: link:../../packages/crawler-core
