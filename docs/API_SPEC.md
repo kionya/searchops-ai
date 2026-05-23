@@ -15,6 +15,8 @@ The connector sync API creates connector sync runs, enqueues connector jobs, lis
 ## Phase 7 API
 The ContentBrief API creates deterministic draft-only content briefs from Keyword/AEO signals and reads persisted draft history. It does not call LLM providers or publish to a CMS.
 
+The AEO readiness API computes deterministic readiness reports from keyword and page signals, persists them, and reads report history for dashboard use.
+
 ## Routes
 - `GET /health`
 - `GET /auth/context`
@@ -34,6 +36,8 @@ The ContentBrief API creates deterministic draft-only content briefs from Keywor
 - `POST /sites/:siteId/connector-sync-runs`
 - `GET /sites/:siteId/connector-sync-runs`
 - `GET /connector-sync-runs/:connectorSyncRunId`
+- `POST /sites/:siteId/aeo-readiness-reports`
+- `GET /sites/:siteId/aeo-readiness-reports`
 - `POST /sites/:siteId/content-briefs`
 - `GET /sites/:siteId/content-briefs`
 - `GET /content-briefs/:contentBriefId`
@@ -71,6 +75,21 @@ The response is `202 Accepted` with:
 `GET /connector-sync-runs/:connectorSyncRunId` returns `ConnectorSyncRunDetailResponse` with persisted provider results.
 
 Connector sync APIs use the same mock auth context as the rest of the API. Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default; fixture adapters remain the default test and local-development behavior.
+
+## AEO Readiness Reports
+`POST /sites/:siteId/aeo-readiness-reports` accepts:
+- `keyword` required phrase and optional locale/language/country/intent/source.
+- `keywordId` optional existing keyword id.
+- `candidatePage` optional AEO page signal.
+- `evaluatedAt` optional ISO datetime used for deterministic scoring.
+
+The API computes readiness through `packages/aeo-core`, persists the report, and returns `CreateAeoReadinessReportResponse` with:
+- `report`, the persisted `AeoReadinessReportRecord`.
+- `readinessReport`, the deterministic report before persistence mapping.
+
+`GET /sites/:siteId/aeo-readiness-reports` returns `AeoReadinessReportListResponse` ordered by latest evaluated report first.
+
+AEO readiness persistence uses deterministic rules only. It does not call `packages/ai-core`, LLM providers, live connector APIs, or CMS publishing adapters.
 
 ## Content Briefs
 `POST /sites/:siteId/content-briefs` accepts:

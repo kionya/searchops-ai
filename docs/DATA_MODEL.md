@@ -51,3 +51,12 @@ ContentBrief persistence stores deterministic draft planning fields:
 - `publishPolicy` must remain `draft_only`; CMS publishing belongs to a future explicitly scoped workflow.
 
 The API may create or reuse a Keyword record when persisting a ContentBrief, but the brief itself remains a draft artifact and must not depend on LLM output.
+
+## Phase 7 AEO Readiness Persistence
+AeoReadinessReport records store deterministic Keyword/AEO readiness history for a site:
+- `phrase`, `locale`, and `intent` denormalize the evaluated Keyword target for stable history.
+- `pageUrl`, `status`, `score`, and `checks` store the deterministic readiness output.
+- `generatedBy` must remain `deterministic`.
+- `evaluatedAt` records the scoring timestamp, while `createdAt` records persistence time.
+
+The API may create or reuse a Keyword record when persisting a report. Reports do not depend on LLM output, live connector fetches, or CMS publishing.

@@ -1,4 +1,5 @@
 import {
+  AeoReadinessReportRecordSchema,
   ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
   ContentBriefSchema,
@@ -7,6 +8,8 @@ import {
   SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
+  type AeoReadinessReport,
+  type AeoReadinessReportRecord,
   type ContentBrief,
   type ConnectorSyncResult,
   type ConnectorSyncRun,
@@ -33,6 +36,9 @@ type ConnectorSyncResultRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["connectorSyncResult"]["findFirst"]>
 >;
 type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
+type AeoReadinessReportRecordResult = Awaited<
+  ReturnType<SearchOpsPrismaClient["aeoReadinessReport"]["findFirst"]>
+>;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 
@@ -314,6 +320,60 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       );
     },
 
+    async createAeoReadinessReport(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.readinessReport.keyword.siteId !== siteId) {
+        return null;
+      }
+
+      const keyword = await resolveAeoReadinessKeyword(
+        prisma,
+        siteId,
+        input.keywordId ?? null,
+        input.readinessReport,
+      );
+      if (keyword === null) {
+        return null;
+      }
+
+      return toAeoReadinessReportRecord(
+        await prisma.aeoReadinessReport.create({
+          data: {
+            checks: input.readinessReport.checks,
+            evaluatedAt: new Date(input.readinessReport.evaluatedAt),
+            generatedBy: input.readinessReport.generatedBy,
+            intent: input.readinessReport.keyword.intent,
+            keywordId: keyword.id,
+            locale: input.readinessReport.keyword.locale,
+            pageUrl: input.readinessReport.pageUrl,
+            phrase: input.readinessReport.keyword.phrase,
+            score: input.readinessReport.score,
+            siteId,
+            status: input.readinessReport.status
+          }
+        }),
+      );
+    },
+
+    async listAeoReadinessReports(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const reports = await prisma.aeoReadinessReport.findMany({
+        orderBy: [{ evaluatedAt: "desc" }, { createdAt: "desc" }, { phrase: "asc" }],
+        where: { siteId }
+      });
+      return reports.map(toAeoReadinessReportRecord);
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -435,6 +495,43 @@ async function resolveContentBriefKeyword(
   });
 }
 
+async function resolveAeoReadinessKeyword(
+  prisma: SearchOpsPrismaClient,
+  siteId: string,
+  keywordId: string | null,
+  report: AeoReadinessReport,
+) {
+  if (keywordId !== null) {
+    return prisma.keyword.findFirst({
+      select: { id: true },
+      where: {
+        id: keywordId,
+        siteId
+      }
+    });
+  }
+
+  return prisma.keyword.upsert({
+    create: {
+      intent: report.keyword.intent,
+      locale: report.keyword.locale,
+      phrase: report.keyword.phrase,
+      siteId
+    },
+    select: { id: true },
+    update: {
+      intent: report.keyword.intent
+    },
+    where: {
+      siteId_phrase_locale: {
+        locale: report.keyword.locale,
+        phrase: report.keyword.phrase,
+        siteId
+      }
+    }
+  });
+}
+
 function toOrganization(record: NonNullable<OrganizationRecord>): Organization {
   return OrganizationSchema.parse({
     id: record.id,
@@ -532,6 +629,26 @@ function toContentBrief(record: NonNullable<ContentBriefRecord>): ContentBrief {
 
 function toNullableContentBrief(record: ContentBriefRecord): ContentBrief | null {
   return record === null ? null : toContentBrief(record);
+}
+
+function toAeoReadinessReportRecord(
+  record: NonNullable<AeoReadinessReportRecordResult>,
+): AeoReadinessReportRecord {
+  return AeoReadinessReportRecordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    keywordId: record.keywordId,
+    phrase: record.phrase,
+    locale: record.locale,
+    intent: record.intent,
+    pageUrl: record.pageUrl,
+    status: record.status,
+    score: record.score,
+    checks: record.checks,
+    generatedBy: record.generatedBy,
+    evaluatedAt: record.evaluatedAt.toISOString(),
+    createdAt: record.createdAt.toISOString()
+  });
 }
 
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {

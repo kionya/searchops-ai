@@ -69,6 +69,32 @@ export const seedFixture = {
     ],
     generationMode: "deterministic",
     publishPolicy: "draft_only"
+  },
+  aeoReadinessReport: {
+    id: "aeo_report_demo_initial",
+    siteId: "site_demo_rejuel",
+    keywordId: "keyword_demo_aeo",
+    phrase: "answer engine optimization clinic",
+    locale: "ko-KR",
+    intent: "commercial",
+    pageUrl: "https://example-clinic.com/services/aeo",
+    status: "needs_work",
+    score: 58,
+    checks: [
+      {
+        checkId: "ANSWER_SUMMARY_PRESENT",
+        status: "warning",
+        score: 60,
+        evidence: {
+          url: "https://example-clinic.com/services/aeo",
+          observedValue: false,
+          expectedValue: true,
+          sourceField: "answerBlocks"
+        }
+      }
+    ],
+    generatedBy: "deterministic",
+    evaluatedAt: new Date("2026-05-23T00:00:00.000Z")
   }
 } as const;
 
@@ -159,6 +185,23 @@ async function main() {
         title: seedFixture.contentBrief.title
       },
       create: seedFixture.contentBrief
+    });
+
+    await prisma.aeoReadinessReport.upsert({
+      where: { id: seedFixture.aeoReadinessReport.id },
+      update: {
+        checks: seedFixture.aeoReadinessReport.checks,
+        evaluatedAt: seedFixture.aeoReadinessReport.evaluatedAt,
+        generatedBy: seedFixture.aeoReadinessReport.generatedBy,
+        intent: seedFixture.aeoReadinessReport.intent,
+        keywordId: seedFixture.aeoReadinessReport.keywordId,
+        locale: seedFixture.aeoReadinessReport.locale,
+        pageUrl: seedFixture.aeoReadinessReport.pageUrl,
+        phrase: seedFixture.aeoReadinessReport.phrase,
+        score: seedFixture.aeoReadinessReport.score,
+        status: seedFixture.aeoReadinessReport.status
+      },
+      create: seedFixture.aeoReadinessReport
     });
 
     console.log("SearchOps AI seed fixture inserted.");

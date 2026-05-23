@@ -3,8 +3,11 @@ import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 
 import {
+  AeoReadinessReportListResponseSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
+  CreateAeoReadinessReportRequestSchema,
+  CreateAeoReadinessReportResponseSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
   CreateContentBriefDraftRequestSchema,
@@ -144,6 +147,67 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ContentBriefListResponseSchema.parse({ contentBriefs }));
+  });
+
+  server.get("/sites/:id/aeo-readiness-reports", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const reports = await repository.listAeoReadinessReports(id);
+    if (!reports) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(AeoReadinessReportListResponseSchema.parse({ reports }));
+  });
+
+  server.post("/sites/:id/aeo-readiness-reports", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateAeoReadinessReportRequestSchema.parse(request.body ?? {});
+    const candidatePage = input.candidatePage ?? null;
+    const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
+    const keyword: KeywordTarget = {
+      siteId: site.id,
+      phrase: input.keyword.phrase,
+      locale: input.keyword.locale ?? `${site.language}-${site.country}`,
+      language: input.keyword.language ?? site.language,
+      country: input.keyword.country ?? site.country,
+      intent: input.keyword.intent ?? null,
+      source: input.keyword.source ?? "manual"
+    };
+
+    let readinessReport;
+    try {
+      readinessReport = evaluateAeoReadiness(
+        {
+          candidatePage,
+          keyword
+        },
+        { evaluatedAt },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid AEO readiness input";
+      reply.status(400).send({ error: "validation_error", message });
+      return;
+    }
+
+    const report = await repository.createAeoReadinessReport(id, {
+      keywordId: input.keywordId ?? null,
+      readinessReport
+    });
+    if (!report) {
+      reply.status(404).send(notFound("Site or keyword not found"));
+      return;
+    }
+
+    reply
+      .status(201)
+      .send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
   });
 
   server.post("/sites/:id/content-briefs", async (request, reply) => {

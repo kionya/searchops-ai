@@ -50,6 +50,7 @@ model Site {
   connectorSyncRuns ConnectorSyncRun[]
   keywords        Keyword[]
   contentBriefs   ContentBrief[]
+  aeoReadinessReports AeoReadinessReport[]
   complianceFlags ComplianceFlag[]
 
   @@unique([organizationId, domain])
@@ -195,6 +196,7 @@ model Keyword {
 
   site          Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
   contentBriefs ContentBrief[]
+  aeoReadinessReports AeoReadinessReport[]
 
   @@unique([siteId, phrase, locale])
   @@index([siteId])
@@ -222,6 +224,30 @@ model ContentBrief {
 
   @@index([siteId])
   @@index([keywordId])
+}
+
+model AeoReadinessReport {
+  id          String   @id @default(cuid())
+  siteId      String
+  keywordId   String?
+  phrase      String
+  locale      String   @default("ko-KR")
+  intent      String?
+  pageUrl     String?
+  status      String
+  score       Int
+  checks      Json     @default("[]")
+  generatedBy String   @default("deterministic")
+  evaluatedAt DateTime
+  createdAt   DateTime @default(now())
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  keyword Keyword? @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+
+  @@index([siteId])
+  @@index([keywordId])
+  @@index([status])
+  @@index([evaluatedAt])
 }
 
 model AiPrompt {

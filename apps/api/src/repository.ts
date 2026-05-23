@@ -1,4 +1,6 @@
 import type {
+  AeoReadinessReport,
+  AeoReadinessReportRecord,
   ConnectorProviderList,
   ConnectorSyncResult,
   ConnectorSyncRun,
@@ -31,6 +33,11 @@ export interface CreateContentBriefDraftInput {
   draft: ContentBriefDraft;
 }
 
+export interface CreateAeoReadinessReportInput {
+  keywordId?: string | null;
+  readinessReport: AeoReadinessReport;
+}
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
@@ -55,6 +62,11 @@ export interface SearchOpsRepository {
   ): Promise<ContentBrief | null>;
   listContentBriefs(siteId: string): Promise<ContentBrief[] | null>;
   getContentBrief(id: string): Promise<ContentBrief | null>;
+  createAeoReadinessReport(
+    siteId: string,
+    input: CreateAeoReadinessReportInput,
+  ): Promise<AeoReadinessReportRecord | null>;
+  listAeoReadinessReports(siteId: string): Promise<AeoReadinessReportRecord[] | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -68,6 +80,7 @@ export interface MemoryRepositorySeed {
   readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
   readonly contentBriefs?: readonly ContentBrief[];
+  readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
@@ -87,6 +100,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
   const contentBriefs = new Map<string, ContentBrief>();
+  const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
@@ -94,6 +108,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let crawlRunCounter = 1;
   let connectorSyncRunCounter = 1;
   let contentBriefCounter = 1;
+  let aeoReadinessReportCounter = 1;
   let keywordCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
@@ -123,6 +138,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const contentBrief of seed.contentBriefs ?? []) {
     contentBriefs.set(contentBrief.id, contentBrief);
     contentBriefCounter += 1;
+  }
+
+  for (const aeoReadinessReport of seed.aeoReadinessReports ?? []) {
+    aeoReadinessReports.set(aeoReadinessReport.id, aeoReadinessReport);
+    aeoReadinessReportCounter += 1;
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
@@ -328,6 +348,52 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
     async getContentBrief(id) {
       return contentBriefs.get(id) ?? null;
+    },
+
+    async createAeoReadinessReport(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site || input.readinessReport.keyword.siteId !== siteId) {
+        return null;
+      }
+
+      const keywordId = input.keywordId ?? createId("keyword", keywordCounter);
+      if (input.keywordId == null) {
+        keywordCounter += 1;
+      }
+
+      const report: AeoReadinessReportRecord = {
+        id: createId("aeo_report", aeoReadinessReportCounter),
+        siteId,
+        keywordId,
+        phrase: input.readinessReport.keyword.phrase,
+        locale: input.readinessReport.keyword.locale,
+        intent: input.readinessReport.keyword.intent,
+        pageUrl: input.readinessReport.pageUrl,
+        status: input.readinessReport.status,
+        score: input.readinessReport.score,
+        checks: input.readinessReport.checks,
+        generatedBy: input.readinessReport.generatedBy,
+        evaluatedAt: input.readinessReport.evaluatedAt,
+        createdAt: nowIso()
+      };
+      aeoReadinessReportCounter += 1;
+      aeoReadinessReports.set(report.id, report);
+      return report;
+    },
+
+    async listAeoReadinessReports(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...aeoReadinessReports.values()]
+        .filter((report) => report.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.evaluatedAt.localeCompare(a.evaluatedAt) ||
+            b.createdAt.localeCompare(a.createdAt) ||
+            a.phrase.localeCompare(b.phrase),
+        );
     },
 
     async listWorkOrders(siteId) {
