@@ -65,6 +65,7 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
           <ActionLink href={getSiteDashboardPath(siteId, "issues")} label="Review SEO issues" />
           <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="Open work board" />
           <ActionLink href={getSiteDashboardPath(siteId, "crawls")} label="Check crawl history" />
+          <ActionLink href={getSiteDashboardPath(siteId, "connectors")} label="View connector syncs" />
         </div>
       </section>
       <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
