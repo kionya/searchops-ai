@@ -23,6 +23,16 @@ import {
   summarizeContentBriefHistory,
   type ContentBriefStatusTone
 } from "../../../../src/content-brief-history";
+import {
+  createDemoKeywordAeoDashboard,
+  formatAeoCheckId,
+  formatAeoReadinessStatus,
+  getAeoCheckTone,
+  getAeoReadinessTone,
+  getWeakAeoChecks,
+  summarizeKeywordAeoDashboard,
+  type AeoReadinessTone
+} from "../../../../src/keyword-aeo-dashboard";
 import { createContentBriefAction } from "./actions";
 
 interface ContentPageProps {
@@ -41,6 +51,8 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
   const createSearchParams = await searchParams;
   const history = await loadContentBriefHistory(siteId);
   const summary = summarizeContentBriefHistory(history);
+  const keywordAeoDashboard = createDemoKeywordAeoDashboard(siteId);
+  const keywordAeoSummary = summarizeKeywordAeoDashboard(keywordAeoDashboard);
   const createFeedback = getContentBriefCreateFeedback(
     createSearchParams.brief,
     createSearchParams.briefId,
@@ -60,6 +72,10 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
         <MetricCard label="FAQ questions" value={String(summary.totalFaqQuestions)} />
         <MetricCard label="Archived" value={String(summary.archived)} />
       </div>
+      <KeywordAeoReadinessPanel
+        dashboard={keywordAeoDashboard}
+        summary={keywordAeoSummary}
+      />
       <ContentBriefCreatePanel siteId={siteId} createFeedback={createFeedback} />
       <section aria-label="Content brief records" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
@@ -138,6 +154,95 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
           </table>
         </div>
       </section>
+    </section>
+  );
+}
+
+function KeywordAeoReadinessPanel({
+  dashboard,
+  summary
+}: {
+  readonly dashboard: ReturnType<typeof createDemoKeywordAeoDashboard>;
+  readonly summary: ReturnType<typeof summarizeKeywordAeoDashboard>;
+}) {
+  return (
+    <section aria-label="Keyword AEO readiness" style={tableSectionStyle}>
+      <header style={tableHeaderStyle}>
+        <div>
+          <h3 style={{ fontSize: 18, margin: 0 }}>Keyword/AEO readiness</h3>
+          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            Deterministic readiness snapshot for target keywords, answer blocks, FAQ schema, citations, and content depth.
+          </p>
+        </div>
+        <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>
+          {dashboard.source} data
+        </span>
+      </header>
+      <div style={keywordAeoMetricStyle}>
+        <MetricCard label="Keywords" value={String(summary.total)} />
+        <MetricCard label="Ready" value={String(summary.ready)} />
+        <MetricCard label="Needs work" value={String(summary.needsWork + summary.notReady)} />
+        <MetricCard label="Avg score" value={summary.averageScore} />
+      </div>
+      <div style={tableScrollStyle}>
+        <table style={{ ...tableStyle, minWidth: 980 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Keyword</th>
+              <th style={thStyle}>Status</th>
+              <th style={thStyle}>Score</th>
+              <th style={thStyle}>Candidate page</th>
+              <th style={thStyle}>Weak checks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dashboard.reports.map((report) => {
+              const weakChecks = getWeakAeoChecks(report);
+
+              return (
+                <tr key={report.keyword.phrase}>
+                  <td style={tdStyle}>
+                    <strong>{report.keyword.phrase}</strong>
+                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      {report.keyword.locale}; {report.keyword.intent}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <TonePill
+                      label={formatAeoReadinessStatus(report.status)}
+                      tone={getAeoReadinessTone(report.status)}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <strong>{report.score}</strong>
+                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      deterministic
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    {report.pageUrl ?? "No candidate page"}
+                  </td>
+                  <td style={tdStyle}>
+                    {weakChecks.length === 0 ? (
+                      <TonePill label="No weak checks" tone="good" />
+                    ) : (
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {weakChecks.slice(0, 3).map((check) => (
+                          <TonePill
+                            key={`${report.keyword.phrase}-${check.checkId}`}
+                            label={formatAeoCheckId(check.checkId)}
+                            tone={getAeoCheckTone(check.status)}
+                          />
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -266,6 +371,22 @@ function StatusPill({
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
 }
 
+function TonePill({
+  label,
+  tone
+}: {
+  readonly label: string;
+  readonly tone: AeoReadinessTone;
+}) {
+  const toneStyle = {
+    good: { background: "#ecfdf5", color: "#047857" },
+    neutral: { background: "#fff7ed", color: "#c2410c" },
+    risk: { background: "#fef2f2", color: "#b91c1c" }
+  }[tone];
+
+  return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
+}
+
 const createPanelStyle = {
   border: "1px solid #dbe4ef",
   borderRadius: 8,
@@ -273,6 +394,11 @@ const createPanelStyle = {
   gap: 16,
   gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
   marginTop: 14,
+  padding: 16
+} as const;
+
+const keywordAeoMetricStyle = {
+  ...metricGridStyle,
   padding: 16
 } as const;
 
