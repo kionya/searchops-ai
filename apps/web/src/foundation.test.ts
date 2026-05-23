@@ -37,6 +37,7 @@ import {
   formatAeoCheckId,
   getAeoReadinessTone,
   getWeakAeoChecks,
+  loadKeywordAeoDashboard,
   summarizeKeywordAeoDashboard
 } from "./keyword-aeo-dashboard";
 import {
@@ -344,6 +345,88 @@ describe("web foundation", () => {
     expect(getWeakAeoChecks(readyReport)).toHaveLength(1);
     expect(getAeoReadinessTone("not_ready")).toBe("risk");
     expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("Faq schema present");
+  });
+
+  it("loads keyword AEO readiness through the API response contract", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/aeo-readiness-reports");
+
+        return Response.json({
+          reports: [
+            {
+              checks: [
+                {
+                  checkId: "KEYWORD_INTENT_DEFINED",
+                  evidence: {
+                    expectedValue: "Non-null deterministic keyword intent",
+                    observedValue: "commercial",
+                    sourceField: "keyword.intent",
+                    url: null
+                  },
+                  score: 100,
+                  status: "pass"
+                }
+              ],
+              createdAt: "2026-05-23T00:00:00.000Z",
+              evaluatedAt: "2026-05-23T00:00:00.000Z",
+              generatedBy: "deterministic",
+              id: "aeo_report_1",
+              intent: "commercial",
+              keywordId: "keyword_1",
+              locale: "ko-KR",
+              pageUrl: "https://example-clinic.com/service/seo",
+              phrase: "seo clinic",
+              score: 72,
+              siteId: "site_1",
+              status: "needs_work"
+            }
+          ]
+        });
+      }),
+    );
+
+    const dashboard = await loadKeywordAeoDashboard("site_1");
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(dashboard.reports).toHaveLength(1);
+    expect(dashboard.reports[0]).toMatchObject({
+      keyword: {
+        phrase: "seo clinic",
+        siteId: "site_1"
+      },
+      score: 72,
+      status: "needs_work"
+    });
+  });
+
+  it("keeps keyword AEO readiness deterministic without an API base URL", async () => {
+    await expect(loadKeywordAeoDashboard("site_1")).resolves.toMatchObject({
+      reports: expect.arrayContaining([
+        expect.objectContaining({
+          generatedBy: "deterministic",
+          keyword: expect.objectContaining({ siteId: "site_1" })
+        })
+      ]),
+      source: "fixture"
+    });
+  });
+
+  it("falls back to fixture keyword AEO readiness when the API request fails", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+
+    const dashboard = await loadKeywordAeoDashboard("site_1");
+
+    expect(dashboard.source).toBe("fixture");
+    expect(dashboard.errorMessage).toContain("503");
+    expect(dashboard.reports).toHaveLength(3);
   });
 
   it("summarizes deterministic connector sync history", () => {

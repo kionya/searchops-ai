@@ -1,17 +1,20 @@
 import {
+  AeoReadinessReportListResponseSchema,
   AeoReadinessReportSchema,
   type AeoReadinessCheck,
   type AeoReadinessCheckStatus,
   type AeoReadinessReport,
+  type AeoReadinessReportRecord,
   type AeoReadinessStatus
 } from "@searchops/types";
 
 import { demoSite } from "./work-order-board";
 
-export type KeywordAeoDashboardSource = "fixture";
+export type KeywordAeoDashboardSource = "api" | "fixture";
 export type AeoReadinessTone = "good" | "neutral" | "risk";
 
 export interface KeywordAeoDashboardData {
+  readonly errorMessage: string | null;
   readonly reports: readonly AeoReadinessReport[];
   readonly source: KeywordAeoDashboardSource;
 }
@@ -127,6 +130,7 @@ export function createDemoKeywordAeoDashboard(
   siteId: string = demoSite.id,
 ): KeywordAeoDashboardData {
   return {
+    errorMessage: null,
     reports: demoAeoReadinessReports.map((report) =>
       AeoReadinessReportSchema.parse({
         ...report,
@@ -138,6 +142,39 @@ export function createDemoKeywordAeoDashboard(
     ),
     source: "fixture"
   };
+}
+
+export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAeoDashboardData> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return createDemoKeywordAeoDashboard(siteId);
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/aeo-readiness-reports`,
+      {
+        cache: "no-store"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Keyword/AEO readiness request failed with ${response.status}`);
+    }
+
+    const list = AeoReadinessReportListResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      reports: list.reports.map((report) => mapRecordToReadinessReport(report)),
+      source: "api"
+    };
+  } catch (error) {
+    const fallback = createDemoKeywordAeoDashboard(siteId);
+    return {
+      ...fallback,
+      errorMessage:
+        error instanceof Error ? error.message : "Keyword/AEO readiness request failed"
+    };
+  }
 }
 
 export function summarizeKeywordAeoDashboard(
@@ -217,4 +254,31 @@ function createCheck(
     score,
     status
   };
+}
+
+function mapRecordToReadinessReport(record: AeoReadinessReportRecord): AeoReadinessReport {
+  return AeoReadinessReportSchema.parse({
+    checks: record.checks,
+    evaluatedAt: record.evaluatedAt,
+    generatedBy: record.generatedBy,
+    keyword: {
+      intent: record.intent,
+      locale: record.locale,
+      phrase: record.phrase,
+      siteId: record.siteId,
+      source: "manual"
+    },
+    pageUrl: record.pageUrl,
+    score: record.score,
+    status: record.status
+  });
+}
+
+function getApiBaseUrl() {
+  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/\/+$/, "");
 }
