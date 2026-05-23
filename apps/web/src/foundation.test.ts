@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ContentBriefSchema, productName, SiteSchema, WorkOrderSchema } from "@searchops/types";
+import {
+  ContentBriefSchema,
+  productName,
+  SchemaRecommendationRecordSchema,
+  SiteSchema,
+  WorkOrderSchema
+} from "@searchops/types";
 
 import {
   dashboardPlaceholders,
@@ -40,6 +46,16 @@ import {
   loadKeywordAeoDashboard,
   summarizeKeywordAeoDashboard
 } from "./keyword-aeo-dashboard";
+import {
+  convertSchemaRecommendationToWorkOrder,
+  createDemoSchemaRecommendationDashboard,
+  demoSchemaRecommendations,
+  formatSchemaJsonLdType,
+  getSchemaRecommendationStatusTone,
+  getSchemaWorkOrderCreateFeedback,
+  loadSchemaRecommendationDashboard,
+  summarizeSchemaRecommendations
+} from "./schema-recommendations";
 import {
   calculateSiteOverviewKpis,
   demoSiteOverviewInput,
@@ -115,6 +131,7 @@ describe("web foundation", () => {
       "crawls",
       "urls",
       "issues",
+      "schema",
       "workorders",
       "connectors",
       "content",
@@ -124,6 +141,7 @@ describe("web foundation", () => {
     expect(getSiteDashboardPath("site_1", "")).toBe("/sites/site_1");
     expect(getSiteDashboardPath("site_1", "workorders")).toBe("/sites/site_1/workorders");
     expect(getSiteDashboardPath("site_1", "connectors")).toBe("/sites/site_1/connectors");
+    expect(getSiteDashboardPath("site_1", "schema")).toBe("/sites/site_1/schema");
   });
 
   it("keeps placeholder modules wired for non-workorder dashboard sections", () => {
@@ -427,6 +445,118 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("fixture");
     expect(dashboard.errorMessage).toContain("503");
     expect(dashboard.reports).toHaveLength(3);
+  });
+
+  it("summarizes deterministic schema recommendation fixtures", () => {
+    const dashboard = createDemoSchemaRecommendationDashboard("site_1");
+
+    expect(dashboard.recommendations.map((recommendation) =>
+      SchemaRecommendationRecordSchema.parse(recommendation),
+    )).toHaveLength(3);
+    expect(dashboard.recommendations.map((recommendation) => recommendation.siteId)).toEqual([
+      "site_1",
+      "site_1",
+      "site_1"
+    ]);
+    expect(summarizeSchemaRecommendations(dashboard)).toEqual({
+      converted: 1,
+      dismissed: 0,
+      highPriority: 2,
+      open: 2,
+      total: 3,
+      totalRequiredFields: 12
+    });
+    expect(getSchemaRecommendationStatusTone("open")).toBe("risk");
+    expect(formatSchemaJsonLdType("MedicalClinic")).toBe("Medical Clinic");
+  });
+
+  it("loads schema recommendations through the API response contract", async () => {
+    const recommendation = demoSchemaRecommendations[0];
+    if (!recommendation) {
+      throw new Error("Schema recommendation API fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/schema-recommendations");
+
+        return Response.json({
+          recommendations: [{ ...recommendation, siteId: "site_1" }]
+        });
+      }),
+    );
+
+    const dashboard = await loadSchemaRecommendationDashboard("site_1");
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(dashboard.recommendations).toHaveLength(1);
+    expect(dashboard.recommendations[0]).toMatchObject({
+      siteId: "site_1",
+      type: recommendation.type
+    });
+  });
+
+  it("creates schema work orders through the API response contract", async () => {
+    const recommendation = demoSchemaRecommendations[0];
+    const workOrder = demoWorkOrders[0];
+    if (!recommendation || !workOrder) {
+      throw new Error("Schema work order fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/schema-recommendations/${recommendation.id}/work-order`,
+        );
+        expect(init?.method).toBe("POST");
+
+        return Response.json({
+          recommendation: { ...recommendation, status: "converted" },
+          workOrder: {
+            ...workOrder,
+            id: "wo_schema_service",
+            schemaRecommendationId: recommendation.id,
+            seoIssueId: null,
+            title: "Add Service JSON-LD to /service/seo"
+          }
+        });
+      }),
+    );
+
+    await expect(convertSchemaRecommendationToWorkOrder(recommendation.id)).resolves.toMatchObject({
+      recommendationId: recommendation.id,
+      source: "api",
+      status: "converted",
+      workOrderId: "wo_schema_service"
+    });
+    expect(getSchemaWorkOrderCreateFeedback("converted", "wo_schema_service", undefined)?.message)
+      .toContain("wo_schema_service");
+  });
+
+  it("keeps schema dashboard deterministic without an API base URL", async () => {
+    await expect(loadSchemaRecommendationDashboard("site_1")).resolves.toMatchObject({
+      recommendations: expect.arrayContaining([
+        expect.objectContaining({
+          generatedBy: "deterministic",
+          siteId: "site_1"
+        })
+      ]),
+      source: "fixture"
+    });
+    await expect(convertSchemaRecommendationToWorkOrder("schema_rec_service")).resolves.toMatchObject({
+      recommendationId: "schema_rec_service",
+      source: "fixture",
+      status: "fixture",
+      workOrderId: null
+    });
+    expect(getSchemaWorkOrderCreateFeedback("fixture", undefined, "schema_rec_service")?.tone).toBe(
+      "info",
+    );
   });
 
   it("summarizes deterministic connector sync history", () => {
