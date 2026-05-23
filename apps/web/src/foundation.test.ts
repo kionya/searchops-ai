@@ -33,6 +33,13 @@ import {
   summarizeFutureModules
 } from "./future-module-skeletons";
 import {
+  createDemoKeywordAeoDashboard,
+  formatAeoCheckId,
+  getAeoReadinessTone,
+  getWeakAeoChecks,
+  summarizeKeywordAeoDashboard
+} from "./keyword-aeo-dashboard";
+import {
   calculateSiteOverviewKpis,
   demoSiteOverviewInput,
   summarizeSiteOverview
@@ -311,6 +318,32 @@ describe("web foundation", () => {
     expect(getContentBriefCreateFeedback("fixture", undefined, "medical seo checklist")?.tone).toBe(
       "info",
     );
+  });
+
+  it("summarizes deterministic keyword AEO readiness", () => {
+    const dashboard = createDemoKeywordAeoDashboard("site_1");
+
+    expect(dashboard.reports.map((report) => report.keyword.siteId)).toEqual([
+      "site_1",
+      "site_1",
+      "site_1"
+    ]);
+    expect(summarizeKeywordAeoDashboard(dashboard)).toEqual({
+      averageScore: "61",
+      needsWork: 1,
+      notReady: 1,
+      ready: 1,
+      total: 3,
+      weakChecks: 11
+    });
+    const readyReport = dashboard.reports[0];
+    if (!readyReport) {
+      throw new Error("Keyword AEO dashboard fixture is missing");
+    }
+
+    expect(getWeakAeoChecks(readyReport)).toHaveLength(1);
+    expect(getAeoReadinessTone("not_ready")).toBe("risk");
+    expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("Faq schema present");
   });
 
   it("summarizes deterministic connector sync history", () => {
