@@ -9,6 +9,9 @@ The first crawler API boundary creates a crawl run and enqueues a crawl job. It 
 ## Phase 4 API
 The work board API lists work orders for a site, allows board fields to be updated, queues work order rechecks, and records deterministic resolution after a successful recheck.
 
+## Phase 6 API
+The connector sync API creates connector sync runs, enqueues connector jobs, lists sync history, and reads persisted provider results. It does not call live external provider APIs inside the API process.
+
 ## Routes
 - `GET /health`
 - `GET /auth/context`
@@ -25,6 +28,9 @@ The work board API lists work orders for a site, allows board fields to be updat
 - `PATCH /work-orders/:workOrderId`
 - `POST /work-orders/:workOrderId/recheck`
 - `POST /work-orders/:workOrderId/resolve`
+- `POST /sites/:siteId/connector-sync-runs`
+- `GET /sites/:siteId/connector-sync-runs`
+- `GET /connector-sync-runs/:connectorSyncRunId`
 
 ## Contract Rule
 Public APIs must use Zod schemas from `packages/types` or schemas colocated with the API boundary and exported through shared types when reused.
@@ -44,6 +50,21 @@ If the headers are absent, the API falls back to the Phase 1 seed user context.
 The response is `202 Accepted` with:
 - `crawlRun` in `queued` status.
 - `job` containing the deterministic crawl payload that the worker can process.
+
+## Connector Sync Runs
+`POST /sites/:siteId/connector-sync-runs` accepts:
+- `providers` optional provider list. Defaults to `gsc`, `ga4`, `pagespeed`, `bing`, and `cms`.
+- `mode` optional sync mode. Defaults to deterministic fixture sync until live adapters are explicitly configured.
+
+The response is `202 Accepted` with:
+- `connectorSyncRun` in `queued` status.
+- `job` containing the connector sync payload that the worker can process.
+
+`GET /sites/:siteId/connector-sync-runs` returns `ConnectorSyncRunListResponse` for the site's persisted sync history.
+
+`GET /connector-sync-runs/:connectorSyncRunId` returns `ConnectorSyncRunDetailResponse` with persisted provider results.
+
+Connector sync APIs use the same mock auth context as the rest of the API. Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default; fixture adapters remain the default test and local-development behavior.
 
 ## Work Orders
 `GET /sites/:siteId/work-orders` returns `WorkOrderListResponse`.

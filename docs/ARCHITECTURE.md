@@ -15,11 +15,15 @@ Allowed:
 - `packages/crawler-core -> packages/types`
 - `packages/connectors -> packages/types`
 - `packages/compliance -> packages/types`
+- Phase 7 planned: `packages/aeo-core -> packages/types`
 
 Forbidden:
 - `packages/* -> apps/*`
 - `packages/seo-core -> packages/ai-core`
 - `packages/seo-core -> packages/db`
+- `packages/aeo-core -> packages/ai-core`
+- `packages/aeo-core -> packages/db`
+- `packages/aeo-core -> packages/connectors`
 - `packages/crawler-core -> packages/seo-core`
 - `packages/ui -> packages/db | packages/connectors | apps/worker`
 
@@ -42,3 +46,19 @@ The Prisma schema and migration live in `packages/db`. The API uses an in-memory
 Runtime crawl execution is now wired behind ports. `apps/api` uses a Prisma-backed repository and BullMQ-backed crawl queue when started through `apps/api/src/index.ts`; tests can still inject memory repositories and queues. `apps/worker` consumes the shared crawl queue, uses `packages/crawler-core` for bounded live fetching and HTML signal extraction, then persists through the `packages/db` Prisma adapter. Unit tests use mock fetchers and fake persistence clients; they do not call live websites, Redis, or PostgreSQL.
 
 Runtime crawling is scoped to the registered site domain and its subdomains. Localhost, private IP, and link-local IP targets are blocked, and redirects or robots sitemap URLs outside that scope are rejected. Failed crawl execution updates the `CrawlRun` status to `failed` with an error summary.
+
+## Phase 6 Connector Boundary
+`packages/connectors` owns connector adapter contracts, fixture adapters, provider response normalization, and connector-specific test fixtures. Live provider calls are disabled by default and must remain behind adapter ports.
+
+`apps/api` owns connector sync HTTP routes, mock-auth scoping, and queue enqueue. It must not call GSC, GA4, PageSpeed, Bing, or CMS APIs directly.
+
+`apps/worker` owns connector sync job consumption. It calls connector adapter ports, then persists normalized results through `packages/db`. Re-running a provider within the same sync run must update the existing provider result rather than creating duplicate provider rows.
+
+`apps/web` may trigger syncs and read sync history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable in local shell views, the dashboard may render deterministic fixture-facing states, but those states must not be confused with live external provider data.
+
+## Phase 7 Keyword and AEO Boundary
+Phase 7 should introduce deterministic Keyword/AEO contracts before any generation layer. The planned `packages/aeo-core` package owns keyword intent, answer-readiness, FAQ gap, and content planning signal logic.
+
+`packages/aeo-core` must have no LLM, DB, network, or connector dependency. It receives typed inputs, returns typed drafts/signals, and remains independently unit testable. Optional explanations, copy drafts, or prompt-driven variants belong later in `packages/ai-core`.
+
+ContentBrief outputs are draft-only planning artifacts. They must never auto-publish to a CMS or external channel.
