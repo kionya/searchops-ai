@@ -774,6 +774,48 @@ export const JsonLdRecommendationSetSchema = z.object({
 
 export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
 
+export const SchemaRecommendationStatusSchema = z.enum(["open", "converted", "dismissed"]);
+
+export type SchemaRecommendationStatus = z.infer<typeof SchemaRecommendationStatusSchema>;
+
+export const SchemaRecommendationRecordSchema = z.object({
+  id: IdSchema,
+  siteId: IdSchema,
+  pageUrl: NormalizedUrlSchema,
+  type: SchemaJsonLdTypeSchema,
+  priority: SchemaRecommendationPrioritySchema,
+  status: SchemaRecommendationStatusSchema,
+  reason: NonEmptyStringSchema,
+  evidence: JsonLdRecommendationEvidenceSchema,
+  jsonLd: JsonLdObjectSchema,
+  instructions: z.array(NonEmptyStringSchema),
+  requiredFields: z.array(NonEmptyStringSchema),
+  recommendedFields: z.array(NonEmptyStringSchema),
+  generatedBy: z.literal("deterministic"),
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema
+});
+
+export type SchemaRecommendationRecord = z.infer<
+  typeof SchemaRecommendationRecordSchema
+>;
+
+export const SchemaRecommendationListResponseSchema = z.object({
+  recommendations: z.array(SchemaRecommendationRecordSchema)
+});
+
+export type SchemaRecommendationListResponse = z.infer<
+  typeof SchemaRecommendationListResponseSchema
+>;
+
+export const SchemaRecommendationDetailResponseSchema = z.object({
+  recommendation: SchemaRecommendationRecordSchema
+});
+
+export type SchemaRecommendationDetailResponse = z.infer<
+  typeof SchemaRecommendationDetailResponseSchema
+>;
+
 export const HeadingSignalSchema = z.object({
   h1: z.array(z.string()),
   h2: z.array(z.string())
@@ -819,6 +861,24 @@ export const CrawlerPageSnapshotSchema = z.object({
 });
 
 export type CrawlerPageSnapshot = z.infer<typeof CrawlerPageSnapshotSchema>;
+
+export const CreateSchemaRecommendationsRequestSchema = z.object({
+  organizationName: z.string().min(1).nullable().optional(),
+  snapshots: z.array(CrawlerPageSnapshotSchema).min(1)
+});
+
+export type CreateSchemaRecommendationsRequest = z.infer<
+  typeof CreateSchemaRecommendationsRequestSchema
+>;
+
+export const CreateSchemaRecommendationsResponseSchema = z.object({
+  recommendationSets: z.array(JsonLdRecommendationSetSchema),
+  recommendations: z.array(SchemaRecommendationRecordSchema)
+});
+
+export type CreateSchemaRecommendationsResponse = z.infer<
+  typeof CreateSchemaRecommendationsResponseSchema
+>;
 
 export const CrawlJobPageInputSchema = z.object({
   url: NormalizedUrlSchema,

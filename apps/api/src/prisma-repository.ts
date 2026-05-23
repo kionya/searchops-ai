@@ -5,6 +5,7 @@ import {
   ContentBriefSchema,
   CrawlRunSchema,
   OrganizationSchema,
+  SchemaRecommendationRecordSchema,
   SeoIssueSchema,
   SiteSchema,
   WorkOrderSchema,
@@ -14,12 +15,15 @@ import {
   type ConnectorSyncResult,
   type ConnectorSyncRun,
   type CrawlRun,
+  type JsonLdRecommendation,
+  type JsonLdRecommendationSet,
   type Organization,
+  type SchemaRecommendationRecord,
   type SeoIssue,
   type Site,
   type WorkOrder
 } from "@searchops/types";
-import type { SearchOpsPrismaClient } from "@searchops/db";
+import type { Prisma, SearchOpsPrismaClient } from "@searchops/db";
 
 import type { SearchOpsRepository } from "./repository.js";
 import type { ContentBriefDraft } from "@searchops/types";
@@ -38,6 +42,9 @@ type ConnectorSyncResultRecord = Awaited<
 type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
 type AeoReadinessReportRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["aeoReadinessReport"]["findFirst"]>
+>;
+type SchemaRecommendationRecordResult = Awaited<
+  ReturnType<SearchOpsPrismaClient["schemaRecommendation"]["findFirst"]>
 >;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
@@ -374,6 +381,55 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return reports.map(toAeoReadinessReportRecord);
     },
 
+    async createSchemaRecommendations(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.recommendationSets.some((set) => set.siteId !== siteId)) {
+        return null;
+      }
+
+      const savedRecommendations: SchemaRecommendationRecord[] = [];
+      for (const set of input.recommendationSets) {
+        for (const recommendation of set.recommendations) {
+          savedRecommendations.push(
+            toSchemaRecommendationRecord(
+              await prisma.schemaRecommendation.upsert(
+                buildSchemaRecommendationUpsertArgs(siteId, set, recommendation),
+              ),
+            ),
+          );
+        }
+      }
+
+      return savedRecommendations;
+    },
+
+    async listSchemaRecommendations(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const recommendations = await prisma.schemaRecommendation.findMany({
+        orderBy: [{ updatedAt: "desc" }, { pageUrl: "asc" }, { type: "asc" }],
+        where: { siteId }
+      });
+      return recommendations.map(toSchemaRecommendationRecord);
+    },
+
+    async getSchemaRecommendation(id) {
+      return toNullableSchemaRecommendationRecord(
+        await prisma.schemaRecommendation.findUnique({
+          where: { id }
+        }),
+      );
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -457,6 +513,50 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       };
     }
   };
+}
+
+function buildSchemaRecommendationUpsertArgs(
+  siteId: string,
+  set: JsonLdRecommendationSet,
+  recommendation: JsonLdRecommendation,
+) {
+  return {
+    create: {
+      evidence: toJson(recommendation.evidence),
+      generatedBy: recommendation.generatedBy,
+      instructions: toJson(recommendation.instructions),
+      jsonLd: toJson(recommendation.jsonLd),
+      pageUrl: set.pageUrl,
+      priority: recommendation.priority,
+      reason: recommendation.reason,
+      recommendedFields: toJson(recommendation.recommendedFields),
+      requiredFields: toJson(recommendation.requiredFields),
+      siteId,
+      status: "open",
+      type: recommendation.type
+    },
+    update: {
+      evidence: toJson(recommendation.evidence),
+      generatedBy: recommendation.generatedBy,
+      instructions: toJson(recommendation.instructions),
+      jsonLd: toJson(recommendation.jsonLd),
+      priority: recommendation.priority,
+      reason: recommendation.reason,
+      recommendedFields: toJson(recommendation.recommendedFields),
+      requiredFields: toJson(recommendation.requiredFields)
+    },
+    where: {
+      siteId_pageUrl_type: {
+        pageUrl: set.pageUrl,
+        siteId,
+        type: recommendation.type
+      }
+    }
+  };
+}
+
+function toJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 async function resolveContentBriefKeyword(
@@ -649,6 +749,34 @@ function toAeoReadinessReportRecord(
     evaluatedAt: record.evaluatedAt.toISOString(),
     createdAt: record.createdAt.toISOString()
   });
+}
+
+function toSchemaRecommendationRecord(
+  record: NonNullable<SchemaRecommendationRecordResult>,
+): SchemaRecommendationRecord {
+  return SchemaRecommendationRecordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    pageUrl: record.pageUrl,
+    type: record.type,
+    priority: record.priority,
+    status: record.status,
+    reason: record.reason,
+    evidence: record.evidence,
+    jsonLd: record.jsonLd,
+    instructions: record.instructions,
+    requiredFields: record.requiredFields,
+    recommendedFields: record.recommendedFields,
+    generatedBy: record.generatedBy,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  });
+}
+
+function toNullableSchemaRecommendationRecord(
+  record: SchemaRecommendationRecordResult,
+): SchemaRecommendationRecord | null {
+  return record === null ? null : toSchemaRecommendationRecord(record);
 }
 
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {

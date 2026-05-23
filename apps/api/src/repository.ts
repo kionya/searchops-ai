@@ -10,8 +10,10 @@ import type {
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
   CreateSiteRequest,
+  JsonLdRecommendationSet,
   Organization,
   ResolveWorkOrderIssueResponse,
+  SchemaRecommendationRecord,
   SeoIssue,
   Site,
   UpdateSiteRequest,
@@ -36,6 +38,10 @@ export interface CreateContentBriefDraftInput {
 export interface CreateAeoReadinessReportInput {
   keywordId?: string | null;
   readinessReport: AeoReadinessReport;
+}
+
+export interface CreateSchemaRecommendationsInput {
+  recommendationSets: readonly JsonLdRecommendationSet[];
 }
 
 export interface SearchOpsRepository {
@@ -67,6 +73,12 @@ export interface SearchOpsRepository {
     input: CreateAeoReadinessReportInput,
   ): Promise<AeoReadinessReportRecord | null>;
   listAeoReadinessReports(siteId: string): Promise<AeoReadinessReportRecord[] | null>;
+  createSchemaRecommendations(
+    siteId: string,
+    input: CreateSchemaRecommendationsInput,
+  ): Promise<SchemaRecommendationRecord[] | null>;
+  listSchemaRecommendations(siteId: string): Promise<SchemaRecommendationRecord[] | null>;
+  getSchemaRecommendation(id: string): Promise<SchemaRecommendationRecord | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -81,6 +93,7 @@ export interface MemoryRepositorySeed {
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
+  readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
 }
@@ -101,6 +114,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
+  const schemaRecommendations = new Map<string, SchemaRecommendationRecord>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
@@ -109,6 +123,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let connectorSyncRunCounter = 1;
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
+  let schemaRecommendationCounter = 1;
   let keywordCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
@@ -143,6 +158,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const aeoReadinessReport of seed.aeoReadinessReports ?? []) {
     aeoReadinessReports.set(aeoReadinessReport.id, aeoReadinessReport);
     aeoReadinessReportCounter += 1;
+  }
+
+  for (const schemaRecommendation of seed.schemaRecommendations ?? []) {
+    schemaRecommendations.set(schemaRecommendation.id, schemaRecommendation);
+    schemaRecommendationCounter += 1;
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
@@ -394,6 +414,74 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
             b.createdAt.localeCompare(a.createdAt) ||
             a.phrase.localeCompare(b.phrase),
         );
+    },
+
+    async createSchemaRecommendations(siteId, input) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      const savedRecommendations: SchemaRecommendationRecord[] = [];
+      for (const set of input.recommendationSets) {
+        if (set.siteId !== siteId) {
+          return null;
+        }
+
+        for (const recommendation of set.recommendations) {
+          const existing = [...schemaRecommendations.values()].find(
+            (record) =>
+              record.siteId === siteId &&
+              record.pageUrl === set.pageUrl &&
+              record.type === recommendation.type,
+          );
+          const timestamp = nowIso();
+          const record: SchemaRecommendationRecord = {
+            id: existing?.id ?? createId("schema_rec", schemaRecommendationCounter),
+            siteId,
+            pageUrl: set.pageUrl,
+            type: recommendation.type,
+            priority: recommendation.priority,
+            status: existing?.status ?? "open",
+            reason: recommendation.reason,
+            evidence: recommendation.evidence,
+            jsonLd: recommendation.jsonLd,
+            instructions: recommendation.instructions,
+            requiredFields: recommendation.requiredFields,
+            recommendedFields: recommendation.recommendedFields,
+            generatedBy: recommendation.generatedBy,
+            createdAt: existing?.createdAt ?? timestamp,
+            updatedAt: timestamp
+          };
+
+          if (!existing) {
+            schemaRecommendationCounter += 1;
+          }
+
+          schemaRecommendations.set(record.id, record);
+          savedRecommendations.push(record);
+        }
+      }
+
+      return savedRecommendations;
+    },
+
+    async listSchemaRecommendations(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...schemaRecommendations.values()]
+        .filter((recommendation) => recommendation.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt) ||
+            a.pageUrl.localeCompare(b.pageUrl) ||
+            a.type.localeCompare(b.type),
+        );
+    },
+
+    async getSchemaRecommendation(id) {
+      return schemaRecommendations.get(id) ?? null;
     },
 
     async listWorkOrders(siteId) {

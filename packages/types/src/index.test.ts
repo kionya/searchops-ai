@@ -31,6 +31,8 @@ import {
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
+  CreateSchemaRecommendationsRequestSchema,
+  CreateSchemaRecommendationsResponseSchema,
   HealthResponseSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
@@ -47,6 +49,9 @@ import {
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
   RobotsTxtSchema,
+  SchemaRecommendationDetailResponseSchema,
+  SchemaRecommendationListResponseSchema,
+  SchemaRecommendationRecordSchema,
   SchemaJsonLdTypeSchema,
   SearchOpsEnvSchema,
   SeoIssueSchema,
@@ -206,6 +211,112 @@ describe("types foundation", () => {
     expect(() =>
       JsonLdRecommendationSchema.parse({
         ...recommendation,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
+  });
+
+  it("validates persisted schema recommendation API contracts", () => {
+    const recommendation = JsonLdRecommendationSchema.parse({
+      type: "Service",
+      url: "https://example.com/services/seo",
+      priority: "p1",
+      reason: "The service page has no Service JSON-LD block.",
+      evidence: {
+        url: "https://example.com/services/seo",
+        observedTypes: ["WebPage"],
+        expectedType: "Service",
+        sourceField: "jsonLd"
+      },
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: "SEO service",
+        provider: {
+          "@type": "Organization",
+          name: "Example"
+        },
+        url: "https://example.com/services/seo"
+      },
+      instructions: ["Add Service JSON-LD to the service detail page."],
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+      recommendedFields: ["description", "serviceType"],
+      generatedBy: "deterministic"
+    });
+    const record = SchemaRecommendationRecordSchema.parse({
+      id: "schema_rec_1",
+      siteId: "site_1",
+      pageUrl: recommendation.url,
+      type: recommendation.type,
+      priority: recommendation.priority,
+      status: "open",
+      reason: recommendation.reason,
+      evidence: recommendation.evidence,
+      jsonLd: recommendation.jsonLd,
+      instructions: recommendation.instructions,
+      requiredFields: recommendation.requiredFields,
+      recommendedFields: recommendation.recommendedFields,
+      generatedBy: "deterministic",
+      createdAt: "2026-05-24T00:00:00.000Z",
+      updatedAt: "2026-05-24T00:00:00.000Z"
+    });
+
+    expect(
+      CreateSchemaRecommendationsRequestSchema.parse({
+        organizationName: "Example Group",
+        snapshots: [
+          {
+            url: "https://example.com/services/seo",
+            finalUrl: null,
+            title: "SEO service",
+            metaDescription: "SEO service page",
+            robotsMeta: "index,follow",
+            canonicalUrl: "https://example.com/services/seo",
+            h1Count: 1,
+            h2Count: 0,
+            headings: { h1: ["SEO service"], h2: [] },
+            links: { internal: [], external: [] },
+            images: [],
+            jsonLd: [],
+            indexability: {
+              noindex: false,
+              nofollow: false,
+              canonicalMismatch: false,
+              robotsBlocked: null
+            },
+            content: {
+              textLength: 120,
+              wordCount: 20,
+              duplicateHash: "a".repeat(64)
+            }
+          }
+        ]
+      }).snapshots,
+    ).toHaveLength(1);
+    expect(
+      CreateSchemaRecommendationsResponseSchema.parse({
+        recommendationSets: [
+          {
+            siteId: "site_1",
+            pageUrl: "https://example.com/services/seo",
+            recommendations: [recommendation],
+            generatedBy: "deterministic"
+          }
+        ],
+        recommendations: [record]
+      }).recommendations,
+    ).toHaveLength(1);
+    expect(SchemaRecommendationListResponseSchema.parse({ recommendations: [record] }))
+      .toMatchObject({
+        recommendations: [{ type: "Service", status: "open" }]
+      });
+    expect(SchemaRecommendationDetailResponseSchema.parse({ recommendation: record }))
+      .toMatchObject({
+        recommendation: { generatedBy: "deterministic" }
+      });
+    expect(() =>
+      SchemaRecommendationRecordSchema.parse({
+        ...record,
         generatedBy: "llm"
       }),
     ).toThrow();

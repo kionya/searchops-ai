@@ -65,9 +65,11 @@ Phase 8 foundation status:
 - JSON-LD recommendation contracts are in `packages/types` with Zod tests.
 - Deterministic schema type extraction and JSON-LD recommendation rules are in `packages/schema-core`.
 - Initial rules cover WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service recommendations.
+- Schema recommendation API and Prisma persistence are connected through `apps/api` and `packages/db`.
+- Schema recommendation reruns are idempotent by site, page URL, and schema type.
 
 Phase 8 remaining limitations:
-- No API, DB persistence, dashboard surface, work order mapper, or recheck status flow is connected yet.
+- No dashboard surface, work order mapper, or recheck status flow is connected yet.
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
 - Schema validation against live rich result tooling remains future scope.
 

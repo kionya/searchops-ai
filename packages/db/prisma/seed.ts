@@ -95,6 +95,38 @@ export const seedFixture = {
     ],
     generatedBy: "deterministic",
     evaluatedAt: new Date("2026-05-23T00:00:00.000Z")
+  },
+  schemaRecommendation: {
+    id: "schema_rec_demo_service",
+    siteId: "site_demo_rejuel",
+    pageUrl: "https://example-clinic.com/services/aeo",
+    type: "Service",
+    priority: "p1",
+    status: "open",
+    reason: "The service page has no Service JSON-LD block.",
+    evidence: {
+      url: "https://example-clinic.com/services/aeo",
+      observedTypes: ["WebPage"],
+      expectedType: "Service",
+      sourceField: "jsonLd"
+    },
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      name: "Answer Engine Optimization Clinic",
+      provider: {
+        "@type": "MedicalClinic",
+        name: "Example Clinic"
+      },
+      url: "https://example-clinic.com/services/aeo"
+    },
+    instructions: [
+      "Add Service JSON-LD to the service detail page.",
+      "Keep service names factual and avoid unsupported claims."
+    ],
+    requiredFields: ["@context", "@type", "name", "provider", "url"],
+    recommendedFields: ["description", "serviceType"],
+    generatedBy: "deterministic"
   }
 } as const;
 
@@ -202,6 +234,24 @@ async function main() {
         status: seedFixture.aeoReadinessReport.status
       },
       create: seedFixture.aeoReadinessReport
+    });
+
+    await prisma.schemaRecommendation.upsert({
+      where: { id: seedFixture.schemaRecommendation.id },
+      update: {
+        evidence: seedFixture.schemaRecommendation.evidence,
+        generatedBy: seedFixture.schemaRecommendation.generatedBy,
+        instructions: seedFixture.schemaRecommendation.instructions,
+        jsonLd: seedFixture.schemaRecommendation.jsonLd,
+        pageUrl: seedFixture.schemaRecommendation.pageUrl,
+        priority: seedFixture.schemaRecommendation.priority,
+        reason: seedFixture.schemaRecommendation.reason,
+        recommendedFields: seedFixture.schemaRecommendation.recommendedFields,
+        requiredFields: seedFixture.schemaRecommendation.requiredFields,
+        status: seedFixture.schemaRecommendation.status,
+        type: seedFixture.schemaRecommendation.type
+      },
+      create: seedFixture.schemaRecommendation
     });
 
     console.log("SearchOps AI seed fixture inserted.");
