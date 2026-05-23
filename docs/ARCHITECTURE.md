@@ -62,3 +62,9 @@ Phase 7 introduces deterministic Keyword/AEO contracts before any generation lay
 `packages/aeo-core` must have no LLM, DB, network, or connector dependency. It receives typed inputs, returns typed drafts/signals, and remains independently unit testable. Optional explanations, copy drafts, or prompt-driven variants belong later in `packages/ai-core`.
 
 ContentBrief outputs are draft-only planning artifacts. They must never auto-publish to a CMS or external channel.
+
+`apps/api` owns the HTTP boundary for AEO readiness report creation/history and ContentBrief draft creation/history. It may call deterministic `packages/aeo-core` functions, validate requests and responses through `packages/types`, and persist through repository ports. It must not call LLM providers, live connectors, or CMS publish adapters for Phase 7 flows.
+
+`packages/db` owns AEO readiness and ContentBrief persistence. `AeoReadinessReport` stores deterministic report history for dashboard use, while `ContentBrief` stores draft-only planning output. Retrying or re-running a readiness evaluation can create another history row; the dashboard orders the latest evaluations first.
+
+`apps/web` may read AEO readiness and ContentBrief history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable or not configured, it renders deterministic fixture fallback states and labels them as fixture data.

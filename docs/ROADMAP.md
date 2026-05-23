@@ -37,12 +37,20 @@ Phase 7 non-negotiables:
 - ContentBrief outputs are draft-only and must never auto-publish.
 - Public contracts are Zod-validated and independently unit tested.
 
-Recommended PR sequence:
-- `CDX-071`: Keyword/AEO contracts.
-- `CDX-072`: Deterministic intent and answer-readiness rules.
-- `CDX-073`: ContentBrief draft mapper.
-- `CDX-074`: API and persistence connection.
-- `CDX-075`: Dashboard content workflow connection.
+Phase 7 foundation status:
+- `CDX-071`: Keyword/AEO contracts are in `packages/types` with Zod tests.
+- `CDX-072`: Deterministic keyword intent and answer-readiness rules are in `packages/aeo-core` with independent unit tests.
+- `CDX-073`: ContentBrief draft mapper is deterministic, draft-only, and tested in `packages/aeo-core`.
+- `CDX-074`: ContentBrief API and persistence are wired through `apps/api`, `packages/db`, and shared response contracts.
+- ContentBrief dashboard history and create UI are connected with API data plus deterministic fixture fallback.
+- Keyword/AEO dashboard readiness reports are connected to persisted AEO readiness API data plus deterministic fixture fallback.
+- AEO readiness report persistence is in place for dashboard history; report generation stays rule-based and deterministic.
+
+Phase 7 remaining limitations:
+- No LLM explanation or copy-assist flow is connected; any future AI support must stay optional in `packages/ai-core`.
+- FAQ gap records are modeled as deterministic contracts and mapper inputs, but automatic FAQ gap generation is still future scope.
+- ContentBriefs remain draft-only and are not published to CMS or external channels.
+- Live connector-derived keyword discovery is still future scope; current dashboard/API flows work with manual or fixture keyword inputs.
 
 ## Phase 8. Schema engine
 Generate and validate structured data recommendations, including JSON-LD work orders and schema-specific recheck rules.
