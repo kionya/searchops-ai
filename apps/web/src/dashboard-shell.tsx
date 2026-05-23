@@ -13,6 +13,7 @@ export const siteRouteItems = [
   { segment: "crawls", label: "Crawls", summary: "Crawl run history" },
   { segment: "urls", label: "URLs", summary: "URL inventory" },
   { segment: "issues", label: "Issues", summary: "SEO issue list" },
+  { segment: "schema", label: "Schema", summary: "JSON-LD recommendations" },
   { segment: "workorders", label: "Work orders", summary: "Execution board" },
   { segment: "connectors", label: "Connectors", summary: "Sync history" },
   { segment: "content", label: "Content", summary: "Content briefs" },
@@ -36,7 +37,7 @@ export interface PlaceholderPageContent {
 }
 
 export const dashboardPlaceholders: Record<
-  Exclude<SiteRouteSegment, "" | "connectors" | "content" | "workorders">,
+  Exclude<SiteRouteSegment, "" | "connectors" | "content" | "schema" | "workorders">,
   PlaceholderPageContent
 > = {
   crawls: {

@@ -1,0 +1,362 @@
+import {
+  CreateSchemaRecommendationWorkOrderResponseSchema,
+  SchemaRecommendationListResponseSchema,
+  SchemaRecommendationRecordSchema,
+  type SchemaJsonLdType,
+  type SchemaRecommendationPriority,
+  type SchemaRecommendationRecord,
+  type SchemaRecommendationStatus
+} from "@searchops/types";
+
+import { demoSite } from "./work-order-board";
+
+export type SchemaRecommendationDashboardSource = "api" | "fixture";
+export type SchemaRecommendationTone = "good" | "neutral" | "risk";
+export type SchemaRecommendationWorkOrderStatus = "converted" | "failed" | "fixture";
+
+export interface SchemaRecommendationDashboardData {
+  readonly errorMessage: string | null;
+  readonly recommendations: readonly SchemaRecommendationRecord[];
+  readonly source: SchemaRecommendationDashboardSource;
+}
+
+export interface SchemaRecommendationDashboardSummary {
+  readonly converted: number;
+  readonly dismissed: number;
+  readonly highPriority: number;
+  readonly open: number;
+  readonly total: number;
+  readonly totalRequiredFields: number;
+}
+
+export interface SchemaRecommendationWorkOrderResult {
+  readonly errorMessage: string | null;
+  readonly recommendationId: string;
+  readonly source: SchemaRecommendationDashboardSource;
+  readonly status: SchemaRecommendationWorkOrderStatus;
+  readonly workOrderId: string | null;
+}
+
+export interface SchemaRecommendationWorkOrderFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
+const fixtureCreatedAt = "2026-05-24T00:00:00.000Z";
+
+export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
+  createDemoSchemaRecommendation({
+    id: "schema_rec_service",
+    pageUrl: "https://example-clinic.com/service/seo",
+    type: "Service",
+    priority: "p1",
+    status: "open",
+    reason: "The service page does not expose deterministic Service JSON-LD.",
+    observedTypes: ["WebPage"],
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      name: "SEO clinic service",
+      provider: {
+        "@type": "MedicalClinic",
+        name: demoSite.name
+      },
+      serviceType: "SEO diagnosis"
+    },
+    instructions: [
+      "Add one Service JSON-LD block to the service page.",
+      "Keep the provider value aligned with the site organization.",
+      "Validate the final JSON-LD before marking the work order complete."
+    ],
+    requiredFields: ["@context", "@type", "name", "serviceType", "provider"],
+    recommendedFields: ["areaServed", "offers"]
+  }),
+  createDemoSchemaRecommendation({
+    id: "schema_rec_medical_clinic",
+    pageUrl: "https://example-clinic.com/",
+    type: "MedicalClinic",
+    priority: "p1",
+    status: "converted",
+    reason: "The homepage should identify the clinic entity for local and AI answer visibility.",
+    observedTypes: ["WebSite", "WebPage"],
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "MedicalClinic",
+      name: demoSite.name,
+      url: "https://example-clinic.com/"
+    },
+    instructions: [
+      "Add MedicalClinic JSON-LD to the homepage.",
+      "Confirm clinic name and URL match the public site.",
+      "Route any medical claims through compliance review before publishing."
+    ],
+    requiredFields: ["@context", "@type", "name", "url"],
+    recommendedFields: ["address", "telephone", "medicalSpecialty"]
+  }),
+  createDemoSchemaRecommendation({
+    id: "schema_rec_breadcrumb",
+    pageUrl: "https://example-clinic.com/blog/medical-seo-checklist",
+    type: "BreadcrumbList",
+    priority: "p2",
+    status: "open",
+    reason: "The article URL has no BreadcrumbList JSON-LD for hierarchy context.",
+    observedTypes: ["Article"],
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          item: "https://example-clinic.com/",
+          name: "Home",
+          position: 1
+        },
+        {
+          "@type": "ListItem",
+          item: "https://example-clinic.com/blog/medical-seo-checklist",
+          name: "Medical SEO checklist",
+          position: 2
+        }
+      ]
+    },
+    instructions: [
+      "Add BreadcrumbList JSON-LD to the article template.",
+      "Keep breadcrumb positions sequential and stable.",
+      "Match breadcrumb names to visible navigation labels."
+    ],
+    requiredFields: ["@context", "@type", "itemListElement"],
+    recommendedFields: ["ListItem.item", "ListItem.name", "ListItem.position"]
+  })
+];
+
+export async function loadSchemaRecommendationDashboard(
+  siteId: string,
+): Promise<SchemaRecommendationDashboardData> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return createDemoSchemaRecommendationDashboard(siteId);
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/schema-recommendations`,
+      {
+        cache: "no-store"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Schema recommendation request failed with ${response.status}`);
+    }
+
+    const list = SchemaRecommendationListResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      recommendations: list.recommendations,
+      source: "api"
+    };
+  } catch (error) {
+    const fallback = createDemoSchemaRecommendationDashboard(siteId);
+    return {
+      ...fallback,
+      errorMessage:
+        error instanceof Error ? error.message : "Schema recommendation request failed"
+    };
+  }
+}
+
+export async function convertSchemaRecommendationToWorkOrder(
+  recommendationId: string,
+): Promise<SchemaRecommendationWorkOrderResult> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      recommendationId,
+      source: "fixture",
+      status: "fixture",
+      workOrderId: null
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendationId)}/work-order`,
+      {
+        cache: "no-store",
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Schema work order request failed with ${response.status}`);
+    }
+
+    const output = CreateSchemaRecommendationWorkOrderResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      recommendationId: output.recommendation.id,
+      source: "api",
+      status: "converted",
+      workOrderId: output.workOrder.id
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : "Schema work order request failed",
+      recommendationId,
+      source: "api",
+      status: "failed",
+      workOrderId: null
+    };
+  }
+}
+
+export function createDemoSchemaRecommendationDashboard(
+  siteId: string = demoSite.id,
+): SchemaRecommendationDashboardData {
+  return {
+    errorMessage: null,
+    recommendations: demoSchemaRecommendations.map((recommendation) =>
+      SchemaRecommendationRecordSchema.parse({
+        ...recommendation,
+        siteId
+      }),
+    ),
+    source: "fixture"
+  };
+}
+
+export function summarizeSchemaRecommendations(
+  dashboard: SchemaRecommendationDashboardData,
+): SchemaRecommendationDashboardSummary {
+  return {
+    converted: dashboard.recommendations.filter((recommendation) => recommendation.status === "converted").length,
+    dismissed: dashboard.recommendations.filter((recommendation) => recommendation.status === "dismissed").length,
+    highPriority: dashboard.recommendations.filter((recommendation) =>
+      recommendation.priority === "p0" || recommendation.priority === "p1",
+    ).length,
+    open: dashboard.recommendations.filter((recommendation) => recommendation.status === "open").length,
+    total: dashboard.recommendations.length,
+    totalRequiredFields: dashboard.recommendations.reduce(
+      (total, recommendation) => total + recommendation.requiredFields.length,
+      0,
+    )
+  };
+}
+
+export function getSchemaRecommendationStatusTone(
+  status: SchemaRecommendationStatus,
+): SchemaRecommendationTone {
+  if (status === "converted") {
+    return "good";
+  }
+
+  if (status === "dismissed") {
+    return "neutral";
+  }
+
+  return "risk";
+}
+
+export function getSchemaRecommendationPriorityTone(
+  priority: SchemaRecommendationPriority,
+): SchemaRecommendationTone {
+  if (priority === "p0" || priority === "p1") {
+    return "risk";
+  }
+
+  if (priority === "p2") {
+    return "neutral";
+  }
+
+  return "good";
+}
+
+export function getSchemaWorkOrderCreateFeedback(
+  status: string | undefined,
+  workOrderId: string | undefined,
+  recommendationId: string | undefined,
+): SchemaRecommendationWorkOrderFeedback | null {
+  if (status === "converted") {
+    return {
+      message: workOrderId
+        ? `Schema work order created: ${workOrderId}`
+        : "Schema work order created.",
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: recommendationId
+        ? `Fixture mode: ${recommendationId} was selected, but no API request was sent.`
+        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted schema work orders.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "Schema work order creation failed. Check the API server and retry.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
+export function formatSchemaJsonLdType(type: SchemaJsonLdType) {
+  return type.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+export function formatSchemaPriority(priority: SchemaRecommendationPriority) {
+  return priority.toUpperCase();
+}
+
+export function formatSchemaRecommendationDate(isoDate: string) {
+  return isoDate.replace("T", " ").slice(0, 16);
+}
+
+function createDemoSchemaRecommendation(input: {
+  readonly id: string;
+  readonly instructions: readonly string[];
+  readonly jsonLd: Record<string, unknown>;
+  readonly observedTypes: readonly SchemaJsonLdType[];
+  readonly pageUrl: string;
+  readonly priority: SchemaRecommendationPriority;
+  readonly reason: string;
+  readonly recommendedFields: readonly string[];
+  readonly requiredFields: readonly string[];
+  readonly status: SchemaRecommendationStatus;
+  readonly type: SchemaJsonLdType;
+}): SchemaRecommendationRecord {
+  return SchemaRecommendationRecordSchema.parse({
+    createdAt: fixtureCreatedAt,
+    evidence: {
+      expectedType: input.type,
+      observedTypes: input.observedTypes,
+      sourceField: "jsonLd",
+      url: input.pageUrl
+    },
+    generatedBy: "deterministic",
+    id: input.id,
+    instructions: input.instructions,
+    jsonLd: input.jsonLd,
+    pageUrl: input.pageUrl,
+    priority: input.priority,
+    reason: input.reason,
+    recommendedFields: input.recommendedFields,
+    requiredFields: input.requiredFields,
+    siteId: demoSite.id,
+    status: input.status,
+    type: input.type,
+    updatedAt: fixtureCreatedAt
+  });
+}
+
+function getApiBaseUrl() {
+  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/\/+$/, "");
+}
