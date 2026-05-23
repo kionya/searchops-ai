@@ -16,6 +16,7 @@
     "@searchops/db": "workspace:*",
     "@searchops/schema-core": "workspace:*",
     "@searchops/types": "workspace:*",
+    "@searchops/workorders": "workspace:*",
     "bullmq": "^5.52.1",
     "fastify": "^5.3.3",
     "zod": "^3.25.28"

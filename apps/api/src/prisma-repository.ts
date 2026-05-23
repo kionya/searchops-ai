@@ -21,7 +21,8 @@ import {
   type SchemaRecommendationRecord,
   type SeoIssue,
   type Site,
-  type WorkOrder
+  type WorkOrder,
+  type WorkOrderDraft
 } from "@searchops/types";
 import type { Prisma, SearchOpsPrismaClient } from "@searchops/db";
 
@@ -430,6 +431,46 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       );
     },
 
+    async createSchemaRecommendationWorkOrder(recommendationId, input) {
+      return prisma.$transaction(async (transaction) => {
+        const recommendation = await transaction.schemaRecommendation.findUnique({
+          include: {
+            site: {
+              select: {
+                organizationId: true
+              }
+            }
+          },
+          where: { id: recommendationId }
+        });
+        if (recommendation === null) {
+          return null;
+        }
+
+        const workOrder = await transaction.workOrder.upsert(
+          buildSchemaRecommendationWorkOrderUpsertArgs(
+            recommendationId,
+            recommendation.site.organizationId,
+            recommendation.siteId,
+            input.draft,
+          ),
+        );
+        const convertedRecommendation = await transaction.schemaRecommendation.update({
+          data: {
+            status: "converted"
+          },
+          where: {
+            id: recommendationId
+          }
+        });
+
+        return {
+          recommendation: toSchemaRecommendationRecord(convertedRecommendation),
+          workOrder: toWorkOrder(workOrder)
+        };
+      });
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -551,6 +592,43 @@ function buildSchemaRecommendationUpsertArgs(
         siteId,
         type: recommendation.type
       }
+    }
+  };
+}
+
+function buildSchemaRecommendationWorkOrderUpsertArgs(
+  recommendationId: string,
+  organizationId: string,
+  siteId: string,
+  draft: WorkOrderDraft,
+) {
+  const data = {
+    acceptanceCriteria: toJson(draft.acceptanceCriteria),
+    estimatedEffort: draft.estimatedEffort,
+    evidence: toJson(draft.evidence),
+    impact: draft.impact,
+    instructions: toJson(draft.instructions),
+    ownerType: draft.ownerType,
+    priority: draft.priority,
+    problem: draft.problem,
+    relatedIssues: toJson(draft.relatedIssues),
+    title: draft.title,
+    verificationMethod: draft.verificationMethod
+  };
+
+  return {
+    create: {
+      ...data,
+      description: null,
+      organizationId,
+      schemaRecommendationId: recommendationId,
+      seoIssueId: null,
+      siteId,
+      status: "open"
+    },
+    update: data,
+    where: {
+      schemaRecommendationId: recommendationId
     }
   };
 }
@@ -785,6 +863,7 @@ function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {
     organizationId: record.organizationId,
     siteId: record.siteId,
     seoIssueId: record.seoIssueId,
+    schemaRecommendationId: record.schemaRecommendationId,
     status: record.status,
     priority: record.priority,
     title: record.title,

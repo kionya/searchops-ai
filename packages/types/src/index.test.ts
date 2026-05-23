@@ -33,6 +33,7 @@ import {
   CrawlerPageSnapshotSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
+  CreateSchemaRecommendationWorkOrderResponseSchema,
   HealthResponseSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
@@ -314,6 +315,43 @@ describe("types foundation", () => {
       .toMatchObject({
         recommendation: { generatedBy: "deterministic" }
       });
+    expect(
+      CreateSchemaRecommendationWorkOrderResponseSchema.parse({
+        recommendation: {
+          ...record,
+          status: "converted"
+        },
+        workOrder: {
+          id: "wo_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          seoIssueId: null,
+          schemaRecommendationId: "schema_rec_1",
+          status: "open",
+          priority: "p1",
+          title: "/services/seo Service JSON-LD implementation",
+          description: null,
+          problem: "The service page has no Service JSON-LD block.",
+          evidence: {
+            url: "https://example.com/services/seo",
+            observedValue: ["WebPage"],
+            expectedValue: "Service",
+            sourceField: "jsonLd"
+          },
+          impact: "Structured service data helps search and answer engines understand the offering.",
+          instructions: ["Add the reviewed JSON-LD block to the page."],
+          ownerType: "developer",
+          acceptanceCriteria: ["A schema recommendation recheck no longer returns Service."],
+          verificationMethod: "Run schema recommendation recheck for the URL.",
+          estimatedEffort: "m",
+          relatedIssues: ["SCHEMA_MISSING"],
+          assignedTo: null,
+          dueDate: null,
+          createdAt: "2026-05-24T00:00:00.000Z",
+          updatedAt: "2026-05-24T00:00:00.000Z"
+        }
+      }).workOrder,
+    ).toMatchObject({ schemaRecommendationId: "schema_rec_1" });
     expect(() =>
       SchemaRecommendationRecordSchema.parse({
         ...record,

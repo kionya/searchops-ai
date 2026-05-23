@@ -18,7 +18,8 @@ import type {
   Site,
   UpdateSiteRequest,
   UpdateWorkOrderRequest,
-  WorkOrder
+  WorkOrder,
+  WorkOrderDraft
 } from "@searchops/types";
 
 export interface CreateConnectorSyncRunInput {
@@ -42,6 +43,15 @@ export interface CreateAeoReadinessReportInput {
 
 export interface CreateSchemaRecommendationsInput {
   recommendationSets: readonly JsonLdRecommendationSet[];
+}
+
+export interface CreateSchemaRecommendationWorkOrderInput {
+  draft: WorkOrderDraft;
+}
+
+export interface CreateSchemaRecommendationWorkOrderResult {
+  recommendation: SchemaRecommendationRecord;
+  workOrder: WorkOrder;
 }
 
 export interface SearchOpsRepository {
@@ -79,6 +89,10 @@ export interface SearchOpsRepository {
   ): Promise<SchemaRecommendationRecord[] | null>;
   listSchemaRecommendations(siteId: string): Promise<SchemaRecommendationRecord[] | null>;
   getSchemaRecommendation(id: string): Promise<SchemaRecommendationRecord | null>;
+  createSchemaRecommendationWorkOrder(
+    recommendationId: string,
+    input: CreateSchemaRecommendationWorkOrderInput,
+  ): Promise<CreateSchemaRecommendationWorkOrderResult | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -124,6 +138,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
   let schemaRecommendationCounter = 1;
+  let workOrderCounter = 1;
   let keywordCounter = 1;
 
   for (const organization of seed.organizations ?? []) {
@@ -171,6 +186,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
   for (const workOrder of seed.workOrders ?? []) {
     workOrders.set(workOrder.id, workOrder);
+    workOrderCounter += 1;
   }
 
   return {
@@ -482,6 +498,65 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
     async getSchemaRecommendation(id) {
       return schemaRecommendations.get(id) ?? null;
+    },
+
+    async createSchemaRecommendationWorkOrder(recommendationId, input) {
+      const recommendation = schemaRecommendations.get(recommendationId);
+      if (!recommendation) {
+        return null;
+      }
+
+      const site = sites.get(recommendation.siteId);
+      if (!site) {
+        return null;
+      }
+
+      const existingWorkOrder = [...workOrders.values()].find(
+        (workOrder) => workOrder.schemaRecommendationId === recommendationId,
+      );
+      const timestamp = nowIso();
+      const workOrder: WorkOrder = {
+        id: existingWorkOrder?.id ?? createId("wo", workOrderCounter),
+        organizationId: site.organizationId,
+        siteId: site.id,
+        seoIssueId: null,
+        schemaRecommendationId: recommendationId,
+        status: existingWorkOrder?.status ?? "open",
+        priority: input.draft.priority,
+        title: input.draft.title,
+        description: null,
+        problem: input.draft.problem,
+        evidence: input.draft.evidence,
+        impact: input.draft.impact,
+        instructions: input.draft.instructions,
+        ownerType: input.draft.ownerType,
+        acceptanceCriteria: input.draft.acceptanceCriteria,
+        verificationMethod: input.draft.verificationMethod,
+        estimatedEffort: input.draft.estimatedEffort,
+        relatedIssues: input.draft.relatedIssues,
+        assignedTo: existingWorkOrder?.assignedTo ?? null,
+        dueDate: existingWorkOrder?.dueDate ?? null,
+        createdAt: existingWorkOrder?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+
+      if (!existingWorkOrder) {
+        workOrderCounter += 1;
+      }
+
+      const convertedRecommendation: SchemaRecommendationRecord = {
+        ...recommendation,
+        status: "converted",
+        updatedAt: timestamp
+      };
+
+      workOrders.set(workOrder.id, workOrder);
+      schemaRecommendations.set(recommendationId, convertedRecommendation);
+
+      return {
+        recommendation: convertedRecommendation,
+        workOrder
+      };
     },
 
     async listWorkOrders(siteId) {

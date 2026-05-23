@@ -65,6 +65,9 @@ importers:
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@searchops/workorders':
+        specifier: workspace:*
+        version: link:../../packages/workorders
       bullmq:
         specifier: ^5.52.1
         version: 5.76.8
@@ -181,6 +184,9 @@ importers:
       '@searchops/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@searchops/schema-core':
+        specifier: workspace:*
+        version: link:../schema-core
       '@searchops/seo-core':
         specifier: workspace:*
         version: link:../seo-core

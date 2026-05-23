@@ -10,7 +10,7 @@
 Allowed:
 - `apps/* -> packages/*`
 - `apps/api -> packages/db | packages/types`
-- `packages/workorders -> packages/seo-core | packages/compliance | packages/types`
+- `packages/workorders -> packages/seo-core | packages/compliance | packages/schema-core | packages/types`
 - `packages/seo-core -> packages/types`
 - `packages/crawler-core -> packages/types`
 - `packages/connectors -> packages/types`
@@ -81,3 +81,5 @@ Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logi
 `apps/api` owns the HTTP boundary for schema recommendation creation/history. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, and persist recommendation drafts through repository ports. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
 
 `packages/db` owns schema recommendation persistence. Recommendations are idempotent by site, page URL, and schema type so rerunning the same deterministic analysis updates the existing draft instead of creating duplicates.
+
+`packages/workorders` owns deterministic SchemaRecommendation to WorkOrder mapping. `apps/api` may convert a persisted schema recommendation into one idempotent work order and mark the recommendation `converted`; it must not publish JSON-LD to a CMS or production page.

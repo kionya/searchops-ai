@@ -899,6 +899,71 @@ describe("api foundation", () => {
     });
   });
 
+  it("converts a schema recommendation to an idempotent work order", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const firstResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/work-order"
+    });
+    const secondResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/work-order"
+    });
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(firstResponse.json()).toMatchObject({
+      recommendation: {
+        id: "schema_rec_seed",
+        status: "converted"
+      },
+      workOrder: {
+        id: "wo_0001",
+        siteId: "site_seed",
+        seoIssueId: null,
+        schemaRecommendationId: "schema_rec_seed",
+        priority: "p1",
+        title: "/services/seo Service JSON-LD implementation",
+        ownerType: "developer",
+        relatedIssues: ["SCHEMA_MISSING"]
+      }
+    });
+    expect(secondResponse.statusCode).toBe(201);
+    expect(secondResponse.json().workOrder.id).toBe(firstResponse.json().workOrder.id);
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/work-orders"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().workOrders).toHaveLength(1);
+    expect(listResponse.json().workOrders[0]).toMatchObject({
+      schemaRecommendationId: "schema_rec_seed"
+    });
+  });
+
+  it("rejects dismissed schema recommendation work order conversion", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        schemaRecommendations: [
+          {
+            ...seededSchemaRecommendation,
+            id: "schema_rec_dismissed",
+            status: "dismissed"
+          }
+        ]
+      })
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_dismissed/work-order"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("Dismissed");
+  });
+
   it("returns 404 for missing schema recommendation resources", async () => {
     const server = buildSchemaRecommendationTestServer();
     const listResponse = await server.inject({
@@ -916,10 +981,15 @@ describe("api foundation", () => {
       method: "GET",
       url: "/schema-recommendations/schema_rec_missing"
     });
+    const workOrderResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_missing/work-order"
+    });
 
     expect(listResponse.statusCode).toBe(404);
     expect(createResponse.statusCode).toBe(404);
     expect(detailResponse.statusCode).toBe(404);
+    expect(workOrderResponse.statusCode).toBe(404);
   });
 
   it("validates schema recommendation request payloads", async () => {

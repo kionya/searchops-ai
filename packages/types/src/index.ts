@@ -238,6 +238,7 @@ export const WorkOrderSchema = z.object({
   organizationId: IdSchema,
   siteId: IdSchema.nullable(),
   seoIssueId: IdSchema.nullable(),
+  schemaRecommendationId: IdSchema.nullable().optional(),
   status: WorkOrderStatusSchema,
   priority: WorkOrderPrioritySchema,
   title: z.string().min(1),
@@ -814,6 +815,15 @@ export const SchemaRecommendationDetailResponseSchema = z.object({
 
 export type SchemaRecommendationDetailResponse = z.infer<
   typeof SchemaRecommendationDetailResponseSchema
+>;
+
+export const CreateSchemaRecommendationWorkOrderResponseSchema = z.object({
+  recommendation: SchemaRecommendationRecordSchema,
+  workOrder: WorkOrderSchema
+});
+
+export type CreateSchemaRecommendationWorkOrderResponse = z.infer<
+  typeof CreateSchemaRecommendationWorkOrderResponseSchema
 >;
 
 export const HeadingSignalSchema = z.object({
