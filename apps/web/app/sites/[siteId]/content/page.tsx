@@ -24,14 +24,15 @@ import {
   type ContentBriefStatusTone
 } from "../../../../src/content-brief-history";
 import {
-  createDemoKeywordAeoDashboard,
   formatAeoCheckId,
   formatAeoReadinessStatus,
   getAeoCheckTone,
   getAeoReadinessTone,
   getWeakAeoChecks,
+  loadKeywordAeoDashboard,
   summarizeKeywordAeoDashboard,
-  type AeoReadinessTone
+  type AeoReadinessTone,
+  type KeywordAeoDashboardData
 } from "../../../../src/keyword-aeo-dashboard";
 import { createContentBriefAction } from "./actions";
 
@@ -49,9 +50,11 @@ interface ContentPageProps {
 export default async function ContentPage({ params, searchParams }: ContentPageProps) {
   const { siteId } = await params;
   const createSearchParams = await searchParams;
-  const history = await loadContentBriefHistory(siteId);
+  const [history, keywordAeoDashboard] = await Promise.all([
+    loadContentBriefHistory(siteId),
+    loadKeywordAeoDashboard(siteId)
+  ]);
   const summary = summarizeContentBriefHistory(history);
-  const keywordAeoDashboard = createDemoKeywordAeoDashboard(siteId);
   const keywordAeoSummary = summarizeKeywordAeoDashboard(keywordAeoDashboard);
   const createFeedback = getContentBriefCreateFeedback(
     createSearchParams.brief,
@@ -162,7 +165,7 @@ function KeywordAeoReadinessPanel({
   dashboard,
   summary
 }: {
-  readonly dashboard: ReturnType<typeof createDemoKeywordAeoDashboard>;
+  readonly dashboard: KeywordAeoDashboardData;
   readonly summary: ReturnType<typeof summarizeKeywordAeoDashboard>;
 }) {
   return (
@@ -173,9 +176,20 @@ function KeywordAeoReadinessPanel({
           <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
             Deterministic readiness snapshot for target keywords, answer blocks, FAQ schema, citations, and content depth.
           </p>
+          {dashboard.errorMessage ? (
+            <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              API fallback: {dashboard.errorMessage}
+            </p>
+          ) : null}
         </div>
-        <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>
-          {dashboard.source} data
+        <span
+          style={{
+            ...pillStyle,
+            background: dashboard.source === "api" ? "#ecfdf5" : "#eef2ff",
+            color: dashboard.source === "api" ? "#047857" : "#3730a3"
+          }}
+        >
+          {dashboard.source === "api" ? "API data" : "Fixture data"}
         </span>
       </header>
       <div style={keywordAeoMetricStyle}>
@@ -196,50 +210,58 @@ function KeywordAeoReadinessPanel({
             </tr>
           </thead>
           <tbody>
-            {dashboard.reports.map((report) => {
-              const weakChecks = getWeakAeoChecks(report);
+            {dashboard.reports.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
+                  No Keyword/AEO readiness reports yet.
+                </td>
+              </tr>
+            ) : (
+              dashboard.reports.map((report) => {
+                const weakChecks = getWeakAeoChecks(report);
 
-              return (
-                <tr key={report.keyword.phrase}>
-                  <td style={tdStyle}>
-                    <strong>{report.keyword.phrase}</strong>
-                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                      {report.keyword.locale}; {report.keyword.intent}
-                    </span>
-                  </td>
-                  <td style={tdStyle}>
-                    <TonePill
-                      label={formatAeoReadinessStatus(report.status)}
-                      tone={getAeoReadinessTone(report.status)}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <strong>{report.score}</strong>
-                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                      deterministic
-                    </span>
-                  </td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>
-                    {report.pageUrl ?? "No candidate page"}
-                  </td>
-                  <td style={tdStyle}>
-                    {weakChecks.length === 0 ? (
-                      <TonePill label="No weak checks" tone="good" />
-                    ) : (
-                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {weakChecks.slice(0, 3).map((check) => (
-                          <TonePill
-                            key={`${report.keyword.phrase}-${check.checkId}`}
-                            label={formatAeoCheckId(check.checkId)}
-                            tone={getAeoCheckTone(check.status)}
-                          />
-                        ))}
+                return (
+                  <tr key={`${report.keyword.phrase}-${report.evaluatedAt}-${report.pageUrl ?? "none"}`}>
+                    <td style={tdStyle}>
+                      <strong>{report.keyword.phrase}</strong>
+                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                        {report.keyword.locale}; {report.keyword.intent}
                       </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+                    </td>
+                    <td style={tdStyle}>
+                      <TonePill
+                        label={formatAeoReadinessStatus(report.status)}
+                        tone={getAeoReadinessTone(report.status)}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <strong>{report.score}</strong>
+                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                        deterministic
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, ...codeTextStyle }}>
+                      {report.pageUrl ?? "No candidate page"}
+                    </td>
+                    <td style={tdStyle}>
+                      {weakChecks.length === 0 ? (
+                        <TonePill label="No weak checks" tone="good" />
+                      ) : (
+                        <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {weakChecks.slice(0, 3).map((check) => (
+                            <TonePill
+                              key={`${report.keyword.phrase}-${check.checkId}`}
+                              label={formatAeoCheckId(check.checkId)}
+                              tone={getAeoCheckTone(check.status)}
+                            />
+                          ))}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
