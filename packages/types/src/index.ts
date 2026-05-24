@@ -13,8 +13,16 @@ const HttpUrlSchema = z
   .string()
   .url()
   .refine((value) => value.startsWith("http://") || value.startsWith("https://"), {
-    message: "Expected an HTTP or HTTPS URL"
+    message: "Expected an HTTP or HTTPS URL",
   });
+const JsonObjectStringSchema = z.string().refine((value) => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}, "Expected a JSON object string");
 export const NormalizedUrlSchema = HttpUrlSchema;
 
 export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
@@ -23,11 +31,13 @@ const DomainSchema = z
   .string()
   .min(1)
   .transform((value) => value.trim().toLowerCase())
-  .pipe(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i, "Expected a bare domain such as example.com"));
+  .pipe(
+    z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i, "Expected a bare domain such as example.com"),
+  );
 
 export const HealthResponseSchema = z.object({
   ok: z.boolean(),
-  service: z.string().min(1)
+  service: z.string().min(1),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
@@ -35,7 +45,8 @@ export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development")
+  SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
 export type SearchOpsEnv = z.infer<typeof SearchOpsEnvSchema>;
@@ -43,7 +54,9 @@ export type SearchOpsEnv = z.infer<typeof SearchOpsEnvSchema>;
 export function parseSearchOpsEnv(input: NodeJS.ProcessEnv) {
   const parsed = SearchOpsEnvSchema.safeParse(input);
   if (!parsed.success) {
-    const message = parsed.error.issues.map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`).join("; ");
+    const message = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
+      .join("; ");
     throw new Error(`Invalid SearchOps environment: ${message}`);
   }
   return parsed.data;
@@ -52,7 +65,7 @@ export function parseSearchOpsEnv(input: NodeJS.ProcessEnv) {
 export const OrganizationSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type Organization = z.infer<typeof OrganizationSchema>;
@@ -63,7 +76,7 @@ export const UserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).nullable(),
   role: z.string().min(1),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type User = z.infer<typeof UserSchema>;
@@ -76,7 +89,7 @@ export const SiteSchema = z.object({
   industry: z.string().min(1).nullable(),
   language: z.string().min(2).default("ko"),
   country: z.string().min(2).default("KR"),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type Site = z.infer<typeof SiteSchema>;
@@ -87,14 +100,14 @@ export const CrawlRunSchema = z.object({
   status: z.string().min(1),
   startedAt: IsoDateTimeSchema,
   endedAt: IsoDateTimeSchema.nullable(),
-  summary: z.record(z.unknown()).nullable()
+  summary: z.record(z.unknown()).nullable(),
 });
 
 export type CrawlRun = z.infer<typeof CrawlRunSchema>;
 
 export const CreateCrawlRunRequestSchema = z.object({
   startUrl: HttpUrlSchema.optional(),
-  maxPages: z.number().int().positive().max(100).default(25)
+  maxPages: z.number().int().positive().max(100).default(25),
 });
 
 export type CreateCrawlRunRequest = z.infer<typeof CreateCrawlRunRequestSchema>;
@@ -107,7 +120,7 @@ export const UrlRecordSchema = z.object({
   statusCode: z.number().int().nullable(),
   title: z.string().nullable(),
   metaDescription: z.string().nullable(),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type UrlRecord = z.infer<typeof UrlRecordSchema>;
@@ -121,7 +134,7 @@ export const SeoIssueSchema = z.object({
   status: z.string().min(1),
   title: z.string().min(1),
   evidence: z.record(z.unknown()).nullable(),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type SeoIssue = z.infer<typeof SeoIssueSchema>;
@@ -140,7 +153,7 @@ export const SeoIssueRuleIdSchema = z.enum([
   "SCHEMA_MISSING",
   "THIN_CONTENT",
   "ORPHAN_PAGE",
-  "ROBOTS_BLOCKED"
+  "ROBOTS_BLOCKED",
 ]);
 
 export type SeoIssueRuleId = z.infer<typeof SeoIssueRuleIdSchema>;
@@ -157,7 +170,7 @@ export const SeoIssueCategorySchema = z.enum([
   "images",
   "links",
   "schema",
-  "content"
+  "content",
 ]);
 
 export type SeoIssueCategory = z.infer<typeof SeoIssueCategorySchema>;
@@ -171,7 +184,7 @@ export const SeoIssueEvidenceValueSchema = z.union([
   z.number(),
   z.boolean(),
   z.null(),
-  z.array(z.string())
+  z.array(z.string()),
 ]);
 
 export type SeoIssueEvidenceValue = z.infer<typeof SeoIssueEvidenceValueSchema>;
@@ -180,7 +193,7 @@ export const SeoIssueEvidenceSchema = z.object({
   url: NormalizedUrlSchema,
   observedValue: SeoIssueEvidenceValueSchema,
   expectedValue: SeoIssueEvidenceValueSchema,
-  sourceField: z.string().min(1)
+  sourceField: z.string().min(1),
 });
 
 export type SeoIssueEvidence = z.infer<typeof SeoIssueEvidenceSchema>;
@@ -194,7 +207,7 @@ export const SeoIssueDraftSchema = z.object({
   evidence: SeoIssueEvidenceSchema,
   impactScore: z.number().int().min(0).max(100),
   effortScore: z.number().int().min(0).max(100),
-  priorityScore: z.number().int().min(0).max(100)
+  priorityScore: z.number().int().min(0).max(100),
 });
 
 export type SeoIssueDraft = z.infer<typeof SeoIssueDraftSchema>;
@@ -207,7 +220,13 @@ export const WorkOrderPrioritySchema = SeoIssuePrioritySchema;
 
 export type WorkOrderPriority = z.infer<typeof WorkOrderPrioritySchema>;
 
-export const WorkOrderStatusSchema = z.enum(["open", "in_progress", "in_review", "done", "blocked"]);
+export const WorkOrderStatusSchema = z.enum([
+  "open",
+  "in_progress",
+  "in_review",
+  "done",
+  "blocked",
+]);
 
 export type WorkOrderStatus = z.infer<typeof WorkOrderStatusSchema>;
 
@@ -226,7 +245,7 @@ export const WorkOrderDraftSchema = z.object({
   acceptanceCriteria: z.array(z.string().min(1)).min(1),
   verificationMethod: z.string().min(1),
   estimatedEffort: EstimatedEffortSchema,
-  relatedIssues: z.array(SeoIssueRuleIdSchema)
+  relatedIssues: z.array(SeoIssueRuleIdSchema),
 });
 
 export type WorkOrderDraft = z.infer<typeof WorkOrderDraftSchema>;
@@ -254,13 +273,13 @@ export const WorkOrderSchema = z.object({
   assignedTo: IdSchema.nullable(),
   dueDate: IsoDateTimeSchema.nullable(),
   createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema
+  updatedAt: IsoDateTimeSchema,
 });
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
 
 export const WorkOrderListResponseSchema = z.object({
-  workOrders: z.array(WorkOrderSchema)
+  workOrders: z.array(WorkOrderSchema),
 });
 
 export type WorkOrderListResponse = z.infer<typeof WorkOrderListResponseSchema>;
@@ -269,21 +288,21 @@ export const UpdateWorkOrderRequestSchema = z.object({
   status: WorkOrderStatusSchema.optional(),
   priority: WorkOrderPrioritySchema.optional(),
   assignedTo: IdSchema.nullable().optional(),
-  dueDate: IsoDateTimeSchema.nullable().optional()
+  dueDate: IsoDateTimeSchema.nullable().optional(),
 });
 
 export type UpdateWorkOrderRequest = z.infer<typeof UpdateWorkOrderRequestSchema>;
 
 export const RecheckWorkOrderRequestSchema = z.object({
   startUrl: HttpUrlSchema.optional(),
-  maxPages: z.number().int().positive().max(10).default(1)
+  maxPages: z.number().int().positive().max(10).default(1),
 });
 
 export type RecheckWorkOrderRequest = z.infer<typeof RecheckWorkOrderRequestSchema>;
 
 export const ResolveWorkOrderIssueResponseSchema = z.object({
   workOrder: WorkOrderSchema,
-  seoIssue: SeoIssueSchema.nullable()
+  seoIssue: SeoIssueSchema.nullable(),
 });
 
 export type ResolveWorkOrderIssueResponse = z.infer<typeof ResolveWorkOrderIssueResponseSchema>;
@@ -294,7 +313,7 @@ export const KeywordIntentSchema = z.enum([
   "transactional",
   "navigational",
   "local",
-  "mixed"
+  "mixed",
 ]);
 
 export type KeywordIntent = z.infer<typeof KeywordIntentSchema>;
@@ -310,7 +329,7 @@ export const KeywordTargetSchema = z.object({
   language: z.string().min(2).default("ko"),
   country: z.string().min(2).default("KR"),
   intent: KeywordIntentSchema.nullable().default(null),
-  source: KeywordSourceSchema.default("manual")
+  source: KeywordSourceSchema.default("manual"),
 });
 
 export type KeywordTarget = z.infer<typeof KeywordTargetSchema>;
@@ -321,7 +340,7 @@ export const KeywordSchema = z.object({
   phrase: NonEmptyStringSchema,
   locale: z.string().min(2).default("ko-KR"),
   intent: KeywordIntentSchema.nullable(),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type Keyword = z.infer<typeof KeywordSchema>;
@@ -329,7 +348,7 @@ export type Keyword = z.infer<typeof KeywordSchema>;
 export const AeoAnswerBlockSchema = z.object({
   question: NonEmptyStringSchema,
   answer: NonEmptyStringSchema,
-  sourceField: z.string().min(1)
+  sourceField: z.string().min(1),
 });
 
 export type AeoAnswerBlock = z.infer<typeof AeoAnswerBlockSchema>;
@@ -343,14 +362,14 @@ export const AeoPageSignalSchema = z.object({
   wordCount: z.number().int().nonnegative(),
   schemaTypes: z.array(NonEmptyStringSchema).default([]),
   questionHeadings: z.array(NonEmptyStringSchema).default([]),
-  answerBlocks: z.array(AeoAnswerBlockSchema).default([])
+  answerBlocks: z.array(AeoAnswerBlockSchema).default([]),
 });
 
 export type AeoPageSignal = z.infer<typeof AeoPageSignalSchema>;
 
 export const KeywordAeoInputSchema = z.object({
   keyword: KeywordTargetSchema,
-  candidatePage: AeoPageSignalSchema.nullable()
+  candidatePage: AeoPageSignalSchema.nullable(),
 });
 
 export type KeywordAeoInput = z.infer<typeof KeywordAeoInputSchema>;
@@ -366,7 +385,7 @@ export const AeoReadinessCheckIdSchema = z.enum([
   "FAQ_SCHEMA_PRESENT",
   "STRUCTURED_HEADINGS",
   "CITABLE_SOURCE_PRESENT",
-  "CONTENT_DEPTH"
+  "CONTENT_DEPTH",
 ]);
 
 export type AeoReadinessCheckId = z.infer<typeof AeoReadinessCheckIdSchema>;
@@ -375,7 +394,13 @@ export const AeoReadinessCheckStatusSchema = z.enum(["pass", "warning", "fail"])
 
 export type AeoReadinessCheckStatus = z.infer<typeof AeoReadinessCheckStatusSchema>;
 
-export const AeoEvidenceValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]);
+export const AeoEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string()),
+]);
 
 export type AeoEvidenceValue = z.infer<typeof AeoEvidenceValueSchema>;
 
@@ -383,7 +408,7 @@ export const AeoEvidenceSchema = z.object({
   url: NormalizedUrlSchema.nullable(),
   observedValue: AeoEvidenceValueSchema,
   expectedValue: AeoEvidenceValueSchema,
-  sourceField: z.string().min(1)
+  sourceField: z.string().min(1),
 });
 
 export type AeoEvidence = z.infer<typeof AeoEvidenceSchema>;
@@ -392,7 +417,7 @@ export const AeoReadinessCheckSchema = z.object({
   checkId: AeoReadinessCheckIdSchema,
   status: AeoReadinessCheckStatusSchema,
   score: PercentageScoreSchema,
-  evidence: AeoEvidenceSchema
+  evidence: AeoEvidenceSchema,
 });
 
 export type AeoReadinessCheck = z.infer<typeof AeoReadinessCheckSchema>;
@@ -404,7 +429,7 @@ export const AeoReadinessReportSchema = z.object({
   score: PercentageScoreSchema,
   checks: z.array(AeoReadinessCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema
+  evaluatedAt: IsoDateTimeSchema,
 });
 
 export type AeoReadinessReport = z.infer<typeof AeoReadinessReportSchema>;
@@ -422,7 +447,7 @@ export const AeoReadinessReportRecordSchema = z.object({
   checks: z.array(AeoReadinessCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type AeoReadinessReportRecord = z.infer<typeof AeoReadinessReportRecordSchema>;
@@ -436,7 +461,7 @@ export const AeoQuestionIntentSchema = z.enum([
   "local",
   "aftercare",
   "risk",
-  "other"
+  "other",
 ]);
 
 export type AeoQuestionIntent = z.infer<typeof AeoQuestionIntentSchema>;
@@ -446,7 +471,7 @@ export const AeoFaqGapSchema = z.object({
   intent: AeoQuestionIntentSchema,
   priority: SeoIssuePrioritySchema,
   suggestedAnswerAngle: NonEmptyStringSchema,
-  evidence: AeoEvidenceSchema
+  evidence: AeoEvidenceSchema,
 });
 
 export type AeoFaqGap = z.infer<typeof AeoFaqGapSchema>;
@@ -456,7 +481,7 @@ export const AeoFaqGapSetSchema = z.object({
   pageUrl: NormalizedUrlSchema.nullable(),
   gaps: z.array(AeoFaqGapSchema),
   generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema
+  evaluatedAt: IsoDateTimeSchema,
 });
 
 export type AeoFaqGapSet = z.infer<typeof AeoFaqGapSetSchema>;
@@ -469,7 +494,7 @@ export const ContentBriefSectionSchema = z.object({
   heading: NonEmptyStringSchema,
   purpose: NonEmptyStringSchema,
   targetQuestions: z.array(NonEmptyStringSchema).default([]),
-  acceptanceCriteria: z.array(NonEmptyStringSchema).default([])
+  acceptanceCriteria: z.array(NonEmptyStringSchema).default([]),
 });
 
 export type ContentBriefSection = z.infer<typeof ContentBriefSectionSchema>;
@@ -491,7 +516,7 @@ export const ContentBriefDraftSchema = z.object({
   faqQuestions: z.array(NonEmptyStringSchema).default([]),
   acceptanceCriteria: z.array(NonEmptyStringSchema).min(1),
   generationMode: z.literal("deterministic"),
-  publishPolicy: z.literal("draft_only")
+  publishPolicy: z.literal("draft_only"),
 });
 
 export type ContentBriefDraft = z.infer<typeof ContentBriefDraftSchema>;
@@ -511,7 +536,7 @@ export const ContentBriefSchema = z.object({
   acceptanceCriteria: z.array(NonEmptyStringSchema),
   generationMode: z.literal("deterministic"),
   publishPolicy: z.literal("draft_only"),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type ContentBrief = z.infer<typeof ContentBriefSchema>;
@@ -522,7 +547,7 @@ export const CreateContentBriefDraftKeywordSchema = z.object({
   language: z.string().min(2).optional(),
   country: z.string().min(2).optional(),
   intent: KeywordIntentSchema.nullable().optional(),
-  source: KeywordSourceSchema.optional()
+  source: KeywordSourceSchema.optional(),
 });
 
 export type CreateContentBriefDraftKeyword = z.infer<typeof CreateContentBriefDraftKeywordSchema>;
@@ -533,7 +558,7 @@ export const CreateContentBriefDraftRequestSchema = z.object({
   candidatePage: AeoPageSignalSchema.nullable().optional(),
   readinessReport: AeoReadinessReportSchema.optional(),
   faqGapSet: AeoFaqGapSetSchema.optional(),
-  evaluatedAt: IsoDateTimeSchema.optional()
+  evaluatedAt: IsoDateTimeSchema.optional(),
 });
 
 export type CreateContentBriefDraftRequest = z.infer<typeof CreateContentBriefDraftRequestSchema>;
@@ -542,20 +567,22 @@ export const CreateAeoReadinessReportRequestSchema = z.object({
   keyword: CreateContentBriefDraftKeywordSchema,
   keywordId: IdSchema.nullable().optional(),
   candidatePage: AeoPageSignalSchema.nullable().optional(),
-  evaluatedAt: IsoDateTimeSchema.optional()
+  evaluatedAt: IsoDateTimeSchema.optional(),
 });
 
 export type CreateAeoReadinessReportRequest = z.infer<typeof CreateAeoReadinessReportRequestSchema>;
 
 export const CreateAeoReadinessReportResponseSchema = z.object({
   report: AeoReadinessReportRecordSchema,
-  readinessReport: AeoReadinessReportSchema
+  readinessReport: AeoReadinessReportSchema,
 });
 
-export type CreateAeoReadinessReportResponse = z.infer<typeof CreateAeoReadinessReportResponseSchema>;
+export type CreateAeoReadinessReportResponse = z.infer<
+  typeof CreateAeoReadinessReportResponseSchema
+>;
 
 export const AeoReadinessReportListResponseSchema = z.object({
-  reports: z.array(AeoReadinessReportRecordSchema)
+  reports: z.array(AeoReadinessReportRecordSchema),
 });
 
 export type AeoReadinessReportListResponse = z.infer<typeof AeoReadinessReportListResponseSchema>;
@@ -563,24 +590,31 @@ export type AeoReadinessReportListResponse = z.infer<typeof AeoReadinessReportLi
 export const CreateContentBriefDraftResponseSchema = z.object({
   contentBrief: ContentBriefSchema,
   draft: ContentBriefDraftSchema,
-  readinessReport: AeoReadinessReportSchema
+  readinessReport: AeoReadinessReportSchema,
 });
 
 export type CreateContentBriefDraftResponse = z.infer<typeof CreateContentBriefDraftResponseSchema>;
 
 export const ContentBriefListResponseSchema = z.object({
-  contentBriefs: z.array(ContentBriefSchema)
+  contentBriefs: z.array(ContentBriefSchema),
 });
 
 export type ContentBriefListResponse = z.infer<typeof ContentBriefListResponseSchema>;
 
 export const ContentBriefDetailResponseSchema = z.object({
-  contentBrief: ContentBriefSchema
+  contentBrief: ContentBriefSchema,
 });
 
 export type ContentBriefDetailResponse = z.infer<typeof ContentBriefDetailResponseSchema>;
 
-export const GeoProviderSchema = z.enum(["chatgpt", "perplexity", "gemini", "copilot", "claude", "manual"]);
+export const GeoProviderSchema = z.enum([
+  "chatgpt",
+  "perplexity",
+  "gemini",
+  "copilot",
+  "claude",
+  "manual",
+]);
 
 export type GeoProvider = z.infer<typeof GeoProviderSchema>;
 
@@ -597,7 +631,7 @@ export const GeoVisibilityCheckIdSchema = z.enum([
   "OWNED_URL_CITED",
   "QUERY_COVERAGE",
   "PROVIDER_DIVERSITY",
-  "COMPETITOR_CITATION_RISK"
+  "COMPETITOR_CITATION_RISK",
 ]);
 
 export type GeoVisibilityCheckId = z.infer<typeof GeoVisibilityCheckIdSchema>;
@@ -606,14 +640,20 @@ export const GeoVisibilityCheckStatusSchema = z.enum(["pass", "warning", "fail"]
 
 export type GeoVisibilityCheckStatus = z.infer<typeof GeoVisibilityCheckStatusSchema>;
 
-export const GeoEvidenceValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]);
+export const GeoEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string()),
+]);
 
 export type GeoEvidenceValue = z.infer<typeof GeoEvidenceValueSchema>;
 
 export const GeoEvidenceSchema = z.object({
   observedValue: GeoEvidenceValueSchema,
   expectedValue: GeoEvidenceValueSchema,
-  sourceField: z.string().min(1)
+  sourceField: z.string().min(1),
 });
 
 export type GeoEvidence = z.infer<typeof GeoEvidenceSchema>;
@@ -623,7 +663,7 @@ export const GeoTargetSchema = z.object({
   brandName: NonEmptyStringSchema,
   domain: DomainSchema,
   locale: z.string().min(2).default("ko-KR"),
-  market: z.string().min(2).default("KR")
+  market: z.string().min(2).default("KR"),
 });
 
 export type GeoTarget = z.infer<typeof GeoTargetSchema>;
@@ -631,7 +671,7 @@ export type GeoTarget = z.infer<typeof GeoTargetSchema>;
 export const GeoCitationSchema = z.object({
   url: NormalizedUrlSchema,
   domain: DomainSchema,
-  owned: z.boolean()
+  owned: z.boolean(),
 });
 
 export type GeoCitation = z.infer<typeof GeoCitationSchema>;
@@ -643,7 +683,7 @@ export const GeoAnswerObservationSchema = z.object({
   answerText: z.string().default(""),
   citedUrls: z.array(NormalizedUrlSchema).default([]),
   observedAt: IsoDateTimeSchema,
-  source: GeoObservationSourceSchema.default("manual")
+  source: GeoObservationSourceSchema.default("manual"),
 });
 
 export type GeoAnswerObservation = z.infer<typeof GeoAnswerObservationSchema>;
@@ -652,7 +692,7 @@ export const GeoVisibilityCheckSchema = z.object({
   checkId: GeoVisibilityCheckIdSchema,
   status: GeoVisibilityCheckStatusSchema,
   score: PercentageScoreSchema,
-  evidence: GeoEvidenceSchema
+  evidence: GeoEvidenceSchema,
 });
 
 export type GeoVisibilityCheck = z.infer<typeof GeoVisibilityCheckSchema>;
@@ -670,7 +710,7 @@ export const GeoVisibilityReportSchema = z.object({
   citations: z.array(GeoCitationSchema),
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema
+  evaluatedAt: IsoDateTimeSchema,
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -694,7 +734,7 @@ export const GeoVisibilityReportRecordSchema = z.object({
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
@@ -702,27 +742,31 @@ export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecord
 export const CreateGeoVisibilityReportRequestSchema = z.object({
   target: GeoTargetSchema,
   observations: z.array(GeoAnswerObservationSchema).min(1),
-  evaluatedAt: IsoDateTimeSchema.optional()
+  evaluatedAt: IsoDateTimeSchema.optional(),
 });
 
-export type CreateGeoVisibilityReportRequest = z.infer<typeof CreateGeoVisibilityReportRequestSchema>;
+export type CreateGeoVisibilityReportRequest = z.infer<
+  typeof CreateGeoVisibilityReportRequestSchema
+>;
 
 export const CreateGeoVisibilityReportResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,
-  visibilityReport: GeoVisibilityReportSchema
+  visibilityReport: GeoVisibilityReportSchema,
 });
 
-export type CreateGeoVisibilityReportResponse = z.infer<typeof CreateGeoVisibilityReportResponseSchema>;
+export type CreateGeoVisibilityReportResponse = z.infer<
+  typeof CreateGeoVisibilityReportResponseSchema
+>;
 
 export const GeoVisibilityReportListResponseSchema = z.object({
-  reports: z.array(GeoVisibilityReportRecordSchema)
+  reports: z.array(GeoVisibilityReportRecordSchema),
 });
 
 export type GeoVisibilityReportListResponse = z.infer<typeof GeoVisibilityReportListResponseSchema>;
 
 export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,
-  workOrder: WorkOrderSchema
+  workOrder: WorkOrderSchema,
 });
 
 export type CreateGeoVisibilityReportWorkOrderResponse = z.infer<
@@ -734,7 +778,7 @@ export const AiPromptSchema = z.object({
   organizationId: IdSchema,
   purpose: z.string().min(1),
   template: z.string().min(1),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type AiPrompt = z.infer<typeof AiPromptSchema>;
@@ -744,7 +788,7 @@ export const AiResultSchema = z.object({
   promptId: IdSchema,
   status: z.string().min(1),
   output: z.record(z.unknown()).nullable(),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type AiResult = z.infer<typeof AiResultSchema>;
@@ -754,7 +798,7 @@ export const ComplianceSubjectTypeSchema = z.enum([
   "page_copy",
   "schema_recommendation",
   "work_order",
-  "manual"
+  "manual",
 ]);
 
 export type ComplianceSubjectType = z.infer<typeof ComplianceSubjectTypeSchema>;
@@ -765,7 +809,7 @@ export const ComplianceReviewSourceSchema = z.enum([
   "fixture",
   "manual",
   "schema_recommendation",
-  "work_order"
+  "work_order",
 ]);
 
 export type ComplianceReviewSource = z.infer<typeof ComplianceReviewSourceSchema>;
@@ -785,7 +829,7 @@ export const ComplianceRuleIdSchema = z.enum([
   "BEFORE_AFTER_REFERENCE",
   "PATIENT_TESTIMONIAL_REFERENCE",
   "PRICE_DISCOUNT_PROMOTION",
-  "UNREVIEWED_MEDICAL_PUBLISH"
+  "UNREVIEWED_MEDICAL_PUBLISH",
 ]);
 
 export type ComplianceRuleId = z.infer<typeof ComplianceRuleIdSchema>;
@@ -794,7 +838,13 @@ export const ComplianceRiskLevelSchema = z.enum(["critical", "high", "medium", "
 
 export type ComplianceRiskLevel = z.infer<typeof ComplianceRiskLevelSchema>;
 
-export const ComplianceFlagStatusSchema = z.enum(["open", "in_review", "approved", "dismissed", "resolved"]);
+export const ComplianceFlagStatusSchema = z.enum([
+  "open",
+  "in_review",
+  "approved",
+  "dismissed",
+  "resolved",
+]);
 
 export type ComplianceFlagStatus = z.infer<typeof ComplianceFlagStatusSchema>;
 
@@ -807,7 +857,7 @@ export const ComplianceEvidenceValueSchema = z.union([
   z.number(),
   z.boolean(),
   z.null(),
-  z.array(z.string())
+  z.array(z.string()),
 ]);
 
 export type ComplianceEvidenceValue = z.infer<typeof ComplianceEvidenceValueSchema>;
@@ -818,7 +868,7 @@ export const ComplianceEvidenceSchema = z.object({
   observedValue: ComplianceEvidenceValueSchema,
   expectedValue: ComplianceEvidenceValueSchema,
   sourceField: z.string().min(1),
-  match: z.string().min(1).nullable().default(null)
+  match: z.string().min(1).nullable().default(null),
 });
 
 export type ComplianceEvidence = z.infer<typeof ComplianceEvidenceSchema>;
@@ -833,7 +883,7 @@ export const ComplianceReviewInputSchema = z.object({
   title: z.string().min(1).nullable().default(null),
   text: NonEmptyStringSchema,
   publishState: CompliancePublishStateSchema.default("draft"),
-  source: ComplianceReviewSourceSchema.default("manual")
+  source: ComplianceReviewSourceSchema.default("manual"),
 });
 
 export type ComplianceReviewInput = z.infer<typeof ComplianceReviewInputSchema>;
@@ -849,7 +899,7 @@ export const ComplianceFlagDraftSchema = z.object({
   replacementSuggestion: z.string().min(1).nullable().default(null),
   ownerType: z.literal("legal").default("legal"),
   publishPolicy: z.literal("draft_only"),
-  generatedBy: z.literal("deterministic")
+  generatedBy: z.literal("deterministic"),
 });
 
 export type ComplianceFlagDraft = z.infer<typeof ComplianceFlagDraftSchema>;
@@ -862,13 +912,13 @@ export const ComplianceReviewReportSchema = z.object({
   overallRiskLevel: ComplianceRiskLevelSchema.nullable(),
   publishPolicy: z.literal("draft_only"),
   generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema
+  evaluatedAt: IsoDateTimeSchema,
 });
 
 export type ComplianceReviewReport = z.infer<typeof ComplianceReviewReportSchema>;
 
 export const CreateComplianceReviewRequestSchema = ComplianceReviewInputSchema.extend({
-  evaluatedAt: IsoDateTimeSchema.optional()
+  evaluatedAt: IsoDateTimeSchema.optional(),
 });
 
 export type CreateComplianceReviewRequest = z.infer<typeof CreateComplianceReviewRequestSchema>;
@@ -891,37 +941,39 @@ export const ComplianceFlagSchema = z.object({
   replacementSuggestion: z.string().min(1).nullable().optional(),
   generatedBy: z.literal("deterministic").optional(),
   createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema.optional()
+  updatedAt: IsoDateTimeSchema.optional(),
 });
 
 export type ComplianceFlag = z.infer<typeof ComplianceFlagSchema>;
 
 export const ComplianceFlagListResponseSchema = z.object({
-  complianceFlags: z.array(ComplianceFlagSchema)
+  complianceFlags: z.array(ComplianceFlagSchema),
 });
 
 export type ComplianceFlagListResponse = z.infer<typeof ComplianceFlagListResponseSchema>;
 
 export const UpdateComplianceFlagRequestSchema = z.object({
   status: ComplianceFlagStatusSchema.optional(),
-  workOrderId: IdSchema.nullable().optional()
+  workOrderId: IdSchema.nullable().optional(),
 });
 
 export type UpdateComplianceFlagRequest = z.infer<typeof UpdateComplianceFlagRequestSchema>;
 
 export const CreateComplianceReviewResponseSchema = z.object({
   report: ComplianceReviewReportSchema,
-  complianceFlags: z.array(ComplianceFlagSchema)
+  complianceFlags: z.array(ComplianceFlagSchema),
 });
 
 export type CreateComplianceReviewResponse = z.infer<typeof CreateComplianceReviewResponseSchema>;
 
 export const CreateComplianceFlagWorkOrderResponseSchema = z.object({
   complianceFlag: ComplianceFlagSchema,
-  workOrder: WorkOrderSchema
+  workOrder: WorkOrderSchema,
 });
 
-export type CreateComplianceFlagWorkOrderResponse = z.infer<typeof CreateComplianceFlagWorkOrderResponseSchema>;
+export type CreateComplianceFlagWorkOrderResponse = z.infer<
+  typeof CreateComplianceFlagWorkOrderResponseSchema
+>;
 
 export const RecheckComplianceFlagRequestSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.optional(),
@@ -931,7 +983,7 @@ export const RecheckComplianceFlagRequestSchema = z.object({
   source: ComplianceReviewSourceSchema.optional(),
   text: NonEmptyStringSchema,
   title: z.string().min(1).nullable().optional(),
-  url: NormalizedUrlSchema.nullable().optional()
+  url: NormalizedUrlSchema.nullable().optional(),
 });
 
 export type RecheckComplianceFlagRequest = z.infer<typeof RecheckComplianceFlagRequestSchema>;
@@ -940,7 +992,7 @@ export const RecheckComplianceFlagResponseSchema = z.object({
   complianceFlag: ComplianceFlagSchema,
   report: ComplianceReviewReportSchema,
   resolved: z.boolean(),
-  workOrder: WorkOrderSchema.nullable()
+  workOrder: WorkOrderSchema.nullable(),
 });
 
 export type RecheckComplianceFlagResponse = z.infer<typeof RecheckComplianceFlagResponseSchema>;
@@ -961,7 +1013,7 @@ export const CmsContentUpdatedEventRequestSchema = z.object({
   locale: z.string().min(2).optional(),
   industry: z.string().min(1).nullable().optional(),
   updatedAt: IsoDateTimeSchema,
-  source: z.literal("cms").default("cms")
+  source: z.literal("cms").default("cms"),
 });
 
 export type CmsContentUpdatedEventRequest = z.infer<typeof CmsContentUpdatedEventRequestSchema>;
@@ -970,19 +1022,27 @@ export const CmsContentUpdatedEventResponseSchema = z.object({
   event: CmsContentUpdatedEventRequestSchema,
   matchedFlagCount: z.number().int().nonnegative(),
   skippedFlagCount: z.number().int().nonnegative(),
-  rechecks: z.array(RecheckComplianceFlagResponseSchema)
+  rechecks: z.array(RecheckComplianceFlagResponseSchema),
 });
 
 export type CmsContentUpdatedEventResponse = z.infer<typeof CmsContentUpdatedEventResponseSchema>;
 
+export const CmsWebhookSignatureHeadersSchema = z.object({
+  "x-searchops-cms-type": z.string().min(1),
+  "x-searchops-timestamp": IsoDateTimeSchema,
+  "x-searchops-signature": z.string().regex(/^sha256=[a-f0-9]{64}$/i),
+});
+
+export type CmsWebhookSignatureHeaders = z.infer<typeof CmsWebhookSignatureHeadersSchema>;
+
 export const CreateOrganizationRequestSchema = z.object({
-  name: z.string().min(1)
+  name: z.string().min(1),
 });
 
 export type CreateOrganizationRequest = z.infer<typeof CreateOrganizationRequestSchema>;
 
 export const OrganizationListResponseSchema = z.object({
-  organizations: z.array(OrganizationSchema)
+  organizations: z.array(OrganizationSchema),
 });
 
 export type OrganizationListResponse = z.infer<typeof OrganizationListResponseSchema>;
@@ -992,7 +1052,7 @@ export const CreateSiteRequestSchema = z.object({
   name: z.string().min(1).optional(),
   industry: z.string().min(1).optional(),
   language: z.string().min(2).default("ko"),
-  country: z.string().min(2).default("KR")
+  country: z.string().min(2).default("KR"),
 });
 
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequestSchema>;
@@ -1002,13 +1062,13 @@ export const UpdateSiteRequestSchema = z.object({
   name: z.string().min(1).nullable().optional(),
   industry: z.string().min(1).nullable().optional(),
   language: z.string().min(2).optional(),
-  country: z.string().min(2).optional()
+  country: z.string().min(2).optional(),
 });
 
 export type UpdateSiteRequest = z.infer<typeof UpdateSiteRequestSchema>;
 
 export const SiteListResponseSchema = z.object({
-  sites: z.array(SiteSchema)
+  sites: z.array(SiteSchema),
 });
 
 export type SiteListResponse = z.infer<typeof SiteListResponseSchema>;
@@ -1016,7 +1076,7 @@ export type SiteListResponse = z.infer<typeof SiteListResponseSchema>;
 export const MockUserContextSchema = z.object({
   userId: IdSchema,
   organizationId: IdSchema,
-  source: z.literal("mock")
+  source: z.literal("mock"),
 });
 
 export type MockUserContext = z.infer<typeof MockUserContextSchema>;
@@ -1031,7 +1091,7 @@ export const LinkSignalSchema = z.object({
   text: z.string(),
   rel: z.string().nullable(),
   target: z.string().nullable(),
-  classification: LinkClassificationSchema
+  classification: LinkClassificationSchema,
 });
 
 export type LinkSignal = z.infer<typeof LinkSignalSchema>;
@@ -1040,7 +1100,7 @@ export const ImageSignalSchema = z.object({
   src: z.string().min(1),
   url: NormalizedUrlSchema.nullable(),
   alt: z.string().nullable(),
-  hasAlt: z.boolean()
+  hasAlt: z.boolean(),
 });
 
 export type ImageSignal = z.infer<typeof ImageSignalSchema>;
@@ -1051,7 +1111,7 @@ export type JsonLdParsed = z.infer<typeof JsonLdParsedSchema>;
 
 export const JsonLdBlockSchema = z.object({
   raw: z.string().min(1),
-  parsed: JsonLdParsedSchema
+  parsed: JsonLdParsedSchema,
 });
 
 export type JsonLdBlock = z.infer<typeof JsonLdBlockSchema>;
@@ -1064,7 +1124,7 @@ export const SchemaJsonLdTypeSchema = z.enum([
   "BreadcrumbList",
   "LocalBusiness",
   "MedicalClinic",
-  "Service"
+  "Service",
 ]);
 
 export type SchemaJsonLdType = z.infer<typeof SchemaJsonLdTypeSchema>;
@@ -1081,7 +1141,7 @@ export const JsonLdRecommendationEvidenceSchema = z.object({
   url: NormalizedUrlSchema,
   observedTypes: z.array(SchemaJsonLdTypeSchema),
   expectedType: SchemaJsonLdTypeSchema,
-  sourceField: z.string().min(1)
+  sourceField: z.string().min(1),
 });
 
 export type JsonLdRecommendationEvidence = z.infer<typeof JsonLdRecommendationEvidenceSchema>;
@@ -1096,7 +1156,7 @@ export const JsonLdRecommendationSchema = z.object({
   instructions: z.array(NonEmptyStringSchema).min(1),
   requiredFields: z.array(NonEmptyStringSchema).min(1),
   recommendedFields: z.array(NonEmptyStringSchema).default([]),
-  generatedBy: z.literal("deterministic")
+  generatedBy: z.literal("deterministic"),
 });
 
 export type JsonLdRecommendation = z.infer<typeof JsonLdRecommendationSchema>;
@@ -1105,12 +1165,17 @@ export const JsonLdRecommendationSetSchema = z.object({
   siteId: IdSchema,
   pageUrl: NormalizedUrlSchema,
   recommendations: z.array(JsonLdRecommendationSchema),
-  generatedBy: z.literal("deterministic")
+  generatedBy: z.literal("deterministic"),
 });
 
 export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
 
-export const SchemaRecommendationStatusSchema = z.enum(["open", "converted", "dismissed", "resolved"]);
+export const SchemaRecommendationStatusSchema = z.enum([
+  "open",
+  "converted",
+  "dismissed",
+  "resolved",
+]);
 
 export type SchemaRecommendationStatus = z.infer<typeof SchemaRecommendationStatusSchema>;
 
@@ -1129,26 +1194,30 @@ export const SchemaRecommendationRecordSchema = z.object({
   recommendedFields: z.array(NonEmptyStringSchema),
   generatedBy: z.literal("deterministic"),
   createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema
+  updatedAt: IsoDateTimeSchema,
 });
 
 export type SchemaRecommendationRecord = z.infer<typeof SchemaRecommendationRecordSchema>;
 
 export const SchemaRecommendationListResponseSchema = z.object({
-  recommendations: z.array(SchemaRecommendationRecordSchema)
+  recommendations: z.array(SchemaRecommendationRecordSchema),
 });
 
-export type SchemaRecommendationListResponse = z.infer<typeof SchemaRecommendationListResponseSchema>;
+export type SchemaRecommendationListResponse = z.infer<
+  typeof SchemaRecommendationListResponseSchema
+>;
 
 export const SchemaRecommendationDetailResponseSchema = z.object({
-  recommendation: SchemaRecommendationRecordSchema
+  recommendation: SchemaRecommendationRecordSchema,
 });
 
-export type SchemaRecommendationDetailResponse = z.infer<typeof SchemaRecommendationDetailResponseSchema>;
+export type SchemaRecommendationDetailResponse = z.infer<
+  typeof SchemaRecommendationDetailResponseSchema
+>;
 
 export const CreateSchemaRecommendationWorkOrderResponseSchema = z.object({
   recommendation: SchemaRecommendationRecordSchema,
-  workOrder: WorkOrderSchema
+  workOrder: WorkOrderSchema,
 });
 
 export type CreateSchemaRecommendationWorkOrderResponse = z.infer<
@@ -1157,7 +1226,7 @@ export type CreateSchemaRecommendationWorkOrderResponse = z.infer<
 
 export const HeadingSignalSchema = z.object({
   h1: z.array(z.string()),
-  h2: z.array(z.string())
+  h2: z.array(z.string()),
 });
 
 export type HeadingSignal = z.infer<typeof HeadingSignalSchema>;
@@ -1166,7 +1235,7 @@ export const IndexabilitySignalSchema = z.object({
   noindex: z.boolean(),
   nofollow: z.boolean(),
   canonicalMismatch: z.boolean(),
-  robotsBlocked: z.boolean().nullable()
+  robotsBlocked: z.boolean().nullable(),
 });
 
 export type IndexabilitySignal = z.infer<typeof IndexabilitySignalSchema>;
@@ -1174,7 +1243,7 @@ export type IndexabilitySignal = z.infer<typeof IndexabilitySignalSchema>;
 export const ContentSignalSchema = z.object({
   textLength: z.number().int().nonnegative(),
   wordCount: z.number().int().nonnegative(),
-  duplicateHash: z.string().regex(/^[a-f0-9]{64}$/)
+  duplicateHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
 export type ContentSignal = z.infer<typeof ContentSignalSchema>;
@@ -1191,51 +1260,59 @@ export const CrawlerPageSnapshotSchema = z.object({
   headings: HeadingSignalSchema,
   links: z.object({
     internal: z.array(LinkSignalSchema),
-    external: z.array(LinkSignalSchema)
+    external: z.array(LinkSignalSchema),
   }),
   images: z.array(ImageSignalSchema),
   jsonLd: z.array(JsonLdBlockSchema),
   indexability: IndexabilitySignalSchema,
-  content: ContentSignalSchema
+  content: ContentSignalSchema,
 });
 
 export type CrawlerPageSnapshot = z.infer<typeof CrawlerPageSnapshotSchema>;
 
 export const CreateSchemaRecommendationsRequestSchema = z.object({
   organizationName: z.string().min(1).nullable().optional(),
-  snapshots: z.array(CrawlerPageSnapshotSchema).min(1)
+  snapshots: z.array(CrawlerPageSnapshotSchema).min(1),
 });
 
-export type CreateSchemaRecommendationsRequest = z.infer<typeof CreateSchemaRecommendationsRequestSchema>;
+export type CreateSchemaRecommendationsRequest = z.infer<
+  typeof CreateSchemaRecommendationsRequestSchema
+>;
 
 export const CreateSchemaRecommendationsResponseSchema = z.object({
   recommendationSets: z.array(JsonLdRecommendationSetSchema),
-  recommendations: z.array(SchemaRecommendationRecordSchema)
+  recommendations: z.array(SchemaRecommendationRecordSchema),
 });
 
-export type CreateSchemaRecommendationsResponse = z.infer<typeof CreateSchemaRecommendationsResponseSchema>;
+export type CreateSchemaRecommendationsResponse = z.infer<
+  typeof CreateSchemaRecommendationsResponseSchema
+>;
 
 export const RecheckSchemaRecommendationRequestSchema = z.object({
-  snapshot: CrawlerPageSnapshotSchema
+  snapshot: CrawlerPageSnapshotSchema,
 });
 
-export type RecheckSchemaRecommendationRequest = z.infer<typeof RecheckSchemaRecommendationRequestSchema>;
+export type RecheckSchemaRecommendationRequest = z.infer<
+  typeof RecheckSchemaRecommendationRequestSchema
+>;
 
 export const RecheckSchemaRecommendationResponseSchema = z.object({
   expectedType: SchemaJsonLdTypeSchema,
   observedTypes: z.array(SchemaJsonLdTypeSchema),
   recommendation: SchemaRecommendationRecordSchema,
   resolved: z.boolean(),
-  workOrder: WorkOrderSchema.nullable()
+  workOrder: WorkOrderSchema.nullable(),
 });
 
-export type RecheckSchemaRecommendationResponse = z.infer<typeof RecheckSchemaRecommendationResponseSchema>;
+export type RecheckSchemaRecommendationResponse = z.infer<
+  typeof RecheckSchemaRecommendationResponseSchema
+>;
 
 export const CrawlJobPageInputSchema = z.object({
   url: NormalizedUrlSchema,
   finalUrl: NormalizedUrlSchema.optional(),
   html: z.string().min(1),
-  statusCode: z.number().int().positive().nullable().default(null)
+  statusCode: z.number().int().positive().nullable().default(null),
 });
 
 export type CrawlJobPageInput = z.infer<typeof CrawlJobPageInputSchema>;
@@ -1247,7 +1324,7 @@ export const CrawlJobPayloadSchema = z.object({
   requestedByUserId: IdSchema,
   startUrl: NormalizedUrlSchema,
   maxPages: z.number().int().positive().max(100),
-  pages: z.array(CrawlJobPageInputSchema).default([])
+  pages: z.array(CrawlJobPageInputSchema).default([]),
 });
 
 export type CrawlJobPayload = z.infer<typeof CrawlJobPayloadSchema>;
@@ -1255,14 +1332,14 @@ export type CrawlJobPayload = z.infer<typeof CrawlJobPayloadSchema>;
 export const QueuedCrawlJobSchema = z.object({
   id: IdSchema,
   name: z.literal("crawl"),
-  payload: CrawlJobPayloadSchema
+  payload: CrawlJobPayloadSchema,
 });
 
 export type QueuedCrawlJob = z.infer<typeof QueuedCrawlJobSchema>;
 
 export const CreateCrawlRunResponseSchema = z.object({
   crawlRun: CrawlRunSchema,
-  job: QueuedCrawlJobSchema
+  job: QueuedCrawlJobSchema,
 });
 
 export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema>;
@@ -1270,7 +1347,7 @@ export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema
 export const RecheckWorkOrderResponseSchema = z.object({
   workOrder: WorkOrderSchema,
   crawlRun: CrawlRunSchema,
-  job: QueuedCrawlJobSchema
+  job: QueuedCrawlJobSchema,
 });
 
 export type RecheckWorkOrderResponse = z.infer<typeof RecheckWorkOrderResponseSchema>;
@@ -1282,7 +1359,7 @@ export const CrawlJobSummarySchema = z.object({
   externalLinks: z.number().int().nonnegative(),
   images: z.number().int().nonnegative(),
   jsonLdBlocks: z.number().int().nonnegative(),
-  noindexPages: z.number().int().nonnegative()
+  noindexPages: z.number().int().nonnegative(),
 });
 
 export type CrawlJobSummary = z.infer<typeof CrawlJobSummarySchema>;
@@ -1292,7 +1369,7 @@ export const CrawlJobResultSchema = z.object({
   siteId: IdSchema,
   status: z.enum(["completed", "empty"]),
   snapshots: z.array(CrawlerPageSnapshotSchema),
-  summary: CrawlJobSummarySchema
+  summary: CrawlJobSummarySchema,
 });
 
 export type CrawlJobResult = z.infer<typeof CrawlJobResultSchema>;
@@ -1301,14 +1378,14 @@ export const RobotsRuleSchema = z.object({
   userAgents: z.array(z.string().min(1)),
   allow: z.array(z.string()),
   disallow: z.array(z.string()),
-  crawlDelay: z.number().nonnegative().nullable()
+  crawlDelay: z.number().nonnegative().nullable(),
 });
 
 export type RobotsRule = z.infer<typeof RobotsRuleSchema>;
 
 export const RobotsTxtSchema = z.object({
   rules: z.array(RobotsRuleSchema),
-  sitemaps: z.array(NormalizedUrlSchema)
+  sitemaps: z.array(NormalizedUrlSchema),
 });
 
 export type RobotsTxt = z.infer<typeof RobotsTxtSchema>;
@@ -1317,14 +1394,14 @@ export const SitemapUrlEntrySchema = z.object({
   loc: NormalizedUrlSchema,
   lastmod: z.string().nullable(),
   changefreq: z.string().nullable(),
-  priority: z.number().min(0).max(1).nullable()
+  priority: z.number().min(0).max(1).nullable(),
 });
 
 export type SitemapUrlEntry = z.infer<typeof SitemapUrlEntrySchema>;
 
 export const SitemapIndexEntrySchema = z.object({
   loc: NormalizedUrlSchema,
-  lastmod: z.string().nullable()
+  lastmod: z.string().nullable(),
 });
 
 export type SitemapIndexEntry = z.infer<typeof SitemapIndexEntrySchema>;
@@ -1332,7 +1409,7 @@ export type SitemapIndexEntry = z.infer<typeof SitemapIndexEntrySchema>;
 export const ParsedSitemapSchema = z.object({
   type: z.enum(["urlset", "sitemapindex"]),
   urls: z.array(SitemapUrlEntrySchema),
-  sitemaps: z.array(SitemapIndexEntrySchema)
+  sitemaps: z.array(SitemapIndexEntrySchema),
 });
 
 export type ParsedSitemap = z.infer<typeof ParsedSitemapSchema>;
@@ -1351,7 +1428,7 @@ export const ConnectorProviderListSchema = z
   .array(ConnectorProviderSchema)
   .min(1)
   .refine((providers) => new Set(providers).size === providers.length, {
-    message: "Connector providers must be unique"
+    message: "Connector providers must be unique",
   });
 
 export type ConnectorProviderList = z.infer<typeof ConnectorProviderListSchema>;
@@ -1364,7 +1441,13 @@ export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
-export const ConnectorSyncRunStatusSchema = z.enum(["queued", "running", "completed", "partial", "failed"]);
+export const ConnectorSyncRunStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "partial",
+  "failed",
+]);
 
 export type ConnectorSyncRunStatus = z.infer<typeof ConnectorSyncRunStatusSchema>;
 
@@ -1380,7 +1463,7 @@ export const GscSearchMetricSchema = z.object({
   ctr: z.number().min(0).max(1),
   position: NonNegativeNumberSchema,
   startDate: ConnectorDateSchema,
-  endDate: ConnectorDateSchema
+  endDate: ConnectorDateSchema,
 });
 
 export type GscSearchMetric = z.infer<typeof GscSearchMetricSchema>;
@@ -1394,7 +1477,7 @@ export const Ga4PageMetricSchema = z.object({
   conversions: NonNegativeNumberSchema,
   totalUsers: NonNegativeIntegerSchema,
   startDate: ConnectorDateSchema,
-  endDate: ConnectorDateSchema
+  endDate: ConnectorDateSchema,
 });
 
 export type Ga4PageMetric = z.infer<typeof Ga4PageMetricSchema>;
@@ -1409,7 +1492,7 @@ export const PageSpeedMetricSchema = z.object({
   largestContentfulPaintMs: NonNegativeNumberSchema,
   cumulativeLayoutShift: NonNegativeNumberSchema,
   interactionToNextPaintMs: NonNegativeNumberSchema,
-  fetchedAt: IsoDateTimeSchema
+  fetchedAt: IsoDateTimeSchema,
 });
 
 export type PageSpeedMetric = z.infer<typeof PageSpeedMetricSchema>;
@@ -1422,7 +1505,7 @@ export const BingUrlMetricSchema = z.object({
   clicks: NonNegativeIntegerSchema,
   impressions: NonNegativeIntegerSchema,
   discoveredAt: IsoDateTimeSchema.nullable(),
-  lastCrawledAt: IsoDateTimeSchema.nullable()
+  lastCrawledAt: IsoDateTimeSchema.nullable(),
 });
 
 export type BingUrlMetric = z.infer<typeof BingUrlMetricSchema>;
@@ -1434,7 +1517,7 @@ export const CmsPageRecordSchema = z.object({
   url: NormalizedUrlSchema,
   title: z.string().min(1),
   status: z.enum(["draft", "published", "archived"]),
-  updatedAt: IsoDateTimeSchema
+  updatedAt: IsoDateTimeSchema,
 });
 
 export type CmsPageRecord = z.infer<typeof CmsPageRecordSchema>;
@@ -1444,7 +1527,7 @@ export const ConnectorRecordSchema = z.discriminatedUnion("provider", [
   Ga4PageMetricSchema,
   PageSpeedMetricSchema,
   BingUrlMetricSchema,
-  CmsPageRecordSchema
+  CmsPageRecordSchema,
 ]);
 
 export type ConnectorRecord = z.infer<typeof ConnectorRecordSchema>;
@@ -1455,11 +1538,11 @@ export const ConnectorRunResultSchema = z
     status: ConnectorSyncStatusSchema,
     fetchedAt: IsoDateTimeSchema,
     fixture: z.boolean(),
-    records: z.array(ConnectorRecordSchema)
+    records: z.array(ConnectorRecordSchema),
   })
   .refine((result) => result.records.every((record) => record.provider === result.provider), {
     message: "Connector run provider must match every normalized record provider",
-    path: ["records"]
+    path: ["records"],
   });
 
 export type ConnectorRunResult = z.infer<typeof ConnectorRunResultSchema>;
@@ -1469,7 +1552,7 @@ export const ConnectorRecordCountsByProviderSchema = z.object({
   cms: NonNegativeIntegerSchema,
   ga4: NonNegativeIntegerSchema,
   gsc: NonNegativeIntegerSchema,
-  pagespeed: NonNegativeIntegerSchema
+  pagespeed: NonNegativeIntegerSchema,
 });
 
 export type ConnectorRecordCountsByProvider = z.infer<typeof ConnectorRecordCountsByProviderSchema>;
@@ -1480,12 +1563,15 @@ export const ConnectorBatchSyncSummarySchema = z.object({
   partialProviders: NonNegativeIntegerSchema,
   recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
   totalProviders: NonNegativeIntegerSchema,
-  totalRecords: NonNegativeIntegerSchema
+  totalRecords: NonNegativeIntegerSchema,
 });
 
 export type ConnectorBatchSyncSummary = z.infer<typeof ConnectorBatchSyncSummarySchema>;
 
-export const ConnectorSyncRunSummarySchema = z.union([ConnectorBatchSyncSummarySchema, z.record(z.unknown())]);
+export const ConnectorSyncRunSummarySchema = z.union([
+  ConnectorBatchSyncSummarySchema,
+  z.record(z.unknown()),
+]);
 
 export type ConnectorSyncRunSummary = z.infer<typeof ConnectorSyncRunSummarySchema>;
 
@@ -1498,7 +1584,7 @@ export const ConnectorSyncResultSchema = z.object({
   fixture: z.boolean(),
   recordCount: NonNegativeIntegerSchema,
   records: z.array(ConnectorRecordSchema),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
 });
 
 export type ConnectorSyncResult = z.infer<typeof ConnectorSyncResultSchema>;
@@ -1513,7 +1599,7 @@ export const ConnectorSyncRunSchema = z.object({
   fixture: z.boolean(),
   startedAt: IsoDateTimeSchema,
   endedAt: IsoDateTimeSchema.nullable(),
-  summary: ConnectorSyncRunSummarySchema.nullable()
+  summary: ConnectorSyncRunSummarySchema.nullable(),
 });
 
 export type ConnectorSyncRun = z.infer<typeof ConnectorSyncRunSchema>;
@@ -1525,7 +1611,7 @@ export const ConnectorSyncJobPayloadSchema = z.object({
   siteDomain: DomainSchema,
   requestedByUserId: IdSchema,
   fetchedAt: IsoDateTimeSchema,
-  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders])
+  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
 });
 
 export type ConnectorSyncJobPayload = z.infer<typeof ConnectorSyncJobPayloadSchema>;
@@ -1538,7 +1624,7 @@ export const ConnectorSyncJobResultSchema = z.object({
   requestedByUserId: IdSchema,
   fetchedAt: IsoDateTimeSchema,
   results: z.array(ConnectorRunResultSchema),
-  summary: ConnectorBatchSyncSummarySchema
+  summary: ConnectorBatchSyncSummarySchema,
 });
 
 export type ConnectorSyncJobResult = z.infer<typeof ConnectorSyncJobResultSchema>;
@@ -1546,33 +1632,33 @@ export type ConnectorSyncJobResult = z.infer<typeof ConnectorSyncJobResultSchema
 export const QueuedConnectorSyncJobSchema = z.object({
   id: IdSchema,
   name: z.literal(connectorSyncJobName),
-  payload: ConnectorSyncJobPayloadSchema
+  payload: ConnectorSyncJobPayloadSchema,
 });
 
 export type QueuedConnectorSyncJob = z.infer<typeof QueuedConnectorSyncJobSchema>;
 
 export const CreateConnectorSyncRunRequestSchema = z.object({
-  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders])
+  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
 });
 
 export type CreateConnectorSyncRunRequest = z.infer<typeof CreateConnectorSyncRunRequestSchema>;
 
 export const CreateConnectorSyncRunResponseSchema = z.object({
   connectorSyncRun: ConnectorSyncRunSchema,
-  job: QueuedConnectorSyncJobSchema
+  job: QueuedConnectorSyncJobSchema,
 });
 
 export type CreateConnectorSyncRunResponse = z.infer<typeof CreateConnectorSyncRunResponseSchema>;
 
 export const ConnectorSyncRunListResponseSchema = z.object({
-  connectorSyncRuns: z.array(ConnectorSyncRunSchema)
+  connectorSyncRuns: z.array(ConnectorSyncRunSchema),
 });
 
 export type ConnectorSyncRunListResponse = z.infer<typeof ConnectorSyncRunListResponseSchema>;
 
 export const ConnectorSyncRunDetailResponseSchema = z.object({
   connectorSyncRun: ConnectorSyncRunSchema,
-  results: z.array(ConnectorSyncResultSchema)
+  results: z.array(ConnectorSyncResultSchema),
 });
 
 export type ConnectorSyncRunDetailResponse = z.infer<typeof ConnectorSyncRunDetailResponseSchema>;
@@ -1581,7 +1667,7 @@ export const PageSnapshotSchema = z.object({
   url: z.string().url(),
   title: z.string().optional(),
   description: z.string().optional(),
-  h1Count: z.number().int().nonnegative().default(0)
+  h1Count: z.number().int().nonnegative().default(0),
 });
 
 export type PageSnapshot = z.infer<typeof PageSnapshotSchema>;

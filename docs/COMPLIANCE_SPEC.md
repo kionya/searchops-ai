@@ -86,6 +86,11 @@ content. The API uses the event payload text; it does not fetch from the live CM
 publish medical content. Matching flags with resolved rules close their linked WorkOrders, while
 still-failing rules stay actionable.
 
+When CMS webhook secrets are configured, the inbound event must include provider-scoped signature
+headers: `x-searchops-cms-type`, `x-searchops-timestamp`, and `x-searchops-signature`. The API
+verifies an HMAC-SHA256 signature over the timestamp plus canonical normalized event payload before
+running any compliance recheck side effects, and rejects stale timestamps outside the replay window.
+
 ## Current Limitations
 
 - Contracts and deterministic package-level rules are implemented first.
@@ -94,4 +99,5 @@ still-failing rules stay actionable.
 - ComplianceFlag to WorkOrder conversion is deterministic and legal-owned.
 - Rule pack selection is deterministic. The `kr-medical` pack now includes Korean-market medical advertising refinements.
 - Compliance reviews and rechecks do not publish content or push changes to a CMS.
-- Inbound CMS update events trigger rechecks, but production webhook authentication and provider-specific signature verification remain future hardening scope.
+- Inbound CMS update events trigger rechecks only after provider-scoped signature verification when CMS webhook secrets are configured.
+- Provider-specific CMS payload adapters remain future hardening scope; the current endpoint accepts the normalized event contract.

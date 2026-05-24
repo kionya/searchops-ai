@@ -3,11 +3,15 @@ import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 import { evaluateCompliance } from "@searchops/compliance";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
-import { extractJsonLdTypes, hasSchemaType, recommendJsonLdForSnapshots } from "@searchops/schema-core";
+import {
+  extractJsonLdTypes,
+  hasSchemaType,
+  recommendJsonLdForSnapshots,
+} from "@searchops/schema-core";
 import {
   createWorkOrderFromComplianceFlag,
   createWorkOrderFromGeoVisibilityReport,
-  createWorkOrderFromSchemaRecommendation
+  createWorkOrderFromSchemaRecommendation,
 } from "@searchops/workorders";
 
 import {
@@ -61,7 +65,7 @@ import {
   type CmsContentUpdatedEventRequest,
   type ComplianceFlag,
   type KeywordTarget,
-  type RecheckComplianceFlagResponse
+  type RecheckComplianceFlagResponse,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
@@ -70,9 +74,14 @@ import {
   type ConnectorSyncQueue,
   type CrawlRunQueue,
   createMemoryConnectorSyncQueue,
-  createMemoryCrawlRunQueue
+  createMemoryCrawlRunQueue,
 } from "./queue.js";
 import { type SearchOpsRepository, createMemoryRepository } from "./repository.js";
+import {
+  parseCmsWebhookSecrets,
+  verifyCmsWebhookRequest,
+  type CmsWebhookSecretMap,
+} from "./webhook-security.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -81,6 +90,9 @@ export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
   readonly crawlRunQueue?: CrawlRunQueue;
   readonly connectorSyncQueue?: ConnectorSyncQueue;
+  readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
+  readonly currentTime?: () => Date;
+  readonly requireCmsWebhookSignature?: boolean;
 }
 
 function notFound(message: string) {
@@ -91,7 +103,10 @@ function isActiveComplianceFlag(flag: ComplianceFlag) {
   return flag.status !== "dismissed" && flag.status !== "resolved";
 }
 
-function doesCmsEventMatchComplianceFlag(flag: ComplianceFlag, event: CmsContentUpdatedEventRequest) {
+function doesCmsEventMatchComplianceFlag(
+  flag: ComplianceFlag,
+  event: CmsContentUpdatedEventRequest,
+) {
   return flag.subjectId === event.externalId || flag.url === event.url;
 }
 
@@ -103,13 +118,21 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
   const connectorSyncQueue = options.connectorSyncQueue ?? createMemoryConnectorSyncQueue();
+  const cmsWebhookSecrets =
+    options.cmsWebhookSecrets ?? parseCmsWebhookSecrets(process.env.SEARCHOPS_CMS_WEBHOOK_SECRETS);
+  const requireCmsWebhookSignature =
+    options.requireCmsWebhookSignature ??
+    (Object.keys(cmsWebhookSecrets).length > 0 || process.env.NODE_ENV === "production");
+  const currentTime = options.currentTime ?? (() => new Date());
   const server = Fastify({ logger: false });
 
   server.setErrorHandler((error: unknown, _request, reply) => {
     if (error instanceof ZodError) {
       reply.status(400).send({
         error: "validation_error",
-        message: error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")
+        message: error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; "),
       });
       return;
     }
@@ -121,14 +144,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   server.get("/health", async () =>
     HealthResponseSchema.parse({
       ok: true,
-      service: "api"
-    })
+      service: "api",
+    }),
   );
 
   server.get("/auth/context", async (request) => resolveMockUserContext(request));
 
   server.get("/organizations", async () =>
-    OrganizationListResponseSchema.parse({ organizations: await repository.listOrganizations() })
+    OrganizationListResponseSchema.parse({ organizations: await repository.listOrganizations() }),
   );
 
   server.post("/organizations", async (request, reply) => {
@@ -249,7 +272,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (input.snapshots.some((snapshot) => !isUrlAllowedForCrawl(snapshot.url, site.domain))) {
       reply.status(400).send({
         error: "validation_error",
-        message: "schema recommendation snapshot URLs must be within the site domain or its subdomains"
+        message:
+          "schema recommendation snapshot URLs must be within the site domain or its subdomains",
       });
       return;
     }
@@ -257,10 +281,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const recommendationSets = recommendJsonLdForSnapshots({
       ...(input.organizationName === undefined ? {} : { organizationName: input.organizationName }),
       site,
-      snapshots: input.snapshots
+      snapshots: input.snapshots,
     });
     const recommendations = await repository.createSchemaRecommendations(id, {
-      recommendationSets
+      recommendationSets,
     });
     if (!recommendations) {
       reply.status(404).send(notFound("Site not found"));
@@ -270,8 +294,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.status(201).send(
       CreateSchemaRecommendationsResponseSchema.parse({
         recommendationSets,
-        recommendations
-      })
+        recommendations,
+      }),
     );
   });
 
@@ -293,7 +317,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       language: input.keyword.language ?? site.language,
       country: input.keyword.country ?? site.country,
       intent: input.keyword.intent ?? null,
-      source: input.keyword.source ?? "manual"
+      source: input.keyword.source ?? "manual",
     };
 
     let readinessReport;
@@ -301,9 +325,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       readinessReport = evaluateAeoReadiness(
         {
           candidatePage,
-          keyword
+          keyword,
         },
-        { evaluatedAt }
+        { evaluatedAt },
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid AEO readiness input";
@@ -313,14 +337,16 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     const report = await repository.createAeoReadinessReport(id, {
       keywordId: input.keywordId ?? null,
-      readinessReport
+      readinessReport,
     });
     if (!report) {
       reply.status(404).send(notFound("Site or keyword not found"));
       return;
     }
 
-    reply.status(201).send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
+    reply
+      .status(201)
+      .send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
   });
 
   server.post("/sites/:id/geo-visibility-reports", async (request, reply) => {
@@ -335,7 +361,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (input.target.siteId !== site.id) {
       reply.status(400).send({
         error: "validation_error",
-        message: "GEO target siteId must match the route site"
+        message: "GEO target siteId must match the route site",
       });
       return;
     }
@@ -343,7 +369,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (!isDomainAllowedForSite(input.target.domain, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "GEO target domain must be the site domain or one of its subdomains"
+        message: "GEO target domain must be the site domain or one of its subdomains",
       });
       return;
     }
@@ -351,7 +377,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     let visibilityReport;
     try {
       visibilityReport = evaluateGeoVisibility(input, {
-        evaluatedAt: input.evaluatedAt ?? new Date().toISOString()
+        evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid GEO visibility input";
@@ -365,7 +391,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply.status(201).send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
+    reply
+      .status(201)
+      .send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
   });
 
   server.post("/sites/:id/compliance-reviews", async (request, reply) => {
@@ -380,7 +408,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (input.siteId !== site.id) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Compliance review siteId must match the route site"
+        message: "Compliance review siteId must match the route site",
       });
       return;
     }
@@ -388,7 +416,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (input.url !== null && !isUrlAllowedForCrawl(input.url, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Compliance review URL must be within the site domain or its subdomains"
+        message: "Compliance review URL must be within the site domain or its subdomains",
       });
       return;
     }
@@ -397,9 +425,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const report = evaluateCompliance(
       {
         ...reviewInput,
-        industry: input.industry ?? site.industry
+        industry: input.industry ?? site.industry,
       },
-      { evaluatedAt: evaluatedAt ?? new Date().toISOString() }
+      { evaluatedAt: evaluatedAt ?? new Date().toISOString() },
     );
     const complianceFlags = await repository.createComplianceReview(id, { report });
     if (!complianceFlags) {
@@ -412,17 +440,32 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
   server.post("/sites/:id/cms/content-updated-events", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
+    const event = CmsContentUpdatedEventRequestSchema.parse(request.body ?? {});
+    const webhookVerification = verifyCmsWebhookRequest({
+      event,
+      headers: request.headers,
+      now: currentTime(),
+      required: requireCmsWebhookSignature,
+      secrets: cmsWebhookSecrets,
+    });
+    if (!webhookVerification.ok) {
+      reply.status(401).send({
+        error: "unauthorized",
+        message: webhookVerification.message ?? "CMS webhook signature verification failed.",
+      });
+      return;
+    }
+
     const site = await repository.getSite(id);
     if (!site) {
       reply.status(404).send(notFound("Site not found"));
       return;
     }
 
-    const event = CmsContentUpdatedEventRequestSchema.parse(request.body ?? {});
     if (event.siteId !== site.id) {
       reply.status(400).send({
         error: "validation_error",
-        message: "CMS content updated event siteId must match the route site"
+        message: "CMS content updated event siteId must match the route site",
       });
       return;
     }
@@ -430,7 +473,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (!isUrlAllowedForCrawl(event.url, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "CMS content updated event URL must be within the site domain or its subdomains"
+        message: "CMS content updated event URL must be within the site domain or its subdomains",
       });
       return;
     }
@@ -442,7 +485,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     const activeMatchingFlags = complianceFlags.filter(
-      (flag) => isActiveComplianceFlag(flag) && doesCmsEventMatchComplianceFlag(flag, event)
+      (flag) => isActiveComplianceFlag(flag) && doesCmsEventMatchComplianceFlag(flag, event),
     );
     const rechecks: RecheckComplianceFlagResponse[] = [];
     let skippedFlagCount = 0;
@@ -464,15 +507,16 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
           subjectType: "page_copy",
           text: event.text,
           title: event.title,
-          url: event.url
+          url: event.url,
         },
-        { evaluatedAt: event.updatedAt }
+        { evaluatedAt: event.updatedAt },
       );
-      const matchingFlag = report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
+      const matchingFlag =
+        report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
       const result = await repository.recheckComplianceFlag(complianceFlag.id, {
         matchingFlag,
         report,
-        resolved: matchingFlag === null
+        resolved: matchingFlag === null,
       });
 
       if (result === null) {
@@ -488,8 +532,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         event,
         matchedFlagCount: activeMatchingFlags.length,
         rechecks,
-        skippedFlagCount
-      })
+        skippedFlagCount,
+      }),
     );
   });
 
@@ -515,7 +559,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       language: input.keyword.language ?? site.language,
       country: input.keyword.country ?? site.country,
       intent: input.keyword.intent ?? null,
-      source: input.keyword.source ?? "manual"
+      source: input.keyword.source ?? "manual",
     };
 
     let readinessReport;
@@ -526,9 +570,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         evaluateAeoReadiness(
           {
             candidatePage,
-            keyword
+            keyword,
           },
-          { evaluatedAt }
+          { evaluatedAt },
         );
       draft = createContentBriefDraft({
         candidatePage,
@@ -536,7 +580,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         keyword,
         keywordId: input.keywordId ?? null,
         readinessReport,
-        ...(input.faqGapSet === undefined ? {} : { faqGapSet: input.faqGapSet })
+        ...(input.faqGapSet === undefined ? {} : { faqGapSet: input.faqGapSet }),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid content brief input";
@@ -550,7 +594,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply.status(201).send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
+    reply
+      .status(201)
+      .send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
   });
 
   server.post("/sites/:id/crawl-runs", async (request, reply) => {
@@ -566,7 +612,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (!isUrlAllowedForCrawl(startUrl, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "startUrl must be within the site domain or its subdomains"
+        message: "startUrl must be within the site domain or its subdomains",
       });
       return;
     }
@@ -585,7 +631,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       requestedByUserId: userContext.userId,
       startUrl,
       maxPages: input.maxPages,
-      pages: []
+      pages: [],
     });
 
     reply.status(202).send(CreateCrawlRunResponseSchema.parse({ crawlRun, job }));
@@ -603,7 +649,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const userContext = resolveMockUserContext(request);
     const connectorSyncRun = await repository.createConnectorSyncRun(site.id, {
       providers: input.providers,
-      requestedByUserId: userContext.userId
+      requestedByUserId: userContext.userId,
     });
     if (!connectorSyncRun) {
       reply.status(404).send(notFound("Site not found"));
@@ -617,7 +663,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       siteDomain: site.domain,
       requestedByUserId: userContext.userId,
       fetchedAt: new Date().toISOString(),
-      providers: input.providers
+      providers: input.providers,
     });
 
     reply.status(202).send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
@@ -674,7 +720,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (complianceFlag.status === "dismissed" || complianceFlag.status === "resolved") {
       reply.status(400).send({
         error: "validation_error",
-        message: "Dismissed or resolved compliance flags cannot be converted to work orders"
+        message: "Dismissed or resolved compliance flags cannot be converted to work orders",
       });
       return;
     }
@@ -683,7 +729,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     try {
       draft = createWorkOrderFromComplianceFlag(complianceFlag);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid compliance flag work order input";
+      const message =
+        error instanceof Error ? error.message : "Invalid compliance flag work order input";
       reply.status(400).send({ error: "validation_error", message });
       return;
     }
@@ -708,7 +755,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (complianceFlag.ruleId === undefined) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Compliance flag must include a ruleId before recheck"
+        message: "Compliance flag must include a ruleId before recheck",
       });
       return;
     }
@@ -716,7 +763,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (complianceFlag.siteId === null) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Compliance flag must be attached to a site before recheck"
+        message: "Compliance flag must be attached to a site before recheck",
       });
       return;
     }
@@ -732,7 +779,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (url !== null && !isUrlAllowedForCrawl(url, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Compliance recheck URL must be within the site domain or its subdomains"
+        message: "Compliance recheck URL must be within the site domain or its subdomains",
       });
       return;
     }
@@ -748,15 +795,15 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         subjectType: complianceFlag.subjectType ?? "page_copy",
         text: input.text,
         title: input.title === undefined ? (complianceFlag.title ?? null) : input.title,
-        url
+        url,
       },
-      { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() }
+      { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() },
     );
     const matchingFlag = report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
     const result = await repository.recheckComplianceFlag(id, {
       matchingFlag,
       report,
-      resolved: matchingFlag === null
+      resolved: matchingFlag === null,
     });
     if (!result) {
       reply.status(404).send(notFound("Compliance flag not found"));
@@ -788,7 +835,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (recommendation.status === "dismissed") {
       reply.status(400).send({
         error: "validation_error",
-        message: "Dismissed schema recommendations cannot be converted to work orders"
+        message: "Dismissed schema recommendations cannot be converted to work orders",
       });
       return;
     }
@@ -822,18 +869,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (input.snapshot.url !== recommendation.pageUrl && snapshotUrl !== recommendation.pageUrl) {
       reply.status(400).send({
         error: "validation_error",
-        message: "schema recheck snapshot URL must match the recommendation pageUrl"
+        message: "schema recheck snapshot URL must match the recommendation pageUrl",
       });
       return;
     }
 
     if (
       !isUrlAllowedForCrawl(input.snapshot.url, site.domain) ||
-      (input.snapshot.finalUrl !== null && !isUrlAllowedForCrawl(input.snapshot.finalUrl, site.domain))
+      (input.snapshot.finalUrl !== null &&
+        !isUrlAllowedForCrawl(input.snapshot.finalUrl, site.domain))
     ) {
       reply.status(400).send({
         error: "validation_error",
-        message: "schema recheck snapshot URLs must be within the site domain or its subdomains"
+        message: "schema recheck snapshot URLs must be within the site domain or its subdomains",
       });
       return;
     }
@@ -842,7 +890,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const result = await repository.recheckSchemaRecommendation(id, {
       observedTypes,
       resolved: hasSchemaType(input.snapshot, recommendation.type),
-      snapshot: input.snapshot
+      snapshot: input.snapshot,
     });
     if (!result) {
       reply.status(404).send(notFound("Schema recommendation not found"));
@@ -897,7 +945,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (workOrder.siteId === null) {
       reply.status(400).send({
         error: "validation_error",
-        message: "Work order must be attached to a site before recheck"
+        message: "Work order must be attached to a site before recheck",
       });
       return;
     }
@@ -913,14 +961,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (!isUrlAllowedForCrawl(startUrl, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
-        message: "recheck startUrl must be within the site domain or its subdomains"
+        message: "recheck startUrl must be within the site domain or its subdomains",
       });
       return;
     }
 
     const crawlRun = await repository.createCrawlRun(site.id, {
       maxPages: input.maxPages,
-      startUrl
+      startUrl,
     });
     if (!crawlRun) {
       reply.status(404).send(notFound("Site not found"));
@@ -935,7 +983,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       requestedByUserId: userContext.userId,
       startUrl,
       maxPages: input.maxPages,
-      pages: []
+      pages: [],
     });
     const updatedWorkOrder = await repository.updateWorkOrder(id, { status: "in_review" });
     if (!updatedWorkOrder) {
@@ -943,7 +991,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply.status(202).send(RecheckWorkOrderResponseSchema.parse({ workOrder: updatedWorkOrder, crawlRun, job }));
+    reply
+      .status(202)
+      .send(RecheckWorkOrderResponseSchema.parse({ workOrder: updatedWorkOrder, crawlRun, job }));
   });
 
   server.post("/work-orders/:id/resolve", async (request, reply) => {
@@ -1005,5 +1055,8 @@ function isDomainAllowedForSite(domain: string, siteDomain: string) {
     .toLowerCase()
     .replace(/^www\./u, "");
 
-  return normalizedDomain === normalizedSiteDomain || normalizedDomain.endsWith(`.${normalizedSiteDomain}`);
+  return (
+    normalizedDomain === normalizedSiteDomain ||
+    normalizedDomain.endsWith(`.${normalizedSiteDomain}`)
+  );
 }

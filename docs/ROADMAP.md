@@ -143,11 +143,12 @@ Phase 10 foundation status:
 - `kr-medical` adds Korean medical advertising refinements for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
 - Revised compliance copy can be rechecked through the API and dashboard; resolved flags close linked WorkOrders, while still-failing rules keep work open.
 - CMS content update events can trigger deterministic rechecks for matching active ComplianceFlags without fetching from or publishing to the live CMS.
+- CMS webhook signature verification is enforced when provider secrets are configured, using provider-scoped HMAC headers plus timestamp replay protection.
 
 Phase 10 remaining limitations:
 
 - Compliance reviews do not publish content or push changes to a CMS.
-- Production CMS webhook authentication, signature verification, and provider-specific adapter setup remain future hardening scope.
+- Provider-specific CMS payload adapter setup remains future hardening scope.
 
 ## Phase 11. Production hardening
 
@@ -157,3 +158,4 @@ Phase 11 starting status:
 
 - `CDX-110`: Root verification scripts use Corepack-backed `pnpm -r` with explicit package builds before typecheck/test for stable fresh-clone CI execution, while Turbo remains available through `*:turbo` scripts for cache-aware runs.
 - Pull requests and pushes to `main` run GitHub Actions CI for install, lint, typecheck, test, and build.
+- `CDX-111`: CMS content update events now support provider-scoped HMAC signature verification, timestamp replay protection, and explicit webhook secret env validation.

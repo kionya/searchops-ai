@@ -136,4 +136,6 @@ Phase 10 starts with deterministic compliance review contracts and medical adver
 
 Medical content must stay draft-only until compliance review is complete. No Phase 10 layer may publish to a CMS or call LLM providers for risk detection.
 
-CMS-origin rechecks are event-driven. The API accepts a typed content update payload from a CMS adapter or webhook boundary and rechecks matching active ComplianceFlags from the supplied text. The API must not reach out to the CMS from inside the request handler, and production webhook authentication remains a hardening concern outside the deterministic compliance engine.
+CMS-origin rechecks are event-driven. The API accepts a typed content update payload from a CMS adapter or webhook boundary and rechecks matching active ComplianceFlags from the supplied text. The API must not reach out to the CMS from inside the request handler.
+
+CMS webhook security lives at the API boundary, not inside `packages/compliance`. When provider secrets are configured, the API verifies `x-searchops-cms-type`, `x-searchops-timestamp`, and `x-searchops-signature` before any recheck side effect. The signature is an HMAC-SHA256 over the timestamp plus canonical normalized event payload, scoped to the provider-specific `cmsType` secret, with timestamp replay protection.
