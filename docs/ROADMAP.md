@@ -152,3 +152,8 @@ Phase 10 remaining limitations:
 ## Phase 11. Production hardening
 
 Harden security, observability, queues, retries, rate limits, deployment, migrations, backups, and operational runbooks.
+
+Phase 11 starting status:
+
+- `CDX-110`: Root verification scripts use Corepack-backed `pnpm -r` with explicit package builds before typecheck/test for stable fresh-clone CI execution, while Turbo remains available through `*:turbo` scripts for cache-aware runs.
+- Pull requests and pushes to `main` run GitHub Actions CI for install, lint, typecheck, test, and build.
