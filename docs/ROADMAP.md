@@ -113,12 +113,15 @@ Phase 10 foundation status:
 - Deterministic medical advertising risk rules are in `packages/compliance`.
 - Initial rules cover guaranteed result claims, absolute safety claims, superlatives, before-and-after references, patient testimonials, price promotions, and non-draft medical publishing.
 - Compliance reports return draft-only flags, overall risk, and blocked/needs-review/clear status.
+- Compliance review API and Prisma persistence store ComplianceFlag history.
+- Compliance dashboard history, fixture review action, status updates, and WorkOrder conversion are connected with API data plus deterministic fixture fallback.
+- Compliance flags can be converted into idempotent legal-owned WorkOrders through deterministic templates.
+- Deterministic rule pack selection is available for `global` and `kr-medical` packs.
 
 Phase 10 remaining limitations:
-- Compliance flags are not yet persisted through the API.
-- Dashboard review workflow and approval status changes are future Phase 10 scope.
-- Compliance flags are not yet converted into WorkOrders.
-- Jurisdiction-specific rule packs are not yet separated from the default rule set.
+- `global` and `kr-medical` currently share the default Phase 10 rule definitions until legal review provides jurisdiction-specific refinements.
+- Compliance reviews do not publish content or push changes to a CMS.
+- Automatic re-review of revised CMS drafts remains future scope.
 
 ## Phase 11. Production hardening
 Harden security, observability, queues, retries, rate limits, deployment, migrations, backups, and operational runbooks.

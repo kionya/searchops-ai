@@ -1,6 +1,8 @@
 import type {
   AeoReadinessReport,
   AeoReadinessReportRecord,
+  ComplianceFlag,
+  ComplianceReviewReport,
   ConnectorProviderList,
   ConnectorSyncResult,
   ConnectorSyncRun,
@@ -21,6 +23,7 @@ import type {
   SchemaRecommendationRecord,
   SeoIssue,
   Site,
+  UpdateComplianceFlagRequest,
   UpdateSiteRequest,
   UpdateWorkOrderRequest,
   WorkOrder,
@@ -50,6 +53,10 @@ export interface CreateGeoVisibilityReportInput {
   visibilityReport: GeoVisibilityReport;
 }
 
+export interface CreateComplianceReviewInput {
+  report: ComplianceReviewReport;
+}
+
 export interface CreateSchemaRecommendationsInput {
   recommendationSets: readonly JsonLdRecommendationSet[];
 }
@@ -69,6 +76,15 @@ export interface CreateGeoVisibilityReportWorkOrderInput {
 
 export interface CreateGeoVisibilityReportWorkOrderResult {
   report: GeoVisibilityReportRecord;
+  workOrder: WorkOrder;
+}
+
+export interface CreateComplianceFlagWorkOrderInput {
+  draft: WorkOrderDraft;
+}
+
+export interface CreateComplianceFlagWorkOrderResult {
+  complianceFlag: ComplianceFlag;
   workOrder: WorkOrder;
 }
 
@@ -117,6 +133,20 @@ export interface SearchOpsRepository {
     reportId: string,
     input: CreateGeoVisibilityReportWorkOrderInput,
   ): Promise<CreateGeoVisibilityReportWorkOrderResult | null>;
+  createComplianceReview(
+    siteId: string,
+    input: CreateComplianceReviewInput,
+  ): Promise<ComplianceFlag[] | null>;
+  listComplianceFlags(siteId: string): Promise<ComplianceFlag[] | null>;
+  getComplianceFlag(id: string): Promise<ComplianceFlag | null>;
+  updateComplianceFlag(
+    id: string,
+    input: UpdateComplianceFlagRequest,
+  ): Promise<ComplianceFlag | null>;
+  createComplianceFlagWorkOrder(
+    flagId: string,
+    input: CreateComplianceFlagWorkOrderInput,
+  ): Promise<CreateComplianceFlagWorkOrderResult | null>;
   createSchemaRecommendations(
     siteId: string,
     input: CreateSchemaRecommendationsInput,
@@ -146,6 +176,7 @@ export interface MemoryRepositorySeed {
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
   readonly geoVisibilityReports?: readonly GeoVisibilityReportRecord[];
+  readonly complianceFlags?: readonly ComplianceFlag[];
   readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
@@ -168,6 +199,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
   const geoVisibilityReports = new Map<string, GeoVisibilityReportRecord>();
+  const complianceFlags = new Map<string, ComplianceFlag>();
   const schemaRecommendations = new Map<string, SchemaRecommendationRecord>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
@@ -178,6 +210,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
   let geoVisibilityReportCounter = 1;
+  let complianceFlagCounter = 1;
   let schemaRecommendationCounter = 1;
   let workOrderCounter = 1;
   let keywordCounter = 1;
@@ -219,6 +252,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const geoVisibilityReport of seed.geoVisibilityReports ?? []) {
     geoVisibilityReports.set(geoVisibilityReport.id, geoVisibilityReport);
     geoVisibilityReportCounter += 1;
+  }
+
+  for (const complianceFlag of seed.complianceFlags ?? []) {
+    complianceFlags.set(complianceFlag.id, complianceFlag);
+    complianceFlagCounter += 1;
   }
 
   for (const schemaRecommendation of seed.schemaRecommendations ?? []) {
@@ -577,6 +615,133 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
       return {
         report,
+        workOrder
+      };
+    },
+
+    async createComplianceReview(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site || input.report.input.siteId !== siteId) {
+        return null;
+      }
+
+      const createdFlags = input.report.flags.map((flagDraft) => {
+        const timestamp = nowIso();
+        const flag: ComplianceFlag = {
+          id: createId("compliance_flag", complianceFlagCounter),
+          organizationId: site.organizationId,
+          siteId,
+          workOrderId: null,
+          subjectType: input.report.input.subjectType,
+          subjectId: input.report.input.subjectId,
+          ruleId: flagDraft.ruleId,
+          url: input.report.input.url,
+          riskLevel: flagDraft.riskLevel,
+          status: flagDraft.status,
+          message: flagDraft.message,
+          evidence: flagDraft.evidence,
+          recommendation: flagDraft.recommendation,
+          replacementSuggestion: flagDraft.replacementSuggestion,
+          generatedBy: flagDraft.generatedBy,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        };
+        complianceFlagCounter += 1;
+        complianceFlags.set(flag.id, flag);
+        return flag;
+      });
+
+      return createdFlags;
+    },
+
+    async listComplianceFlags(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...complianceFlags.values()]
+        .filter((flag) => flag.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) ||
+            a.riskLevel.localeCompare(b.riskLevel) ||
+            a.message.localeCompare(b.message),
+        );
+    },
+
+    async getComplianceFlag(id) {
+      return complianceFlags.get(id) ?? null;
+    },
+
+    async updateComplianceFlag(id, input) {
+      const existing = complianceFlags.get(id);
+      if (!existing) {
+        return null;
+      }
+
+      const updated: ComplianceFlag = {
+        ...existing,
+        status: input.status ?? existing.status,
+        workOrderId: input.workOrderId === undefined ? existing.workOrderId : input.workOrderId,
+        updatedAt: nowIso()
+      };
+      complianceFlags.set(id, updated);
+      return updated;
+    },
+
+    async createComplianceFlagWorkOrder(flagId, input) {
+      const flag = complianceFlags.get(flagId);
+      if (!flag) {
+        return null;
+      }
+
+      const existingWorkOrder =
+        flag.workOrderId === null || flag.workOrderId === undefined
+          ? null
+          : workOrders.get(flag.workOrderId) ?? null;
+      const timestamp = nowIso();
+      const workOrder: WorkOrder = {
+        id: existingWorkOrder?.id ?? createId("wo", workOrderCounter),
+        organizationId: flag.organizationId,
+        siteId: flag.siteId ?? null,
+        seoIssueId: null,
+        schemaRecommendationId: null,
+        geoVisibilityReportId: null,
+        status: existingWorkOrder?.status ?? "open",
+        priority: input.draft.priority,
+        title: input.draft.title,
+        description: null,
+        problem: input.draft.problem,
+        evidence: input.draft.evidence,
+        impact: input.draft.impact,
+        instructions: input.draft.instructions,
+        ownerType: input.draft.ownerType,
+        acceptanceCriteria: input.draft.acceptanceCriteria,
+        verificationMethod: input.draft.verificationMethod,
+        estimatedEffort: input.draft.estimatedEffort,
+        relatedIssues: input.draft.relatedIssues,
+        assignedTo: existingWorkOrder?.assignedTo ?? null,
+        dueDate: existingWorkOrder?.dueDate ?? null,
+        createdAt: existingWorkOrder?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+
+      if (!existingWorkOrder) {
+        workOrderCounter += 1;
+      }
+
+      workOrders.set(workOrder.id, workOrder);
+
+      const updatedFlag: ComplianceFlag = {
+        ...flag,
+        status: flag.status === "approved" || flag.status === "resolved" ? flag.status : "in_review",
+        workOrderId: workOrder.id,
+        updatedAt: timestamp
+      };
+      complianceFlags.set(flagId, updatedFlag);
+
+      return {
+        complianceFlag: updatedFlag,
         workOrder
       };
     },

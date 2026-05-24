@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@searchops/aeo-core": "workspace:*",
+    "@searchops/compliance": "workspace:*",
     "@searchops/crawler-core": "workspace:*",
     "@searchops/db": "workspace:*",
     "@searchops/geo-core": "workspace:*",

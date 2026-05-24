@@ -65,5 +65,7 @@ Each flag includes:
 ## Current Limitations
 
 - Contracts and deterministic package-level rules are implemented first.
-- API persistence, dashboard review workflow, and WorkOrder conversion are next Phase 10 steps.
-- Jurisdiction-specific rule packs are not yet modeled; this foundation keeps the rule interface ready for them.
+- API persistence stores ComplianceFlag history from deterministic reviews.
+- Dashboard review workflow can run fixture reviews, update flag status, and create WorkOrders through the API when configured.
+- ComplianceFlag to WorkOrder conversion is deterministic and legal-owned.
+- Rule pack selection is deterministic. The initial packs are `global` and `kr-medical`; they share the default Phase 10 rules until later legal review adds jurisdiction-specific refinements.

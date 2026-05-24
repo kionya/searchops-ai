@@ -17,6 +17,9 @@ The ContentBrief API creates deterministic draft-only content briefs from Keywor
 
 The AEO readiness API computes deterministic readiness reports from keyword and page signals, persists them, and reads report history for dashboard use.
 
+## Phase 10 API
+The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, and converts open flags into legal-review WorkOrders. It does not call LLM providers, live CMS APIs, or publish medical content.
+
 ## Routes
 - `GET /health`
 - `GET /auth/context`
@@ -41,6 +44,10 @@ The AEO readiness API computes deterministic readiness reports from keyword and 
 - `POST /sites/:siteId/content-briefs`
 - `GET /sites/:siteId/content-briefs`
 - `GET /content-briefs/:contentBriefId`
+- `POST /sites/:siteId/compliance-reviews`
+- `GET /sites/:siteId/compliance-flags`
+- `PATCH /compliance-flags/:complianceFlagId`
+- `POST /compliance-flags/:complianceFlagId/work-order`
 
 ## Contract Rule
 Public APIs must use Zod schemas from `packages/types` or schemas colocated with the API boundary and exported through shared types when reused.
@@ -110,6 +117,24 @@ If `readinessReport` is absent, the API computes deterministic readiness through
 `GET /content-briefs/:contentBriefId` returns `ContentBriefDetailResponse`.
 
 Content brief creation is draft-only. The API persists `status = draft`, `generationMode = deterministic`, and `publishPolicy = draft_only`; it does not publish to CMS or call `packages/ai-core`.
+
+## Compliance Reviews
+`POST /sites/:siteId/compliance-reviews` accepts `CreateComplianceReviewRequest`:
+- `siteId` must match the route site.
+- `subjectType`, `subjectId`, `url`, `locale`, `industry`, `title`, `text`, `publishState`, and `source` describe the reviewed draft.
+- `evaluatedAt` optionally fixes the deterministic evaluation timestamp.
+
+If `url` is present, it must stay within the site domain or subdomains. The API evaluates the draft through `packages/compliance`, persists returned flags, and returns `CreateComplianceReviewResponse` with:
+- `report`, the deterministic compliance report.
+- `complianceFlags`, the persisted flag rows.
+
+`GET /sites/:siteId/compliance-flags` returns `ComplianceFlagListResponse` ordered by latest flag first.
+
+`PATCH /compliance-flags/:complianceFlagId` accepts `UpdateComplianceFlagRequest` for review status updates such as `approved`, `dismissed`, or `resolved`.
+
+`POST /compliance-flags/:complianceFlagId/work-order` creates or updates an idempotent legal-review work order and links it back to the compliance flag through `workOrderId`.
+
+Compliance APIs preserve `draft_only` policy and never publish medical content.
 
 ## Work Orders
 `GET /sites/:siteId/work-orders` returns `WorkOrderListResponse`.

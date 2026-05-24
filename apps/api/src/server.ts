@@ -1,18 +1,25 @@
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
+import { evaluateCompliance } from "@searchops/compliance";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
 import { extractJsonLdTypes, hasSchemaType, recommendJsonLdForSnapshots } from "@searchops/schema-core";
 import {
+  createWorkOrderFromComplianceFlag,
   createWorkOrderFromGeoVisibilityReport,
   createWorkOrderFromSchemaRecommendation
 } from "@searchops/workorders";
 
 import {
   AeoReadinessReportListResponseSchema,
+  ComplianceFlagListResponseSchema,
+  ComplianceFlagSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
   CreateAeoReadinessReportRequestSchema,
+  CreateComplianceFlagWorkOrderResponseSchema,
+  CreateComplianceReviewRequestSchema,
+  CreateComplianceReviewResponseSchema,
   CreateAeoReadinessReportResponseSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
@@ -42,6 +49,7 @@ import {
   SchemaRecommendationListResponseSchema,
   SiteListResponseSchema,
   SiteSchema,
+  UpdateComplianceFlagRequestSchema,
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
   WorkOrderListResponseSchema,
@@ -186,6 +194,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(GeoVisibilityReportListResponseSchema.parse({ reports }));
+  });
+
+  server.get("/sites/:id/compliance-flags", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const complianceFlags = await repository.listComplianceFlags(id);
+    if (!complianceFlags) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(ComplianceFlagListResponseSchema.parse({ complianceFlags }));
   });
 
   server.get("/sites/:id/schema-recommendations", async (request, reply) => {
@@ -334,6 +353,50 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply
       .status(201)
       .send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
+  });
+
+  server.post("/sites/:id/compliance-reviews", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateComplianceReviewRequestSchema.parse(request.body ?? {});
+    if (input.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Compliance review siteId must match the route site"
+      });
+      return;
+    }
+
+    if (input.url !== null && !isUrlAllowedForCrawl(input.url, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Compliance review URL must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const { evaluatedAt, ...reviewInput } = input;
+    const report = evaluateCompliance(
+      {
+        ...reviewInput,
+        industry: input.industry ?? site.industry
+      },
+      { evaluatedAt: evaluatedAt ?? new Date().toISOString() },
+    );
+    const complianceFlags = await repository.createComplianceReview(id, { report });
+    if (!complianceFlags) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply
+      .status(201)
+      .send(CreateComplianceReviewResponseSchema.parse({ complianceFlags, report }));
   });
 
   server.post("/sites/:id/content-briefs", async (request, reply) => {
@@ -508,6 +571,41 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(CreateGeoVisibilityReportWorkOrderResponseSchema.parse(result));
+  });
+
+  server.post("/compliance-flags/:id/work-order", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const complianceFlag = await repository.getComplianceFlag(id);
+    if (!complianceFlag) {
+      reply.status(404).send(notFound("Compliance flag not found"));
+      return;
+    }
+
+    if (complianceFlag.status === "dismissed" || complianceFlag.status === "resolved") {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Dismissed or resolved compliance flags cannot be converted to work orders"
+      });
+      return;
+    }
+
+    let draft;
+    try {
+      draft = createWorkOrderFromComplianceFlag(complianceFlag);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Invalid compliance flag work order input";
+      reply.status(400).send({ error: "validation_error", message });
+      return;
+    }
+
+    const result = await repository.createComplianceFlagWorkOrder(id, { draft });
+    if (!result) {
+      reply.status(404).send(notFound("Compliance flag not found"));
+      return;
+    }
+
+    reply.status(201).send(CreateComplianceFlagWorkOrderResponseSchema.parse(result));
   });
 
   server.get("/schema-recommendations/:id", async (request, reply) => {
@@ -713,6 +811,18 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(WorkOrderSchema.parse(workOrder));
+  });
+
+  server.patch("/compliance-flags/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const input = UpdateComplianceFlagRequestSchema.parse(request.body);
+    const complianceFlag = await repository.updateComplianceFlag(id, input);
+    if (!complianceFlag) {
+      reply.status(404).send(notFound("Compliance flag not found"));
+      return;
+    }
+
+    reply.send(ComplianceFlagSchema.parse(complianceFlag));
   });
 
   server.delete("/sites/:id", async (request, reply) => {

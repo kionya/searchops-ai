@@ -53,6 +53,9 @@ importers:
       '@searchops/aeo-core':
         specifier: workspace:*
         version: link:../../packages/aeo-core
+      '@searchops/compliance':
+        specifier: workspace:*
+        version: link:../../packages/compliance
       '@searchops/crawler-core':
         specifier: workspace:*
         version: link:../../packages/crawler-core

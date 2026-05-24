@@ -347,10 +347,20 @@ model ComplianceFlag {
   organizationId String
   siteId         String?
   workOrderId    String?
+  subjectType    String?
+  subjectId      String?
+  ruleId         String?
+  url            String?
   riskLevel      String
   status         String   @default("open")
+  title          String?
   message        String
+  evidence       Json?
+  recommendation String?
+  replacementSuggestion String?
+  generatedBy    String   @default("deterministic")
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
@@ -358,5 +368,9 @@ model ComplianceFlag {
 
   @@index([organizationId])
   @@index([siteId])
+  @@index([workOrderId])
+  @@index([ruleId])
   @@index([riskLevel])
+  @@index([status])
+  @@index([createdAt])
 }

@@ -9,6 +9,9 @@ import {
   WorkOrderDraftSchema
 } from "@searchops/types";
 import type {
+  ComplianceFlag,
+  ComplianceRiskLevel,
+  ComplianceRuleId,
   EstimatedEffort,
   GeoVisibilityCheckId,
   GeoVisibilityReportRecord,
@@ -57,6 +60,13 @@ interface GeoWorkOrderTemplate {
   readonly impact: string;
   readonly title: (report: GeoVisibilityReportRecord) => string;
   readonly problem: (report: GeoVisibilityReportRecord) => string;
+}
+
+interface ComplianceWorkOrderTemplate {
+  readonly ownerType: WorkOrderOwnerType;
+  readonly impact: string;
+  readonly title: (flag: ComplianceFlag) => string;
+  readonly problem: (flag: ComplianceFlag) => string;
 }
 
 export const supportedSeoIssueRuleIds = [
@@ -420,6 +430,59 @@ const geoWorkOrderTemplate = {
     `GEO visibility is ${formatGeoStatus(report.status)} with a ${report.score}/100 score, ${report.mentionRate}% mention rate, and ${report.citationRate}% owned citation rate.`
 } satisfies GeoWorkOrderTemplate;
 
+const complianceRiskPriority = {
+  critical: "p0",
+  high: "p1",
+  low: "p3",
+  medium: "p2"
+} as const satisfies Record<ComplianceRiskLevel, WorkOrderPriority>;
+
+const complianceRiskEffort = {
+  critical: "m",
+  high: "m",
+  low: "s",
+  medium: "s"
+} as const satisfies Record<ComplianceRiskLevel, EstimatedEffort>;
+
+const complianceRuleAcceptanceCriteria = {
+  ABSOLUTE_SAFETY_CLAIM: [
+    "Absolute safety wording is removed or replaced with reviewed balanced language.",
+    "Legal review confirms risk and consultation context is acceptable."
+  ],
+  BEFORE_AFTER_REFERENCE: [
+    "Before-and-after reference is removed or approved with required consent and disclosures.",
+    "The public draft no longer implies typical guaranteed outcomes."
+  ],
+  GUARANTEED_RESULT_CLAIM: [
+    "Guaranteed or permanent result language is removed.",
+    "The revised copy describes services without promising outcomes."
+  ],
+  PATIENT_TESTIMONIAL_REFERENCE: [
+    "Patient testimonial language is removed or approved with required consent and disclosures.",
+    "The copy does not imply a typical medical outcome."
+  ],
+  PRICE_DISCOUNT_PROMOTION: [
+    "Promotion wording is approved with dates, eligibility, exclusions, and required disclosures.",
+    "Unreviewed discount wording is removed from public copy."
+  ],
+  SUPERLATIVE_CLAIM: [
+    "Unqualified ranking or superiority language is removed.",
+    "Any remaining superiority claim has substantiation and required disclosures."
+  ],
+  UNREVIEWED_MEDICAL_PUBLISH: [
+    "The content is returned to draft or receives compliance approval before publication.",
+    "The publish workflow blocks unreviewed medical content."
+  ]
+} as const satisfies Record<ComplianceRuleId, readonly string[]>;
+
+const complianceWorkOrderTemplate = {
+  ownerType: "legal",
+  impact:
+    "Medical advertising risk can block publication, create legal review burden, and reduce trust if unreviewed claims reach public pages.",
+  title: (flag) => `${formatCompliancePath(flag)} ${flag.title ?? "compliance review"}`,
+  problem: (flag) => flag.message
+} satisfies ComplianceWorkOrderTemplate;
+
 export function createWorkOrderFromSeoIssue(issue: SeoIssueDraft): WorkOrderDraft {
   const parsedIssue = SeoIssueDraftSchema.parse(issue);
   const template = getWorkOrderTemplate(parsedIssue.ruleId);
@@ -518,6 +581,39 @@ export function createWorkOrdersFromGeoVisibilityReports(
   return reports.map((report) => createWorkOrderFromGeoVisibilityReport(report));
 }
 
+export function createWorkOrderFromComplianceFlag(flag: ComplianceFlag): WorkOrderDraft {
+  const url = flag.url ?? flag.evidence?.url ?? null;
+  if (url === null) {
+    throw new Error("Compliance flag must include a URL before it can become a work order.");
+  }
+
+  return WorkOrderDraftSchema.parse({
+    title: complianceWorkOrderTemplate.title(flag),
+    problem: complianceWorkOrderTemplate.problem(flag),
+    evidence: {
+      url,
+      observedValue: flag.evidence?.observedValue ?? flag.message,
+      expectedValue: flag.evidence?.expectedValue ?? "Compliance-approved medical content",
+      sourceField: flag.evidence?.sourceField ?? "complianceFlag"
+    },
+    impact: complianceWorkOrderTemplate.impact,
+    instructions: createComplianceInstructions(flag),
+    ownerType: complianceWorkOrderTemplate.ownerType,
+    priority: getCompliancePriority(flag.riskLevel),
+    acceptanceCriteria: createComplianceAcceptanceCriteria(flag),
+    verificationMethod:
+      "Run compliance review on the revised draft and confirm the flag is approved, dismissed, or resolved before publication.",
+    estimatedEffort: getComplianceEffort(flag.riskLevel),
+    relatedIssues: []
+  });
+}
+
+export function createWorkOrdersFromComplianceFlags(
+  flags: readonly ComplianceFlag[],
+): readonly WorkOrderDraft[] {
+  return flags.map((flag) => createWorkOrderFromComplianceFlag(flag));
+}
+
 export function hasWorkOrderTemplate(ruleId: SeoIssueRuleId) {
   return Object.hasOwn(workOrderTemplates, ruleId);
 }
@@ -581,6 +677,51 @@ function createGeoAcceptanceCriteria(status: GeoVisibilityStatus) {
     "Competitor citation rate is at or below 40%.",
     "Report covers at least three distinct queries and two providers."
   ];
+}
+
+function createComplianceInstructions(flag: ComplianceFlag) {
+  return [
+    "Review the flagged excerpt and source field before editing the draft.",
+    flag.recommendation ??
+      "Revise the medical content so the flagged claim no longer appears in public copy.",
+    flag.replacementSuggestion ??
+      "Use factual service information and avoid unsupported medical advertising claims.",
+    "Keep the content in draft state until legal review approves the revision."
+  ];
+}
+
+function createComplianceAcceptanceCriteria(flag: ComplianceFlag) {
+  const ruleCriteria =
+    flag.ruleId === undefined
+      ? ["The flagged language is reviewed and no longer blocks publication."]
+      : complianceRuleAcceptanceCriteria[flag.ruleId];
+
+  return [
+    ...ruleCriteria,
+    "A follow-up compliance review no longer returns this open flag.",
+    "The content remains draft-only until compliance approval is recorded."
+  ];
+}
+
+function getCompliancePriority(riskLevel: string): WorkOrderPriority {
+  return riskLevel in complianceRiskPriority
+    ? complianceRiskPriority[riskLevel as ComplianceRiskLevel]
+    : "p2";
+}
+
+function getComplianceEffort(riskLevel: string): EstimatedEffort {
+  return riskLevel in complianceRiskEffort
+    ? complianceRiskEffort[riskLevel as ComplianceRiskLevel]
+    : "s";
+}
+
+function formatCompliancePath(flag: ComplianceFlag) {
+  const url = flag.url ?? flag.evidence?.url;
+  if (!url) {
+    return "Manual content";
+  }
+
+  return formatUrlPath(url);
 }
 
 function formatGeoStatus(status: GeoVisibilityStatus) {

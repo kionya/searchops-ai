@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createWorkOrderFromComplianceFlag,
   createWorkOrderFromGeoVisibilityReport,
   createWorkOrderFromSchemaRecommendation,
   createWorkOrderFromSeoIssue,
+  createWorkOrdersFromComplianceFlags,
   createWorkOrdersFromGeoVisibilityReports,
   createWorkOrdersFromSchemaRecommendations,
   createWorkOrdersFromSeoIssues,
@@ -15,6 +17,7 @@ import {
   workordersPackage
 } from "./index.js";
 import type {
+  ComplianceFlag,
   GeoVisibilityReportRecord,
   SchemaJsonLdType,
   SchemaRecommendationRecord,
@@ -246,6 +249,37 @@ function createGeoVisibilityReport(
   };
 }
 
+function createComplianceFlag(overrides: Partial<ComplianceFlag> = {}): ComplianceFlag {
+  return {
+    id: "compliance_flag_1",
+    organizationId: "org_1",
+    siteId: "site_1",
+    workOrderId: null,
+    subjectType: "page_copy",
+    subjectId: "page_1",
+    ruleId: "ABSOLUTE_SAFETY_CLAIM",
+    url: "https://example.com/services/botox",
+    riskLevel: "high",
+    status: "open",
+    title: "Absolute safety claim",
+    message: "The content uses absolute safety language.",
+    evidence: {
+      url: "https://example.com/services/botox",
+      excerpt: "This clinic treatment is completely safe.",
+      observedValue: "completely safe",
+      expectedValue: "Medical content should avoid absolute safety claims.",
+      sourceField: "text",
+      match: "completely safe"
+    },
+    recommendation: "Replace absolute safety language with balanced wording.",
+    replacementSuggestion: "Explain that risks vary by individual.",
+    generatedBy: "deterministic",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    updatedAt: "2026-05-24T00:00:00.000Z",
+    ...overrides
+  };
+}
+
 describe("workorders foundation", () => {
   it("declares deterministic input sources", () => {
     expect(workOrderInputSources).toEqual([
@@ -258,6 +292,81 @@ describe("workorders foundation", () => {
 
   it("identifies the package", () => {
     expect(workordersPackage).toBe("workorders");
+  });
+});
+
+describe("Compliance flag to work order mapper", () => {
+  it("creates a deterministic legal review work order", () => {
+    const flag = createComplianceFlag();
+
+    expect(createWorkOrderFromComplianceFlag(flag)).toEqual({
+      title: "/services/botox Absolute safety claim",
+      problem: "The content uses absolute safety language.",
+      evidence: {
+        url: "https://example.com/services/botox",
+        observedValue: "completely safe",
+        expectedValue: "Medical content should avoid absolute safety claims.",
+        sourceField: "text"
+      },
+      impact:
+        "Medical advertising risk can block publication, create legal review burden, and reduce trust if unreviewed claims reach public pages.",
+      instructions: [
+        "Review the flagged excerpt and source field before editing the draft.",
+        "Replace absolute safety language with balanced wording.",
+        "Explain that risks vary by individual.",
+        "Keep the content in draft state until legal review approves the revision."
+      ],
+      ownerType: "legal",
+      priority: "p1",
+      acceptanceCriteria: [
+        "Absolute safety wording is removed or replaced with reviewed balanced language.",
+        "Legal review confirms risk and consultation context is acceptable.",
+        "A follow-up compliance review no longer returns this open flag.",
+        "The content remains draft-only until compliance approval is recorded."
+      ],
+      verificationMethod:
+        "Run compliance review on the revised draft and confirm the flag is approved, dismissed, or resolved before publication.",
+      estimatedEffort: "m",
+      relatedIssues: []
+    });
+  });
+
+  it("maps compliance risk levels to priority and effort", () => {
+    expect(
+      createWorkOrderFromComplianceFlag(
+        createComplianceFlag({ riskLevel: "critical", ruleId: "GUARANTEED_RESULT_CLAIM" }),
+      ),
+    ).toMatchObject({ estimatedEffort: "m", priority: "p0" });
+    expect(
+      createWorkOrderFromComplianceFlag(
+        createComplianceFlag({ riskLevel: "medium", ruleId: "PRICE_DISCOUNT_PROMOTION" }),
+      ),
+    ).toMatchObject({ estimatedEffort: "s", priority: "p2" });
+    expect(
+      createWorkOrderFromComplianceFlag(
+        createComplianceFlag({ riskLevel: "low", ruleId: undefined }),
+      ),
+    ).toMatchObject({ estimatedEffort: "s", priority: "p3" });
+  });
+
+  it("maps compliance flags without shared state", () => {
+    const workOrders = createWorkOrdersFromComplianceFlags([
+      createComplianceFlag({ id: "flag_high", riskLevel: "high" }),
+      createComplianceFlag({ id: "flag_low", riskLevel: "low" })
+    ]);
+
+    expect(workOrders.map((workOrder) => workOrder.priority)).toEqual(["p1", "p3"]);
+  });
+
+  it("requires a URL before conversion", () => {
+    expect(() =>
+      createWorkOrderFromComplianceFlag(
+        createComplianceFlag({
+          evidence: null,
+          url: null
+        }),
+      ),
+    ).toThrow(/URL/);
   });
 });
 

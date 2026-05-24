@@ -19,6 +19,7 @@ Supported SEO rule templates:
 Additional deterministic work order sources:
 - Schema recommendations from `packages/schema-core`.
 - GEO visibility reports from `packages/geo-core`.
+- Compliance flags from `packages/compliance`.
 
 ## Work Order Contract
 Work order drafts include:
@@ -47,6 +48,12 @@ GEO report mapping must remain deterministic:
 - It maps `not_visible`, `weak`, `visible`, and `strong` statuses to fixed priority and effort values.
 - It must not call LLM providers or live AI/search providers.
 
+Compliance flag mapping must remain deterministic:
+- It uses the persisted flag risk level, rule id, evidence, recommendation, and replacement suggestion.
+- It maps `critical`, `high`, `medium`, and `low` risks to fixed priority and effort values.
+- It routes ownership to `legal`.
+- It must not call LLM providers, CMS systems, or legal approval services.
+
 ## Board API
 - `GET /sites/:siteId/work-orders`
 - `GET /work-orders/:workOrderId`
@@ -54,6 +61,7 @@ GEO report mapping must remain deterministic:
 - `POST /work-orders/:workOrderId/recheck`
 - `POST /work-orders/:workOrderId/resolve`
 - `POST /geo-visibility-reports/:geoVisibilityReportId/work-order`
+- `POST /compliance-flags/:complianceFlagId/work-order`
 
 Board updates can change status, priority, assignee, and due date.
 
