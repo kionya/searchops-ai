@@ -181,6 +181,12 @@ Compliance APIs preserve `draft_only` policy and never publish medical content.
 - `provider` and `source` default to `cms`.
 - `cmsType`, `externalId`, `url`, `title`, `text`, `status`, `locale`, `industry`, and `updatedAt` describe the content that was changed by the CMS.
 
+When webhook secrets are configured, the request must include `CmsWebhookSignatureHeaders`:
+
+- `x-searchops-cms-type`: the provider key used to select the provider-specific secret.
+- `x-searchops-timestamp`: ISO datetime used for replay protection.
+- `x-searchops-signature`: `sha256=` HMAC over the timestamp plus canonical normalized event payload.
+
 The event URL must stay within the registered site domain or subdomains. The API does not fetch from the live CMS; it treats the payload as the source of truth for this event. Active ComplianceFlags match when their `subjectId` equals the CMS `externalId` or their `url` equals the event URL. Each matching flag with a `ruleId` is rechecked through the deterministic compliance engine, linked WorkOrders are closed when resolved, and the response is `CmsContentUpdatedEventResponse` with `matchedFlagCount`, `skippedFlagCount`, and `rechecks`.
 
 ## Work Orders

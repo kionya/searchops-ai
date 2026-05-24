@@ -9,6 +9,7 @@ import {
   CmsContentStatusSchema,
   CmsContentUpdatedEventRequestSchema,
   CmsContentUpdatedEventResponseSchema,
+  CmsWebhookSignatureHeadersSchema,
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
   ContentBriefDraftSchema,
@@ -87,7 +88,7 @@ import {
   UpdateComplianceFlagRequestSchema,
   UpdateWorkOrderRequestSchema,
   parseSearchOpsEnv,
-  productName
+  productName,
 } from "./index.js";
 
 describe("types foundation", () => {
@@ -98,7 +99,7 @@ describe("types foundation", () => {
   it("validates health responses", () => {
     expect(HealthResponseSchema.parse({ ok: true, service: "api" })).toEqual({
       ok: true,
-      service: "api"
+      service: "api",
     });
   });
 
@@ -107,8 +108,8 @@ describe("types foundation", () => {
       OrganizationSchema.parse({
         id: "org_1",
         name: "Demo Clinic",
-        createdAt: "2026-05-19T00:00:00.000Z"
-      })
+        createdAt: "2026-05-19T00:00:00.000Z",
+      }),
     ).toMatchObject({ name: "Demo Clinic" });
   });
 
@@ -117,28 +118,45 @@ describe("types foundation", () => {
   });
 
   it("validates mock user context", () => {
-    expect(MockUserContextSchema.parse({ userId: "usr_1", organizationId: "org_1", source: "mock" })).toEqual({
+    expect(
+      MockUserContextSchema.parse({ userId: "usr_1", organizationId: "org_1", source: "mock" }),
+    ).toEqual({
       userId: "usr_1",
       organizationId: "org_1",
-      source: "mock"
+      source: "mock",
     });
   });
 
   it("fails env validation with clear field names", () => {
-    expect(() => parseSearchOpsEnv({ REDIS_URL: "redis://localhost:6379" })).toThrow(/DATABASE_URL/);
+    expect(() => parseSearchOpsEnv({ REDIS_URL: "redis://localhost:6379" })).toThrow(
+      /DATABASE_URL/,
+    );
   });
 
   it("parses valid env", () => {
     expect(
       SearchOpsEnvSchema.parse({
         DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
-        REDIS_URL: "redis://localhost:6379"
-      })
-    ).toMatchObject({ NODE_ENV: "development" });
+        SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+        REDIS_URL: "redis://localhost:6379",
+      }),
+    ).toMatchObject({
+      NODE_ENV: "development",
+      SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+    });
+    expect(() =>
+      SearchOpsEnvSchema.parse({
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
+        SEARCHOPS_CMS_WEBHOOK_SECRETS: "[]",
+        REDIS_URL: "redis://localhost:6379",
+      }),
+    ).toThrow(/JSON object/);
   });
 
   it("validates normalized crawler URLs", () => {
-    expect(NormalizedUrlSchema.parse("https://example.com/path?a=1")).toBe("https://example.com/path?a=1");
+    expect(NormalizedUrlSchema.parse("https://example.com/path?a=1")).toBe(
+      "https://example.com/path?a=1",
+    );
     expect(() => NormalizedUrlSchema.parse("mailto:hello@example.com")).toThrow();
   });
 
@@ -150,8 +168,8 @@ describe("types foundation", () => {
         text: "About",
         rel: null,
         target: null,
-        classification: "internal"
-      })
+        classification: "internal",
+      }),
     ).toMatchObject({ classification: "internal" });
   });
 
@@ -173,13 +191,13 @@ describe("types foundation", () => {
         noindex: false,
         nofollow: false,
         canonicalMismatch: false,
-        robotsBlocked: null
+        robotsBlocked: null,
       },
       content: {
         textLength: 13,
         wordCount: 2,
-        duplicateHash: "a".repeat(64)
-      }
+        duplicateHash: "a".repeat(64),
+      },
     });
 
     expect(parsed.h1Count).toBe(1);
@@ -194,7 +212,7 @@ describe("types foundation", () => {
       "BreadcrumbList",
       "LocalBusiness",
       "MedicalClinic",
-      "Service"
+      "Service",
     ]);
 
     const recommendation = JsonLdRecommendationSchema.parse({
@@ -206,36 +224,36 @@ describe("types foundation", () => {
         url: "https://example.com/services",
         observedTypes: [],
         expectedType: "WebPage",
-        sourceField: "jsonLd"
+        sourceField: "jsonLd",
       },
       jsonLd: {
         "@context": "https://schema.org",
         "@type": "WebPage",
         url: "https://example.com/services",
-        name: "Services"
+        name: "Services",
       },
       instructions: ["Add the recommended WebPage JSON-LD to the page head."],
       requiredFields: ["@context", "@type", "url", "name"],
-      generatedBy: "deterministic"
+      generatedBy: "deterministic",
     });
 
     expect(recommendation).toMatchObject({
       type: "WebPage",
-      generatedBy: "deterministic"
+      generatedBy: "deterministic",
     });
     expect(
       JsonLdRecommendationSetSchema.parse({
         siteId: "site_1",
         pageUrl: "https://example.com/services",
         recommendations: [recommendation],
-        generatedBy: "deterministic"
-      }).recommendations
+        generatedBy: "deterministic",
+      }).recommendations,
     ).toHaveLength(1);
     expect(() =>
       JsonLdRecommendationSchema.parse({
         ...recommendation,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -249,7 +267,7 @@ describe("types foundation", () => {
         url: "https://example.com/services/seo",
         observedTypes: ["WebPage"],
         expectedType: "Service",
-        sourceField: "jsonLd"
+        sourceField: "jsonLd",
       },
       jsonLd: {
         "@context": "https://schema.org",
@@ -257,14 +275,14 @@ describe("types foundation", () => {
         name: "SEO service",
         provider: {
           "@type": "Organization",
-          name: "Example"
+          name: "Example",
         },
-        url: "https://example.com/services/seo"
+        url: "https://example.com/services/seo",
       },
       instructions: ["Add Service JSON-LD to the service detail page."],
       requiredFields: ["@context", "@type", "name", "provider", "url"],
       recommendedFields: ["description", "serviceType"],
-      generatedBy: "deterministic"
+      generatedBy: "deterministic",
     });
     const record = SchemaRecommendationRecordSchema.parse({
       id: "schema_rec_1",
@@ -281,7 +299,7 @@ describe("types foundation", () => {
       recommendedFields: recommendation.recommendedFields,
       generatedBy: "deterministic",
       createdAt: "2026-05-24T00:00:00.000Z",
-      updatedAt: "2026-05-24T00:00:00.000Z"
+      updatedAt: "2026-05-24T00:00:00.000Z",
     });
 
     expect(
@@ -305,16 +323,16 @@ describe("types foundation", () => {
               noindex: false,
               nofollow: false,
               canonicalMismatch: false,
-              robotsBlocked: null
+              robotsBlocked: null,
             },
             content: {
               textLength: 120,
               wordCount: 20,
-              duplicateHash: "a".repeat(64)
-            }
-          }
-        ]
-      }).snapshots
+              duplicateHash: "a".repeat(64),
+            },
+          },
+        ],
+      }).snapshots,
     ).toHaveLength(1);
     expect(
       CreateSchemaRecommendationsResponseSchema.parse({
@@ -323,23 +341,27 @@ describe("types foundation", () => {
             siteId: "site_1",
             pageUrl: "https://example.com/services/seo",
             recommendations: [recommendation],
-            generatedBy: "deterministic"
-          }
+            generatedBy: "deterministic",
+          },
         ],
-        recommendations: [record]
-      }).recommendations
+        recommendations: [record],
+      }).recommendations,
     ).toHaveLength(1);
-    expect(SchemaRecommendationListResponseSchema.parse({ recommendations: [record] })).toMatchObject({
-      recommendations: [{ type: "Service", status: "open" }]
+    expect(
+      SchemaRecommendationListResponseSchema.parse({ recommendations: [record] }),
+    ).toMatchObject({
+      recommendations: [{ type: "Service", status: "open" }],
     });
-    expect(SchemaRecommendationDetailResponseSchema.parse({ recommendation: record })).toMatchObject({
-      recommendation: { generatedBy: "deterministic" }
+    expect(
+      SchemaRecommendationDetailResponseSchema.parse({ recommendation: record }),
+    ).toMatchObject({
+      recommendation: { generatedBy: "deterministic" },
     });
     expect(
       CreateSchemaRecommendationWorkOrderResponseSchema.parse({
         recommendation: {
           ...record,
-          status: "converted"
+          status: "converted",
         },
         workOrder: {
           id: "wo_1",
@@ -356,9 +378,10 @@ describe("types foundation", () => {
             url: "https://example.com/services/seo",
             observedValue: ["WebPage"],
             expectedValue: "Service",
-            sourceField: "jsonLd"
+            sourceField: "jsonLd",
           },
-          impact: "Structured service data helps search and answer engines understand the offering.",
+          impact:
+            "Structured service data helps search and answer engines understand the offering.",
           instructions: ["Add the reviewed JSON-LD block to the page."],
           ownerType: "developer",
           acceptanceCriteria: ["A schema recommendation recheck no longer returns Service."],
@@ -368,9 +391,9 @@ describe("types foundation", () => {
           assignedTo: null,
           dueDate: null,
           createdAt: "2026-05-24T00:00:00.000Z",
-          updatedAt: "2026-05-24T00:00:00.000Z"
-        }
-      }).workOrder
+          updatedAt: "2026-05-24T00:00:00.000Z",
+        },
+      }).workOrder,
     ).toMatchObject({ schemaRecommendationId: "schema_rec_1" });
     const recheckSnapshot = CrawlerPageSnapshotSchema.parse({
       url: "https://example.com/services/seo",
@@ -389,26 +412,28 @@ describe("types foundation", () => {
           raw: '{"@context":"https://schema.org","@type":"Service"}',
           parsed: {
             "@context": "https://schema.org",
-            "@type": "Service"
-          }
-        }
+            "@type": "Service",
+          },
+        },
       ],
       indexability: {
         noindex: false,
         nofollow: false,
         canonicalMismatch: false,
-        robotsBlocked: null
+        robotsBlocked: null,
       },
       content: {
         textLength: 120,
         wordCount: 20,
-        duplicateHash: "a".repeat(64)
-      }
+        duplicateHash: "a".repeat(64),
+      },
     });
-    expect(RecheckSchemaRecommendationRequestSchema.parse({ snapshot: recheckSnapshot })).toMatchObject({
+    expect(
+      RecheckSchemaRecommendationRequestSchema.parse({ snapshot: recheckSnapshot }),
+    ).toMatchObject({
       snapshot: {
-        url: "https://example.com/services/seo"
-      }
+        url: "https://example.com/services/seo",
+      },
     });
     expect(
       RecheckSchemaRecommendationResponseSchema.parse({
@@ -418,9 +443,9 @@ describe("types foundation", () => {
           ...record,
           evidence: {
             ...record.evidence,
-            observedTypes: ["Service"]
+            observedTypes: ["Service"],
           },
-          status: "resolved"
+          status: "resolved",
         },
         resolved: true,
         workOrder: {
@@ -438,9 +463,10 @@ describe("types foundation", () => {
             url: "https://example.com/services/seo",
             observedValue: ["WebPage"],
             expectedValue: "Service",
-            sourceField: "jsonLd"
+            sourceField: "jsonLd",
           },
-          impact: "Structured service data helps search and answer engines understand the offering.",
+          impact:
+            "Structured service data helps search and answer engines understand the offering.",
           instructions: ["Add the reviewed JSON-LD block to the page."],
           ownerType: "developer",
           acceptanceCriteria: ["A schema recommendation recheck no longer returns Service."],
@@ -450,19 +476,19 @@ describe("types foundation", () => {
           assignedTo: null,
           dueDate: null,
           createdAt: "2026-05-24T00:00:00.000Z",
-          updatedAt: "2026-05-24T00:00:00.000Z"
-        }
-      })
+          updatedAt: "2026-05-24T00:00:00.000Z",
+        },
+      }),
     ).toMatchObject({
       recommendation: { status: "resolved" },
       resolved: true,
-      workOrder: { status: "done" }
+      workOrder: { status: "done" },
     });
     expect(() =>
       SchemaRecommendationRecordSchema.parse({
         ...record,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -477,7 +503,7 @@ describe("types foundation", () => {
       siteDomain: "example.com",
       requestedByUserId: "user_1",
       startUrl: "https://example.com/",
-      maxPages: 10
+      maxPages: 10,
     });
 
     expect(parsed.pages).toEqual([]);
@@ -497,9 +523,9 @@ describe("types foundation", () => {
           externalLinks: 0,
           images: 0,
           jsonLdBlocks: 0,
-          noindexPages: 0
-        }
-      })
+          noindexPages: 0,
+        },
+      }),
     ).toMatchObject({ status: "empty" });
   });
 
@@ -511,11 +537,11 @@ describe("types foundation", () => {
             userAgents: ["*"],
             allow: ["/public"],
             disallow: ["/private"],
-            crawlDelay: 2
-          }
+            crawlDelay: 2,
+          },
         ],
-        sitemaps: ["https://example.com/sitemap.xml"]
-      })
+        sitemaps: ["https://example.com/sitemap.xml"],
+      }),
     ).toMatchObject({ sitemaps: ["https://example.com/sitemap.xml"] });
   });
 
@@ -528,11 +554,11 @@ describe("types foundation", () => {
             loc: "https://example.com/",
             lastmod: "2026-05-19",
             changefreq: "daily",
-            priority: 0.8
-          }
+            priority: 0.8,
+          },
         ],
-        sitemaps: []
-      })
+        sitemaps: [],
+      }),
     ).toMatchObject({ type: "urlset" });
   });
 
@@ -543,14 +569,14 @@ describe("types foundation", () => {
       "transactional",
       "navigational",
       "local",
-      "mixed"
+      "mixed",
     ]);
 
     expect(
       KeywordTargetSchema.parse({
         siteId: "site_1",
-        phrase: "  seo clinic  "
-      })
+        phrase: "  seo clinic  ",
+      }),
     ).toEqual({
       siteId: "site_1",
       phrase: "seo clinic",
@@ -558,7 +584,7 @@ describe("types foundation", () => {
       language: "ko",
       country: "KR",
       intent: null,
-      source: "manual"
+      source: "manual",
     });
 
     expect(
@@ -568,8 +594,8 @@ describe("types foundation", () => {
         phrase: "seo clinic",
         locale: "ko-KR",
         intent: "commercial",
-        createdAt: "2026-05-23T00:00:00.000Z"
-      })
+        createdAt: "2026-05-23T00:00:00.000Z",
+      }),
     ).toMatchObject({ intent: "commercial" });
     expect(() =>
       KeywordSchema.parse({
@@ -578,8 +604,8 @@ describe("types foundation", () => {
         phrase: "seo clinic",
         locale: "ko-KR",
         intent: "ai_generated",
-        createdAt: "2026-05-23T00:00:00.000Z"
-      })
+        createdAt: "2026-05-23T00:00:00.000Z",
+      }),
     ).toThrow();
   });
 
@@ -590,22 +616,22 @@ describe("types foundation", () => {
       metaDescription: "SEO clinic page",
       h1: "SEO clinic",
       h2: ["What is included?"],
-      wordCount: 420
+      wordCount: 420,
     });
 
     expect(page).toMatchObject({
       schemaTypes: [],
       questionHeadings: [],
-      answerBlocks: []
+      answerBlocks: [],
     });
     expect(
       KeywordAeoInputSchema.parse({
         keyword: {
           siteId: "site_1",
-          phrase: "seo clinic"
+          phrase: "seo clinic",
         },
-        candidatePage: page
-      }).candidatePage
+        candidatePage: page,
+      }).candidatePage,
     ).toMatchObject({ wordCount: 420 });
   });
 
@@ -614,7 +640,7 @@ describe("types foundation", () => {
       keyword: {
         siteId: "site_1",
         phrase: "seo clinic",
-        intent: "commercial"
+        intent: "commercial",
       },
       pageUrl: "https://example.com/service/seo",
       status: "needs_work",
@@ -628,26 +654,26 @@ describe("types foundation", () => {
             url: "https://example.com/service/seo",
             observedValue: false,
             expectedValue: true,
-            sourceField: "answerBlocks"
-          }
-        }
+            sourceField: "answerBlocks",
+          },
+        },
       ],
       generatedBy: "deterministic",
-      evaluatedAt: "2026-05-23T00:00:00.000Z"
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
     });
 
     expect(report).toMatchObject({ generatedBy: "deterministic", score: 68 });
     expect(() =>
       AeoReadinessReportSchema.parse({
         ...report,
-        score: 101
-      })
+        score: 101,
+      }),
     ).toThrow();
     expect(() =>
       AeoReadinessReportSchema.parse({
         ...report,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -655,16 +681,16 @@ describe("types foundation", () => {
     const request = CreateAeoReadinessReportRequestSchema.parse({
       keyword: {
         phrase: "seo clinic",
-        intent: "commercial"
+        intent: "commercial",
       },
       candidatePage: null,
-      evaluatedAt: "2026-05-23T00:00:00.000Z"
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
     });
     const readinessReport = AeoReadinessReportSchema.parse({
       keyword: {
         siteId: "site_1",
         phrase: request.keyword.phrase,
-        intent: request.keyword.intent
+        intent: request.keyword.intent,
       },
       pageUrl: null,
       status: "not_ready",
@@ -678,12 +704,12 @@ describe("types foundation", () => {
             url: null,
             observedValue: "commercial",
             expectedValue: "Non-null deterministic keyword intent",
-            sourceField: "keyword.intent"
-          }
-        }
+            sourceField: "keyword.intent",
+          },
+        },
       ],
       generatedBy: "deterministic",
-      evaluatedAt: "2026-05-23T00:00:00.000Z"
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
     });
     const report = AeoReadinessReportRecordSchema.parse({
       id: "aeo_report_1",
@@ -698,24 +724,28 @@ describe("types foundation", () => {
       checks: readinessReport.checks,
       generatedBy: "deterministic",
       evaluatedAt: "2026-05-23T00:00:00.000Z",
-      createdAt: "2026-05-23T00:00:00.000Z"
+      createdAt: "2026-05-23T00:00:00.000Z",
     });
 
-    expect(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport })).toMatchObject({
-      report: {
-        generatedBy: "deterministic",
-        phrase: "seo clinic"
+    expect(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport })).toMatchObject(
+      {
+        report: {
+          generatedBy: "deterministic",
+          phrase: "seo clinic",
+        },
+        readinessReport: {
+          generatedBy: "deterministic",
+        },
       },
-      readinessReport: {
-        generatedBy: "deterministic"
-      }
-    });
-    expect(AeoReadinessReportListResponseSchema.parse({ reports: [report] }).reports).toHaveLength(1);
+    );
+    expect(AeoReadinessReportListResponseSchema.parse({ reports: [report] }).reports).toHaveLength(
+      1,
+    );
     expect(() =>
       AeoReadinessReportRecordSchema.parse({
         ...report,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -723,7 +753,7 @@ describe("types foundation", () => {
     const gapSet = AeoFaqGapSetSchema.parse({
       keyword: {
         siteId: "site_1",
-        phrase: "seo clinic"
+        phrase: "seo clinic",
       },
       pageUrl: "https://example.com/service/seo",
       gaps: [
@@ -736,12 +766,12 @@ describe("types foundation", () => {
             url: "https://example.com/service/seo",
             observedValue: [],
             expectedValue: ["What does SEO clinic include?"],
-            sourceField: "questionHeadings"
-          }
-        }
+            sourceField: "questionHeadings",
+          },
+        },
       ],
       generatedBy: "deterministic",
-      evaluatedAt: "2026-05-23T00:00:00.000Z"
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
     });
 
     const draft = ContentBriefDraftSchema.parse({
@@ -756,19 +786,19 @@ describe("types foundation", () => {
           heading: "Service overview",
           purpose: "Answer the primary query directly.",
           targetQuestions: gapSet.gaps.map((gap) => gap.question),
-          acceptanceCriteria: ["Includes one concise answer block."]
-        }
+          acceptanceCriteria: ["Includes one concise answer block."],
+        },
       ],
       acceptanceCriteria: ["Brief remains draft-only until reviewed."],
       generationMode: "deterministic",
-      publishPolicy: "draft_only"
+      publishPolicy: "draft_only",
     });
 
     expect(draft).toMatchObject({
       keywordId: null,
       status: "draft",
       generationMode: "deterministic",
-      publishPolicy: "draft_only"
+      publishPolicy: "draft_only",
     });
     expect(
       ContentBriefSchema.parse({
@@ -786,14 +816,14 @@ describe("types foundation", () => {
         acceptanceCriteria: draft.acceptanceCriteria,
         generationMode: "deterministic",
         publishPolicy: "draft_only",
-        createdAt: "2026-05-23T00:00:00.000Z"
-      })
+        createdAt: "2026-05-23T00:00:00.000Z",
+      }),
     ).toMatchObject({ status: "draft" });
     expect(() =>
       ContentBriefDraftSchema.parse({
         ...draft,
-        status: "published"
-      })
+        status: "published",
+      }),
     ).toThrow();
   });
 
@@ -801,10 +831,10 @@ describe("types foundation", () => {
     const request = CreateContentBriefDraftRequestSchema.parse({
       keyword: {
         phrase: "seo clinic",
-        intent: "commercial"
+        intent: "commercial",
       },
       candidatePage: null,
-      evaluatedAt: "2026-05-23T00:00:00.000Z"
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
     });
     const draft = ContentBriefDraftSchema.parse({
       siteId: "site_1",
@@ -820,13 +850,13 @@ describe("types foundation", () => {
           heading: "Overview",
           purpose: "Answer the target query.",
           targetQuestions: ["What is seo clinic?"],
-          acceptanceCriteria: ["Includes direct answer."]
-        }
+          acceptanceCriteria: ["Includes direct answer."],
+        },
       ],
       faqQuestions: ["What is seo clinic?"],
       acceptanceCriteria: ["Do not auto-publish."],
       generationMode: "deterministic",
-      publishPolicy: "draft_only"
+      publishPolicy: "draft_only",
     });
     const contentBrief = ContentBriefSchema.parse({
       id: "brief_1",
@@ -843,7 +873,7 @@ describe("types foundation", () => {
       acceptanceCriteria: draft.acceptanceCriteria,
       generationMode: "deterministic",
       publishPolicy: "draft_only",
-      createdAt: "2026-05-23T00:00:00.000Z"
+      createdAt: "2026-05-23T00:00:00.000Z",
     });
 
     expect(
@@ -854,7 +884,7 @@ describe("types foundation", () => {
           keyword: {
             siteId: "site_1",
             phrase: "seo clinic",
-            intent: "commercial"
+            intent: "commercial",
           },
           pageUrl: null,
           status: "not_ready",
@@ -868,26 +898,30 @@ describe("types foundation", () => {
                 url: null,
                 observedValue: "commercial",
                 expectedValue: "Non-null deterministic keyword intent",
-                sourceField: "keyword.intent"
-              }
-            }
+                sourceField: "keyword.intent",
+              },
+            },
           ],
           generatedBy: "deterministic",
-          evaluatedAt: "2026-05-23T00:00:00.000Z"
-        }
-      })
+          evaluatedAt: "2026-05-23T00:00:00.000Z",
+        },
+      }),
     ).toMatchObject({
       contentBrief: {
         publishPolicy: "draft_only",
-        status: "draft"
+        status: "draft",
       },
       draft: {
-        generationMode: "deterministic"
-      }
+        generationMode: "deterministic",
+      },
     });
-    expect(ContentBriefListResponseSchema.parse({ contentBriefs: [contentBrief] }).contentBriefs).toHaveLength(1);
-    expect(ContentBriefDetailResponseSchema.parse({ contentBrief: contentBrief }).contentBrief).toMatchObject({
-      id: "brief_1"
+    expect(
+      ContentBriefListResponseSchema.parse({ contentBriefs: [contentBrief] }).contentBriefs,
+    ).toHaveLength(1);
+    expect(
+      ContentBriefDetailResponseSchema.parse({ contentBrief: contentBrief }).contentBrief,
+    ).toMatchObject({
+      id: "brief_1",
     });
   });
 
@@ -896,7 +930,7 @@ describe("types foundation", () => {
       target: {
         siteId: "site_1",
         brandName: "Example Clinic",
-        domain: "example.com"
+        domain: "example.com",
       },
       observations: [
         {
@@ -905,10 +939,10 @@ describe("types foundation", () => {
           answerText: "Example Clinic is mentioned as an SEO clinic option.",
           citedUrls: ["https://example.com/service/seo"],
           observedAt: "2026-05-24T00:00:00.000Z",
-          source: "fixture"
-        }
+          source: "fixture",
+        },
       ],
-      evaluatedAt: "2026-05-24T00:00:00.000Z"
+      evaluatedAt: "2026-05-24T00:00:00.000Z",
     });
     const visibilityReport = GeoVisibilityReportSchema.parse({
       target: request.target,
@@ -924,8 +958,8 @@ describe("types foundation", () => {
         {
           url: "https://example.com/service/seo",
           domain: "example.com",
-          owned: true
-        }
+          owned: true,
+        },
       ],
       checks: [
         {
@@ -935,12 +969,12 @@ describe("types foundation", () => {
           evidence: {
             observedValue: 100,
             expectedValue: ">= 70",
-            sourceField: "observations.answerText"
-          }
-        }
+            sourceField: "observations.answerText",
+          },
+        },
       ],
       generatedBy: "deterministic",
-      evaluatedAt: "2026-05-24T00:00:00.000Z"
+      evaluatedAt: "2026-05-24T00:00:00.000Z",
     });
     const record = GeoVisibilityReportRecordSchema.parse({
       id: "geo_report_1",
@@ -961,24 +995,26 @@ describe("types foundation", () => {
       checks: visibilityReport.checks,
       generatedBy: "deterministic",
       evaluatedAt: visibilityReport.evaluatedAt,
-      createdAt: "2026-05-24T00:00:00.000Z"
+      createdAt: "2026-05-24T00:00:00.000Z",
     });
 
     expect(
       CreateGeoVisibilityReportResponseSchema.parse({
         report: record,
-        visibilityReport
-      })
+        visibilityReport,
+      }),
     ).toMatchObject({
       report: {
         status: "visible",
-        mentionRate: 100
+        mentionRate: 100,
       },
       visibilityReport: {
-        generatedBy: "deterministic"
-      }
+        generatedBy: "deterministic",
+      },
     });
-    expect(GeoVisibilityReportListResponseSchema.parse({ reports: [record] }).reports).toHaveLength(1);
+    expect(GeoVisibilityReportListResponseSchema.parse({ reports: [record] }).reports).toHaveLength(
+      1,
+    );
     expect(
       CreateGeoVisibilityReportWorkOrderResponseSchema.parse({
         report: record,
@@ -998,7 +1034,7 @@ describe("types foundation", () => {
             url: "https://example.com/",
             observedValue: "visible score 72; mention 100%; citation 100%",
             expectedValue: "strong score >= 75",
-            sourceField: "geoVisibilityReport"
+            sourceField: "geoVisibilityReport",
           },
           impact: "AI answer engines may cite competitors instead of owned pages.",
           instructions: ["Improve weak GEO checks."],
@@ -1010,20 +1046,20 @@ describe("types foundation", () => {
           assignedTo: null,
           dueDate: null,
           createdAt: "2026-05-24T00:00:00.000Z",
-          updatedAt: "2026-05-24T00:00:00.000Z"
-        }
-      })
+          updatedAt: "2026-05-24T00:00:00.000Z",
+        },
+      }),
     ).toMatchObject({
       workOrder: {
         geoVisibilityReportId: "geo_report_1",
-        ownerType: "marketer"
-      }
+        ownerType: "marketer",
+      },
     });
     expect(() =>
       GeoVisibilityReportSchema.parse({
         ...visibilityReport,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -1040,7 +1076,7 @@ describe("types foundation", () => {
       largestContentfulPaintMs: 2120,
       cumulativeLayoutShift: 0.03,
       interactionToNextPaintMs: 180,
-      fetchedAt: "2026-05-22T00:00:00.000Z"
+      fetchedAt: "2026-05-22T00:00:00.000Z",
     });
 
     expect(record).toMatchObject({ provider: "pagespeed", seoScore: 95 });
@@ -1065,9 +1101,9 @@ describe("types foundation", () => {
           ctr: 0.1,
           position: 3.2,
           startDate: "2026-05-01",
-          endDate: "2026-05-20"
-        }
-      ]
+          endDate: "2026-05-20",
+        },
+      ],
     });
 
     expect(parsed.records).toHaveLength(1);
@@ -1085,22 +1121,28 @@ describe("types foundation", () => {
       siteId: "site_1",
       siteDomain: "Example.com",
       requestedByUserId: "user_1",
-      fetchedAt: "2026-05-22T00:00:00.000Z"
+      fetchedAt: "2026-05-22T00:00:00.000Z",
     });
 
     expect(parsed).toMatchObject({
       connectorSyncRunId: "sync_1",
       organizationId: "org_1",
       siteDomain: "example.com",
-      providers: ["gsc", "ga4", "pagespeed", "bing", "cms"]
+      providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
     });
   });
 
   it("validates connector sync run API contracts", () => {
-    expect(CreateConnectorSyncRunRequestSchema.parse({}).providers).toEqual(["gsc", "ga4", "pagespeed", "bing", "cms"]);
+    expect(CreateConnectorSyncRunRequestSchema.parse({}).providers).toEqual([
+      "gsc",
+      "ga4",
+      "pagespeed",
+      "bing",
+      "cms",
+    ]);
 
     const request = CreateConnectorSyncRunRequestSchema.parse({
-      providers: ["pagespeed", "cms"]
+      providers: ["pagespeed", "cms"],
     });
 
     expect(request.providers).toEqual(["pagespeed", "cms"]);
@@ -1116,8 +1158,8 @@ describe("types foundation", () => {
             siteDomain: "example.com",
             requestedByUserId: "user_1",
             fetchedAt: "2026-05-22T00:00:00.000Z",
-            providers: ["pagespeed", "cms"]
-          }
+            providers: ["pagespeed", "cms"],
+          },
         },
         connectorSyncRun: {
           id: "sync_1",
@@ -1129,20 +1171,20 @@ describe("types foundation", () => {
           fixture: true,
           startedAt: "2026-05-22T00:00:00.000Z",
           endedAt: null,
-          summary: null
-        }
-      })
+          summary: null,
+        },
+      }),
     ).toMatchObject({
       connectorSyncRun: {
         id: "sync_1",
-        status: "queued"
+        status: "queued",
       },
       job: {
         name: "connector-sync",
         payload: {
-          providers: ["pagespeed", "cms"]
-        }
-      }
+          providers: ["pagespeed", "cms"],
+        },
+      },
     });
   });
 
@@ -1166,18 +1208,18 @@ describe("types foundation", () => {
           cms: 0,
           ga4: 0,
           gsc: 1,
-          pagespeed: 0
+          pagespeed: 0,
         },
         totalProviders: 1,
-        totalRecords: 1
-      }
+        totalRecords: 1,
+      },
     });
 
     expect(connectorSyncRun).toMatchObject({ status: "completed" });
     expect(
       ConnectorSyncRunListResponseSchema.parse({
-        connectorSyncRuns: [connectorSyncRun]
-      }).connectorSyncRuns
+        connectorSyncRuns: [connectorSyncRun],
+      }).connectorSyncRuns,
     ).toHaveLength(1);
   });
 
@@ -1198,9 +1240,9 @@ describe("types foundation", () => {
           largestContentfulPaintMs: 2120,
           cumulativeLayoutShift: 0.03,
           interactionToNextPaintMs: 180,
-          fetchedAt: "2026-05-22T00:00:00.000Z"
-        }
-      ]
+          fetchedAt: "2026-05-22T00:00:00.000Z",
+        },
+      ],
     };
     const summary = {
       failedProviders: 0,
@@ -1211,10 +1253,10 @@ describe("types foundation", () => {
         cms: 0,
         ga4: 0,
         gsc: 0,
-        pagespeed: 1
+        pagespeed: 1,
       },
       totalProviders: 1,
-      totalRecords: 1
+      totalRecords: 1,
     };
 
     const syncResult = ConnectorSyncResultSchema.parse({
@@ -1226,7 +1268,7 @@ describe("types foundation", () => {
       fixture: true,
       recordCount: 1,
       records: runResult.records,
-      createdAt: "2026-05-22T00:00:00.000Z"
+      createdAt: "2026-05-22T00:00:00.000Z",
     });
 
     expect(syncResult).toMatchObject({ provider: "pagespeed", recordCount: 1 });
@@ -1242,10 +1284,10 @@ describe("types foundation", () => {
           fixture: true,
           startedAt: "2026-05-22T00:00:00.000Z",
           endedAt: "2026-05-22T00:01:00.000Z",
-          summary
+          summary,
         },
-        results: [syncResult]
-      })
+        results: [syncResult],
+      }),
     ).toMatchObject({ results: [{ provider: "pagespeed" }] });
     expect(
       ConnectorSyncJobResultSchema.parse({
@@ -1256,8 +1298,8 @@ describe("types foundation", () => {
         requestedByUserId: "user_1",
         fetchedAt: "2026-05-22T00:00:00.000Z",
         results: [runResult],
-        summary
-      })
+        summary,
+      }),
     ).toMatchObject({ summary: { totalRecords: 1 } });
   });
 
@@ -1281,10 +1323,10 @@ describe("types foundation", () => {
             ctr: 0.1,
             position: 3.2,
             startDate: "2026-05-01",
-            endDate: "2026-05-20"
-          }
-        ]
-      })
+            endDate: "2026-05-20",
+          },
+        ],
+      }),
     ).toThrow(/provider/);
   });
 
@@ -1296,7 +1338,7 @@ describe("types foundation", () => {
       "BEFORE_AFTER_REFERENCE",
       "PATIENT_TESTIMONIAL_REFERENCE",
       "PRICE_DISCOUNT_PROMOTION",
-      "UNREVIEWED_MEDICAL_PUBLISH"
+      "UNREVIEWED_MEDICAL_PUBLISH",
     ]);
     expect(ComplianceRulePackIdSchema.options).toEqual(["global", "kr-medical"]);
 
@@ -1307,7 +1349,7 @@ describe("types foundation", () => {
       industry: "medical",
       title: "Botox clinic page",
       text: "This medical clinic offers guaranteed treatment results.",
-      source: "fixture"
+      source: "fixture",
     });
     const flag = ComplianceFlagDraftSchema.parse({
       ruleId: "GUARANTEED_RESULT_CLAIM",
@@ -1320,28 +1362,28 @@ describe("types foundation", () => {
         observedValue: "guaranteed",
         expectedValue: "Medical content must not guarantee results.",
         sourceField: "text",
-        match: "guaranteed"
+        match: "guaranteed",
       },
       recommendation: "Rewrite the claim and route the draft to legal review.",
       replacementSuggestion: "Describe services without promising outcomes.",
       publishPolicy: "draft_only",
-      generatedBy: "deterministic"
+      generatedBy: "deterministic",
     });
 
     expect(input).toMatchObject({
       publishState: "draft",
       source: "fixture",
-      subjectId: null
+      subjectId: null,
     });
     expect(flag).toMatchObject({
       ownerType: "legal",
-      status: "open"
+      status: "open",
     });
     expect(() =>
       ComplianceFlagDraftSchema.parse({
         ...flag,
-        generatedBy: "llm"
-      })
+        generatedBy: "llm",
+      }),
     ).toThrow();
   });
 
@@ -1355,7 +1397,7 @@ describe("types foundation", () => {
       title: "Laser content draft",
       text: "This clinic treatment is completely safe.",
       publishState: "scheduled",
-      source: "content_brief"
+      source: "content_brief",
     });
     const flag = ComplianceFlagDraftSchema.parse({
       ruleId: "ABSOLUTE_SAFETY_CLAIM",
@@ -1368,12 +1410,12 @@ describe("types foundation", () => {
         observedValue: "completely safe",
         expectedValue: "Medical content should avoid absolute safety claims.",
         sourceField: "text",
-        match: "completely safe"
+        match: "completely safe",
       },
       recommendation: "Replace absolute safety language with balanced wording.",
       replacementSuggestion: "Explain that risks vary by individual.",
       publishPolicy: "draft_only",
-      generatedBy: "deterministic"
+      generatedBy: "deterministic",
     });
     const report = ComplianceReviewReportSchema.parse({
       input,
@@ -1383,11 +1425,11 @@ describe("types foundation", () => {
       overallRiskLevel: "high",
       publishPolicy: "draft_only",
       generatedBy: "deterministic",
-      evaluatedAt: "2026-05-24T00:00:00.000Z"
+      evaluatedAt: "2026-05-24T00:00:00.000Z",
     });
 
     expect(CreateComplianceReviewRequestSchema.parse(input)).toMatchObject({
-      publishState: "scheduled"
+      publishState: "scheduled",
     });
     const complianceFlag = ComplianceFlagSchema.parse({
       id: "flag_1",
@@ -1406,22 +1448,22 @@ describe("types foundation", () => {
       replacementSuggestion: flag.replacementSuggestion,
       generatedBy: "deterministic",
       createdAt: "2026-05-24T00:00:00.000Z",
-      updatedAt: "2026-05-24T00:00:00.000Z"
+      updatedAt: "2026-05-24T00:00:00.000Z",
     });
 
     expect(
       CreateComplianceReviewResponseSchema.parse({
         complianceFlags: [complianceFlag],
-        report
-      }).complianceFlags
+        report,
+      }).complianceFlags,
     ).toHaveLength(1);
     expect(
       ComplianceFlagListResponseSchema.parse({
-        complianceFlags: [complianceFlag]
-      }).complianceFlags
+        complianceFlags: [complianceFlag],
+      }).complianceFlags,
     ).toHaveLength(1);
     expect(UpdateComplianceFlagRequestSchema.parse({ status: "approved" })).toEqual({
-      status: "approved"
+      status: "approved",
     });
     expect(
       CreateComplianceFlagWorkOrderResponseSchema.parse({
@@ -1442,7 +1484,7 @@ describe("types foundation", () => {
             url: "https://example-clinic.com/blog/laser",
             observedValue: flag.evidence.observedValue,
             expectedValue: flag.evidence.expectedValue,
-            sourceField: flag.evidence.sourceField
+            sourceField: flag.evidence.sourceField,
           },
           impact: "Medical advertising risk requires legal review before publication.",
           instructions: [flag.recommendation],
@@ -1454,37 +1496,37 @@ describe("types foundation", () => {
           assignedTo: null,
           dueDate: null,
           createdAt: "2026-05-24T00:00:00.000Z",
-          updatedAt: "2026-05-24T00:00:00.000Z"
-        }
-      }).complianceFlag
+          updatedAt: "2026-05-24T00:00:00.000Z",
+        },
+      }).complianceFlag,
     ).toMatchObject({ id: "flag_1" });
     expect(
       RecheckComplianceFlagRequestSchema.parse({
         text: "This clinic explains consultation steps and individual variation.",
         url: "https://example-clinic.com/blog/laser",
-        publishState: "draft"
-      })
+        publishState: "draft",
+      }),
     ).toMatchObject({ publishState: "draft" });
     expect(
       RecheckComplianceFlagResponseSchema.parse({
         complianceFlag: {
           ...complianceFlag,
-          status: "resolved"
+          status: "resolved",
         },
         report: {
           ...report,
           flags: [],
           status: "clear",
-          overallRiskLevel: null
+          overallRiskLevel: null,
         },
         resolved: true,
-        workOrder: null
-      })
+        workOrder: null,
+      }),
     ).toMatchObject({
       complianceFlag: {
-        status: "resolved"
+        status: "resolved",
       },
-      resolved: true
+      resolved: true,
     });
     expect(CmsContentStatusSchema.options).toEqual(["draft", "published", "archived"]);
 
@@ -1494,13 +1536,23 @@ describe("types foundation", () => {
       externalId: "page_1",
       url: "https://example-clinic.com/blog/laser",
       text: "This clinic explains consultation steps and individual variation.",
-      updatedAt: "2026-05-24T02:00:00.000Z"
+      updatedAt: "2026-05-24T02:00:00.000Z",
     });
     expect(cmsEvent).toMatchObject({
       provider: "cms",
       source: "cms",
       status: "draft",
-      title: null
+      title: null,
+    });
+    expect(
+      CmsWebhookSignatureHeadersSchema.parse({
+        "x-searchops-cms-type": "wordpress",
+        "x-searchops-timestamp": "2026-05-24T02:00:00.000Z",
+        "x-searchops-signature":
+          "sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    ).toMatchObject({
+      "x-searchops-cms-type": "wordpress",
     });
     expect(
       CmsContentUpdatedEventResponseSchema.parse({
@@ -1511,30 +1563,30 @@ describe("types foundation", () => {
           {
             complianceFlag: {
               ...complianceFlag,
-              status: "resolved"
+              status: "resolved",
             },
             report: {
               ...report,
               input: {
                 ...report.input,
-                source: "cms"
+                source: "cms",
               },
               flags: [],
               status: "clear",
-              overallRiskLevel: null
+              overallRiskLevel: null,
             },
             resolved: true,
-            workOrder: null
-          }
-        ]
-      })
+            workOrder: null,
+          },
+        ],
+      }),
     ).toMatchObject({
       matchedFlagCount: 1,
       rechecks: [
         {
-          resolved: true
-        }
-      ]
+          resolved: true,
+        },
+      ],
     });
   });
 
@@ -1550,16 +1602,16 @@ describe("types foundation", () => {
           url: "https://example.com/",
           observedValue: null,
           expectedValue: "Non-empty title",
-          sourceField: "title"
+          sourceField: "title",
         },
         impactScore: 80,
         effortScore: 20,
-        priorityScore: 86
-      })
+        priorityScore: 86,
+      }),
     ).toMatchObject({
       ruleId: "TITLE_MISSING",
       severity: "high",
-      priority: "p1"
+      priority: "p1",
     });
   });
 
@@ -1577,7 +1629,7 @@ describe("types foundation", () => {
           url: "https://example.com/services",
           observedValue: 0,
           expectedValue: 1,
-          sourceField: "h1Count"
+          sourceField: "h1Count",
         },
         impact: "Search and answer engines may not identify the primary page topic.",
         instructions: ["Add one descriptive H1 near the top of the page."],
@@ -1586,12 +1638,12 @@ describe("types foundation", () => {
         acceptanceCriteria: ["Re-crawl reports h1Count = 1."],
         verificationMethod: "Run a crawler recheck for the URL.",
         estimatedEffort: "s",
-        relatedIssues: ["MULTIPLE_H1"]
-      })
+        relatedIssues: ["MULTIPLE_H1"],
+      }),
     ).toMatchObject({
       ownerType: "content",
       priority: "p1",
-      estimatedEffort: "s"
+      estimatedEffort: "s",
     });
   });
 
@@ -1612,7 +1664,7 @@ describe("types foundation", () => {
           url: "https://example.com/services",
           observedValue: 0,
           expectedValue: 1,
-          sourceField: "h1Count"
+          sourceField: "h1Count",
         },
         impact: "Search and answer engines may not identify the primary page topic.",
         instructions: ["Add one descriptive H1 near the top of the page."],
@@ -1624,8 +1676,8 @@ describe("types foundation", () => {
         assignedTo: null,
         dueDate: null,
         createdAt: "2026-05-20T00:00:00.000Z",
-        updatedAt: "2026-05-20T00:00:00.000Z"
-      })
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      }),
     ).toMatchObject({ status: "open", priority: "p1" });
   });
 
@@ -1652,10 +1704,12 @@ describe("types foundation", () => {
       assignedTo: null,
       dueDate: null,
       createdAt: "2026-05-20T00:00:00.000Z",
-      updatedAt: "2026-05-20T00:00:00.000Z"
+      updatedAt: "2026-05-20T00:00:00.000Z",
     });
 
-    expect(WorkOrderListResponseSchema.parse({ workOrders: [workOrder] }).workOrders).toHaveLength(1);
+    expect(WorkOrderListResponseSchema.parse({ workOrders: [workOrder] }).workOrders).toHaveLength(
+      1,
+    );
   });
 
   it("validates work order board update requests", () => {
@@ -1663,8 +1717,8 @@ describe("types foundation", () => {
       UpdateWorkOrderRequestSchema.parse({
         status: "in_progress",
         assignedTo: "user_1",
-        dueDate: "2026-05-21T00:00:00.000Z"
-      })
+        dueDate: "2026-05-21T00:00:00.000Z",
+      }),
     ).toMatchObject({ status: "in_progress", assignedTo: "user_1" });
     expect(() => UpdateWorkOrderRequestSchema.parse({ status: "shipped" })).toThrow();
   });
@@ -1689,7 +1743,7 @@ describe("types foundation", () => {
         url: "https://example.com/services",
         observedValue: 0,
         expectedValue: 1,
-        sourceField: "h1Count"
+        sourceField: "h1Count",
       },
       impact: "Search and answer engines may not identify the primary page topic.",
       instructions: ["Add one descriptive H1 near the top of the page."],
@@ -1701,7 +1755,7 @@ describe("types foundation", () => {
       assignedTo: null,
       dueDate: null,
       createdAt: "2026-05-20T00:00:00.000Z",
-      updatedAt: "2026-05-20T00:00:00.000Z"
+      updatedAt: "2026-05-20T00:00:00.000Z",
     });
     const seoIssue = SeoIssueSchema.parse({
       id: "issue_1",
@@ -1712,7 +1766,7 @@ describe("types foundation", () => {
       status: "resolved",
       title: "Missing H1",
       evidence: { sourceField: "h1Count" },
-      createdAt: "2026-05-20T00:00:00.000Z"
+      createdAt: "2026-05-20T00:00:00.000Z",
     });
 
     expect(
@@ -1724,7 +1778,7 @@ describe("types foundation", () => {
           status: "queued",
           startedAt: "2026-05-20T00:00:00.000Z",
           endedAt: null,
-          summary: { startUrl: "https://example.com/services", maxPages: 1 }
+          summary: { startUrl: "https://example.com/services", maxPages: 1 },
         },
         job: {
           id: "job_1",
@@ -1736,13 +1790,15 @@ describe("types foundation", () => {
             requestedByUserId: "user_1",
             startUrl: "https://example.com/services",
             maxPages: 1,
-            pages: []
-          }
-        }
-      })
+            pages: [],
+          },
+        },
+      }),
     ).toMatchObject({ workOrder: { status: "in_review" } });
-    expect(ResolveWorkOrderIssueResponseSchema.parse({ workOrder, seoIssue }).seoIssue).toMatchObject({
-      status: "resolved"
+    expect(
+      ResolveWorkOrderIssueResponseSchema.parse({ workOrder, seoIssue }).seoIssue,
+    ).toMatchObject({
+      status: "resolved",
     });
   });
 });
