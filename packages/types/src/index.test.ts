@@ -37,6 +37,7 @@ import {
   ComplianceReviewInputSchema,
   ComplianceReviewReportSchema,
   ComplianceRuleIdSchema,
+  ComplianceRulePackIdSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
@@ -63,6 +64,8 @@ import {
   ParsedSitemapSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
+  RecheckComplianceFlagRequestSchema,
+  RecheckComplianceFlagResponseSchema,
   RecheckWorkOrderRequestSchema,
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
@@ -1303,6 +1306,7 @@ describe("types foundation", () => {
       "PRICE_DISCOUNT_PROMOTION",
       "UNREVIEWED_MEDICAL_PUBLISH"
     ]);
+    expect(ComplianceRulePackIdSchema.options).toEqual(["global", "kr-medical"]);
 
     const input = ComplianceReviewInputSchema.parse({
       siteId: "site_1",
@@ -1382,6 +1386,7 @@ describe("types foundation", () => {
     const report = ComplianceReviewReportSchema.parse({
       input,
       flags: [flag],
+      rulePackId: "kr-medical",
       status: "blocked",
       overallRiskLevel: "high",
       publishPolicy: "draft_only",
@@ -1461,6 +1466,34 @@ describe("types foundation", () => {
         }
       }).complianceFlag,
     ).toMatchObject({ id: "flag_1" });
+    expect(
+      RecheckComplianceFlagRequestSchema.parse({
+        text: "This clinic explains consultation steps and individual variation.",
+        url: "https://example-clinic.com/blog/laser",
+        publishState: "draft"
+      }),
+    ).toMatchObject({ publishState: "draft" });
+    expect(
+      RecheckComplianceFlagResponseSchema.parse({
+        complianceFlag: {
+          ...complianceFlag,
+          status: "resolved"
+        },
+        report: {
+          ...report,
+          flags: [],
+          status: "clear",
+          overallRiskLevel: null
+        },
+        resolved: true,
+        workOrder: null
+      }),
+    ).toMatchObject({
+      complianceFlag: {
+        status: "resolved"
+      },
+      resolved: true
+    });
   });
 
   it("validates deterministic SEO issue drafts", () => {

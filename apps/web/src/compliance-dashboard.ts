@@ -3,6 +3,7 @@ import {
   CreateComplianceFlagWorkOrderResponseSchema,
   CreateComplianceReviewResponseSchema,
   ComplianceFlagSchema,
+  RecheckComplianceFlagResponseSchema,
   type ComplianceFlag,
   type ComplianceFlagStatus,
   type Site
@@ -15,6 +16,7 @@ export type ComplianceTone = "good" | "neutral" | "risk";
 export type ComplianceReviewCreateStatus = "created" | "failed" | "fixture";
 export type ComplianceWorkOrderStatus = "converted" | "failed" | "fixture";
 export type ComplianceStatusUpdateStatus = "updated" | "failed" | "fixture";
+export type ComplianceRecheckStatus = "resolved" | "still_open" | "failed" | "fixture";
 
 export interface ComplianceDashboardData {
   readonly errorMessage: string | null;
@@ -49,6 +51,15 @@ export interface ComplianceStatusUpdateResult {
   readonly flagId: string;
   readonly source: ComplianceDashboardSource;
   readonly status: ComplianceStatusUpdateStatus;
+}
+
+export interface ComplianceRecheckResult {
+  readonly errorMessage: string | null;
+  readonly flagId: string;
+  readonly resolved: boolean;
+  readonly source: ComplianceDashboardSource;
+  readonly status: ComplianceRecheckStatus;
+  readonly workOrderStatus: string | null;
 }
 
 export interface ComplianceFeedback {
@@ -296,6 +307,63 @@ export async function updateComplianceFlagStatus(
   }
 }
 
+export async function recheckComplianceFlagWithFixtureRevision(
+  flagId: string,
+): Promise<ComplianceRecheckResult> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      flagId,
+      resolved: true,
+      source: "fixture",
+      status: "fixture",
+      workOrderStatus: null
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/compliance-flags/${encodeURIComponent(flagId)}/recheck`,
+      {
+        body: JSON.stringify({
+          evaluatedAt: new Date().toISOString(),
+          source: "work_order",
+          text:
+            "This clinic explains consultation steps, possible discomfort, and individual variation without promising outcomes."
+        }),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Compliance recheck request failed with ${response.status}`);
+    }
+
+    const output = RecheckComplianceFlagResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      flagId: output.complianceFlag.id,
+      resolved: output.resolved,
+      source: "api",
+      status: output.resolved ? "resolved" : "still_open",
+      workOrderStatus: output.workOrder?.status ?? null
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : "Compliance recheck request failed",
+      flagId,
+      resolved: false,
+      source: "api",
+      status: "failed",
+      workOrderStatus: null
+    };
+  }
+}
+
 export function createDemoComplianceDashboard(site: Site = demoSite): ComplianceDashboardData {
   return {
     errorMessage: null,
@@ -423,6 +491,41 @@ export function getComplianceStatusUpdateFeedback(
   if (status === "failed") {
     return {
       message: "Compliance flag update failed. Check the API server and retry.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
+export function getComplianceRecheckFeedback(
+  status: string | undefined,
+  flagId: string | undefined,
+): ComplianceFeedback | null {
+  if (status === "resolved") {
+    return {
+      message: flagId ? `Compliance recheck resolved: ${flagId}` : "Compliance recheck resolved.",
+      tone: "success"
+    };
+  }
+
+  if (status === "still_open") {
+    return {
+      message: "Compliance recheck still found the same rule. Keep the work order open.",
+      tone: "warning"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: "Fixture mode: recheck is simulated until SEARCHOPS_API_BASE_URL is configured.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "Compliance recheck failed. Check the API server and retry.",
       tone: "warning"
     };
   }

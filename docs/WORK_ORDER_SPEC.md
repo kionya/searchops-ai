@@ -53,6 +53,7 @@ Compliance flag mapping must remain deterministic:
 - It maps `critical`, `high`, `medium`, and `low` risks to fixed priority and effort values.
 - It routes ownership to `legal`.
 - It must not call LLM providers, CMS systems, or legal approval services.
+- Follow-up compliance rechecks close the linked WorkOrder when the original flag rule is resolved, or keep/reopen the WorkOrder when the same rule still appears.
 
 ## Board API
 - `GET /sites/:siteId/work-orders`
@@ -62,6 +63,7 @@ Compliance flag mapping must remain deterministic:
 - `POST /work-orders/:workOrderId/resolve`
 - `POST /geo-visibility-reports/:geoVisibilityReportId/work-order`
 - `POST /compliance-flags/:complianceFlagId/work-order`
+- `POST /compliance-flags/:complianceFlagId/recheck`
 
 Board updates can change status, priority, assignee, and due date.
 

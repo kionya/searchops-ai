@@ -8,6 +8,7 @@ import { resolveDashboardSite } from "../../../../src/dashboard-shell";
 import {
   convertComplianceFlagToWorkOrder,
   createComplianceReviewFromFixture,
+  recheckComplianceFlagWithFixtureRevision,
   updateComplianceFlagStatus
 } from "../../../../src/compliance-dashboard";
 
@@ -64,6 +65,29 @@ export async function updateComplianceFlagStatusAction(
     searchParams.set("flagId", result.flagId);
   } catch {
     searchParams.set("statusUpdate", "failed");
+    searchParams.set("flagId", flagId);
+  }
+
+  revalidatePath(`/sites/${siteId}/compliance`);
+  redirect(`/sites/${siteId}/compliance?${searchParams.toString()}`);
+}
+
+export async function recheckComplianceFlagAction(
+  siteId: string,
+  flagId: string,
+  _formData: FormData,
+) {
+  const searchParams = new URLSearchParams();
+
+  try {
+    const result = await recheckComplianceFlagWithFixtureRevision(flagId);
+    searchParams.set("recheck", result.status);
+    searchParams.set("flagId", result.flagId);
+    if (result.workOrderStatus) {
+      searchParams.set("workOrderStatus", result.workOrderStatus);
+    }
+  } catch {
+    searchParams.set("recheck", "failed");
     searchParams.set("flagId", flagId);
   }
 

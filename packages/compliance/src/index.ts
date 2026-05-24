@@ -8,7 +8,8 @@ import type {
   ComplianceReviewInput,
   ComplianceReviewReport,
   ComplianceRiskLevel,
-  ComplianceRuleId
+  ComplianceRuleId,
+  ComplianceRulePackId
 } from "@searchops/types";
 
 export const compliancePackage = "compliance" as const;
@@ -25,8 +26,6 @@ export interface ComplianceRule {
   readonly id: ComplianceRuleId;
   readonly evaluate: (input: ComplianceReviewInput) => readonly ComplianceFlagDraft[];
 }
-
-export type ComplianceRulePackId = "global" | "kr-medical";
 
 export interface ComplianceRulePack {
   readonly id: ComplianceRulePackId;
@@ -60,7 +59,7 @@ export const supportedComplianceRuleIds = [
   "UNREVIEWED_MEDICAL_PUBLISH"
 ] as const satisfies readonly ComplianceRuleId[];
 
-export const guaranteedResultClaimRule = createPatternRule({
+const guaranteedResultClaimRuleConfig = {
   id: "GUARANTEED_RESULT_CLAIM",
   riskLevel: "critical",
   title: "Guaranteed medical result claim",
@@ -77,9 +76,9 @@ export const guaranteedResultClaimRule = createPatternRule({
     /\bpermanent\s+cure\b/iu,
     /\bcure\s+permanently\b/iu
   ]
-});
+} as const satisfies CompliancePatternRuleConfig;
 
-export const absoluteSafetyClaimRule = createPatternRule({
+const absoluteSafetyClaimRuleConfig = {
   id: "ABSOLUTE_SAFETY_CLAIM",
   riskLevel: "high",
   title: "Absolute safety claim",
@@ -97,9 +96,9 @@ export const absoluteSafetyClaimRule = createPatternRule({
     /\bpainless\b/iu,
     /\bzero\s+risk\b/iu
   ]
-});
+} as const satisfies CompliancePatternRuleConfig;
 
-export const superlativeClaimRule = createPatternRule({
+const superlativeClaimRuleConfig = {
   id: "SUPERLATIVE_CLAIM",
   riskLevel: "medium",
   title: "Unqualified superlative claim",
@@ -117,9 +116,9 @@ export const superlativeClaimRule = createPatternRule({
     /\bmost\s+effective\b/iu,
     /\bworld[-\s]?class\b/iu
   ]
-});
+} as const satisfies CompliancePatternRuleConfig;
 
-export const beforeAfterReferenceRule = createPatternRule({
+const beforeAfterReferenceRuleConfig = {
   id: "BEFORE_AFTER_REFERENCE",
   riskLevel: "medium",
   title: "Before-and-after reference",
@@ -134,9 +133,9 @@ export const beforeAfterReferenceRule = createPatternRule({
     /\bcase\s+photos?\b/iu,
     /\btreatment\s+results?\b/iu
   ]
-});
+} as const satisfies CompliancePatternRuleConfig;
 
-export const patientTestimonialReferenceRule = createPatternRule({
+const patientTestimonialReferenceRuleConfig = {
   id: "PATIENT_TESTIMONIAL_REFERENCE",
   riskLevel: "medium",
   title: "Patient testimonial reference",
@@ -153,9 +152,9 @@ export const patientTestimonialReferenceRule = createPatternRule({
     /\bcustomer\s+stor(?:y|ies)\b/iu,
     /\breview\s+says\b/iu
   ]
-});
+} as const satisfies CompliancePatternRuleConfig;
 
-export const priceDiscountPromotionRule = createPatternRule({
+const priceDiscountPromotionRuleConfig = {
   id: "PRICE_DISCOUNT_PROMOTION",
   riskLevel: "medium",
   title: "Price or discount promotion",
@@ -172,6 +171,86 @@ export const priceDiscountPromotionRule = createPatternRule({
     /\bspecial\s+offer\b/iu,
     /\b\d{1,2}%\s*off\b/iu,
     /\bfree\s+consultation\b/iu
+  ]
+} as const satisfies CompliancePatternRuleConfig;
+
+export const guaranteedResultClaimRule = createPatternRule(guaranteedResultClaimRuleConfig);
+export const absoluteSafetyClaimRule = createPatternRule(absoluteSafetyClaimRuleConfig);
+export const superlativeClaimRule = createPatternRule(superlativeClaimRuleConfig);
+export const beforeAfterReferenceRule = createPatternRule(beforeAfterReferenceRuleConfig);
+export const patientTestimonialReferenceRule = createPatternRule(
+  patientTestimonialReferenceRuleConfig,
+);
+export const priceDiscountPromotionRule = createPatternRule(priceDiscountPromotionRuleConfig);
+
+export const krGuaranteedResultClaimRule = createPatternRule({
+  ...guaranteedResultClaimRuleConfig,
+  patterns: [
+    ...guaranteedResultClaimRuleConfig.patterns,
+    /100\s*%\s*(효과|성공|보장)/iu,
+    /효과\s*(보장|확실)/iu,
+    /완치/iu,
+    /영구(적)?\s*(개선|효과|해결)/iu,
+    /재발\s*(없|방지)/iu
+  ]
+});
+
+export const krAbsoluteSafetyClaimRule = createPatternRule({
+  ...absoluteSafetyClaimRuleConfig,
+  patterns: [
+    ...absoluteSafetyClaimRuleConfig.patterns,
+    /부작용\s*(없|없는|제로|0)/iu,
+    /통증\s*(없|없는|제로|0)/iu,
+    /무통\s*(시술|치료)?/iu,
+    /위험\s*(없|없는|제로|0)/iu,
+    /안전\s*보장/iu
+  ]
+});
+
+export const krSuperlativeClaimRule = createPatternRule({
+  ...superlativeClaimRuleConfig,
+  patterns: [
+    ...superlativeClaimRuleConfig.patterns,
+    /국내\s*최고/iu,
+    /최고의\s*(시술|치료|병원|의원|클리닉)/iu,
+    /\b1\s*위\b/iu,
+    /유일(한)?\s*(시술|치료|병원|의원|클리닉)/iu,
+    /최상위\s*(실력|의료진|클리닉)/iu
+  ]
+});
+
+export const krBeforeAfterReferenceRule = createPatternRule({
+  ...beforeAfterReferenceRuleConfig,
+  patterns: [
+    ...beforeAfterReferenceRuleConfig.patterns,
+    /전후\s*(사진|비교|사례)/iu,
+    /비포\s*애프터/iu,
+    /시술\s*결과\s*(사진|사례)/iu,
+    /치료\s*결과\s*(사진|사례)/iu
+  ]
+});
+
+export const krPatientTestimonialReferenceRule = createPatternRule({
+  ...patientTestimonialReferenceRuleConfig,
+  patterns: [
+    ...patientTestimonialReferenceRuleConfig.patterns,
+    /환자\s*후기/iu,
+    /치료\s*후기/iu,
+    /시술\s*후기/iu,
+    /리얼\s*후기/iu,
+    /고객\s*후기/iu
+  ]
+});
+
+export const krPriceDiscountPromotionRule = createPatternRule({
+  ...priceDiscountPromotionRuleConfig,
+  patterns: [
+    ...priceDiscountPromotionRuleConfig.patterns,
+    /할인/iu,
+    /특가/iu,
+    /이벤트\s*(가격|가|중)/iu,
+    /무료\s*상담/iu,
+    /선착순\s*(이벤트|할인|혜택)/iu
   ]
 });
 
@@ -216,6 +295,16 @@ export const defaultComplianceRules = [
   unreviewedMedicalPublishRule
 ] as const satisfies readonly ComplianceRule[];
 
+export const krMedicalComplianceRules = [
+  krGuaranteedResultClaimRule,
+  krAbsoluteSafetyClaimRule,
+  krSuperlativeClaimRule,
+  krBeforeAfterReferenceRule,
+  krPatientTestimonialReferenceRule,
+  krPriceDiscountPromotionRule,
+  unreviewedMedicalPublishRule
+] as const satisfies readonly ComplianceRule[];
+
 export const complianceRulePacks = {
   global: {
     id: "global",
@@ -225,7 +314,7 @@ export const complianceRulePacks = {
   "kr-medical": {
     id: "kr-medical",
     localePattern: /(^ko\b|-kr$)/iu,
-    rules: defaultComplianceRules
+    rules: krMedicalComplianceRules
   }
 } as const satisfies Record<ComplianceRulePackId, ComplianceRulePack>;
 
@@ -235,15 +324,15 @@ export function evaluateCompliance(
 ): ComplianceReviewReport {
   const parsedInput = ComplianceReviewInputSchema.parse(input);
   const evaluatedAt = options.evaluatedAt ?? new Date().toISOString();
-  const rules =
-    options.rules ??
-    complianceRulePacks[options.rulePackId ?? selectComplianceRulePackId(parsedInput)].rules;
+  const rulePackId = options.rulePackId ?? selectComplianceRulePackId(parsedInput);
+  const rules = options.rules ?? complianceRulePacks[rulePackId].rules;
   const flags = rules.flatMap((rule) => rule.evaluate(parsedInput));
   const overallRiskLevel = getHighestRiskLevel(flags);
 
   return ComplianceReviewReportSchema.parse({
     input: parsedInput,
     flags,
+    rulePackId,
     status: getReviewStatus(overallRiskLevel),
     overallRiskLevel,
     publishPolicy: "draft_only",

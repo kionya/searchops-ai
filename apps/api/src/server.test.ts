@@ -1148,7 +1148,8 @@ describe("api foundation", () => {
         status: "blocked",
         overallRiskLevel: "critical",
         generatedBy: "deterministic",
-        publishPolicy: "draft_only"
+        publishPolicy: "draft_only",
+        rulePackId: "kr-medical"
       }
     });
     expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId))
@@ -1160,6 +1161,36 @@ describe("api foundation", () => {
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().complianceFlags).toHaveLength(3);
+  });
+
+  it("applies KR medical compliance refinements through the API", async () => {
+    const server = buildComplianceTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/compliance-reviews",
+      payload: {
+        siteId: "site_seed",
+        subjectType: "page_copy",
+        subjectId: "page_korean",
+        url: "https://exampleclinic.com/services/laser",
+        locale: "ko-KR",
+        title: "레이저 시술 안내",
+        text: "이 의료 클리닉은 부작용 없는 레이저 치료와 선착순 할인 이벤트를 안내합니다.",
+        publishState: "draft",
+        source: "fixture",
+        evaluatedAt: "2026-05-24T00:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      report: {
+        rulePackId: "kr-medical",
+        status: "blocked"
+      }
+    });
+    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId))
+      .toEqual(["ABSOLUTE_SAFETY_CLAIM", "PRICE_DISCOUNT_PROMOTION"]);
   });
 
   it("lists and updates persisted compliance flags", async () => {
@@ -1232,6 +1263,76 @@ describe("api foundation", () => {
     ]);
   });
 
+  it("rechecks revised compliance copy and resolves linked work orders", async () => {
+    const server = buildComplianceTestServer();
+    await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/work-order"
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/recheck",
+      payload: {
+        evaluatedAt: "2026-05-24T01:00:00.000Z",
+        text: "This clinic explains consultation steps, possible discomfort, and individual variation.",
+        url: "https://exampleclinic.com/services/botox"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      resolved: true,
+      complianceFlag: {
+        id: "compliance_flag_seed",
+        status: "resolved",
+        workOrderId: "wo_0001"
+      },
+      report: {
+        flags: [],
+        status: "clear"
+      },
+      workOrder: {
+        id: "wo_0001",
+        status: "done"
+      }
+    });
+  });
+
+  it("keeps compliance flags actionable when recheck still finds the same rule", async () => {
+    const server = buildComplianceTestServer();
+    await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/work-order"
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/recheck",
+      payload: {
+        text: "This clinic treatment is completely safe for every patient.",
+        url: "https://exampleclinic.com/services/botox"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      resolved: false,
+      complianceFlag: {
+        id: "compliance_flag_seed",
+        status: "in_review",
+        ruleId: "ABSOLUTE_SAFETY_CLAIM"
+      },
+      report: {
+        status: "blocked"
+      },
+      workOrder: {
+        id: "wo_0001",
+        status: "open"
+      }
+    });
+  });
+
   it("validates compliance review route scope and missing resources", async () => {
     const server = buildComplianceTestServer();
     const siteMismatchResponse = await server.inject({
@@ -1261,6 +1362,21 @@ describe("api foundation", () => {
       method: "POST",
       url: "/compliance-flags/compliance_flag_missing/work-order"
     });
+    const outOfScopeRecheckResponse = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/recheck",
+      payload: {
+        text: "This clinic explains risks and consultation steps.",
+        url: "https://example.net/services/botox"
+      }
+    });
+    const missingRecheckResponse = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_missing/recheck",
+      payload: {
+        text: "This clinic explains risks and consultation steps."
+      }
+    });
 
     expect(siteMismatchResponse.statusCode).toBe(400);
     expect(siteMismatchResponse.json().message).toContain("siteId");
@@ -1268,6 +1384,9 @@ describe("api foundation", () => {
     expect(outOfScopeResponse.json().message).toContain("site domain");
     expect(missingSiteResponse.statusCode).toBe(404);
     expect(missingFlagResponse.statusCode).toBe(404);
+    expect(outOfScopeRecheckResponse.statusCode).toBe(400);
+    expect(outOfScopeRecheckResponse.json().message).toContain("site domain");
+    expect(missingRecheckResponse.statusCode).toBe(404);
   });
 
   it("creates deterministic schema recommendations and persists them", async () => {

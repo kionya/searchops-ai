@@ -107,14 +107,16 @@ Phase 9 starts with deterministic GEO visibility contracts and scoring. The `pac
 `apps/web` owns the dashboard surface for GEO visibility. It may read report history, create deterministic fixture-based reports, and convert reports to work orders through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
 
 ## Phase 10 Compliance Engine Boundary
-Phase 10 starts with deterministic compliance review contracts and medical advertising risk rules. The `packages/compliance` package owns rule interfaces, default rule ordering, phrase/risk checks, draft-only publish safeguards, and report status classification from typed review input.
+Phase 10 starts with deterministic compliance review contracts and medical advertising risk rules. The `packages/compliance` package owns rule interfaces, default rule ordering, rule pack selection, phrase/risk checks, draft-only publish safeguards, and report status classification from typed review input.
 
 `packages/compliance` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed review input, returns Zod-validated compliance reports and flag drafts, and remains independently unit testable.
 
-`apps/api` owns the HTTP boundary for compliance review creation, flag history, status updates, and ComplianceFlag to WorkOrder conversion. It may call deterministic `packages/compliance` and `packages/workorders`, validate requests and responses through `packages/types`, scope review URLs to the registered site domain/subdomains, and persist through repository ports.
+`apps/api` owns the HTTP boundary for compliance review creation, flag history, status updates, ComplianceFlag to WorkOrder conversion, and revised-copy rechecks. It may call deterministic `packages/compliance` and `packages/workorders`, validate requests and responses through `packages/types`, scope review URLs to the registered site domain/subdomains, and persist through repository ports.
 
 `packages/db` owns ComplianceFlag persistence. Flags are review history rows with deterministic evidence, recommendations, replacement suggestions, and optional work order links.
 
-`apps/web` owns the dashboard surface for compliance review history. It may run fixture-backed reviews, update flag statuses, and create legal-review work orders through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+`apps/web` owns the dashboard surface for compliance review history. It may run fixture-backed reviews, update flag statuses, create legal-review work orders, and recheck revised fixture copy through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+
+`kr-medical` rule pack refinements stay inside `packages/compliance`. They extend the shared rule IDs with Korean medical advertising phrases for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
 
 Medical content must stay draft-only until compliance review is complete. No Phase 10 layer may publish to a CMS or call LLM providers for risk detection.

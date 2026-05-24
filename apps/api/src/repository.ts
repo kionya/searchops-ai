@@ -88,6 +88,19 @@ export interface CreateComplianceFlagWorkOrderResult {
   workOrder: WorkOrder;
 }
 
+export interface RecheckComplianceFlagInput {
+  matchingFlag: ComplianceReviewReport["flags"][number] | null;
+  report: ComplianceReviewReport;
+  resolved: boolean;
+}
+
+export interface RecheckComplianceFlagResult {
+  complianceFlag: ComplianceFlag;
+  report: ComplianceReviewReport;
+  resolved: boolean;
+  workOrder: WorkOrder | null;
+}
+
 export interface RecheckSchemaRecommendationInput {
   observedTypes: readonly SchemaJsonLdType[];
   resolved: boolean;
@@ -147,6 +160,10 @@ export interface SearchOpsRepository {
     flagId: string,
     input: CreateComplianceFlagWorkOrderInput,
   ): Promise<CreateComplianceFlagWorkOrderResult | null>;
+  recheckComplianceFlag(
+    flagId: string,
+    input: RecheckComplianceFlagInput,
+  ): Promise<RecheckComplianceFlagResult | null>;
   createSchemaRecommendations(
     siteId: string,
     input: CreateSchemaRecommendationsInput,
@@ -638,6 +655,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           url: input.report.input.url,
           riskLevel: flagDraft.riskLevel,
           status: flagDraft.status,
+          title: flagDraft.title,
           message: flagDraft.message,
           evidence: flagDraft.evidence,
           recommendation: flagDraft.recommendation,
@@ -743,6 +761,57 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       return {
         complianceFlag: updatedFlag,
         workOrder
+      };
+    },
+
+    async recheckComplianceFlag(flagId, input) {
+      const flag = complianceFlags.get(flagId);
+      if (!flag) {
+        return null;
+      }
+
+      const timestamp = nowIso();
+      const matchingFlag = input.matchingFlag;
+      const updatedFlag: ComplianceFlag = {
+        ...flag,
+        ...(matchingFlag === null
+          ? {}
+          : {
+              evidence: matchingFlag.evidence,
+              generatedBy: matchingFlag.generatedBy,
+              message: matchingFlag.message,
+              recommendation: matchingFlag.recommendation,
+              replacementSuggestion: matchingFlag.replacementSuggestion,
+              riskLevel: matchingFlag.riskLevel,
+              ruleId: matchingFlag.ruleId,
+              title: matchingFlag.title
+            }),
+        status: input.resolved ? "resolved" : flag.workOrderId === null ? "open" : "in_review",
+        updatedAt: timestamp
+      };
+      complianceFlags.set(flagId, updatedFlag);
+
+      const workOrder =
+        flag.workOrderId === null || flag.workOrderId === undefined
+          ? null
+          : workOrders.get(flag.workOrderId) ?? null;
+      const updatedWorkOrder: WorkOrder | null =
+        workOrder === null
+          ? null
+          : {
+              ...workOrder,
+              status: input.resolved ? "done" : workOrder.status === "done" ? "in_review" : workOrder.status,
+              updatedAt: timestamp
+            };
+      if (updatedWorkOrder !== null) {
+        workOrders.set(updatedWorkOrder.id, updatedWorkOrder);
+      }
+
+      return {
+        complianceFlag: updatedFlag,
+        report: input.report,
+        resolved: input.resolved,
+        workOrder: updatedWorkOrder
       };
     },
 

@@ -36,6 +36,7 @@ records through shared Zod contracts in `packages/types`.
 `ComplianceReviewReport` returns:
 
 - deterministic `ComplianceFlagDraft[]`
+- `rulePackId`: `global` or `kr-medical`
 - `status`: `clear`, `needs_review`, or `blocked`
 - `overallRiskLevel`: `critical`, `high`, `medium`, `low`, or `null`
 - `publishPolicy`: always `draft_only`
@@ -62,10 +63,28 @@ Each flag includes:
 - `PRICE_DISCOUNT_PROMOTION`: discount, limited-time, event-price, or free-consultation promotions.
 - `UNREVIEWED_MEDICAL_PUBLISH`: medical content outside draft state before compliance approval.
 
+## Rule Packs
+
+- `global`: deterministic English/global baseline medical advertising checks.
+- `kr-medical`: Korean medical advertising refinements for Korean locale medical content.
+
+The `kr-medical` pack keeps the same rule IDs as the global baseline but adds Korean-market
+patterns for guaranteed outcomes, absolute safety, superlatives, before-and-after references,
+patient testimonials, and discount/event promotions. Rule pack selection is deterministic from
+locale plus medical context, and callers can pin a rule pack in package-level tests.
+
+## Recheck Workflow
+
+`POST /compliance-flags/:complianceFlagId/recheck` evaluates revised draft text against the same
+deterministic rule engine. If the original flag's `ruleId` is no longer present, the flag is marked
+`resolved` and its linked WorkOrder is marked `done`. If the same rule is still present, the flag
+stays actionable as `open` or `in_review`, and a completed WorkOrder is moved back to `in_review`.
+
 ## Current Limitations
 
 - Contracts and deterministic package-level rules are implemented first.
 - API persistence stores ComplianceFlag history from deterministic reviews.
-- Dashboard review workflow can run fixture reviews, update flag status, and create WorkOrders through the API when configured.
+- Dashboard review workflow can run fixture reviews, update flag status, create WorkOrders, and run deterministic rechecks through the API when configured.
 - ComplianceFlag to WorkOrder conversion is deterministic and legal-owned.
-- Rule pack selection is deterministic. The initial packs are `global` and `kr-medical`; they share the default Phase 10 rules until later legal review adds jurisdiction-specific refinements.
+- Rule pack selection is deterministic. The `kr-medical` pack now includes Korean-market medical advertising refinements.
+- Compliance reviews and rechecks do not publish content or push changes to a CMS.

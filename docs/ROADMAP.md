@@ -117,11 +117,12 @@ Phase 10 foundation status:
 - Compliance dashboard history, fixture review action, status updates, and WorkOrder conversion are connected with API data plus deterministic fixture fallback.
 - Compliance flags can be converted into idempotent legal-owned WorkOrders through deterministic templates.
 - Deterministic rule pack selection is available for `global` and `kr-medical` packs.
+- `kr-medical` adds Korean medical advertising refinements for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
+- Revised compliance copy can be rechecked through the API and dashboard; resolved flags close linked WorkOrders, while still-failing rules keep work open.
 
 Phase 10 remaining limitations:
-- `global` and `kr-medical` currently share the default Phase 10 rule definitions until legal review provides jurisdiction-specific refinements.
 - Compliance reviews do not publish content or push changes to a CMS.
-- Automatic re-review of revised CMS drafts remains future scope.
+- CMS-origin automatic re-review after live CMS edits remains future scope.
 
 ## Phase 11. Production hardening
 Harden security, observability, queues, retries, rate limits, deployment, migrations, backups, and operational runbooks.

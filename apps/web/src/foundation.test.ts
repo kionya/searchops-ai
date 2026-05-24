@@ -29,10 +29,12 @@ import {
   demoComplianceFlags,
   formatComplianceRisk,
   getComplianceReviewCreateFeedback,
+  getComplianceRecheckFeedback,
   getComplianceRiskTone,
   getComplianceStatusUpdateFeedback,
   getComplianceWorkOrderFeedback,
   loadComplianceDashboard,
+  recheckComplianceFlagWithFixtureRevision,
   summarizeComplianceDashboard,
   updateComplianceFlagStatus
 } from "./compliance-dashboard";
@@ -1058,6 +1060,7 @@ describe("web foundation", () => {
             },
             overallRiskLevel: "high",
             publishPolicy: "draft_only",
+            rulePackId: "kr-medical",
             status: "blocked"
           }
         });
@@ -1152,6 +1155,94 @@ describe("web foundation", () => {
     expect(getComplianceStatusUpdateFeedback("updated", complianceFlag.id)?.tone).toBe("success");
     expect(getComplianceWorkOrderFeedback("converted", "wo_compliance", complianceFlag.id)?.tone)
       .toBe("success");
+  });
+
+  it("rechecks compliance flags through the API response contract", async () => {
+    const complianceFlag = demoComplianceFlags[0];
+    if (!complianceFlag) {
+      throw new Error("Compliance flag fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/compliance-flags/${complianceFlag.id}/recheck`,
+        );
+        expect(init?.method).toBe("POST");
+
+        return Response.json({
+          complianceFlag: {
+            ...complianceFlag,
+            status: "resolved",
+            workOrderId: "wo_compliance"
+          },
+          report: {
+            evaluatedAt: "2026-05-24T01:00:00.000Z",
+            flags: [],
+            generatedBy: "deterministic",
+            input: {
+              industry: "medical",
+              locale: "ko-KR",
+              publishState: "draft",
+              siteId: "site_1",
+              source: "work_order",
+              subjectId: complianceFlag.subjectId,
+              subjectType: complianceFlag.subjectType,
+              text: "This clinic explains individual variation without promising outcomes.",
+              title: complianceFlag.title,
+              url: complianceFlag.url
+            },
+            overallRiskLevel: null,
+            publishPolicy: "draft_only",
+            rulePackId: "kr-medical",
+            status: "clear"
+          },
+          resolved: true,
+          workOrder: {
+            id: "wo_compliance",
+            organizationId: complianceFlag.organizationId,
+            siteId: complianceFlag.siteId,
+            seoIssueId: null,
+            schemaRecommendationId: null,
+            geoVisibilityReportId: null,
+            status: "done",
+            priority: "p1",
+            title: "/services/botox Absolute safety claim",
+            description: null,
+            problem: complianceFlag.message,
+            evidence: {
+              url: "https://example-clinic.com/services/botox",
+              observedValue: complianceFlag.evidence?.observedValue ?? "",
+              expectedValue: complianceFlag.evidence?.expectedValue ?? "",
+              sourceField: complianceFlag.evidence?.sourceField ?? "text"
+            },
+            impact: "Medical advertising risk requires legal review before publication.",
+            instructions: ["Replace absolute safety language with balanced wording."],
+            ownerType: "legal",
+            acceptanceCriteria: ["Compliance flag is approved or resolved."],
+            verificationMethod: "Run compliance review again.",
+            estimatedEffort: "m",
+            relatedIssues: [],
+            assignedTo: null,
+            dueDate: null,
+            createdAt: "2026-05-24T00:00:00.000Z",
+            updatedAt: "2026-05-24T01:00:00.000Z"
+          }
+        });
+      }),
+    );
+
+    await expect(recheckComplianceFlagWithFixtureRevision(complianceFlag.id)).resolves
+      .toMatchObject({
+        flagId: complianceFlag.id,
+        resolved: true,
+        source: "api",
+        status: "resolved",
+        workOrderStatus: "done"
+      });
+    expect(getComplianceRecheckFeedback("resolved", complianceFlag.id)?.tone).toBe("success");
   });
 
   it("calculates deterministic site overview KPIs", () => {

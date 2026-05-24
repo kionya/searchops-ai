@@ -570,6 +570,47 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       });
     },
 
+    async recheckComplianceFlag(flagId, input) {
+      return prisma.$transaction(async (transaction) => {
+        const flag = await transaction.complianceFlag.findUnique({
+          include: {
+            workOrder: true
+          },
+          where: { id: flagId }
+        });
+        if (flag === null) {
+          return null;
+        }
+
+        const complianceFlag = await transaction.complianceFlag.update({
+          data: buildComplianceFlagRecheckUpdateArgs(flag, input.matchingFlag, input.resolved),
+          where: { id: flagId }
+        });
+        const workOrder =
+          flag.workOrder === null
+            ? null
+            : toWorkOrder(
+                input.resolved || flag.workOrder.status === "done"
+                  ? await transaction.workOrder.update({
+                      data: {
+                        status: input.resolved ? "done" : "in_review"
+                      },
+                      where: {
+                        id: flag.workOrder.id
+                      }
+                    })
+                  : flag.workOrder,
+              );
+
+        return {
+          complianceFlag: toComplianceFlag(complianceFlag),
+          report: input.report,
+          resolved: input.resolved,
+          workOrder
+        };
+      });
+    },
+
     async createSchemaRecommendations(siteId, input) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -926,6 +967,29 @@ function buildComplianceFlagWorkOrderData(draft: WorkOrderDraft) {
     relatedIssues: toJson(draft.relatedIssues),
     title: draft.title,
     verificationMethod: draft.verificationMethod
+  };
+}
+
+function buildComplianceFlagRecheckUpdateArgs(
+  flag: ComplianceFlagWithWorkOrder,
+  matchingFlag: ComplianceReviewReport["flags"][number] | null,
+  resolved: boolean,
+): Prisma.ComplianceFlagUncheckedUpdateInput {
+  const status = resolved ? "resolved" : flag.workOrderId === null ? "open" : "in_review";
+  if (matchingFlag === null) {
+    return { status };
+  }
+
+  return {
+    evidence: toJson(matchingFlag.evidence),
+    generatedBy: matchingFlag.generatedBy,
+    message: matchingFlag.message,
+    recommendation: matchingFlag.recommendation,
+    replacementSuggestion: matchingFlag.replacementSuggestion,
+    riskLevel: matchingFlag.riskLevel,
+    ruleId: matchingFlag.ruleId,
+    status,
+    title: matchingFlag.title
   };
 }
 

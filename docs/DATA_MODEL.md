@@ -96,7 +96,7 @@ The resulting work order stores deterministic evidence derived from the report r
 ## Phase 10 Compliance Contracts
 ComplianceReviewInput is the typed review request for medical advertising checks. It identifies the source subject, optional URL, locale, industry, title, text, publish state, and source system.
 
-ComplianceReviewReport is deterministic output from `packages/compliance`. It stores flag drafts, overall risk, review status, `draft_only` publish policy, and `deterministic` generation mode.
+ComplianceReviewReport is deterministic output from `packages/compliance`. It stores flag drafts, selected rule pack, overall risk, review status, `draft_only` publish policy, and `deterministic` generation mode.
 
 ComplianceFlagDraft is the deterministic package-level output. API and DB layers persist it as ComplianceFlag rows, drive dashboard review workflows, and generate WorkOrders. Existing ComplianceFlag persistence remains backward-compatible while optional rule, subject, evidence, recommendation, and replacement fields are modeled in shared types.
 
@@ -109,4 +109,4 @@ ComplianceFlag rows now store deterministic medical advertising review history:
 - `workOrderId` optionally links the flag to a legal-review WorkOrder.
 - `updatedAt` records status/work order changes.
 
-ComplianceFlag rows are history records. A new compliance review can create new flags from the same source text so reviewers can see what was flagged at each review point. Status updates and work order conversion happen on a specific persisted flag.
+ComplianceFlag rows are history records. A new compliance review can create new flags from the same source text so reviewers can see what was flagged at each review point. Status updates, work order conversion, and revised-copy rechecks happen on a specific persisted flag.

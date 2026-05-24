@@ -18,7 +18,7 @@ The ContentBrief API creates deterministic draft-only content briefs from Keywor
 The AEO readiness API computes deterministic readiness reports from keyword and page signals, persists them, and reads report history for dashboard use.
 
 ## Phase 10 API
-The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, and converts open flags into legal-review WorkOrders. It does not call LLM providers, live CMS APIs, or publish medical content.
+The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, converts open flags into legal-review WorkOrders, and rechecks revised draft copy. It does not call LLM providers, live CMS APIs, or publish medical content.
 
 ## Routes
 - `GET /health`
@@ -48,6 +48,7 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 - `GET /sites/:siteId/compliance-flags`
 - `PATCH /compliance-flags/:complianceFlagId`
 - `POST /compliance-flags/:complianceFlagId/work-order`
+- `POST /compliance-flags/:complianceFlagId/recheck`
 
 ## Contract Rule
 Public APIs must use Zod schemas from `packages/types` or schemas colocated with the API boundary and exported through shared types when reused.
@@ -133,6 +134,16 @@ If `url` is present, it must stay within the site domain or subdomains. The API 
 `PATCH /compliance-flags/:complianceFlagId` accepts `UpdateComplianceFlagRequest` for review status updates such as `approved`, `dismissed`, or `resolved`.
 
 `POST /compliance-flags/:complianceFlagId/work-order` creates or updates an idempotent legal-review work order and links it back to the compliance flag through `workOrderId`.
+
+`POST /compliance-flags/:complianceFlagId/recheck` accepts `RecheckComplianceFlagRequest`:
+- `text` is the revised draft copy to review.
+- `url`, `title`, `locale`, `industry`, `publishState`, `source`, and `evaluatedAt` are optional overrides.
+
+The API rebuilds the review input from the flag and site, validates any URL override against the site domain/subdomains, evaluates deterministic compliance rules, and returns `RecheckComplianceFlagResponse` with:
+- `report`, the deterministic recheck report including selected `rulePackId`.
+- `resolved`, true when the original flag's `ruleId` no longer appears.
+- `complianceFlag`, updated to `resolved`, `open`, or `in_review`.
+- `workOrder`, the linked WorkOrder updated to `done` when resolved or reopened to `in_review` if a completed task still fails.
 
 Compliance APIs preserve `draft_only` policy and never publish medical content.
 

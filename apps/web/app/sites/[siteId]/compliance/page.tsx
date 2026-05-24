@@ -22,6 +22,7 @@ import {
   formatComplianceRisk,
   getComplianceReviewCreateFeedback,
   getComplianceRiskTone,
+  getComplianceRecheckFeedback,
   getComplianceStatusUpdateFeedback,
   getComplianceWorkOrderFeedback,
   loadComplianceDashboard,
@@ -31,6 +32,7 @@ import {
 import {
   createComplianceReviewAction,
   createComplianceWorkOrderAction,
+  recheckComplianceFlagAction,
   updateComplianceFlagStatusAction
 } from "./actions";
 
@@ -41,6 +43,7 @@ interface CompliancePageProps {
   readonly searchParams: Promise<{
     readonly flagCount?: string;
     readonly flagId?: string;
+    readonly recheck?: string;
     readonly review?: string;
     readonly statusUpdate?: string;
     readonly workOrder?: string;
@@ -67,6 +70,10 @@ export default async function CompliancePage({ params, searchParams }: Complianc
     actionSearchParams.statusUpdate,
     actionSearchParams.flagId,
   );
+  const recheckFeedback = getComplianceRecheckFeedback(
+    actionSearchParams.recheck,
+    actionSearchParams.flagId,
+  );
 
   return (
     <section aria-labelledby="compliance-heading">
@@ -84,6 +91,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
       <ComplianceCreatePanel
         createFeedback={createFeedback}
         siteId={siteId}
+        recheckFeedback={recheckFeedback}
         statusFeedback={statusFeedback}
         workOrderFeedback={workOrderFeedback}
       />
@@ -151,6 +159,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                     siteId,
                     flag.id,
                   );
+                  const recheckAction = recheckComplianceFlagAction.bind(null, siteId, flag.id);
 
                   return (
                     <tr key={flag.id}>
@@ -190,6 +199,11 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                               Dismiss
                             </button>
                           </form>
+                          <form action={recheckAction}>
+                            <button style={secondaryButtonStyle} type="submit">
+                              Recheck
+                            </button>
+                          </form>
                         </div>
                       </td>
                       <td style={tdStyle}>
@@ -219,11 +233,13 @@ export default async function CompliancePage({ params, searchParams }: Complianc
 
 function ComplianceCreatePanel({
   createFeedback,
+  recheckFeedback,
   siteId,
   statusFeedback,
   workOrderFeedback
 }: {
   readonly createFeedback: ReturnType<typeof getComplianceReviewCreateFeedback>;
+  readonly recheckFeedback: ReturnType<typeof getComplianceRecheckFeedback>;
   readonly siteId: string;
   readonly statusFeedback: ReturnType<typeof getComplianceStatusUpdateFeedback>;
   readonly workOrderFeedback: ReturnType<typeof getComplianceWorkOrderFeedback>;
@@ -237,7 +253,7 @@ function ComplianceCreatePanel({
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
           Store deterministic medical ad flags from fixture review copy.
         </p>
-        {[createFeedback, workOrderFeedback, statusFeedback].map((feedback) =>
+        {[createFeedback, workOrderFeedback, statusFeedback, recheckFeedback].map((feedback) =>
           feedback ? (
             <p key={feedback.message} style={{ ...feedbackStyle[feedback.tone], margin: "10px 0 0" }}>
               {feedback.message}
