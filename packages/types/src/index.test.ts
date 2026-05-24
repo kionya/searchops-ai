@@ -19,6 +19,7 @@ import {
   CreateCrawlRunRequestSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
+  CreateGeoVisibilityReportWorkOrderResponseSchema,
   CreateGeoVisibilityReportRequestSchema,
   CreateGeoVisibilityReportResponseSchema,
   ConnectorSyncRunDetailResponseSchema,
@@ -967,6 +968,46 @@ describe("types foundation", () => {
     });
     expect(GeoVisibilityReportListResponseSchema.parse({ reports: [record] }).reports)
       .toHaveLength(1);
+    expect(
+      CreateGeoVisibilityReportWorkOrderResponseSchema.parse({
+        report: record,
+        workOrder: {
+          id: "wo_geo_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          seoIssueId: null,
+          schemaRecommendationId: null,
+          geoVisibilityReportId: "geo_report_1",
+          status: "open",
+          priority: "p2",
+          title: "Example Clinic GEO visibility improvement",
+          description: null,
+          problem: "GEO visibility is visible with a 72/100 score.",
+          evidence: {
+            url: "https://example.com/",
+            observedValue: "visible score 72; mention 100%; citation 100%",
+            expectedValue: "strong score >= 75",
+            sourceField: "geoVisibilityReport"
+          },
+          impact: "AI answer engines may cite competitors instead of owned pages.",
+          instructions: ["Improve weak GEO checks."],
+          ownerType: "marketer",
+          acceptanceCriteria: ["Next GEO visibility report is strong."],
+          verificationMethod: "Create a new GEO visibility report and compare rates.",
+          estimatedEffort: "m",
+          relatedIssues: [],
+          assignedTo: null,
+          dueDate: null,
+          createdAt: "2026-05-24T00:00:00.000Z",
+          updatedAt: "2026-05-24T00:00:00.000Z"
+        }
+      }),
+    ).toMatchObject({
+      workOrder: {
+        geoVisibilityReportId: "geo_report_1",
+        ownerType: "marketer"
+      }
+    });
     expect(() =>
       GeoVisibilityReportSchema.parse({
         ...visibilityReport,
@@ -1306,6 +1347,7 @@ describe("types foundation", () => {
         organizationId: "org_1",
         siteId: "site_1",
         seoIssueId: "issue_1",
+        geoVisibilityReportId: null,
         status: "open",
         priority: "p1",
         title: "/services missing H1 fix",
@@ -1338,6 +1380,7 @@ describe("types foundation", () => {
       organizationId: "org_1",
       siteId: "site_1",
       seoIssueId: null,
+      geoVisibilityReportId: null,
       status: "open",
       priority: "p2",
       title: "/services meta description fix",

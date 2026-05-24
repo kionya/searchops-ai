@@ -87,3 +87,8 @@ GeoVisibilityReport records store deterministic AI visibility monitoring snapsho
 - `evaluatedAt` records the scoring timestamp, while `createdAt` records persistence time.
 
 Reports are history rows rather than idempotent replacements. A new run creates a new report so GEO visibility can be compared over time. Observation collection is manual or fixture-driven in Phase 9; live AI provider collection remains future connector scope.
+
+## Phase 9 GEO WorkOrder Mapping
+WorkOrder records may link to one GeoVisibilityReport through `geoVisibilityReportId`. The field is nullable so SEO issue and schema recommendation work orders remain unchanged, and unique so converting the same GEO report is idempotent.
+
+The resulting work order stores deterministic evidence derived from the report rates and checks. It does not store AI-generated analysis, does not publish content, and does not change the underlying report history row.

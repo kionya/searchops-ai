@@ -420,6 +420,46 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return reports.map(toGeoVisibilityReportRecord);
     },
 
+    async getGeoVisibilityReport(id) {
+      return toNullableGeoVisibilityReportRecord(
+        await prisma.geoVisibilityReport.findUnique({
+          where: { id }
+        }),
+      );
+    },
+
+    async createGeoVisibilityReportWorkOrder(reportId, input) {
+      return prisma.$transaction(async (transaction) => {
+        const report = await transaction.geoVisibilityReport.findUnique({
+          include: {
+            site: {
+              select: {
+                organizationId: true
+              }
+            }
+          },
+          where: { id: reportId }
+        });
+        if (report === null) {
+          return null;
+        }
+
+        const workOrder = await transaction.workOrder.upsert(
+          buildGeoVisibilityReportWorkOrderUpsertArgs(
+            reportId,
+            report.site.organizationId,
+            report.siteId,
+            input.draft,
+          ),
+        );
+
+        return {
+          report: toGeoVisibilityReportRecord(report),
+          workOrder: toWorkOrder(workOrder)
+        };
+      });
+    },
+
     async createSchemaRecommendations(siteId, input) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -740,6 +780,7 @@ function buildSchemaRecommendationWorkOrderUpsertArgs(
     create: {
       ...data,
       description: null,
+      geoVisibilityReportId: null,
       organizationId,
       schemaRecommendationId: recommendationId,
       seoIssueId: null,
@@ -749,6 +790,44 @@ function buildSchemaRecommendationWorkOrderUpsertArgs(
     update: data,
     where: {
       schemaRecommendationId: recommendationId
+    }
+  };
+}
+
+function buildGeoVisibilityReportWorkOrderUpsertArgs(
+  reportId: string,
+  organizationId: string,
+  siteId: string,
+  draft: WorkOrderDraft,
+) {
+  const data = {
+    acceptanceCriteria: toJson(draft.acceptanceCriteria),
+    estimatedEffort: draft.estimatedEffort,
+    evidence: toJson(draft.evidence),
+    impact: draft.impact,
+    instructions: toJson(draft.instructions),
+    ownerType: draft.ownerType,
+    priority: draft.priority,
+    problem: draft.problem,
+    relatedIssues: toJson(draft.relatedIssues),
+    title: draft.title,
+    verificationMethod: draft.verificationMethod
+  };
+
+  return {
+    create: {
+      ...data,
+      description: null,
+      geoVisibilityReportId: reportId,
+      organizationId,
+      schemaRecommendationId: null,
+      seoIssueId: null,
+      siteId,
+      status: "open"
+    },
+    update: data,
+    where: {
+      geoVisibilityReportId: reportId
     }
   };
 }
@@ -1003,6 +1082,12 @@ function toNullableSchemaRecommendationRecord(
   return record === null ? null : toSchemaRecommendationRecord(record);
 }
 
+function toNullableGeoVisibilityReportRecord(
+  record: GeoVisibilityReportRecordResult,
+): GeoVisibilityReportRecord | null {
+  return record === null ? null : toGeoVisibilityReportRecord(record);
+}
+
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {
   return WorkOrderSchema.parse({
     id: record.id,
@@ -1010,6 +1095,7 @@ function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {
     siteId: record.siteId,
     seoIssueId: record.seoIssueId,
     schemaRecommendationId: record.schemaRecommendationId,
+    geoVisibilityReportId: record.geoVisibilityReportId,
     status: record.status,
     priority: record.priority,
     title: record.title,

@@ -21,11 +21,12 @@ import {
   formatGeoStatus,
   getGeoVisibilityCreateFeedback,
   getGeoVisibilityStatusTone,
+  getGeoVisibilityWorkOrderFeedback,
   loadGeoVisibilityDashboard,
   summarizeGeoVisibilityDashboard,
   type GeoVisibilityTone
 } from "../../../../src/geo-visibility-dashboard";
-import { createGeoVisibilityReportAction } from "./actions";
+import { createGeoVisibilityReportAction, createGeoWorkOrderAction } from "./actions";
 
 interface GeoPageProps {
   readonly params: Promise<{
@@ -34,6 +35,8 @@ interface GeoPageProps {
   readonly searchParams: Promise<{
     readonly geo?: string;
     readonly reportId?: string;
+    readonly workOrder?: string;
+    readonly workOrderId?: string;
   }>;
 }
 
@@ -45,6 +48,11 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const summary = summarizeGeoVisibilityDashboard(dashboard);
   const createFeedback = getGeoVisibilityCreateFeedback(
     createSearchParams.geo,
+    createSearchParams.reportId,
+  );
+  const workOrderFeedback = getGeoVisibilityWorkOrderFeedback(
+    createSearchParams.workOrder,
+    createSearchParams.workOrderId,
     createSearchParams.reportId,
   );
 
@@ -61,7 +69,11 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
         <MetricCard label="Citation rate" value={summary.averageCitationRate} />
         <MetricCard label="Weak or missing" value={String(summary.weakOrMissing)} />
       </div>
-      <GeoCreatePanel siteId={siteId} createFeedback={createFeedback} />
+      <GeoCreatePanel
+        siteId={siteId}
+        createFeedback={createFeedback}
+        workOrderFeedback={workOrderFeedback}
+      />
       <section aria-label="GEO visibility reports" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -98,37 +110,49 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                 <th style={thStyle}>Queries</th>
                 <th style={thStyle}>Providers</th>
                 <th style={thStyle}>Competitor risk</th>
+                <th style={thStyle}>Work order</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, color: "#64748b" }}>
+                  <td colSpan={8} style={{ ...tdStyle, color: "#64748b" }}>
                     No GEO visibility reports yet.
                   </td>
                 </tr>
               ) : (
-                dashboard.reports.map((report) => (
-                  <tr key={report.id}>
-                    <td style={tdStyle}>
-                      <strong>{report.brandName}</strong>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
-                        {report.id} - {formatGeoDate(report.evaluatedAt)}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <TonePill
-                        label={`${formatGeoStatus(report.status)} ${report.score}`}
-                        tone={getGeoVisibilityStatusTone(report.status)}
-                      />
-                    </td>
-                    <td style={tdStyle}>{report.mentionRate}%</td>
-                    <td style={tdStyle}>{report.citationRate}%</td>
-                    <td style={tdStyle}>{report.queryCount}</td>
-                    <td style={tdStyle}>{report.providerCount}</td>
-                    <td style={tdStyle}>{report.competitorCitationRate}%</td>
-                  </tr>
-                ))
+                dashboard.reports.map((report) => {
+                  const workOrderAction = createGeoWorkOrderAction.bind(null, siteId, report.id);
+
+                  return (
+                    <tr key={report.id}>
+                      <td style={tdStyle}>
+                        <strong>{report.brandName}</strong>
+                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                          {report.id} - {formatGeoDate(report.evaluatedAt)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <TonePill
+                          label={`${formatGeoStatus(report.status)} ${report.score}`}
+                          tone={getGeoVisibilityStatusTone(report.status)}
+                        />
+                      </td>
+                      <td style={tdStyle}>{report.mentionRate}%</td>
+                      <td style={tdStyle}>{report.citationRate}%</td>
+                      <td style={tdStyle}>{report.queryCount}</td>
+                      <td style={tdStyle}>{report.providerCount}</td>
+                      <td style={tdStyle}>{report.competitorCitationRate}%</td>
+                      <td style={tdStyle}>
+                        <form action={workOrderAction}>
+                          <button style={secondaryButtonStyle} type="submit">
+                            Create task
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -176,9 +200,11 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
 
 function GeoCreatePanel({
   createFeedback,
+  workOrderFeedback,
   siteId
 }: {
   readonly createFeedback: ReturnType<typeof getGeoVisibilityCreateFeedback>;
+  readonly workOrderFeedback: ReturnType<typeof getGeoVisibilityWorkOrderFeedback>;
   readonly siteId: string;
 }) {
   const action = createGeoVisibilityReportAction.bind(null, siteId);
@@ -193,6 +219,11 @@ function GeoCreatePanel({
         {createFeedback ? (
           <p style={{ ...feedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>
             {createFeedback.message}
+          </p>
+        ) : null}
+        {workOrderFeedback ? (
+          <p style={{ ...feedbackStyle[workOrderFeedback.tone], margin: "10px 0 0" }}>
+            {workOrderFeedback.message}
           </p>
         ) : null}
       </div>
@@ -242,6 +273,18 @@ const createButtonStyle = {
   fontWeight: 800,
   minHeight: 40,
   padding: "10px 14px"
+} as const;
+
+const secondaryButtonStyle = {
+  background: "#f8fafc",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  color: "#172033",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 800,
+  minHeight: 38,
+  padding: "9px 12px"
 } as const;
 
 const feedbackStyle = {

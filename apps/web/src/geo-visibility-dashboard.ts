@@ -1,4 +1,5 @@
 import {
+  CreateGeoVisibilityReportWorkOrderResponseSchema,
   CreateGeoVisibilityReportResponseSchema,
   GeoVisibilityReportListResponseSchema,
   type GeoAnswerObservation,
@@ -13,6 +14,7 @@ import { demoSite } from "./work-order-board";
 export type GeoVisibilityDashboardSource = "api" | "fixture";
 export type GeoVisibilityTone = "good" | "neutral" | "risk";
 export type GeoVisibilityCreateStatus = "created" | "failed" | "fixture";
+export type GeoVisibilityWorkOrderStatus = "converted" | "failed" | "fixture";
 
 export interface GeoVisibilityDashboardData {
   readonly errorMessage: string | null;
@@ -37,6 +39,19 @@ export interface GeoVisibilityCreateResult {
 }
 
 export interface GeoVisibilityCreateFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
+export interface GeoVisibilityWorkOrderResult {
+  readonly errorMessage: string | null;
+  readonly reportId: string;
+  readonly source: GeoVisibilityDashboardSource;
+  readonly status: GeoVisibilityWorkOrderStatus;
+  readonly workOrderId: string | null;
+}
+
+export interface GeoVisibilityWorkOrderFeedback {
   readonly message: string;
   readonly tone: "info" | "success" | "warning";
 }
@@ -225,6 +240,51 @@ export async function createGeoVisibilityReportFromFixture(
   }
 }
 
+export async function convertGeoVisibilityReportToWorkOrder(
+  reportId: string,
+): Promise<GeoVisibilityWorkOrderResult> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      reportId,
+      source: "fixture",
+      status: "fixture",
+      workOrderId: null
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/geo-visibility-reports/${encodeURIComponent(reportId)}/work-order`,
+      {
+        cache: "no-store",
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`GEO work order request failed with ${response.status}`);
+    }
+
+    const output = CreateGeoVisibilityReportWorkOrderResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      reportId: output.report.id,
+      source: "api",
+      status: "converted",
+      workOrderId: output.workOrder.id
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : "GEO work order request failed",
+      reportId,
+      source: "api",
+      status: "failed",
+      workOrderId: null
+    };
+  }
+}
+
 export function createDemoGeoVisibilityDashboard(site: Site = demoSite): GeoVisibilityDashboardData {
   return {
     errorMessage: null,
@@ -295,6 +355,37 @@ export function getGeoVisibilityCreateFeedback(
   if (status === "failed") {
     return {
       message: "GEO visibility report creation failed. Check the API server and retry.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
+export function getGeoVisibilityWorkOrderFeedback(
+  status: string | undefined,
+  workOrderId: string | undefined,
+  reportId: string | undefined,
+): GeoVisibilityWorkOrderFeedback | null {
+  if (status === "converted") {
+    return {
+      message: workOrderId ? `GEO work order created: ${workOrderId}` : "GEO work order created.",
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: reportId
+        ? `Fixture mode: ${reportId} was selected, but no API request was sent.`
+        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted GEO work orders.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "GEO work order creation failed. Check the API server and retry.",
       tone: "warning"
     };
   }

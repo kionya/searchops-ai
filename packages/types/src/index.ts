@@ -239,6 +239,7 @@ export const WorkOrderSchema = z.object({
   siteId: IdSchema.nullable(),
   seoIssueId: IdSchema.nullable(),
   schemaRecommendationId: IdSchema.nullable().optional(),
+  geoVisibilityReportId: IdSchema.nullable().optional(),
   status: WorkOrderStatusSchema,
   priority: WorkOrderPrioritySchema,
   title: z.string().min(1),
@@ -767,6 +768,15 @@ export const GeoVisibilityReportListResponseSchema = z.object({
 
 export type GeoVisibilityReportListResponse = z.infer<
   typeof GeoVisibilityReportListResponseSchema
+>;
+
+export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
+  report: GeoVisibilityReportRecordSchema,
+  workOrder: WorkOrderSchema
+});
+
+export type CreateGeoVisibilityReportWorkOrderResponse = z.infer<
+  typeof CreateGeoVisibilityReportWorkOrderResponseSchema
 >;
 
 export const AiPromptSchema = z.object({

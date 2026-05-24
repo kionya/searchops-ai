@@ -10,7 +10,7 @@
 Allowed:
 - `apps/* -> packages/*`
 - `apps/api -> packages/db | packages/types`
-- `packages/workorders -> packages/seo-core | packages/compliance | packages/schema-core | packages/types`
+- `packages/workorders -> packages/seo-core | packages/compliance | packages/schema-core | packages/geo-core | packages/types`
 - `packages/seo-core -> packages/types`
 - `packages/crawler-core -> packages/types`
 - `packages/connectors -> packages/types`
@@ -95,8 +95,10 @@ Phase 9 starts with deterministic GEO visibility contracts and scoring. The `pac
 
 `packages/geo-core` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed `GeoTarget` and `GeoAnswerObservation` inputs, returns Zod-validated visibility reports, and remains independently unit testable. Optional explanation text or AI-assisted interpretation belongs later in `packages/ai-core`, while live observation collection belongs behind future connector adapters.
 
-`apps/api` owns the HTTP boundary for GEO visibility report creation/history. It may call deterministic `packages/geo-core`, validate requests and responses through `packages/types`, scope target domains to the registered site domain or subdomain, and persist through repository ports. It must not call LLM providers or live AI answer providers for Phase 9 flows.
+`apps/api` owns the HTTP boundary for GEO visibility report creation/history and report-to-work-order conversion. It may call deterministic `packages/geo-core` and `packages/workorders`, validate requests and responses through `packages/types`, scope target domains to the registered site domain or subdomain, and persist through repository ports. It must not call LLM providers or live AI answer providers for Phase 9 flows.
 
-`packages/db` owns GEO visibility persistence. `GeoVisibilityReport` stores report history for dashboard use, including observations and citations as JSON evidence. Re-running a visibility evaluation creates another history row so the dashboard can show trendable snapshots.
+`packages/db` owns GEO visibility persistence. `GeoVisibilityReport` stores report history for dashboard use, including observations and citations as JSON evidence. Re-running a visibility evaluation creates another history row so the dashboard can show trendable snapshots. `WorkOrder.geoVisibilityReportId` links one report to at most one idempotent task.
 
-`apps/web` owns the dashboard surface for GEO visibility. It may read report history and create deterministic fixture-based reports through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+`packages/workorders` owns deterministic GeoVisibilityReport to WorkOrder mapping. It uses only persisted report fields and static templates.
+
+`apps/web` owns the dashboard surface for GEO visibility. It may read report history, create deterministic fixture-based reports, and convert reports to work orders through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.

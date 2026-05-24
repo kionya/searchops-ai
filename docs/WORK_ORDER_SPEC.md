@@ -16,6 +16,10 @@ Supported SEO rule templates:
 - `CANONICAL_MISMATCH`
 - `IMAGE_ALT_MISSING`
 
+Additional deterministic work order sources:
+- Schema recommendations from `packages/schema-core`.
+- GEO visibility reports from `packages/geo-core`.
+
 ## Work Order Contract
 Work order drafts include:
 
@@ -38,12 +42,18 @@ It must not call LLM providers, DB clients, network clients, random sources, or 
 
 Persistence belongs to API/worker layers. The mapper returns `WorkOrderDraft` values only.
 
+GEO report mapping must remain deterministic:
+- It uses the persisted report status, score, checks, mention rate, citation rate, and competitor citation rate.
+- It maps `not_visible`, `weak`, `visible`, and `strong` statuses to fixed priority and effort values.
+- It must not call LLM providers or live AI/search providers.
+
 ## Board API
 - `GET /sites/:siteId/work-orders`
 - `GET /work-orders/:workOrderId`
 - `PATCH /work-orders/:workOrderId`
 - `POST /work-orders/:workOrderId/recheck`
 - `POST /work-orders/:workOrderId/resolve`
+- `POST /geo-visibility-reports/:geoVisibilityReportId/work-order`
 
 Board updates can change status, priority, assignee, and due date.
 

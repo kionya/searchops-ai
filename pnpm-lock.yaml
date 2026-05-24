@@ -193,6 +193,9 @@ importers:
       '@searchops/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@searchops/geo-core':
+        specifier: workspace:*
+        version: link:../geo-core
       '@searchops/schema-core':
         specifier: workspace:*
         version: link:../schema-core

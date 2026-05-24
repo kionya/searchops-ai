@@ -1,19 +1,25 @@
 import { compliancePackage } from "@searchops/compliance";
+import { geoCorePackage } from "@searchops/geo-core";
 import { schemaCorePackage } from "@searchops/schema-core";
 import { seoCorePackage } from "@searchops/seo-core";
 import {
+  GeoVisibilityReportRecordSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueDraftSchema,
   WorkOrderDraftSchema
 } from "@searchops/types";
 import type {
   EstimatedEffort,
+  GeoVisibilityCheckId,
+  GeoVisibilityReportRecord,
+  GeoVisibilityStatus,
   SchemaJsonLdType,
   SchemaRecommendationRecord,
   SeoIssueDraft,
   SeoIssueRuleId,
   WorkOrderDraft,
-  WorkOrderOwnerType
+  WorkOrderOwnerType,
+  WorkOrderPriority
 } from "@searchops/types";
 
 export const workordersPackage = "workorders" as const;
@@ -21,7 +27,8 @@ export const workordersPackage = "workorders" as const;
 export const workOrderInputSources = [
   seoCorePackage,
   compliancePackage,
-  schemaCorePackage
+  schemaCorePackage,
+  geoCorePackage
 ] as const;
 
 interface WorkOrderTemplate {
@@ -43,6 +50,13 @@ interface SchemaWorkOrderTemplate {
   readonly title: (path: string, type: SchemaJsonLdType) => string;
   readonly instructions: readonly string[];
   readonly acceptanceCriteria: (type: SchemaJsonLdType) => readonly string[];
+}
+
+interface GeoWorkOrderTemplate {
+  readonly ownerType: WorkOrderOwnerType;
+  readonly impact: string;
+  readonly title: (report: GeoVisibilityReportRecord) => string;
+  readonly problem: (report: GeoVisibilityReportRecord) => string;
 }
 
 export const supportedSeoIssueRuleIds = [
@@ -367,6 +381,45 @@ const schemaWorkOrderTemplates = {
   }
 } satisfies Record<(typeof supportedSchemaRecommendationTypes)[number], SchemaWorkOrderTemplate>;
 
+const geoStatusPriority = {
+  not_visible: "p0",
+  strong: "p3",
+  visible: "p2",
+  weak: "p1"
+} as const satisfies Record<GeoVisibilityStatus, WorkOrderPriority>;
+
+const geoStatusEffort = {
+  not_visible: "l",
+  strong: "s",
+  visible: "m",
+  weak: "m"
+} as const satisfies Record<GeoVisibilityStatus, EstimatedEffort>;
+
+const geoCheckInstructions = {
+  BRAND_MENTIONED:
+    "Update entity and brand signals on answer-ready pages so the brand is explicitly mentioned in relevant query contexts.",
+  COMPETITOR_CITATION_RISK:
+    "Review competitor citations and strengthen owned comparison, service, and proof pages for those query themes.",
+  OWNED_URL_CITED:
+    "Improve owned pages that should be cited, including concise answer sections, clear headings, and internally linked canonical URLs.",
+  PROVIDER_DIVERSITY:
+    "Expand observation coverage and content signals across providers where the brand is not yet visible.",
+  QUERY_COVERAGE:
+    "Add or improve content for uncovered non-brand query themes represented in the report."
+} as const satisfies Record<GeoVisibilityCheckId, string>;
+
+const geoWorkOrderTemplate = {
+  ownerType: "marketer",
+  impact:
+    "AI answer engines may omit the brand, cite competitors, or fail to cite owned URLs when users ask non-brand discovery queries.",
+  title: (report) =>
+    report.status === "strong"
+      ? `${report.brandName} GEO visibility maintenance`
+      : `${report.brandName} GEO visibility improvement`,
+  problem: (report) =>
+    `GEO visibility is ${formatGeoStatus(report.status)} with a ${report.score}/100 score, ${report.mentionRate}% mention rate, and ${report.citationRate}% owned citation rate.`
+} satisfies GeoWorkOrderTemplate;
+
 export function createWorkOrderFromSeoIssue(issue: SeoIssueDraft): WorkOrderDraft {
   const parsedIssue = SeoIssueDraftSchema.parse(issue);
   const template = getWorkOrderTemplate(parsedIssue.ruleId);
@@ -432,6 +485,39 @@ export function createWorkOrdersFromSchemaRecommendations(
   );
 }
 
+export function createWorkOrderFromGeoVisibilityReport(
+  report: GeoVisibilityReportRecord,
+): WorkOrderDraft {
+  const parsedReport = GeoVisibilityReportRecordSchema.parse(report);
+
+  return WorkOrderDraftSchema.parse({
+    title: geoWorkOrderTemplate.title(parsedReport),
+    problem: geoWorkOrderTemplate.problem(parsedReport),
+    evidence: {
+      url: `https://${parsedReport.domain}/`,
+      observedValue: `status ${parsedReport.status}; score ${parsedReport.score}; mention ${parsedReport.mentionRate}%; citation ${parsedReport.citationRate}%; competitor ${parsedReport.competitorCitationRate}%`,
+      expectedValue:
+        "strong score >= 75; mention >= 70%; owned citation >= 50%; competitor citation <= 40%",
+      sourceField: "geoVisibilityReport"
+    },
+    impact: geoWorkOrderTemplate.impact,
+    instructions: createGeoInstructions(parsedReport),
+    ownerType: geoWorkOrderTemplate.ownerType,
+    priority: geoStatusPriority[parsedReport.status],
+    acceptanceCriteria: createGeoAcceptanceCriteria(parsedReport.status),
+    verificationMethod:
+      "Create a new GEO visibility report from the same query set and confirm the score, mention rate, citation rate, and competitor citation risk meet the acceptance criteria.",
+    estimatedEffort: geoStatusEffort[parsedReport.status],
+    relatedIssues: []
+  });
+}
+
+export function createWorkOrdersFromGeoVisibilityReports(
+  reports: readonly GeoVisibilityReportRecord[],
+): readonly WorkOrderDraft[] {
+  return reports.map((report) => createWorkOrderFromGeoVisibilityReport(report));
+}
+
 export function hasWorkOrderTemplate(ruleId: SeoIssueRuleId) {
   return Object.hasOwn(workOrderTemplates, ruleId);
 }
@@ -454,6 +540,51 @@ function getSchemaWorkOrderTemplate(type: SchemaJsonLdType) {
   }
 
   return schemaWorkOrderTemplates[type as (typeof supportedSchemaRecommendationTypes)[number]];
+}
+
+function createGeoInstructions(report: GeoVisibilityReportRecord) {
+  const weakChecks = report.checks.filter((check) => check.status !== "pass");
+  const baseInstructions = [
+    "Review GEO observations by query and provider before editing content.",
+    "Prioritize owned pages that already match the query intent and can be cited naturally.",
+    "Keep all medical or claim-like content as draft until compliance review is complete."
+  ];
+
+  if (weakChecks.length === 0) {
+    return [
+      "Preserve the current answer-ready pages and internal links that produced the strong report.",
+      "Monitor future GEO reports for drops in brand mentions, owned citations, or competitor citation risk.",
+      ...baseInstructions
+    ];
+  }
+
+  return [
+    ...baseInstructions,
+    ...weakChecks.map((check) => geoCheckInstructions[check.checkId])
+  ];
+}
+
+function createGeoAcceptanceCriteria(status: GeoVisibilityStatus) {
+  if (status === "strong") {
+    return [
+      "Next GEO visibility report remains strong.",
+      "Mention rate stays at or above 70%.",
+      "Owned citation rate stays at or above 50%.",
+      "Competitor citation rate stays at or below 40%."
+    ];
+  }
+
+  return [
+    "Next GEO visibility report reaches strong status.",
+    "Mention rate is at or above 70%.",
+    "Owned citation rate is at or above 50%.",
+    "Competitor citation rate is at or below 40%.",
+    "Report covers at least three distinct queries and two providers."
+  ];
+}
+
+function formatGeoStatus(status: GeoVisibilityStatus) {
+  return status.replaceAll("_", " ");
 }
 
 function formatUrlPath(url: string) {
