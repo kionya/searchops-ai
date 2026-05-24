@@ -40,6 +40,8 @@ import {
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   OrganizationListResponseSchema,
+  RecheckComplianceFlagRequestSchema,
+  RecheckComplianceFlagResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
   RecheckWorkOrderRequestSchema,
@@ -606,6 +608,75 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(CreateComplianceFlagWorkOrderResponseSchema.parse(result));
+  });
+
+  server.post("/compliance-flags/:id/recheck", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const complianceFlag = await repository.getComplianceFlag(id);
+    if (!complianceFlag) {
+      reply.status(404).send(notFound("Compliance flag not found"));
+      return;
+    }
+
+    if (complianceFlag.ruleId === undefined) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Compliance flag must include a ruleId before recheck"
+      });
+      return;
+    }
+
+    if (complianceFlag.siteId === null) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Compliance flag must be attached to a site before recheck"
+      });
+      return;
+    }
+
+    const site = await repository.getSite(complianceFlag.siteId);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = RecheckComplianceFlagRequestSchema.parse(request.body ?? {});
+    const url = input.url === undefined ? complianceFlag.url ?? null : input.url;
+    if (url !== null && !isUrlAllowedForCrawl(url, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "Compliance recheck URL must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const report = evaluateCompliance(
+      {
+        industry: input.industry === undefined ? site.industry : input.industry,
+        locale: input.locale ?? `${site.language}-${site.country}`,
+        publishState: input.publishState ?? "draft",
+        siteId: site.id,
+        source: input.source ?? "work_order",
+        subjectId: complianceFlag.subjectId ?? null,
+        subjectType: complianceFlag.subjectType ?? "page_copy",
+        text: input.text,
+        title: input.title === undefined ? complianceFlag.title ?? null : input.title,
+        url
+      },
+      { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() },
+    );
+    const matchingFlag = report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
+    const result = await repository.recheckComplianceFlag(id, {
+      matchingFlag,
+      report,
+      resolved: matchingFlag === null
+    });
+    if (!result) {
+      reply.status(404).send(notFound("Compliance flag not found"));
+      return;
+    }
+
+    reply.send(RecheckComplianceFlagResponseSchema.parse(result));
   });
 
   server.get("/schema-recommendations/:id", async (request, reply) => {

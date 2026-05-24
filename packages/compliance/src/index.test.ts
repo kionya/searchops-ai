@@ -10,6 +10,7 @@ import {
   defaultComplianceRules,
   evaluateCompliance,
   guaranteedResultClaimRule,
+  krMedicalComplianceRules,
   medicalContentPublishPolicy,
   priceDiscountPromotionRule,
   selectComplianceRulePackId,
@@ -48,6 +49,7 @@ describe("compliance contracts", () => {
 
   it("exports default rules in deterministic order", () => {
     expect(defaultComplianceRules.map((rule) => rule.id)).toEqual(supportedComplianceRuleIds);
+    expect(krMedicalComplianceRules.map((rule) => rule.id)).toEqual(supportedComplianceRuleIds);
   });
 
   it("selects deterministic rule packs by locale and medical context", () => {
@@ -151,6 +153,7 @@ describe("compliance report evaluation", () => {
       generatedBy: "deterministic",
       overallRiskLevel: "critical",
       publishPolicy: "draft_only",
+      rulePackId: "kr-medical",
       status: "blocked"
     });
     expect(report.flags.map((flag) => flag.ruleId)).toEqual([
@@ -167,6 +170,27 @@ describe("compliance report evaluation", () => {
       flags: [],
       overallRiskLevel: null,
       status: "clear"
+    });
+  });
+
+  it("applies Korean medical advertising refinements only in the KR medical rule pack", () => {
+    const input = createInput({
+      text: "이 의료 클리닉은 부작용 없는 보톡스 시술과 선착순 할인 이벤트를 안내합니다."
+    });
+
+    expect(evaluateCompliance(input, { evaluatedAt, rulePackId: "global" }).flags).toHaveLength(0);
+    expect(evaluateCompliance(input, { evaluatedAt, rulePackId: "kr-medical" })).toMatchObject({
+      rulePackId: "kr-medical",
+      flags: [
+        {
+          ruleId: "ABSOLUTE_SAFETY_CLAIM",
+          riskLevel: "high"
+        },
+        {
+          ruleId: "PRICE_DISCOUNT_PROMOTION",
+          riskLevel: "medium"
+        }
+      ]
     });
   });
 

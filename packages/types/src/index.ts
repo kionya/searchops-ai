@@ -824,6 +824,10 @@ export const CompliancePublishStateSchema = z.enum(["draft", "scheduled", "publi
 
 export type CompliancePublishState = z.infer<typeof CompliancePublishStateSchema>;
 
+export const ComplianceRulePackIdSchema = z.enum(["global", "kr-medical"]);
+
+export type ComplianceRulePackId = z.infer<typeof ComplianceRulePackIdSchema>;
+
 export const ComplianceRuleIdSchema = z.enum([
   "GUARANTEED_RESULT_CLAIM",
   "ABSOLUTE_SAFETY_CLAIM",
@@ -909,6 +913,7 @@ export type ComplianceFlagDraft = z.infer<typeof ComplianceFlagDraftSchema>;
 export const ComplianceReviewReportSchema = z.object({
   input: ComplianceReviewInputSchema,
   flags: z.array(ComplianceFlagDraftSchema),
+  rulePackId: ComplianceRulePackIdSchema,
   status: ComplianceReviewStatusSchema,
   overallRiskLevel: ComplianceRiskLevelSchema.nullable(),
   publishPolicy: z.literal("draft_only"),
@@ -980,6 +985,32 @@ export const CreateComplianceFlagWorkOrderResponseSchema = z.object({
 
 export type CreateComplianceFlagWorkOrderResponse = z.infer<
   typeof CreateComplianceFlagWorkOrderResponseSchema
+>;
+
+export const RecheckComplianceFlagRequestSchema = z.object({
+  evaluatedAt: IsoDateTimeSchema.optional(),
+  industry: z.string().min(1).nullable().optional(),
+  locale: z.string().min(2).optional(),
+  publishState: CompliancePublishStateSchema.optional(),
+  source: ComplianceReviewSourceSchema.optional(),
+  text: NonEmptyStringSchema,
+  title: z.string().min(1).nullable().optional(),
+  url: NormalizedUrlSchema.nullable().optional()
+});
+
+export type RecheckComplianceFlagRequest = z.infer<
+  typeof RecheckComplianceFlagRequestSchema
+>;
+
+export const RecheckComplianceFlagResponseSchema = z.object({
+  complianceFlag: ComplianceFlagSchema,
+  report: ComplianceReviewReportSchema,
+  resolved: z.boolean(),
+  workOrder: WorkOrderSchema.nullable()
+});
+
+export type RecheckComplianceFlagResponse = z.infer<
+  typeof RecheckComplianceFlagResponseSchema
 >;
 
 export const CreateOrganizationRequestSchema = z.object({
