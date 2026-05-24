@@ -34,6 +34,7 @@ SearchOps AI is a SaaS platform for SEO/AEO/GEO diagnosis, content planning, str
 - SEO issue detection must be deterministic first. LLM may explain or draft, but must not be the only source of truth.
 - Keyword/AEO planning must be deterministic first. LLM must not be required for keyword intent, answer-readiness, FAQ gap, or ContentBrief draft generation.
 - Schema and GEO monitoring must be deterministic first. LLM must not be required for JSON-LD recommendations, AI visibility scoring, brand mention detection, or owned citation detection.
+- Compliance risk detection must be deterministic first. LLM must not be required for medical advertising flags, approval gates, or draft-only publish safeguards.
 - ContentBrief output must remain draft-only and must not auto-publish to a CMS or external channel.
 - Medical content must never be auto-published. It can only be generated as a draft with compliance flags.
 

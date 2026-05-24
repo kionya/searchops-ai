@@ -101,5 +101,24 @@ Phase 9 remaining limitations:
 ## Phase 10. Compliance engine
 Expand medical advertising risk filters, claim checks, approval states, and draft-only content safeguards.
 
+Phase 10 non-negotiables:
+- Deterministic first. Compliance flags must be reproducible from typed review inputs.
+- No LLM is required for medical advertising risk detection.
+- Medical content remains draft-only until compliance review is complete.
+- Rules must be independently unit tested and return evidence, recommendation, and replacement guidance.
+- Public contracts are Zod-validated and owned by `packages/types`.
+
+Phase 10 foundation status:
+- Compliance review contracts are in `packages/types` with Zod tests.
+- Deterministic medical advertising risk rules are in `packages/compliance`.
+- Initial rules cover guaranteed result claims, absolute safety claims, superlatives, before-and-after references, patient testimonials, price promotions, and non-draft medical publishing.
+- Compliance reports return draft-only flags, overall risk, and blocked/needs-review/clear status.
+
+Phase 10 remaining limitations:
+- Compliance flags are not yet persisted through the API.
+- Dashboard review workflow and approval status changes are future Phase 10 scope.
+- Compliance flags are not yet converted into WorkOrders.
+- Jurisdiction-specific rule packs are not yet separated from the default rule set.
+
 ## Phase 11. Production hardening
 Harden security, observability, queues, retries, rate limits, deployment, migrations, backups, and operational runbooks.
