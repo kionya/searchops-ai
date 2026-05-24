@@ -32,6 +32,9 @@ Forbidden:
 - `packages/geo-core -> packages/ai-core`
 - `packages/geo-core -> packages/db`
 - `packages/geo-core -> packages/connectors`
+- `packages/compliance -> packages/ai-core`
+- `packages/compliance -> packages/db`
+- `packages/compliance -> packages/connectors`
 - `packages/crawler-core -> packages/seo-core`
 - `packages/ui -> packages/db | packages/connectors | apps/worker`
 
@@ -102,3 +105,10 @@ Phase 9 starts with deterministic GEO visibility contracts and scoring. The `pac
 `packages/workorders` owns deterministic GeoVisibilityReport to WorkOrder mapping. It uses only persisted report fields and static templates.
 
 `apps/web` owns the dashboard surface for GEO visibility. It may read report history, create deterministic fixture-based reports, and convert reports to work orders through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+
+## Phase 10 Compliance Engine Boundary
+Phase 10 starts with deterministic compliance review contracts and medical advertising risk rules. The `packages/compliance` package owns rule interfaces, default rule ordering, phrase/risk checks, draft-only publish safeguards, and report status classification from typed review input.
+
+`packages/compliance` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed review input, returns Zod-validated compliance reports and flag drafts, and remains independently unit testable.
+
+API persistence, dashboard review workflows, approval state changes, and ComplianceFlag to WorkOrder conversion belong to later integration layers. Medical content must stay draft-only until compliance review is complete.

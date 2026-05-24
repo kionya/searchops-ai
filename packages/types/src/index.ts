@@ -799,14 +799,157 @@ export const AiResultSchema = z.object({
 
 export type AiResult = z.infer<typeof AiResultSchema>;
 
+export const ComplianceSubjectTypeSchema = z.enum([
+  "content_brief",
+  "page_copy",
+  "schema_recommendation",
+  "work_order",
+  "manual"
+]);
+
+export type ComplianceSubjectType = z.infer<typeof ComplianceSubjectTypeSchema>;
+
+export const ComplianceReviewSourceSchema = z.enum([
+  "content_brief",
+  "cms",
+  "fixture",
+  "manual",
+  "schema_recommendation",
+  "work_order"
+]);
+
+export type ComplianceReviewSource = z.infer<typeof ComplianceReviewSourceSchema>;
+
+export const CompliancePublishStateSchema = z.enum(["draft", "scheduled", "published"]);
+
+export type CompliancePublishState = z.infer<typeof CompliancePublishStateSchema>;
+
+export const ComplianceRuleIdSchema = z.enum([
+  "GUARANTEED_RESULT_CLAIM",
+  "ABSOLUTE_SAFETY_CLAIM",
+  "SUPERLATIVE_CLAIM",
+  "BEFORE_AFTER_REFERENCE",
+  "PATIENT_TESTIMONIAL_REFERENCE",
+  "PRICE_DISCOUNT_PROMOTION",
+  "UNREVIEWED_MEDICAL_PUBLISH"
+]);
+
+export type ComplianceRuleId = z.infer<typeof ComplianceRuleIdSchema>;
+
+export const ComplianceRiskLevelSchema = z.enum(["critical", "high", "medium", "low"]);
+
+export type ComplianceRiskLevel = z.infer<typeof ComplianceRiskLevelSchema>;
+
+export const ComplianceFlagStatusSchema = z.enum([
+  "open",
+  "in_review",
+  "approved",
+  "dismissed",
+  "resolved"
+]);
+
+export type ComplianceFlagStatus = z.infer<typeof ComplianceFlagStatusSchema>;
+
+export const ComplianceReviewStatusSchema = z.enum(["clear", "needs_review", "blocked"]);
+
+export type ComplianceReviewStatus = z.infer<typeof ComplianceReviewStatusSchema>;
+
+export const ComplianceEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string())
+]);
+
+export type ComplianceEvidenceValue = z.infer<typeof ComplianceEvidenceValueSchema>;
+
+export const ComplianceEvidenceSchema = z.object({
+  url: NormalizedUrlSchema.nullable(),
+  excerpt: z.string().min(1),
+  observedValue: ComplianceEvidenceValueSchema,
+  expectedValue: ComplianceEvidenceValueSchema,
+  sourceField: z.string().min(1),
+  match: z.string().min(1).nullable().default(null)
+});
+
+export type ComplianceEvidence = z.infer<typeof ComplianceEvidenceSchema>;
+
+export const ComplianceReviewInputSchema = z.object({
+  siteId: IdSchema,
+  subjectType: ComplianceSubjectTypeSchema,
+  subjectId: IdSchema.nullable().default(null),
+  url: NormalizedUrlSchema.nullable().default(null),
+  locale: z.string().min(2).default("ko-KR"),
+  industry: z.string().min(1).nullable().default(null),
+  title: z.string().min(1).nullable().default(null),
+  text: NonEmptyStringSchema,
+  publishState: CompliancePublishStateSchema.default("draft"),
+  source: ComplianceReviewSourceSchema.default("manual")
+});
+
+export type ComplianceReviewInput = z.infer<typeof ComplianceReviewInputSchema>;
+
+export const ComplianceFlagDraftSchema = z.object({
+  ruleId: ComplianceRuleIdSchema,
+  riskLevel: ComplianceRiskLevelSchema,
+  status: z.literal("open").default("open"),
+  title: z.string().min(1),
+  message: z.string().min(1),
+  evidence: ComplianceEvidenceSchema,
+  recommendation: z.string().min(1),
+  replacementSuggestion: z.string().min(1).nullable().default(null),
+  ownerType: z.literal("legal").default("legal"),
+  publishPolicy: z.literal("draft_only"),
+  generatedBy: z.literal("deterministic")
+});
+
+export type ComplianceFlagDraft = z.infer<typeof ComplianceFlagDraftSchema>;
+
+export const ComplianceReviewReportSchema = z.object({
+  input: ComplianceReviewInputSchema,
+  flags: z.array(ComplianceFlagDraftSchema),
+  status: ComplianceReviewStatusSchema,
+  overallRiskLevel: ComplianceRiskLevelSchema.nullable(),
+  publishPolicy: z.literal("draft_only"),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema
+});
+
+export type ComplianceReviewReport = z.infer<typeof ComplianceReviewReportSchema>;
+
+export const CreateComplianceReviewRequestSchema = ComplianceReviewInputSchema.extend({
+  evaluatedAt: IsoDateTimeSchema.optional()
+});
+
+export type CreateComplianceReviewRequest = z.infer<
+  typeof CreateComplianceReviewRequestSchema
+>;
+
+export const CreateComplianceReviewResponseSchema = z.object({
+  report: ComplianceReviewReportSchema
+});
+
+export type CreateComplianceReviewResponse = z.infer<
+  typeof CreateComplianceReviewResponseSchema
+>;
+
 export const ComplianceFlagSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,
   siteId: IdSchema.nullable(),
   workOrderId: IdSchema.nullable(),
-  riskLevel: z.string().min(1),
-  status: z.string().min(1),
+  subjectType: ComplianceSubjectTypeSchema.optional(),
+  subjectId: IdSchema.nullable().optional(),
+  ruleId: ComplianceRuleIdSchema.optional(),
+  url: NormalizedUrlSchema.nullable().optional(),
+  riskLevel: ComplianceRiskLevelSchema.or(z.string().min(1)),
+  status: ComplianceFlagStatusSchema.or(z.string().min(1)),
   message: z.string().min(1),
+  evidence: ComplianceEvidenceSchema.nullable().optional(),
+  recommendation: z.string().min(1).nullable().optional(),
+  replacementSuggestion: z.string().min(1).nullable().optional(),
+  generatedBy: z.literal("deterministic").optional(),
   createdAt: IsoDateTimeSchema
 });
 

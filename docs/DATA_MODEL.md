@@ -92,3 +92,10 @@ Reports are history rows rather than idempotent replacements. A new run creates 
 WorkOrder records may link to one GeoVisibilityReport through `geoVisibilityReportId`. The field is nullable so SEO issue and schema recommendation work orders remain unchanged, and unique so converting the same GEO report is idempotent.
 
 The resulting work order stores deterministic evidence derived from the report rates and checks. It does not store AI-generated analysis, does not publish content, and does not change the underlying report history row.
+
+## Phase 10 Compliance Contracts
+ComplianceReviewInput is the typed review request for medical advertising checks. It identifies the source subject, optional URL, locale, industry, title, text, publish state, and source system.
+
+ComplianceReviewReport is deterministic output from `packages/compliance`. It stores flag drafts, overall risk, review status, `draft_only` publish policy, and `deterministic` generation mode.
+
+ComplianceFlagDraft is not a persisted record yet. It is the contract API and DB layers will use in later Phase 10 work to persist ComplianceFlag rows, drive dashboard review workflows, and generate WorkOrders. Existing ComplianceFlag persistence remains backward-compatible while optional rule, subject, evidence, recommendation, and replacement fields are modeled in shared types.

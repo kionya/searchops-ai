@@ -31,9 +31,16 @@ import {
   ConnectorRecordSchema,
   ConnectorRunResultSchema,
   ConnectorSyncJobPayloadSchema,
+  ComplianceFlagDraftSchema,
+  ComplianceFlagSchema,
+  ComplianceReviewInputSchema,
+  ComplianceReviewReportSchema,
+  ComplianceRuleIdSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
+  CreateComplianceReviewRequestSchema,
+  CreateComplianceReviewResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
@@ -1281,6 +1288,128 @@ describe("types foundation", () => {
         ]
       }),
     ).toThrow(/provider/);
+  });
+
+  it("validates deterministic compliance review contracts", () => {
+    expect(ComplianceRuleIdSchema.options).toEqual([
+      "GUARANTEED_RESULT_CLAIM",
+      "ABSOLUTE_SAFETY_CLAIM",
+      "SUPERLATIVE_CLAIM",
+      "BEFORE_AFTER_REFERENCE",
+      "PATIENT_TESTIMONIAL_REFERENCE",
+      "PRICE_DISCOUNT_PROMOTION",
+      "UNREVIEWED_MEDICAL_PUBLISH"
+    ]);
+
+    const input = ComplianceReviewInputSchema.parse({
+      siteId: "site_1",
+      subjectType: "page_copy",
+      url: "https://example-clinic.com/services/botox",
+      industry: "medical",
+      title: "Botox clinic page",
+      text: "This medical clinic offers guaranteed treatment results.",
+      source: "fixture"
+    });
+    const flag = ComplianceFlagDraftSchema.parse({
+      ruleId: "GUARANTEED_RESULT_CLAIM",
+      riskLevel: "critical",
+      title: "Guaranteed medical result claim",
+      message: "The content appears to promise a guaranteed medical outcome.",
+      evidence: {
+        url: input.url,
+        excerpt: input.text,
+        observedValue: "guaranteed",
+        expectedValue: "Medical content must not guarantee results.",
+        sourceField: "text",
+        match: "guaranteed"
+      },
+      recommendation: "Rewrite the claim and route the draft to legal review.",
+      replacementSuggestion: "Describe services without promising outcomes.",
+      publishPolicy: "draft_only",
+      generatedBy: "deterministic"
+    });
+
+    expect(input).toMatchObject({
+      publishState: "draft",
+      source: "fixture",
+      subjectId: null
+    });
+    expect(flag).toMatchObject({
+      ownerType: "legal",
+      status: "open"
+    });
+    expect(() =>
+      ComplianceFlagDraftSchema.parse({
+        ...flag,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
+  });
+
+  it("validates compliance review responses and persisted flags", () => {
+    const input = ComplianceReviewInputSchema.parse({
+      siteId: "site_1",
+      subjectType: "content_brief",
+      subjectId: "brief_1",
+      url: "https://example-clinic.com/blog/laser",
+      industry: "medical",
+      title: "Laser content draft",
+      text: "This clinic treatment is completely safe.",
+      publishState: "scheduled",
+      source: "content_brief"
+    });
+    const flag = ComplianceFlagDraftSchema.parse({
+      ruleId: "ABSOLUTE_SAFETY_CLAIM",
+      riskLevel: "high",
+      title: "Absolute safety claim",
+      message: "The content uses absolute safety language.",
+      evidence: {
+        url: input.url,
+        excerpt: input.text,
+        observedValue: "completely safe",
+        expectedValue: "Medical content should avoid absolute safety claims.",
+        sourceField: "text",
+        match: "completely safe"
+      },
+      recommendation: "Replace absolute safety language with balanced wording.",
+      replacementSuggestion: "Explain that risks vary by individual.",
+      publishPolicy: "draft_only",
+      generatedBy: "deterministic"
+    });
+    const report = ComplianceReviewReportSchema.parse({
+      input,
+      flags: [flag],
+      status: "blocked",
+      overallRiskLevel: "high",
+      publishPolicy: "draft_only",
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-24T00:00:00.000Z"
+    });
+
+    expect(CreateComplianceReviewRequestSchema.parse(input)).toMatchObject({
+      publishState: "scheduled"
+    });
+    expect(CreateComplianceReviewResponseSchema.parse({ report }).report.flags).toHaveLength(1);
+    expect(
+      ComplianceFlagSchema.parse({
+        id: "flag_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        workOrderId: null,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        ruleId: flag.ruleId,
+        url: input.url,
+        riskLevel: flag.riskLevel,
+        status: "open",
+        message: flag.message,
+        evidence: flag.evidence,
+        recommendation: flag.recommendation,
+        replacementSuggestion: flag.replacementSuggestion,
+        generatedBy: "deterministic",
+        createdAt: "2026-05-24T00:00:00.000Z"
+      }),
+    ).toMatchObject({ ruleId: "ABSOLUTE_SAFETY_CLAIM" });
   });
 
   it("validates deterministic SEO issue drafts", () => {
