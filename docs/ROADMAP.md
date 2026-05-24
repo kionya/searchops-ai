@@ -68,10 +68,12 @@ Phase 8 foundation status:
 - Schema recommendation API and Prisma persistence are connected through `apps/api` and `packages/db`.
 - Schema recommendation reruns are idempotent by site, page URL, and schema type.
 - Schema recommendations can be converted into idempotent WorkOrders through deterministic templates.
+- Schema recommendation dashboard history, work order conversion actions, and deterministic fixture fallback are connected in `apps/web`.
+- Schema recommendation recheck can accept a crawler snapshot, detect the expected JSON-LD type deterministically, update recommendation status/evidence, and close a linked work order when resolved.
 
 Phase 8 remaining limitations:
-- No dashboard surface or schema recheck status flow is connected yet.
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
+- Recheck currently uses caller-provided snapshots; live crawl orchestration for schema recheck remains future scope.
 - Schema validation against live rich result tooling remains future scope.
 
 ## Phase 9. GEO monitor
