@@ -392,9 +392,7 @@ function buildWorkOrderTestServer() {
   });
 }
 
-function createSchemaSnapshot(
-  overrides: Partial<CrawlerPageSnapshot> = {},
-): CrawlerPageSnapshot {
+function createSchemaSnapshot(overrides: Partial<CrawlerPageSnapshot> = {}): CrawlerPageSnapshot {
   return {
     canonicalUrl: "https://exampleclinic.com/services/seo",
     content: {
@@ -704,10 +702,7 @@ describe("api foundation", () => {
       connectorSyncRunId: "sync_0001",
       providers: ["pagespeed", "cms"]
     });
-    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()[0]?.payload.providers).toEqual([
-      "pagespeed",
-      "cms"
-    ]);
+    expect(connectorSyncQueue.listQueuedConnectorSyncJobs()[0]?.payload.providers).toEqual(["pagespeed", "cms"]);
   });
 
   it("validates connector sync provider lists", async () => {
@@ -1152,8 +1147,10 @@ describe("api foundation", () => {
         rulePackId: "kr-medical"
       }
     });
-    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId))
-      .toEqual(["GUARANTEED_RESULT_CLAIM", "ABSOLUTE_SAFETY_CLAIM"]);
+    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId)).toEqual([
+      "GUARANTEED_RESULT_CLAIM",
+      "ABSOLUTE_SAFETY_CLAIM"
+    ]);
 
     const listResponse = await server.inject({
       method: "GET",
@@ -1189,8 +1186,10 @@ describe("api foundation", () => {
         status: "blocked"
       }
     });
-    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId))
-      .toEqual(["ABSOLUTE_SAFETY_CLAIM", "PRICE_DISCOUNT_PROMOTION"]);
+    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId)).toEqual([
+      "ABSOLUTE_SAFETY_CLAIM",
+      "PRICE_DISCOUNT_PROMOTION"
+    ]);
   });
 
   it("lists and updates persisted compliance flags", async () => {
@@ -1333,6 +1332,121 @@ describe("api foundation", () => {
     });
   });
 
+  it("triggers compliance rechecks from CMS content updated events", async () => {
+    const server = buildComplianceTestServer();
+    await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/work-order"
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      payload: {
+        siteId: "site_seed",
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        url: "https://exampleclinic.com/services/botox",
+        title: "Botox service page",
+        text: "This clinic explains consultation steps, possible discomfort, and individual variation.",
+        status: "draft",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      event: {
+        provider: "cms",
+        source: "cms",
+        status: "draft"
+      },
+      matchedFlagCount: 1,
+      skippedFlagCount: 0,
+      rechecks: [
+        {
+          resolved: true,
+          complianceFlag: {
+            id: "compliance_flag_seed",
+            status: "resolved"
+          },
+          report: {
+            input: {
+              source: "cms",
+              subjectId: "page_seed",
+              subjectType: "page_copy"
+            },
+            flags: [],
+            status: "clear"
+          },
+          workOrder: {
+            id: "wo_0001",
+            status: "done"
+          }
+        }
+      ]
+    });
+  });
+
+  it("keeps CMS-triggered compliance rechecks open when the rule still fails", async () => {
+    const server = buildComplianceTestServer();
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      payload: {
+        siteId: "site_seed",
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        url: "https://exampleclinic.com/services/botox",
+        text: "This clinic treatment is completely safe for every patient.",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      matchedFlagCount: 1,
+      rechecks: [
+        {
+          resolved: false,
+          complianceFlag: {
+            id: "compliance_flag_seed",
+            ruleId: "ABSOLUTE_SAFETY_CLAIM",
+            status: "open"
+          },
+          report: {
+            status: "blocked"
+          },
+          workOrder: null
+        }
+      ]
+    });
+  });
+
+  it("ignores CMS content events that do not match active compliance flags", async () => {
+    const server = buildComplianceTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      payload: {
+        siteId: "site_seed",
+        cmsType: "wordpress",
+        externalId: "page_other",
+        url: "https://exampleclinic.com/services/laser",
+        text: "This clinic explains risks and consultation steps.",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      matchedFlagCount: 0,
+      rechecks: [],
+      skippedFlagCount: 0
+    });
+  });
+
   it("validates compliance review route scope and missing resources", async () => {
     const server = buildComplianceTestServer();
     const siteMismatchResponse = await server.inject({
@@ -1377,6 +1491,42 @@ describe("api foundation", () => {
         text: "This clinic explains risks and consultation steps."
       }
     });
+    const eventSiteMismatchResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      payload: {
+        siteId: "site_other",
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        url: "https://exampleclinic.com/services/botox",
+        text: "This clinic explains risks and consultation steps.",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
+    const eventOutOfScopeResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      payload: {
+        siteId: "site_seed",
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        url: "https://example.net/services/botox",
+        text: "This clinic explains risks and consultation steps.",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
+    const missingSiteEventResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/cms/content-updated-events",
+      payload: {
+        siteId: "site_missing",
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        url: "https://exampleclinic.com/services/botox",
+        text: "This clinic explains risks and consultation steps.",
+        updatedAt: "2026-05-24T02:00:00.000Z"
+      }
+    });
 
     expect(siteMismatchResponse.statusCode).toBe(400);
     expect(siteMismatchResponse.json().message).toContain("siteId");
@@ -1387,6 +1537,11 @@ describe("api foundation", () => {
     expect(outOfScopeRecheckResponse.statusCode).toBe(400);
     expect(outOfScopeRecheckResponse.json().message).toContain("site domain");
     expect(missingRecheckResponse.statusCode).toBe(404);
+    expect(eventSiteMismatchResponse.statusCode).toBe(400);
+    expect(eventSiteMismatchResponse.json().message).toContain("siteId");
+    expect(eventOutOfScopeResponse.statusCode).toBe(400);
+    expect(eventOutOfScopeResponse.json().message).toContain("site domain");
+    expect(missingSiteEventResponse.statusCode).toBe(404);
   });
 
   it("creates deterministic schema recommendations and persists them", async () => {
@@ -1410,8 +1565,13 @@ describe("api foundation", () => {
         }
       ]
     });
-    expect(response.json().recommendations.map((recommendation: { type: string }) => recommendation.type))
-      .toEqual(["WebPage", "BreadcrumbList", "FAQPage", "Service", "MedicalClinic"]);
+    expect(response.json().recommendations.map((recommendation: { type: string }) => recommendation.type)).toEqual([
+      "WebPage",
+      "BreadcrumbList",
+      "FAQPage",
+      "Service",
+      "MedicalClinic"
+    ]);
     expect(response.json().recommendations[3]).toMatchObject({
       siteId: "site_seed",
       pageUrl: "https://exampleclinic.com/services/seo",
@@ -1533,7 +1693,7 @@ describe("api foundation", () => {
         snapshot: createSchemaSnapshot({
           jsonLd: [
             {
-              raw: "{\"@context\":\"https://schema.org\",\"@type\":\"Service\"}",
+              raw: '{"@context":"https://schema.org","@type":"Service"}',
               parsed: {
                 "@context": "https://schema.org",
                 "@type": "Service"

@@ -80,6 +80,12 @@ deterministic rule engine. If the original flag's `ruleId` is no longer present,
 `resolved` and its linked WorkOrder is marked `done`. If the same rule is still present, the flag
 stays actionable as `open` or `in_review`, and a completed WorkOrder is moved back to `in_review`.
 
+`POST /sites/:siteId/cms/content-updated-events` accepts an inbound CMS content update event and
+automatically rechecks active ComplianceFlags whose source `subjectId` or URL matches the changed
+content. The API uses the event payload text; it does not fetch from the live CMS and does not
+publish medical content. Matching flags with resolved rules close their linked WorkOrders, while
+still-failing rules stay actionable.
+
 ## Current Limitations
 
 - Contracts and deterministic package-level rules are implemented first.
@@ -88,3 +94,4 @@ stays actionable as `open` or `in_review`, and a completed WorkOrder is moved ba
 - ComplianceFlag to WorkOrder conversion is deterministic and legal-owned.
 - Rule pack selection is deterministic. The `kr-medical` pack now includes Korean-market medical advertising refinements.
 - Compliance reviews and rechecks do not publish content or push changes to a CMS.
+- Inbound CMS update events trigger rechecks, but production webhook authentication and provider-specific signature verification remain future hardening scope.

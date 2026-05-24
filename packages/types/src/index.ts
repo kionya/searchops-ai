@@ -43,9 +43,7 @@ export type SearchOpsEnv = z.infer<typeof SearchOpsEnvSchema>;
 export function parseSearchOpsEnv(input: NodeJS.ProcessEnv) {
   const parsed = SearchOpsEnvSchema.safeParse(input);
   if (!parsed.success) {
-    const message = parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
-      .join("; ");
+    const message = parsed.error.issues.map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`).join("; ");
     throw new Error(`Invalid SearchOps environment: ${message}`);
   }
   return parsed.data;
@@ -288,9 +286,7 @@ export const ResolveWorkOrderIssueResponseSchema = z.object({
   seoIssue: SeoIssueSchema.nullable()
 });
 
-export type ResolveWorkOrderIssueResponse = z.infer<
-  typeof ResolveWorkOrderIssueResponseSchema
->;
+export type ResolveWorkOrderIssueResponse = z.infer<typeof ResolveWorkOrderIssueResponseSchema>;
 
 export const KeywordIntentSchema = z.enum([
   "informational",
@@ -379,13 +375,7 @@ export const AeoReadinessCheckStatusSchema = z.enum(["pass", "warning", "fail"])
 
 export type AeoReadinessCheckStatus = z.infer<typeof AeoReadinessCheckStatusSchema>;
 
-export const AeoEvidenceValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.null(),
-  z.array(z.string())
-]);
+export const AeoEvidenceValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]);
 
 export type AeoEvidenceValue = z.infer<typeof AeoEvidenceValueSchema>;
 
@@ -435,9 +425,7 @@ export const AeoReadinessReportRecordSchema = z.object({
   createdAt: IsoDateTimeSchema
 });
 
-export type AeoReadinessReportRecord = z.infer<
-  typeof AeoReadinessReportRecordSchema
->;
+export type AeoReadinessReportRecord = z.infer<typeof AeoReadinessReportRecordSchema>;
 
 export const AeoQuestionIntentSchema = z.enum([
   "definition",
@@ -537,9 +525,7 @@ export const CreateContentBriefDraftKeywordSchema = z.object({
   source: KeywordSourceSchema.optional()
 });
 
-export type CreateContentBriefDraftKeyword = z.infer<
-  typeof CreateContentBriefDraftKeywordSchema
->;
+export type CreateContentBriefDraftKeyword = z.infer<typeof CreateContentBriefDraftKeywordSchema>;
 
 export const CreateContentBriefDraftRequestSchema = z.object({
   keyword: CreateContentBriefDraftKeywordSchema,
@@ -550,9 +536,7 @@ export const CreateContentBriefDraftRequestSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.optional()
 });
 
-export type CreateContentBriefDraftRequest = z.infer<
-  typeof CreateContentBriefDraftRequestSchema
->;
+export type CreateContentBriefDraftRequest = z.infer<typeof CreateContentBriefDraftRequestSchema>;
 
 export const CreateAeoReadinessReportRequestSchema = z.object({
   keyword: CreateContentBriefDraftKeywordSchema,
@@ -561,26 +545,20 @@ export const CreateAeoReadinessReportRequestSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.optional()
 });
 
-export type CreateAeoReadinessReportRequest = z.infer<
-  typeof CreateAeoReadinessReportRequestSchema
->;
+export type CreateAeoReadinessReportRequest = z.infer<typeof CreateAeoReadinessReportRequestSchema>;
 
 export const CreateAeoReadinessReportResponseSchema = z.object({
   report: AeoReadinessReportRecordSchema,
   readinessReport: AeoReadinessReportSchema
 });
 
-export type CreateAeoReadinessReportResponse = z.infer<
-  typeof CreateAeoReadinessReportResponseSchema
->;
+export type CreateAeoReadinessReportResponse = z.infer<typeof CreateAeoReadinessReportResponseSchema>;
 
 export const AeoReadinessReportListResponseSchema = z.object({
   reports: z.array(AeoReadinessReportRecordSchema)
 });
 
-export type AeoReadinessReportListResponse = z.infer<
-  typeof AeoReadinessReportListResponseSchema
->;
+export type AeoReadinessReportListResponse = z.infer<typeof AeoReadinessReportListResponseSchema>;
 
 export const CreateContentBriefDraftResponseSchema = z.object({
   contentBrief: ContentBriefSchema,
@@ -588,9 +566,7 @@ export const CreateContentBriefDraftResponseSchema = z.object({
   readinessReport: AeoReadinessReportSchema
 });
 
-export type CreateContentBriefDraftResponse = z.infer<
-  typeof CreateContentBriefDraftResponseSchema
->;
+export type CreateContentBriefDraftResponse = z.infer<typeof CreateContentBriefDraftResponseSchema>;
 
 export const ContentBriefListResponseSchema = z.object({
   contentBriefs: z.array(ContentBriefSchema)
@@ -604,14 +580,7 @@ export const ContentBriefDetailResponseSchema = z.object({
 
 export type ContentBriefDetailResponse = z.infer<typeof ContentBriefDetailResponseSchema>;
 
-export const GeoProviderSchema = z.enum([
-  "chatgpt",
-  "perplexity",
-  "gemini",
-  "copilot",
-  "claude",
-  "manual"
-]);
+export const GeoProviderSchema = z.enum(["chatgpt", "perplexity", "gemini", "copilot", "claude", "manual"]);
 
 export type GeoProvider = z.infer<typeof GeoProviderSchema>;
 
@@ -619,12 +588,7 @@ export const GeoObservationSourceSchema = z.enum(["manual", "fixture", "connecto
 
 export type GeoObservationSource = z.infer<typeof GeoObservationSourceSchema>;
 
-export const GeoVisibilityStatusSchema = z.enum([
-  "strong",
-  "visible",
-  "weak",
-  "not_visible"
-]);
+export const GeoVisibilityStatusSchema = z.enum(["strong", "visible", "weak", "not_visible"]);
 
 export type GeoVisibilityStatus = z.infer<typeof GeoVisibilityStatusSchema>;
 
@@ -642,13 +606,7 @@ export const GeoVisibilityCheckStatusSchema = z.enum(["pass", "warning", "fail"]
 
 export type GeoVisibilityCheckStatus = z.infer<typeof GeoVisibilityCheckStatusSchema>;
 
-export const GeoEvidenceValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.null(),
-  z.array(z.string())
-]);
+export const GeoEvidenceValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]);
 
 export type GeoEvidenceValue = z.infer<typeof GeoEvidenceValueSchema>;
 
@@ -739,9 +697,7 @@ export const GeoVisibilityReportRecordSchema = z.object({
   createdAt: IsoDateTimeSchema
 });
 
-export type GeoVisibilityReportRecord = z.infer<
-  typeof GeoVisibilityReportRecordSchema
->;
+export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
 
 export const CreateGeoVisibilityReportRequestSchema = z.object({
   target: GeoTargetSchema,
@@ -749,26 +705,20 @@ export const CreateGeoVisibilityReportRequestSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.optional()
 });
 
-export type CreateGeoVisibilityReportRequest = z.infer<
-  typeof CreateGeoVisibilityReportRequestSchema
->;
+export type CreateGeoVisibilityReportRequest = z.infer<typeof CreateGeoVisibilityReportRequestSchema>;
 
 export const CreateGeoVisibilityReportResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,
   visibilityReport: GeoVisibilityReportSchema
 });
 
-export type CreateGeoVisibilityReportResponse = z.infer<
-  typeof CreateGeoVisibilityReportResponseSchema
->;
+export type CreateGeoVisibilityReportResponse = z.infer<typeof CreateGeoVisibilityReportResponseSchema>;
 
 export const GeoVisibilityReportListResponseSchema = z.object({
   reports: z.array(GeoVisibilityReportRecordSchema)
 });
 
-export type GeoVisibilityReportListResponse = z.infer<
-  typeof GeoVisibilityReportListResponseSchema
->;
+export type GeoVisibilityReportListResponse = z.infer<typeof GeoVisibilityReportListResponseSchema>;
 
 export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,
@@ -844,13 +794,7 @@ export const ComplianceRiskLevelSchema = z.enum(["critical", "high", "medium", "
 
 export type ComplianceRiskLevel = z.infer<typeof ComplianceRiskLevelSchema>;
 
-export const ComplianceFlagStatusSchema = z.enum([
-  "open",
-  "in_review",
-  "approved",
-  "dismissed",
-  "resolved"
-]);
+export const ComplianceFlagStatusSchema = z.enum(["open", "in_review", "approved", "dismissed", "resolved"]);
 
 export type ComplianceFlagStatus = z.infer<typeof ComplianceFlagStatusSchema>;
 
@@ -927,9 +871,7 @@ export const CreateComplianceReviewRequestSchema = ComplianceReviewInputSchema.e
   evaluatedAt: IsoDateTimeSchema.optional()
 });
 
-export type CreateComplianceReviewRequest = z.infer<
-  typeof CreateComplianceReviewRequestSchema
->;
+export type CreateComplianceReviewRequest = z.infer<typeof CreateComplianceReviewRequestSchema>;
 
 export const ComplianceFlagSchema = z.object({
   id: IdSchema,
@@ -965,27 +907,21 @@ export const UpdateComplianceFlagRequestSchema = z.object({
   workOrderId: IdSchema.nullable().optional()
 });
 
-export type UpdateComplianceFlagRequest = z.infer<
-  typeof UpdateComplianceFlagRequestSchema
->;
+export type UpdateComplianceFlagRequest = z.infer<typeof UpdateComplianceFlagRequestSchema>;
 
 export const CreateComplianceReviewResponseSchema = z.object({
   report: ComplianceReviewReportSchema,
   complianceFlags: z.array(ComplianceFlagSchema)
 });
 
-export type CreateComplianceReviewResponse = z.infer<
-  typeof CreateComplianceReviewResponseSchema
->;
+export type CreateComplianceReviewResponse = z.infer<typeof CreateComplianceReviewResponseSchema>;
 
 export const CreateComplianceFlagWorkOrderResponseSchema = z.object({
   complianceFlag: ComplianceFlagSchema,
   workOrder: WorkOrderSchema
 });
 
-export type CreateComplianceFlagWorkOrderResponse = z.infer<
-  typeof CreateComplianceFlagWorkOrderResponseSchema
->;
+export type CreateComplianceFlagWorkOrderResponse = z.infer<typeof CreateComplianceFlagWorkOrderResponseSchema>;
 
 export const RecheckComplianceFlagRequestSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.optional(),
@@ -998,9 +934,7 @@ export const RecheckComplianceFlagRequestSchema = z.object({
   url: NormalizedUrlSchema.nullable().optional()
 });
 
-export type RecheckComplianceFlagRequest = z.infer<
-  typeof RecheckComplianceFlagRequestSchema
->;
+export type RecheckComplianceFlagRequest = z.infer<typeof RecheckComplianceFlagRequestSchema>;
 
 export const RecheckComplianceFlagResponseSchema = z.object({
   complianceFlag: ComplianceFlagSchema,
@@ -1009,9 +943,37 @@ export const RecheckComplianceFlagResponseSchema = z.object({
   workOrder: WorkOrderSchema.nullable()
 });
 
-export type RecheckComplianceFlagResponse = z.infer<
-  typeof RecheckComplianceFlagResponseSchema
->;
+export type RecheckComplianceFlagResponse = z.infer<typeof RecheckComplianceFlagResponseSchema>;
+
+export const CmsContentStatusSchema = z.enum(["draft", "published", "archived"]);
+
+export type CmsContentStatus = z.infer<typeof CmsContentStatusSchema>;
+
+export const CmsContentUpdatedEventRequestSchema = z.object({
+  siteId: IdSchema,
+  provider: z.literal("cms").default("cms"),
+  cmsType: z.string().min(1),
+  externalId: z.string().min(1),
+  url: NormalizedUrlSchema,
+  title: z.string().min(1).nullable().default(null),
+  text: NonEmptyStringSchema,
+  status: CmsContentStatusSchema.default("draft"),
+  locale: z.string().min(2).optional(),
+  industry: z.string().min(1).nullable().optional(),
+  updatedAt: IsoDateTimeSchema,
+  source: z.literal("cms").default("cms")
+});
+
+export type CmsContentUpdatedEventRequest = z.infer<typeof CmsContentUpdatedEventRequestSchema>;
+
+export const CmsContentUpdatedEventResponseSchema = z.object({
+  event: CmsContentUpdatedEventRequestSchema,
+  matchedFlagCount: z.number().int().nonnegative(),
+  skippedFlagCount: z.number().int().nonnegative(),
+  rechecks: z.array(RecheckComplianceFlagResponseSchema)
+});
+
+export type CmsContentUpdatedEventResponse = z.infer<typeof CmsContentUpdatedEventResponseSchema>;
 
 export const CreateOrganizationRequestSchema = z.object({
   name: z.string().min(1)
@@ -1109,9 +1071,7 @@ export type SchemaJsonLdType = z.infer<typeof SchemaJsonLdTypeSchema>;
 
 export const SchemaRecommendationPrioritySchema = SeoIssuePrioritySchema;
 
-export type SchemaRecommendationPriority = z.infer<
-  typeof SchemaRecommendationPrioritySchema
->;
+export type SchemaRecommendationPriority = z.infer<typeof SchemaRecommendationPrioritySchema>;
 
 export const JsonLdObjectSchema = z.record(z.unknown());
 
@@ -1124,9 +1084,7 @@ export const JsonLdRecommendationEvidenceSchema = z.object({
   sourceField: z.string().min(1)
 });
 
-export type JsonLdRecommendationEvidence = z.infer<
-  typeof JsonLdRecommendationEvidenceSchema
->;
+export type JsonLdRecommendationEvidence = z.infer<typeof JsonLdRecommendationEvidenceSchema>;
 
 export const JsonLdRecommendationSchema = z.object({
   type: SchemaJsonLdTypeSchema,
@@ -1152,12 +1110,7 @@ export const JsonLdRecommendationSetSchema = z.object({
 
 export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
 
-export const SchemaRecommendationStatusSchema = z.enum([
-  "open",
-  "converted",
-  "dismissed",
-  "resolved"
-]);
+export const SchemaRecommendationStatusSchema = z.enum(["open", "converted", "dismissed", "resolved"]);
 
 export type SchemaRecommendationStatus = z.infer<typeof SchemaRecommendationStatusSchema>;
 
@@ -1179,25 +1132,19 @@ export const SchemaRecommendationRecordSchema = z.object({
   updatedAt: IsoDateTimeSchema
 });
 
-export type SchemaRecommendationRecord = z.infer<
-  typeof SchemaRecommendationRecordSchema
->;
+export type SchemaRecommendationRecord = z.infer<typeof SchemaRecommendationRecordSchema>;
 
 export const SchemaRecommendationListResponseSchema = z.object({
   recommendations: z.array(SchemaRecommendationRecordSchema)
 });
 
-export type SchemaRecommendationListResponse = z.infer<
-  typeof SchemaRecommendationListResponseSchema
->;
+export type SchemaRecommendationListResponse = z.infer<typeof SchemaRecommendationListResponseSchema>;
 
 export const SchemaRecommendationDetailResponseSchema = z.object({
   recommendation: SchemaRecommendationRecordSchema
 });
 
-export type SchemaRecommendationDetailResponse = z.infer<
-  typeof SchemaRecommendationDetailResponseSchema
->;
+export type SchemaRecommendationDetailResponse = z.infer<typeof SchemaRecommendationDetailResponseSchema>;
 
 export const CreateSchemaRecommendationWorkOrderResponseSchema = z.object({
   recommendation: SchemaRecommendationRecordSchema,
@@ -1259,26 +1206,20 @@ export const CreateSchemaRecommendationsRequestSchema = z.object({
   snapshots: z.array(CrawlerPageSnapshotSchema).min(1)
 });
 
-export type CreateSchemaRecommendationsRequest = z.infer<
-  typeof CreateSchemaRecommendationsRequestSchema
->;
+export type CreateSchemaRecommendationsRequest = z.infer<typeof CreateSchemaRecommendationsRequestSchema>;
 
 export const CreateSchemaRecommendationsResponseSchema = z.object({
   recommendationSets: z.array(JsonLdRecommendationSetSchema),
   recommendations: z.array(SchemaRecommendationRecordSchema)
 });
 
-export type CreateSchemaRecommendationsResponse = z.infer<
-  typeof CreateSchemaRecommendationsResponseSchema
->;
+export type CreateSchemaRecommendationsResponse = z.infer<typeof CreateSchemaRecommendationsResponseSchema>;
 
 export const RecheckSchemaRecommendationRequestSchema = z.object({
   snapshot: CrawlerPageSnapshotSchema
 });
 
-export type RecheckSchemaRecommendationRequest = z.infer<
-  typeof RecheckSchemaRecommendationRequestSchema
->;
+export type RecheckSchemaRecommendationRequest = z.infer<typeof RecheckSchemaRecommendationRequestSchema>;
 
 export const RecheckSchemaRecommendationResponseSchema = z.object({
   expectedType: SchemaJsonLdTypeSchema,
@@ -1288,9 +1229,7 @@ export const RecheckSchemaRecommendationResponseSchema = z.object({
   workOrder: WorkOrderSchema.nullable()
 });
 
-export type RecheckSchemaRecommendationResponse = z.infer<
-  typeof RecheckSchemaRecommendationResponseSchema
->;
+export type RecheckSchemaRecommendationResponse = z.infer<typeof RecheckSchemaRecommendationResponseSchema>;
 
 export const CrawlJobPageInputSchema = z.object({
   url: NormalizedUrlSchema,
@@ -1425,13 +1364,7 @@ export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
-export const ConnectorSyncRunStatusSchema = z.enum([
-  "queued",
-  "running",
-  "completed",
-  "partial",
-  "failed"
-]);
+export const ConnectorSyncRunStatusSchema = z.enum(["queued", "running", "completed", "partial", "failed"]);
 
 export type ConnectorSyncRunStatus = z.infer<typeof ConnectorSyncRunStatusSchema>;
 
@@ -1516,16 +1449,18 @@ export const ConnectorRecordSchema = z.discriminatedUnion("provider", [
 
 export type ConnectorRecord = z.infer<typeof ConnectorRecordSchema>;
 
-export const ConnectorRunResultSchema = z.object({
-  provider: ConnectorProviderSchema,
-  status: ConnectorSyncStatusSchema,
-  fetchedAt: IsoDateTimeSchema,
-  fixture: z.boolean(),
-  records: z.array(ConnectorRecordSchema)
-}).refine((result) => result.records.every((record) => record.provider === result.provider), {
-  message: "Connector run provider must match every normalized record provider",
-  path: ["records"]
-});
+export const ConnectorRunResultSchema = z
+  .object({
+    provider: ConnectorProviderSchema,
+    status: ConnectorSyncStatusSchema,
+    fetchedAt: IsoDateTimeSchema,
+    fixture: z.boolean(),
+    records: z.array(ConnectorRecordSchema)
+  })
+  .refine((result) => result.records.every((record) => record.provider === result.provider), {
+    message: "Connector run provider must match every normalized record provider",
+    path: ["records"]
+  });
 
 export type ConnectorRunResult = z.infer<typeof ConnectorRunResultSchema>;
 
@@ -1537,9 +1472,7 @@ export const ConnectorRecordCountsByProviderSchema = z.object({
   pagespeed: NonNegativeIntegerSchema
 });
 
-export type ConnectorRecordCountsByProvider = z.infer<
-  typeof ConnectorRecordCountsByProviderSchema
->;
+export type ConnectorRecordCountsByProvider = z.infer<typeof ConnectorRecordCountsByProviderSchema>;
 
 export const ConnectorBatchSyncSummarySchema = z.object({
   failedProviders: NonNegativeIntegerSchema,
@@ -1552,10 +1485,7 @@ export const ConnectorBatchSyncSummarySchema = z.object({
 
 export type ConnectorBatchSyncSummary = z.infer<typeof ConnectorBatchSyncSummarySchema>;
 
-export const ConnectorSyncRunSummarySchema = z.union([
-  ConnectorBatchSyncSummarySchema,
-  z.record(z.unknown())
-]);
+export const ConnectorSyncRunSummarySchema = z.union([ConnectorBatchSyncSummarySchema, z.record(z.unknown())]);
 
 export type ConnectorSyncRunSummary = z.infer<typeof ConnectorSyncRunSummarySchema>;
 
@@ -1638,18 +1568,14 @@ export const ConnectorSyncRunListResponseSchema = z.object({
   connectorSyncRuns: z.array(ConnectorSyncRunSchema)
 });
 
-export type ConnectorSyncRunListResponse = z.infer<
-  typeof ConnectorSyncRunListResponseSchema
->;
+export type ConnectorSyncRunListResponse = z.infer<typeof ConnectorSyncRunListResponseSchema>;
 
 export const ConnectorSyncRunDetailResponseSchema = z.object({
   connectorSyncRun: ConnectorSyncRunSchema,
   results: z.array(ConnectorSyncResultSchema)
 });
 
-export type ConnectorSyncRunDetailResponse = z.infer<
-  typeof ConnectorSyncRunDetailResponseSchema
->;
+export type ConnectorSyncRunDetailResponse = z.infer<typeof ConnectorSyncRunDetailResponseSchema>;
 
 export const PageSnapshotSchema = z.object({
   url: z.string().url(),
