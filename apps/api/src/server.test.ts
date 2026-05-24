@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   AeoReadinessReportRecord,
+  ComplianceFlag,
   ConnectorSyncResult,
   ConnectorSyncRun,
   ContentBrief,
@@ -182,6 +183,33 @@ const seededGeoVisibilityReport: GeoVisibilityReportRecord = {
   evaluatedAt: "2026-05-24T00:00:00.000Z",
   createdAt
 };
+const seededComplianceFlag: ComplianceFlag = {
+  id: "compliance_flag_seed",
+  organizationId: "org_seed",
+  siteId: "site_seed",
+  workOrderId: null,
+  subjectType: "page_copy",
+  subjectId: "page_seed",
+  ruleId: "ABSOLUTE_SAFETY_CLAIM",
+  url: "https://exampleclinic.com/services/botox",
+  riskLevel: "high",
+  status: "open",
+  title: "Absolute safety claim",
+  message: "The content uses absolute safety language.",
+  evidence: {
+    url: "https://exampleclinic.com/services/botox",
+    excerpt: "This clinic treatment is completely safe.",
+    observedValue: "completely safe",
+    expectedValue: "Medical content should avoid absolute safety claims.",
+    sourceField: "text",
+    match: "completely safe"
+  },
+  recommendation: "Replace absolute safety language with balanced wording.",
+  replacementSuggestion: "Explain that risks vary by individual.",
+  generatedBy: "deterministic",
+  createdAt,
+  updatedAt: createdAt
+};
 const seededSchemaRecommendation: SchemaRecommendationRecord = {
   id: "schema_rec_seed",
   siteId: "site_seed",
@@ -329,6 +357,16 @@ function buildGeoVisibilityTestServer() {
       organizations: [seededOrganization],
       sites: [seededSite],
       geoVisibilityReports: [seededGeoVisibilityReport]
+    })
+  });
+}
+
+function buildComplianceTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      complianceFlags: [seededComplianceFlag]
     })
   });
 }
@@ -1084,6 +1122,152 @@ describe("api foundation", () => {
     expect(invalidPayloadResponse.json().message).toContain("brandName");
     expect(outOfScopeResponse.statusCode).toBe(400);
     expect(outOfScopeResponse.json().message).toContain("site domain");
+  });
+
+  it("creates deterministic compliance reviews and persists flags", async () => {
+    const server = buildComplianceTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/compliance-reviews",
+      payload: {
+        siteId: "site_seed",
+        subjectType: "page_copy",
+        subjectId: "page_botox",
+        url: "https://exampleclinic.com/services/botox",
+        title: "Botox service draft",
+        text: "Our medical clinic offers guaranteed treatment outcomes and is completely safe.",
+        publishState: "draft",
+        source: "fixture",
+        evaluatedAt: "2026-05-24T00:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      report: {
+        status: "blocked",
+        overallRiskLevel: "critical",
+        generatedBy: "deterministic",
+        publishPolicy: "draft_only"
+      }
+    });
+    expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId))
+      .toEqual(["GUARANTEED_RESULT_CLAIM", "ABSOLUTE_SAFETY_CLAIM"]);
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/compliance-flags"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().complianceFlags).toHaveLength(3);
+  });
+
+  it("lists and updates persisted compliance flags", async () => {
+    const server = buildComplianceTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/compliance-flags"
+    });
+    const updateResponse = await server.inject({
+      method: "PATCH",
+      url: "/compliance-flags/compliance_flag_seed",
+      payload: {
+        status: "approved"
+      }
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().complianceFlags).toEqual([
+      expect.objectContaining({
+        id: "compliance_flag_seed",
+        ruleId: "ABSOLUTE_SAFETY_CLAIM",
+        status: "open"
+      })
+    ]);
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      id: "compliance_flag_seed",
+      status: "approved"
+    });
+  });
+
+  it("converts compliance flags to idempotent work orders", async () => {
+    const server = buildComplianceTestServer();
+    const firstResponse = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/work-order"
+    });
+    const secondResponse = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_seed/work-order"
+    });
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(firstResponse.json()).toMatchObject({
+      complianceFlag: {
+        id: "compliance_flag_seed",
+        status: "in_review",
+        workOrderId: "wo_0001"
+      },
+      workOrder: {
+        id: "wo_0001",
+        ownerType: "legal",
+        priority: "p1",
+        title: "/services/botox Absolute safety claim"
+      }
+    });
+    expect(secondResponse.statusCode).toBe(201);
+    expect(secondResponse.json().workOrder.id).toBe(firstResponse.json().workOrder.id);
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/work-orders"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().workOrders).toEqual([
+      expect.objectContaining({
+        ownerType: "legal",
+        title: "/services/botox Absolute safety claim"
+      })
+    ]);
+  });
+
+  it("validates compliance review route scope and missing resources", async () => {
+    const server = buildComplianceTestServer();
+    const siteMismatchResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/compliance-reviews",
+      payload: {
+        siteId: "site_other",
+        subjectType: "page_copy",
+        text: "This medical clinic is completely safe."
+      }
+    });
+    const outOfScopeResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/compliance-reviews",
+      payload: {
+        siteId: "site_seed",
+        subjectType: "page_copy",
+        url: "https://example.net/services/botox",
+        text: "This medical clinic is completely safe."
+      }
+    });
+    const missingSiteResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/compliance-flags"
+    });
+    const missingFlagResponse = await server.inject({
+      method: "POST",
+      url: "/compliance-flags/compliance_flag_missing/work-order"
+    });
+
+    expect(siteMismatchResponse.statusCode).toBe(400);
+    expect(siteMismatchResponse.json().message).toContain("siteId");
+    expect(outOfScopeResponse.statusCode).toBe(400);
+    expect(outOfScopeResponse.json().message).toContain("site domain");
+    expect(missingSiteResponse.statusCode).toBe(404);
+    expect(missingFlagResponse.statusCode).toBe(404);
   });
 
   it("creates deterministic schema recommendations and persists them", async () => {

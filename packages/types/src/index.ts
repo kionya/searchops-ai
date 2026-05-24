@@ -926,14 +926,6 @@ export type CreateComplianceReviewRequest = z.infer<
   typeof CreateComplianceReviewRequestSchema
 >;
 
-export const CreateComplianceReviewResponseSchema = z.object({
-  report: ComplianceReviewReportSchema
-});
-
-export type CreateComplianceReviewResponse = z.infer<
-  typeof CreateComplianceReviewResponseSchema
->;
-
 export const ComplianceFlagSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,
@@ -945,15 +937,50 @@ export const ComplianceFlagSchema = z.object({
   url: NormalizedUrlSchema.nullable().optional(),
   riskLevel: ComplianceRiskLevelSchema.or(z.string().min(1)),
   status: ComplianceFlagStatusSchema.or(z.string().min(1)),
+  title: z.string().min(1).nullable().optional(),
   message: z.string().min(1),
   evidence: ComplianceEvidenceSchema.nullable().optional(),
   recommendation: z.string().min(1).nullable().optional(),
   replacementSuggestion: z.string().min(1).nullable().optional(),
   generatedBy: z.literal("deterministic").optional(),
-  createdAt: IsoDateTimeSchema
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema.optional()
 });
 
 export type ComplianceFlag = z.infer<typeof ComplianceFlagSchema>;
+
+export const ComplianceFlagListResponseSchema = z.object({
+  complianceFlags: z.array(ComplianceFlagSchema)
+});
+
+export type ComplianceFlagListResponse = z.infer<typeof ComplianceFlagListResponseSchema>;
+
+export const UpdateComplianceFlagRequestSchema = z.object({
+  status: ComplianceFlagStatusSchema.optional(),
+  workOrderId: IdSchema.nullable().optional()
+});
+
+export type UpdateComplianceFlagRequest = z.infer<
+  typeof UpdateComplianceFlagRequestSchema
+>;
+
+export const CreateComplianceReviewResponseSchema = z.object({
+  report: ComplianceReviewReportSchema,
+  complianceFlags: z.array(ComplianceFlagSchema)
+});
+
+export type CreateComplianceReviewResponse = z.infer<
+  typeof CreateComplianceReviewResponseSchema
+>;
+
+export const CreateComplianceFlagWorkOrderResponseSchema = z.object({
+  complianceFlag: ComplianceFlagSchema,
+  workOrder: WorkOrderSchema
+});
+
+export type CreateComplianceFlagWorkOrderResponse = z.infer<
+  typeof CreateComplianceFlagWorkOrderResponseSchema
+>;
 
 export const CreateOrganizationRequestSchema = z.object({
   name: z.string().min(1)

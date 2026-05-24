@@ -111,4 +111,10 @@ Phase 10 starts with deterministic compliance review contracts and medical adver
 
 `packages/compliance` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed review input, returns Zod-validated compliance reports and flag drafts, and remains independently unit testable.
 
-API persistence, dashboard review workflows, approval state changes, and ComplianceFlag to WorkOrder conversion belong to later integration layers. Medical content must stay draft-only until compliance review is complete.
+`apps/api` owns the HTTP boundary for compliance review creation, flag history, status updates, and ComplianceFlag to WorkOrder conversion. It may call deterministic `packages/compliance` and `packages/workorders`, validate requests and responses through `packages/types`, scope review URLs to the registered site domain/subdomains, and persist through repository ports.
+
+`packages/db` owns ComplianceFlag persistence. Flags are review history rows with deterministic evidence, recommendations, replacement suggestions, and optional work order links.
+
+`apps/web` owns the dashboard surface for compliance review history. It may run fixture-backed reviews, update flag statuses, and create legal-review work orders through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+
+Medical content must stay draft-only until compliance review is complete. No Phase 10 layer may publish to a CMS or call LLM providers for risk detection.

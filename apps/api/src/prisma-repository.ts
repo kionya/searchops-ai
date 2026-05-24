@@ -1,5 +1,6 @@
 import {
   AeoReadinessReportRecordSchema,
+  ComplianceFlagSchema,
   ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
   ContentBriefSchema,
@@ -12,6 +13,8 @@ import {
   WorkOrderSchema,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
+  type ComplianceFlag,
+  type ComplianceReviewReport,
   type ContentBrief,
   type ConnectorSyncResult,
   type ConnectorSyncRun,
@@ -50,11 +53,17 @@ type AeoReadinessReportRecordResult = Awaited<
 type GeoVisibilityReportRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["geoVisibilityReport"]["findFirst"]>
 >;
+type ComplianceFlagRecord = Awaited<
+  ReturnType<SearchOpsPrismaClient["complianceFlag"]["findFirst"]>
+>;
 type SchemaRecommendationRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["schemaRecommendation"]["findFirst"]>
 >;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
+type ComplianceFlagWithWorkOrder = NonNullable<ComplianceFlagRecord> & {
+  workOrder: NonNullable<WorkOrderRecord> | null;
+};
 
 export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOpsRepository {
   return {
@@ -460,6 +469,107 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       });
     },
 
+    async createComplianceReview(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true, organizationId: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.report.input.siteId !== siteId) {
+        return null;
+      }
+
+      const flags = await prisma.$transaction(
+        input.report.flags.map((flag) =>
+          prisma.complianceFlag.create({
+            data: buildComplianceFlagCreateArgs(site.organizationId, siteId, input.report, flag)
+          }),
+        ),
+      );
+
+      return flags.map(toComplianceFlag);
+    },
+
+    async listComplianceFlags(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const flags = await prisma.complianceFlag.findMany({
+        orderBy: [{ createdAt: "desc" }, { riskLevel: "asc" }, { message: "asc" }],
+        where: { siteId }
+      });
+      return flags.map(toComplianceFlag);
+    },
+
+    async getComplianceFlag(id) {
+      return toNullableComplianceFlag(
+        await prisma.complianceFlag.findUnique({
+          where: { id }
+        }),
+      );
+    },
+
+    async updateComplianceFlag(id, input) {
+      const existing = await prisma.complianceFlag.findUnique({
+        select: { id: true },
+        where: { id }
+      });
+      if (existing === null) {
+        return null;
+      }
+
+      return toComplianceFlag(
+        await prisma.complianceFlag.update({
+          data: {
+            ...(input.status === undefined ? {} : { status: input.status }),
+            ...(input.workOrderId === undefined ? {} : { workOrderId: input.workOrderId })
+          },
+          where: { id }
+        }),
+      );
+    },
+
+    async createComplianceFlagWorkOrder(flagId, input) {
+      return prisma.$transaction(async (transaction) => {
+        const flag = await transaction.complianceFlag.findUnique({
+          include: {
+            workOrder: true
+          },
+          where: { id: flagId }
+        });
+        if (flag === null) {
+          return null;
+        }
+
+        const workOrder =
+          flag.workOrder === null
+            ? await transaction.workOrder.create({
+                data: buildComplianceFlagWorkOrderCreateArgs(flag, input.draft)
+              })
+            : await transaction.workOrder.update({
+                data: buildComplianceFlagWorkOrderUpdateArgs(input.draft),
+                where: { id: flag.workOrder.id }
+              });
+        const complianceFlag = await transaction.complianceFlag.update({
+          data: {
+            status:
+              flag.status === "approved" || flag.status === "resolved" ? flag.status : "in_review",
+            workOrderId: workOrder.id
+          },
+          where: { id: flagId }
+        });
+
+        return {
+          complianceFlag: toComplianceFlag(complianceFlag),
+          workOrder: toWorkOrder(workOrder)
+        };
+      });
+    },
+
     async createSchemaRecommendations(siteId, input) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -753,6 +863,69 @@ function buildGeoVisibilityReportCreateArgs(
     score: report.score,
     siteId,
     status: report.status
+  };
+}
+
+function buildComplianceFlagCreateArgs(
+  organizationId: string,
+  siteId: string,
+  report: ComplianceReviewReport,
+  flag: ComplianceReviewReport["flags"][number],
+): Prisma.ComplianceFlagUncheckedCreateInput {
+  return {
+    evidence: toJson(flag.evidence),
+    generatedBy: flag.generatedBy,
+    message: flag.message,
+    organizationId,
+    recommendation: flag.recommendation,
+    replacementSuggestion: flag.replacementSuggestion,
+    riskLevel: flag.riskLevel,
+    ruleId: flag.ruleId,
+    siteId,
+    status: flag.status,
+    subjectId: report.input.subjectId,
+    subjectType: report.input.subjectType,
+    title: flag.title,
+    url: report.input.url,
+    workOrderId: null
+  };
+}
+
+function buildComplianceFlagWorkOrderCreateArgs(
+  flag: ComplianceFlagWithWorkOrder,
+  draft: WorkOrderDraft,
+): Prisma.WorkOrderUncheckedCreateInput {
+  return {
+    ...buildComplianceFlagWorkOrderData(draft),
+    description: null,
+    geoVisibilityReportId: null,
+    organizationId: flag.organizationId,
+    schemaRecommendationId: null,
+    seoIssueId: null,
+    siteId: flag.siteId,
+    status: "open"
+  };
+}
+
+function buildComplianceFlagWorkOrderUpdateArgs(
+  draft: WorkOrderDraft,
+): Prisma.WorkOrderUncheckedUpdateInput {
+  return buildComplianceFlagWorkOrderData(draft);
+}
+
+function buildComplianceFlagWorkOrderData(draft: WorkOrderDraft) {
+  return {
+    acceptanceCriteria: toJson(draft.acceptanceCriteria),
+    estimatedEffort: draft.estimatedEffort,
+    evidence: toJson(draft.evidence),
+    impact: draft.impact,
+    instructions: toJson(draft.instructions),
+    ownerType: draft.ownerType,
+    priority: draft.priority,
+    problem: draft.problem,
+    relatedIssues: toJson(draft.relatedIssues),
+    title: draft.title,
+    verificationMethod: draft.verificationMethod
   };
 }
 
@@ -1086,6 +1259,33 @@ function toNullableGeoVisibilityReportRecord(
   record: GeoVisibilityReportRecordResult,
 ): GeoVisibilityReportRecord | null {
   return record === null ? null : toGeoVisibilityReportRecord(record);
+}
+
+function toComplianceFlag(record: NonNullable<ComplianceFlagRecord>): ComplianceFlag {
+  return ComplianceFlagSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    workOrderId: record.workOrderId,
+    subjectType: record.subjectType,
+    subjectId: record.subjectId,
+    ruleId: record.ruleId,
+    url: record.url,
+    riskLevel: record.riskLevel,
+    status: record.status,
+    title: record.title,
+    message: record.message,
+    evidence: record.evidence,
+    recommendation: record.recommendation,
+    replacementSuggestion: record.replacementSuggestion,
+    generatedBy: record.generatedBy,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  });
+}
+
+function toNullableComplianceFlag(record: ComplianceFlagRecord): ComplianceFlag | null {
+  return record === null ? null : toComplianceFlag(record);
 }
 
 function toWorkOrder(record: NonNullable<WorkOrderRecord>): WorkOrder {

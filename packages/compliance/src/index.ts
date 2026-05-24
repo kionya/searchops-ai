@@ -17,12 +17,21 @@ export const medicalContentPublishPolicy = "draft-with-compliance-flags-only" as
 
 export interface ComplianceEvaluationOptions {
   readonly evaluatedAt?: string;
+  readonly rulePackId?: ComplianceRulePackId;
   readonly rules?: readonly ComplianceRule[];
 }
 
 export interface ComplianceRule {
   readonly id: ComplianceRuleId;
   readonly evaluate: (input: ComplianceReviewInput) => readonly ComplianceFlagDraft[];
+}
+
+export type ComplianceRulePackId = "global" | "kr-medical";
+
+export interface ComplianceRulePack {
+  readonly id: ComplianceRulePackId;
+  readonly localePattern: RegExp;
+  readonly rules: readonly ComplianceRule[];
 }
 
 interface CompliancePatternRuleConfig {
@@ -207,13 +216,28 @@ export const defaultComplianceRules = [
   unreviewedMedicalPublishRule
 ] as const satisfies readonly ComplianceRule[];
 
+export const complianceRulePacks = {
+  global: {
+    id: "global",
+    localePattern: /.*/u,
+    rules: defaultComplianceRules
+  },
+  "kr-medical": {
+    id: "kr-medical",
+    localePattern: /(^ko\b|-kr$)/iu,
+    rules: defaultComplianceRules
+  }
+} as const satisfies Record<ComplianceRulePackId, ComplianceRulePack>;
+
 export function evaluateCompliance(
   input: ComplianceReviewInput,
   options: ComplianceEvaluationOptions = {},
 ): ComplianceReviewReport {
   const parsedInput = ComplianceReviewInputSchema.parse(input);
   const evaluatedAt = options.evaluatedAt ?? new Date().toISOString();
-  const rules = options.rules ?? defaultComplianceRules;
+  const rules =
+    options.rules ??
+    complianceRulePacks[options.rulePackId ?? selectComplianceRulePackId(parsedInput)].rules;
   const flags = rules.flatMap((rule) => rule.evaluate(parsedInput));
   const overallRiskLevel = getHighestRiskLevel(flags);
 
@@ -226,6 +250,19 @@ export function evaluateCompliance(
     generatedBy: complianceGenerationMode,
     evaluatedAt
   });
+}
+
+export function selectComplianceRulePackId(input: ComplianceReviewInput): ComplianceRulePackId {
+  const parsedInput = ComplianceReviewInputSchema.parse(input);
+
+  if (
+    complianceRulePacks["kr-medical"].localePattern.test(parsedInput.locale) &&
+    isMedicalContext(parsedInput)
+  ) {
+    return "kr-medical";
+  }
+
+  return "global";
 }
 
 function createPatternRule(config: CompliancePatternRuleConfig): ComplianceRule {

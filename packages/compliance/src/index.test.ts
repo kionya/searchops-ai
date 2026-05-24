@@ -6,11 +6,13 @@ import {
   absoluteSafetyClaimRule,
   complianceGenerationMode,
   compliancePackage,
+  complianceRulePacks,
   defaultComplianceRules,
   evaluateCompliance,
   guaranteedResultClaimRule,
   medicalContentPublishPolicy,
   priceDiscountPromotionRule,
+  selectComplianceRulePackId,
   supportedComplianceRuleIds,
   unreviewedMedicalPublishRule
 } from "./index.js";
@@ -46,6 +48,21 @@ describe("compliance contracts", () => {
 
   it("exports default rules in deterministic order", () => {
     expect(defaultComplianceRules.map((rule) => rule.id)).toEqual(supportedComplianceRuleIds);
+  });
+
+  it("selects deterministic rule packs by locale and medical context", () => {
+    expect(Object.keys(complianceRulePacks)).toEqual(["global", "kr-medical"]);
+    expect(selectComplianceRulePackId(baseInput)).toBe("kr-medical");
+    expect(
+      selectComplianceRulePackId(
+        createInput({
+          industry: "software",
+          locale: "en-US",
+          title: "SaaS page",
+          text: "This software page has no medical context."
+        }),
+      ),
+    ).toBe("global");
   });
 });
 

@@ -23,6 +23,20 @@ import {
   triggerConnectorSync
 } from "./connector-sync-history";
 import {
+  convertComplianceFlagToWorkOrder,
+  createComplianceReviewFromFixture,
+  createDemoComplianceDashboard,
+  demoComplianceFlags,
+  formatComplianceRisk,
+  getComplianceReviewCreateFeedback,
+  getComplianceRiskTone,
+  getComplianceStatusUpdateFeedback,
+  getComplianceWorkOrderFeedback,
+  loadComplianceDashboard,
+  summarizeComplianceDashboard,
+  updateComplianceFlagStatus
+} from "./compliance-dashboard";
+import {
   createContentBriefFromForm,
   createContentBriefRequestFromForm,
   createDemoContentBriefHistory,
@@ -953,6 +967,191 @@ describe("web foundation", () => {
       status: "fixture"
     });
     expect(getConnectorSyncTriggerFeedback("fixture", undefined)?.tone).toBe("info");
+  });
+
+  it("summarizes deterministic compliance dashboard fixtures", () => {
+    const dashboard = createDemoComplianceDashboard(demoSite);
+
+    expect(dashboard.flags).toHaveLength(demoComplianceFlags.length);
+    expect(summarizeComplianceDashboard(dashboard)).toEqual({
+      approved: 0,
+      blocked: 2,
+      open: 1,
+      total: 2
+    });
+    expect(getComplianceRiskTone("high")).toBe("risk");
+    expect(getComplianceRiskTone("medium")).toBe("neutral");
+    expect(formatComplianceRisk("critical")).toBe("critical");
+  });
+
+  it("loads compliance flags through the API response contract", async () => {
+    const complianceFlag = demoComplianceFlags[0];
+    if (!complianceFlag) {
+      throw new Error("Compliance flag fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/compliance-flags");
+
+        return Response.json({
+          complianceFlags: [complianceFlag]
+        });
+      }),
+    );
+
+    const dashboard = await loadComplianceDashboard({
+      ...demoSite,
+      id: "site_1"
+    });
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.flags).toHaveLength(1);
+  });
+
+  it("creates compliance reviews through the API response contract", async () => {
+    const complianceFlag = demoComplianceFlags[0];
+    if (!complianceFlag) {
+      throw new Error("Compliance flag fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/compliance-reviews");
+        expect(init?.method).toBe("POST");
+
+        return Response.json({
+          complianceFlags: [complianceFlag],
+          report: {
+            evaluatedAt: "2026-05-24T00:00:00.000Z",
+            flags: [
+              {
+                evidence: complianceFlag.evidence,
+                generatedBy: "deterministic",
+                message: complianceFlag.message,
+                ownerType: "legal",
+                publishPolicy: "draft_only",
+                recommendation: complianceFlag.recommendation,
+                replacementSuggestion: complianceFlag.replacementSuggestion,
+                riskLevel: complianceFlag.riskLevel,
+                ruleId: complianceFlag.ruleId,
+                status: "open",
+                title: complianceFlag.title
+              }
+            ],
+            generatedBy: "deterministic",
+            input: {
+              industry: "medical",
+              locale: "ko-KR",
+              publishState: "draft",
+              siteId: "site_1",
+              source: "fixture",
+              subjectId: "fixture-medical-page",
+              subjectType: "page_copy",
+              text: "Our medical clinic offers guaranteed treatment outcomes.",
+              title: "Fixture medical service draft",
+              url: "https://example-clinic.com/services/botox"
+            },
+            overallRiskLevel: "high",
+            publishPolicy: "draft_only",
+            status: "blocked"
+          }
+        });
+      }),
+    );
+
+    await expect(createComplianceReviewFromFixture({ ...demoSite, id: "site_1" })).resolves
+      .toMatchObject({
+        flagCount: 1,
+        source: "api",
+        status: "created"
+      });
+    expect(getComplianceReviewCreateFeedback("created", "1")?.message).toContain("1");
+  });
+
+  it("updates compliance flags and converts them to work orders through API contracts", async () => {
+    const complianceFlag = demoComplianceFlags[0];
+    if (!complianceFlag) {
+      throw new Error("Compliance flag fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.endsWith(`/compliance-flags/${complianceFlag.id}`)) {
+          expect(init?.method).toBe("PATCH");
+          return Response.json({
+            ...complianceFlag,
+            status: "approved"
+          });
+        }
+
+        if (url.endsWith(`/compliance-flags/${complianceFlag.id}/work-order`)) {
+          expect(init?.method).toBe("POST");
+          return Response.json({
+            complianceFlag: {
+              ...complianceFlag,
+              status: "in_review",
+              workOrderId: "wo_compliance"
+            },
+            workOrder: {
+              id: "wo_compliance",
+              organizationId: complianceFlag.organizationId,
+              siteId: complianceFlag.siteId,
+              seoIssueId: null,
+              schemaRecommendationId: null,
+              geoVisibilityReportId: null,
+              status: "open",
+              priority: "p1",
+              title: "/services/botox Absolute safety claim",
+              description: null,
+              problem: complianceFlag.message,
+              evidence: {
+                url: "https://example-clinic.com/services/botox",
+                observedValue: complianceFlag.evidence?.observedValue ?? "",
+                expectedValue: complianceFlag.evidence?.expectedValue ?? "",
+                sourceField: complianceFlag.evidence?.sourceField ?? "text"
+              },
+              impact: "Medical advertising risk requires legal review before publication.",
+              instructions: ["Replace absolute safety language with balanced wording."],
+              ownerType: "legal",
+              acceptanceCriteria: ["Compliance flag is approved or resolved."],
+              verificationMethod: "Run compliance review again.",
+              estimatedEffort: "m",
+              relatedIssues: [],
+              assignedTo: null,
+              dueDate: null,
+              createdAt: "2026-05-24T00:00:00.000Z",
+              updatedAt: "2026-05-24T00:00:00.000Z"
+            }
+          });
+        }
+
+        return new Response(null, { status: 404 });
+      }),
+    );
+
+    await expect(updateComplianceFlagStatus(complianceFlag.id, "approved")).resolves.toMatchObject({
+      flagId: complianceFlag.id,
+      source: "api",
+      status: "updated"
+    });
+    await expect(convertComplianceFlagToWorkOrder(complianceFlag.id)).resolves.toMatchObject({
+      flagId: complianceFlag.id,
+      source: "api",
+      status: "converted",
+      workOrderId: "wo_compliance"
+    });
+    expect(getComplianceStatusUpdateFeedback("updated", complianceFlag.id)?.tone).toBe("success");
+    expect(getComplianceWorkOrderFeedback("converted", "wo_compliance", complianceFlag.id)?.tone)
+      .toBe("success");
   });
 
   it("calculates deterministic site overview KPIs", () => {

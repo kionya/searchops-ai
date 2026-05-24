@@ -31,6 +31,7 @@ import {
   ConnectorRecordSchema,
   ConnectorRunResultSchema,
   ConnectorSyncJobPayloadSchema,
+  ComplianceFlagListResponseSchema,
   ComplianceFlagDraftSchema,
   ComplianceFlagSchema,
   ComplianceReviewInputSchema,
@@ -39,6 +40,7 @@ import {
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
   CrawlerPageSnapshotSchema,
+  CreateComplianceFlagWorkOrderResponseSchema,
   CreateComplianceReviewRequestSchema,
   CreateComplianceReviewResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
@@ -76,6 +78,7 @@ import {
   WorkOrderListResponseSchema,
   WorkOrderOwnerTypeSchema,
   WorkOrderSchema,
+  UpdateComplianceFlagRequestSchema,
   UpdateWorkOrderRequestSchema,
   parseSearchOpsEnv,
   productName
@@ -1389,27 +1392,75 @@ describe("types foundation", () => {
     expect(CreateComplianceReviewRequestSchema.parse(input)).toMatchObject({
       publishState: "scheduled"
     });
-    expect(CreateComplianceReviewResponseSchema.parse({ report }).report.flags).toHaveLength(1);
+    const complianceFlag = ComplianceFlagSchema.parse({
+      id: "flag_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      workOrderId: null,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      ruleId: flag.ruleId,
+      url: input.url,
+      riskLevel: flag.riskLevel,
+      status: "open",
+      message: flag.message,
+      evidence: flag.evidence,
+      recommendation: flag.recommendation,
+      replacementSuggestion: flag.replacementSuggestion,
+      generatedBy: "deterministic",
+      createdAt: "2026-05-24T00:00:00.000Z",
+      updatedAt: "2026-05-24T00:00:00.000Z"
+    });
+
     expect(
-      ComplianceFlagSchema.parse({
-        id: "flag_1",
-        organizationId: "org_1",
-        siteId: "site_1",
-        workOrderId: null,
-        subjectType: input.subjectType,
-        subjectId: input.subjectId,
-        ruleId: flag.ruleId,
-        url: input.url,
-        riskLevel: flag.riskLevel,
-        status: "open",
-        message: flag.message,
-        evidence: flag.evidence,
-        recommendation: flag.recommendation,
-        replacementSuggestion: flag.replacementSuggestion,
-        generatedBy: "deterministic",
-        createdAt: "2026-05-24T00:00:00.000Z"
-      }),
-    ).toMatchObject({ ruleId: "ABSOLUTE_SAFETY_CLAIM" });
+      CreateComplianceReviewResponseSchema.parse({
+        complianceFlags: [complianceFlag],
+        report
+      }).complianceFlags,
+    ).toHaveLength(1);
+    expect(
+      ComplianceFlagListResponseSchema.parse({
+        complianceFlags: [complianceFlag]
+      }).complianceFlags,
+    ).toHaveLength(1);
+    expect(UpdateComplianceFlagRequestSchema.parse({ status: "approved" })).toEqual({
+      status: "approved"
+    });
+    expect(
+      CreateComplianceFlagWorkOrderResponseSchema.parse({
+        complianceFlag,
+        workOrder: {
+          id: "wo_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          seoIssueId: null,
+          schemaRecommendationId: null,
+          geoVisibilityReportId: null,
+          status: "open",
+          priority: "p1",
+          title: "Compliance review",
+          description: null,
+          problem: flag.message,
+          evidence: {
+            url: "https://example-clinic.com/blog/laser",
+            observedValue: flag.evidence.observedValue,
+            expectedValue: flag.evidence.expectedValue,
+            sourceField: flag.evidence.sourceField
+          },
+          impact: "Medical advertising risk requires legal review before publication.",
+          instructions: [flag.recommendation],
+          ownerType: "legal",
+          acceptanceCriteria: ["Compliance flag is approved or resolved."],
+          verificationMethod: "Run compliance review again and confirm the flag is resolved.",
+          estimatedEffort: "s",
+          relatedIssues: [],
+          assignedTo: null,
+          dueDate: null,
+          createdAt: "2026-05-24T00:00:00.000Z",
+          updatedAt: "2026-05-24T00:00:00.000Z"
+        }
+      }).complianceFlag,
+    ).toMatchObject({ id: "flag_1" });
   });
 
   it("validates deterministic SEO issue drafts", () => {
