@@ -37,7 +37,7 @@ export interface PlaceholderPageContent {
 }
 
 export const dashboardPlaceholders: Record<
-  Exclude<SiteRouteSegment, "" | "connectors" | "content" | "schema" | "workorders">,
+  Exclude<SiteRouteSegment, "" | "connectors" | "content" | "geo" | "schema" | "workorders">,
   PlaceholderPageContent
 > = {
   crawls: {
@@ -72,17 +72,6 @@ export const dashboardPlaceholders: Record<
       { label: "Resolved", value: "0" }
     ],
     emptyTitle: "No issue rows"
-  },
-  geo: {
-    eyebrow: "GEO Monitor",
-    title: "AI visibility report",
-    description: "AI mention, citation, and non-brand query coverage.",
-    metrics: [
-      { label: "Mention rate", value: "0%" },
-      { label: "Citation rate", value: "0%" },
-      { label: "Query coverage", value: "0%" }
-    ],
-    emptyTitle: "No GEO rows"
   },
   compliance: {
     eyebrow: "Compliance",

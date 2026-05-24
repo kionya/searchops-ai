@@ -10,7 +10,7 @@ import {
   tableSectionStyle
 } from "./dashboard-table-styles";
 
-export type FutureModuleKey = "compliance" | "geo";
+export type FutureModuleKey = "compliance";
 export type FutureModuleStatus = "planned";
 
 export interface FutureModuleMetric {
@@ -31,25 +31,9 @@ export interface FutureModuleSkeleton {
   readonly nextMilestones: readonly string[];
 }
 
-export const futureModuleKeys = ["geo", "compliance"] as const satisfies readonly FutureModuleKey[];
+export const futureModuleKeys = ["compliance"] as const satisfies readonly FutureModuleKey[];
 
 export const futureModuleSkeletons: Record<FutureModuleKey, FutureModuleSkeleton> = {
-  geo: {
-    key: "geo",
-    eyebrow: "GEO Monitor",
-    title: "AI visibility report",
-    description: "AI mention, citation, and non-brand query coverage surface for future GEO monitoring.",
-    status: "planned",
-    metrics: [
-      { label: "Mention rate", value: "0%" },
-      { label: "Citation rate", value: "0%" },
-      { label: "Query coverage", value: "0%" }
-    ],
-    emptyTitle: "No GEO rows",
-    emptyDescription: "GEO visibility rows will appear after query sets and AI answer snapshots are available.",
-    dependsOn: ["Non-brand query set", "AI answer snapshots", "Citation parser"],
-    nextMilestones: ["CDX-090 GEO monitor", "CDX-110 Production hardening"]
-  },
   compliance: {
     key: "compliance",
     eyebrow: "Compliance",

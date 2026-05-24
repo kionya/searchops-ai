@@ -39,6 +39,18 @@ import {
   summarizeFutureModules
 } from "./future-module-skeletons";
 import {
+  createDemoGeoVisibilityDashboard,
+  createGeoVisibilityReportFromFixture,
+  demoGeoVisibilityReports,
+  formatGeoDate,
+  formatGeoProvider,
+  formatGeoStatus,
+  getGeoVisibilityCreateFeedback,
+  getGeoVisibilityStatusTone,
+  loadGeoVisibilityDashboard,
+  summarizeGeoVisibilityDashboard
+} from "./geo-visibility-dashboard";
+import {
   createDemoKeywordAeoDashboard,
   formatAeoCheckId,
   getAeoReadinessTone,
@@ -151,10 +163,137 @@ describe("web foundation", () => {
     expect(Object.keys(dashboardPlaceholders).sort()).toEqual([
       "compliance",
       "crawls",
-      "geo",
       "issues",
       "urls"
     ]);
+  });
+
+  it("summarizes deterministic GEO visibility dashboard fixtures", () => {
+    const dashboard = createDemoGeoVisibilityDashboard(demoSite);
+
+    expect(dashboard.reports).toHaveLength(2);
+    expect(dashboard.reports.map((report) => report.siteId)).toEqual([demoSite.id, demoSite.id]);
+    expect(summarizeGeoVisibilityDashboard(dashboard)).toEqual({
+      averageCitationRate: "84%",
+      averageMentionRate: "84%",
+      latestStatus: "strong",
+      strong: 1,
+      total: 2,
+      weakOrMissing: 0
+    });
+    expect(getGeoVisibilityStatusTone("not_visible")).toBe("risk");
+    expect(formatGeoStatus("not_visible")).toBe("not visible");
+    expect(formatGeoProvider("chatgpt")).toBe("ChatGPT");
+    expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 00:00");
+  });
+
+  it("loads GEO visibility reports through the API response contract", async () => {
+    const report = demoGeoVisibilityReports[0];
+    if (!report) {
+      throw new Error("GEO visibility API fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/sites/${demoSite.id}/geo-visibility-reports`,
+        );
+
+        return Response.json({
+          reports: [{ ...report, siteId: demoSite.id }]
+        });
+      }),
+    );
+
+    const dashboard = await loadGeoVisibilityDashboard(demoSite);
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(dashboard.reports).toHaveLength(1);
+    expect(dashboard.reports[0]).toMatchObject({
+      generatedBy: "deterministic",
+      score: 100,
+      siteId: demoSite.id,
+      status: "strong"
+    });
+  });
+
+  it("creates GEO visibility reports through the API contract", async () => {
+    const report = demoGeoVisibilityReports[0];
+    if (!report) {
+      throw new Error("GEO visibility create fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/sites/${demoSite.id}/geo-visibility-reports`,
+        );
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          target: {
+            domain: demoSite.domain,
+            siteId: demoSite.id
+          }
+        });
+
+        return Response.json({
+          report: { ...report, id: "geo_report_created", siteId: demoSite.id },
+          visibilityReport: {
+            checks: report.checks,
+            citations: report.citations,
+            competitorCitationRate: report.competitorCitationRate,
+            evaluatedAt: report.evaluatedAt,
+            generatedBy: "deterministic",
+            mentionRate: report.mentionRate,
+            observations: report.observations,
+            citationRate: report.citationRate,
+            providerCount: report.providerCount,
+            queryCount: report.queryCount,
+            score: report.score,
+            status: report.status,
+            target: {
+              brandName: report.brandName,
+              domain: report.domain,
+              locale: report.locale,
+              market: report.market,
+              siteId: report.siteId
+            }
+          }
+        });
+      }),
+    );
+
+    await expect(createGeoVisibilityReportFromFixture(demoSite)).resolves.toMatchObject({
+      reportId: "geo_report_created",
+      source: "api",
+      status: "created"
+    });
+    expect(getGeoVisibilityCreateFeedback("created", "geo_report_created")?.message).toContain(
+      "geo_report_created",
+    );
+  });
+
+  it("keeps GEO visibility deterministic without an API base URL", async () => {
+    await expect(loadGeoVisibilityDashboard(demoSite)).resolves.toMatchObject({
+      reports: expect.arrayContaining([
+        expect.objectContaining({
+          generatedBy: "deterministic",
+          siteId: demoSite.id
+        })
+      ]),
+      source: "fixture"
+    });
+    await expect(createGeoVisibilityReportFromFixture(demoSite)).resolves.toMatchObject({
+      reportId: null,
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getGeoVisibilityCreateFeedback("fixture", undefined)?.tone).toBe("info");
   });
 
   it("summarizes deterministic content brief history", () => {
@@ -828,12 +967,12 @@ describe("web foundation", () => {
   it("defines deterministic future module skeletons", () => {
     const modules = futureModuleKeys.map((key) => futureModuleSkeletons[key]);
 
-    expect(futureModuleKeys).toEqual(["geo", "compliance"]);
+    expect(futureModuleKeys).toEqual(["compliance"]);
     expect(summarizeFutureModules(modules)).toEqual({
-      total: 2,
-      planned: 2,
-      placeholderMetrics: 6,
-      emptyStates: 2
+      total: 1,
+      planned: 1,
+      placeholderMetrics: 3,
+      emptyStates: 1
     });
     expect(futureModuleSkeletons.compliance.dependsOn).toContain("Medical ad rules");
   });

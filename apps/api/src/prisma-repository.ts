@@ -4,6 +4,7 @@ import {
   ConnectorSyncRunSchema,
   ContentBriefSchema,
   CrawlRunSchema,
+  GeoVisibilityReportRecordSchema,
   OrganizationSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueSchema,
@@ -15,6 +16,8 @@ import {
   type ConnectorSyncResult,
   type ConnectorSyncRun,
   type CrawlRun,
+  type GeoVisibilityReport,
+  type GeoVisibilityReportRecord,
   type JsonLdRecommendation,
   type JsonLdRecommendationSet,
   type Organization,
@@ -43,6 +46,9 @@ type ConnectorSyncResultRecord = Awaited<
 type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
 type AeoReadinessReportRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["aeoReadinessReport"]["findFirst"]>
+>;
+type GeoVisibilityReportRecordResult = Awaited<
+  ReturnType<SearchOpsPrismaClient["geoVisibilityReport"]["findFirst"]>
 >;
 type SchemaRecommendationRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["schemaRecommendation"]["findFirst"]>
@@ -382,6 +388,38 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return reports.map(toAeoReadinessReportRecord);
     },
 
+    async createGeoVisibilityReport(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.visibilityReport.target.siteId !== siteId) {
+        return null;
+      }
+
+      return toGeoVisibilityReportRecord(
+        await prisma.geoVisibilityReport.create({
+          data: buildGeoVisibilityReportCreateArgs(siteId, input.visibilityReport)
+        }),
+      );
+    },
+
+    async listGeoVisibilityReports(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const reports = await prisma.geoVisibilityReport.findMany({
+        orderBy: [{ evaluatedAt: "desc" }, { createdAt: "desc" }, { brandName: "asc" }],
+        where: { siteId }
+      });
+      return reports.map(toGeoVisibilityReportRecord);
+    },
+
     async createSchemaRecommendations(siteId, input) {
       const site = await prisma.site.findUnique({
         select: { id: true },
@@ -653,6 +691,31 @@ function buildSchemaRecommendationUpsertArgs(
   };
 }
 
+function buildGeoVisibilityReportCreateArgs(
+  siteId: string,
+  report: GeoVisibilityReport,
+): Prisma.GeoVisibilityReportUncheckedCreateInput {
+  return {
+    brandName: report.target.brandName,
+    checks: toJson(report.checks),
+    citationRate: report.citationRate,
+    citations: toJson(report.citations),
+    competitorCitationRate: report.competitorCitationRate,
+    domain: report.target.domain,
+    evaluatedAt: new Date(report.evaluatedAt),
+    generatedBy: report.generatedBy,
+    locale: report.target.locale,
+    market: report.target.market,
+    mentionRate: report.mentionRate,
+    observations: toJson(report.observations),
+    providerCount: report.providerCount,
+    queryCount: report.queryCount,
+    score: report.score,
+    siteId,
+    status: report.status
+  };
+}
+
 function buildSchemaRecommendationWorkOrderUpsertArgs(
   recommendationId: string,
   organizationId: string,
@@ -879,6 +942,32 @@ function toAeoReadinessReportRecord(
     pageUrl: record.pageUrl,
     status: record.status,
     score: record.score,
+    checks: record.checks,
+    generatedBy: record.generatedBy,
+    evaluatedAt: record.evaluatedAt.toISOString(),
+    createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toGeoVisibilityReportRecord(
+  record: NonNullable<GeoVisibilityReportRecordResult>,
+): GeoVisibilityReportRecord {
+  return GeoVisibilityReportRecordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    brandName: record.brandName,
+    domain: record.domain,
+    locale: record.locale,
+    market: record.market,
+    status: record.status,
+    score: record.score,
+    mentionRate: record.mentionRate,
+    citationRate: record.citationRate,
+    competitorCitationRate: record.competitorCitationRate,
+    queryCount: record.queryCount,
+    providerCount: record.providerCount,
+    observations: record.observations,
+    citations: record.citations,
     checks: record.checks,
     generatedBy: record.generatedBy,
     evaluatedAt: record.evaluatedAt.toISOString(),

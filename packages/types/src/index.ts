@@ -603,6 +603,172 @@ export const ContentBriefDetailResponseSchema = z.object({
 
 export type ContentBriefDetailResponse = z.infer<typeof ContentBriefDetailResponseSchema>;
 
+export const GeoProviderSchema = z.enum([
+  "chatgpt",
+  "perplexity",
+  "gemini",
+  "copilot",
+  "claude",
+  "manual"
+]);
+
+export type GeoProvider = z.infer<typeof GeoProviderSchema>;
+
+export const GeoObservationSourceSchema = z.enum(["manual", "fixture", "connector"]);
+
+export type GeoObservationSource = z.infer<typeof GeoObservationSourceSchema>;
+
+export const GeoVisibilityStatusSchema = z.enum([
+  "strong",
+  "visible",
+  "weak",
+  "not_visible"
+]);
+
+export type GeoVisibilityStatus = z.infer<typeof GeoVisibilityStatusSchema>;
+
+export const GeoVisibilityCheckIdSchema = z.enum([
+  "BRAND_MENTIONED",
+  "OWNED_URL_CITED",
+  "QUERY_COVERAGE",
+  "PROVIDER_DIVERSITY",
+  "COMPETITOR_CITATION_RISK"
+]);
+
+export type GeoVisibilityCheckId = z.infer<typeof GeoVisibilityCheckIdSchema>;
+
+export const GeoVisibilityCheckStatusSchema = z.enum(["pass", "warning", "fail"]);
+
+export type GeoVisibilityCheckStatus = z.infer<typeof GeoVisibilityCheckStatusSchema>;
+
+export const GeoEvidenceValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string())
+]);
+
+export type GeoEvidenceValue = z.infer<typeof GeoEvidenceValueSchema>;
+
+export const GeoEvidenceSchema = z.object({
+  observedValue: GeoEvidenceValueSchema,
+  expectedValue: GeoEvidenceValueSchema,
+  sourceField: z.string().min(1)
+});
+
+export type GeoEvidence = z.infer<typeof GeoEvidenceSchema>;
+
+export const GeoTargetSchema = z.object({
+  siteId: IdSchema,
+  brandName: NonEmptyStringSchema,
+  domain: DomainSchema,
+  locale: z.string().min(2).default("ko-KR"),
+  market: z.string().min(2).default("KR")
+});
+
+export type GeoTarget = z.infer<typeof GeoTargetSchema>;
+
+export const GeoCitationSchema = z.object({
+  url: NormalizedUrlSchema,
+  domain: DomainSchema,
+  owned: z.boolean()
+});
+
+export type GeoCitation = z.infer<typeof GeoCitationSchema>;
+
+export const GeoAnswerObservationSchema = z.object({
+  provider: GeoProviderSchema,
+  query: NonEmptyStringSchema,
+  locale: z.string().min(2).default("ko-KR"),
+  answerText: z.string().default(""),
+  citedUrls: z.array(NormalizedUrlSchema).default([]),
+  observedAt: IsoDateTimeSchema,
+  source: GeoObservationSourceSchema.default("manual")
+});
+
+export type GeoAnswerObservation = z.infer<typeof GeoAnswerObservationSchema>;
+
+export const GeoVisibilityCheckSchema = z.object({
+  checkId: GeoVisibilityCheckIdSchema,
+  status: GeoVisibilityCheckStatusSchema,
+  score: PercentageScoreSchema,
+  evidence: GeoEvidenceSchema
+});
+
+export type GeoVisibilityCheck = z.infer<typeof GeoVisibilityCheckSchema>;
+
+export const GeoVisibilityReportSchema = z.object({
+  target: GeoTargetSchema,
+  status: GeoVisibilityStatusSchema,
+  score: PercentageScoreSchema,
+  mentionRate: PercentageScoreSchema,
+  citationRate: PercentageScoreSchema,
+  competitorCitationRate: PercentageScoreSchema,
+  queryCount: z.number().int().nonnegative(),
+  providerCount: z.number().int().nonnegative(),
+  observations: z.array(GeoAnswerObservationSchema).min(1),
+  citations: z.array(GeoCitationSchema),
+  checks: z.array(GeoVisibilityCheckSchema).min(1),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema
+});
+
+export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
+
+export const GeoVisibilityReportRecordSchema = z.object({
+  id: IdSchema,
+  siteId: IdSchema,
+  brandName: NonEmptyStringSchema,
+  domain: DomainSchema,
+  locale: z.string().min(2),
+  market: z.string().min(2),
+  status: GeoVisibilityStatusSchema,
+  score: PercentageScoreSchema,
+  mentionRate: PercentageScoreSchema,
+  citationRate: PercentageScoreSchema,
+  competitorCitationRate: PercentageScoreSchema,
+  queryCount: z.number().int().nonnegative(),
+  providerCount: z.number().int().nonnegative(),
+  observations: z.array(GeoAnswerObservationSchema).min(1),
+  citations: z.array(GeoCitationSchema),
+  checks: z.array(GeoVisibilityCheckSchema).min(1),
+  generatedBy: z.literal("deterministic"),
+  evaluatedAt: IsoDateTimeSchema,
+  createdAt: IsoDateTimeSchema
+});
+
+export type GeoVisibilityReportRecord = z.infer<
+  typeof GeoVisibilityReportRecordSchema
+>;
+
+export const CreateGeoVisibilityReportRequestSchema = z.object({
+  target: GeoTargetSchema,
+  observations: z.array(GeoAnswerObservationSchema).min(1),
+  evaluatedAt: IsoDateTimeSchema.optional()
+});
+
+export type CreateGeoVisibilityReportRequest = z.infer<
+  typeof CreateGeoVisibilityReportRequestSchema
+>;
+
+export const CreateGeoVisibilityReportResponseSchema = z.object({
+  report: GeoVisibilityReportRecordSchema,
+  visibilityReport: GeoVisibilityReportSchema
+});
+
+export type CreateGeoVisibilityReportResponse = z.infer<
+  typeof CreateGeoVisibilityReportResponseSchema
+>;
+
+export const GeoVisibilityReportListResponseSchema = z.object({
+  reports: z.array(GeoVisibilityReportRecordSchema)
+});
+
+export type GeoVisibilityReportListResponse = z.infer<
+  typeof GeoVisibilityReportListResponseSchema
+>;
+
 export const AiPromptSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,

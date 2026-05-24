@@ -11,6 +11,8 @@ import type {
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
   CreateSiteRequest,
+  GeoVisibilityReport,
+  GeoVisibilityReportRecord,
   JsonLdRecommendationSet,
   Organization,
   RecheckSchemaRecommendationResponse,
@@ -42,6 +44,10 @@ export interface CreateContentBriefDraftInput {
 export interface CreateAeoReadinessReportInput {
   keywordId?: string | null;
   readinessReport: AeoReadinessReport;
+}
+
+export interface CreateGeoVisibilityReportInput {
+  visibilityReport: GeoVisibilityReport;
 }
 
 export interface CreateSchemaRecommendationsInput {
@@ -92,6 +98,11 @@ export interface SearchOpsRepository {
     input: CreateAeoReadinessReportInput,
   ): Promise<AeoReadinessReportRecord | null>;
   listAeoReadinessReports(siteId: string): Promise<AeoReadinessReportRecord[] | null>;
+  createGeoVisibilityReport(
+    siteId: string,
+    input: CreateGeoVisibilityReportInput,
+  ): Promise<GeoVisibilityReportRecord | null>;
+  listGeoVisibilityReports(siteId: string): Promise<GeoVisibilityReportRecord[] | null>;
   createSchemaRecommendations(
     siteId: string,
     input: CreateSchemaRecommendationsInput,
@@ -120,6 +131,7 @@ export interface MemoryRepositorySeed {
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
+  readonly geoVisibilityReports?: readonly GeoVisibilityReportRecord[];
   readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly workOrders?: readonly WorkOrder[];
@@ -141,6 +153,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
+  const geoVisibilityReports = new Map<string, GeoVisibilityReportRecord>();
   const schemaRecommendations = new Map<string, SchemaRecommendationRecord>();
   const seoIssues = new Map<string, SeoIssue>();
   const workOrders = new Map<string, WorkOrder>();
@@ -150,6 +163,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let connectorSyncRunCounter = 1;
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
+  let geoVisibilityReportCounter = 1;
   let schemaRecommendationCounter = 1;
   let workOrderCounter = 1;
   let keywordCounter = 1;
@@ -186,6 +200,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const aeoReadinessReport of seed.aeoReadinessReports ?? []) {
     aeoReadinessReports.set(aeoReadinessReport.id, aeoReadinessReport);
     aeoReadinessReportCounter += 1;
+  }
+
+  for (const geoVisibilityReport of seed.geoVisibilityReports ?? []) {
+    geoVisibilityReports.set(geoVisibilityReport.id, geoVisibilityReport);
+    geoVisibilityReportCounter += 1;
   }
 
   for (const schemaRecommendation of seed.schemaRecommendations ?? []) {
@@ -442,6 +461,52 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
             b.evaluatedAt.localeCompare(a.evaluatedAt) ||
             b.createdAt.localeCompare(a.createdAt) ||
             a.phrase.localeCompare(b.phrase),
+        );
+    },
+
+    async createGeoVisibilityReport(siteId, input) {
+      if (!sites.has(siteId) || input.visibilityReport.target.siteId !== siteId) {
+        return null;
+      }
+
+      const report: GeoVisibilityReportRecord = {
+        id: createId("geo_report", geoVisibilityReportCounter),
+        siteId,
+        brandName: input.visibilityReport.target.brandName,
+        domain: input.visibilityReport.target.domain,
+        locale: input.visibilityReport.target.locale,
+        market: input.visibilityReport.target.market,
+        status: input.visibilityReport.status,
+        score: input.visibilityReport.score,
+        mentionRate: input.visibilityReport.mentionRate,
+        citationRate: input.visibilityReport.citationRate,
+        competitorCitationRate: input.visibilityReport.competitorCitationRate,
+        queryCount: input.visibilityReport.queryCount,
+        providerCount: input.visibilityReport.providerCount,
+        observations: input.visibilityReport.observations,
+        citations: input.visibilityReport.citations,
+        checks: input.visibilityReport.checks,
+        generatedBy: input.visibilityReport.generatedBy,
+        evaluatedAt: input.visibilityReport.evaluatedAt,
+        createdAt: nowIso()
+      };
+      geoVisibilityReportCounter += 1;
+      geoVisibilityReports.set(report.id, report);
+      return report;
+    },
+
+    async listGeoVisibilityReports(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...geoVisibilityReports.values()]
+        .filter((report) => report.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.evaluatedAt.localeCompare(a.evaluatedAt) ||
+            b.createdAt.localeCompare(a.createdAt) ||
+            a.brandName.localeCompare(b.brandName),
         );
     },
 

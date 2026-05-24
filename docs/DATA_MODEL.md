@@ -76,3 +76,14 @@ No schema recommendation may be treated as an auto-publish payload. Dashboard ac
 WorkOrder records may link to one SchemaRecommendation through `schemaRecommendationId`. The field is nullable so existing SEO issue work orders remain unchanged, and unique so converting the same recommendation is idempotent.
 
 When a schema recommendation is converted, its status becomes `converted`; the resulting work order still requires human execution and review before any JSON-LD is deployed. If a schema recheck resolves the recommendation, the linked work order is marked `done`.
+
+## Phase 9 GEO Visibility Persistence
+GeoVisibilityReport records store deterministic AI visibility monitoring snapshots for a site:
+- `brandName`, `domain`, `locale`, and `market` capture the evaluated target.
+- `status`, `score`, `mentionRate`, `citationRate`, and `competitorCitationRate` store the deterministic visibility outcome.
+- `queryCount` and `providerCount` summarize observation breadth.
+- `observations`, `citations`, and `checks` store JSON evidence for dashboard review and future work order mapping.
+- `generatedBy` must remain `deterministic`.
+- `evaluatedAt` records the scoring timestamp, while `createdAt` records persistence time.
+
+Reports are history rows rather than idempotent replacements. A new run creates a new report so GEO visibility can be compared over time. Observation collection is manual or fixture-driven in Phase 9; live AI provider collection remains future connector scope.

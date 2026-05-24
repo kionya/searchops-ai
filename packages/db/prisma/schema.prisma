@@ -51,6 +51,7 @@ model Site {
   keywords        Keyword[]
   contentBriefs   ContentBrief[]
   aeoReadinessReports AeoReadinessReport[]
+  geoVisibilityReports GeoVisibilityReport[]
   schemaRecommendations SchemaRecommendation[]
   complianceFlags ComplianceFlag[]
 
@@ -280,6 +281,35 @@ model SchemaRecommendation {
   @@index([priority])
   @@index([status])
   @@index([updatedAt])
+}
+
+model GeoVisibilityReport {
+  id                     String   @id @default(cuid())
+  siteId                 String
+  brandName              String
+  domain                 String
+  locale                 String   @default("ko-KR")
+  market                 String   @default("KR")
+  status                 String
+  score                  Int
+  mentionRate            Int
+  citationRate           Int
+  competitorCitationRate Int
+  queryCount             Int
+  providerCount          Int
+  observations           Json     @default("[]")
+  citations              Json     @default("[]")
+  checks                 Json     @default("[]")
+  generatedBy            String   @default("deterministic")
+  evaluatedAt            DateTime
+  createdAt              DateTime @default(now())
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@index([status])
+  @@index([score])
+  @@index([evaluatedAt])
 }
 
 model AiPrompt {

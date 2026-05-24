@@ -127,6 +127,81 @@ export const seedFixture = {
     requiredFields: ["@context", "@type", "name", "provider", "url"],
     recommendedFields: ["description", "serviceType"],
     generatedBy: "deterministic"
+  },
+  geoVisibilityReport: {
+    id: "geo_report_demo_initial",
+    siteId: "site_demo_rejuel",
+    brandName: "Example Clinic",
+    domain: "example-clinic.com",
+    locale: "ko-KR",
+    market: "KR",
+    status: "visible",
+    score: 72,
+    mentionRate: 67,
+    citationRate: 67,
+    competitorCitationRate: 33,
+    queryCount: 3,
+    providerCount: 2,
+    observations: [
+      {
+        provider: "chatgpt",
+        query: "answer engine optimization clinic",
+        locale: "ko-KR",
+        answerText: "Example Clinic is mentioned as an answer-engine optimization clinic.",
+        citedUrls: ["https://example-clinic.com/services/aeo"],
+        observedAt: "2026-05-24T00:00:00.000Z",
+        source: "fixture"
+      },
+      {
+        provider: "perplexity",
+        query: "medical seo checklist",
+        locale: "ko-KR",
+        answerText: "Example Clinic appears with a medical SEO checklist reference.",
+        citedUrls: ["https://example-clinic.com/blog/medical-seo-checklist"],
+        observedAt: "2026-05-24T00:00:00.000Z",
+        source: "fixture"
+      },
+      {
+        provider: "perplexity",
+        query: "seo clinic near gangnam",
+        locale: "ko-KR",
+        answerText: "A competitor is cited for this local query.",
+        citedUrls: ["https://competitor.example/seo"],
+        observedAt: "2026-05-24T00:00:00.000Z",
+        source: "fixture"
+      }
+    ],
+    citations: [
+      {
+        url: "https://competitor.example/seo",
+        domain: "competitor.example",
+        owned: false
+      },
+      {
+        url: "https://example-clinic.com/blog/medical-seo-checklist",
+        domain: "example-clinic.com",
+        owned: true
+      },
+      {
+        url: "https://example-clinic.com/services/aeo",
+        domain: "example-clinic.com",
+        owned: true
+      }
+    ],
+    checks: [
+      {
+        checkId: "BRAND_MENTIONED",
+        status: "warning",
+        score: 60,
+        evidence: {
+          observedValue: 67,
+          expectedValue: ">= 70",
+          sourceField: "observations.answerText"
+        }
+      }
+    ],
+    generatedBy: "deterministic",
+    evaluatedAt: new Date("2026-05-24T00:00:00.000Z")
   }
 } as const;
 
@@ -252,6 +327,29 @@ async function main() {
         type: seedFixture.schemaRecommendation.type
       },
       create: seedFixture.schemaRecommendation
+    });
+
+    await prisma.geoVisibilityReport.upsert({
+      where: { id: seedFixture.geoVisibilityReport.id },
+      update: {
+        brandName: seedFixture.geoVisibilityReport.brandName,
+        checks: seedFixture.geoVisibilityReport.checks,
+        citationRate: seedFixture.geoVisibilityReport.citationRate,
+        citations: seedFixture.geoVisibilityReport.citations,
+        competitorCitationRate: seedFixture.geoVisibilityReport.competitorCitationRate,
+        domain: seedFixture.geoVisibilityReport.domain,
+        evaluatedAt: seedFixture.geoVisibilityReport.evaluatedAt,
+        generatedBy: seedFixture.geoVisibilityReport.generatedBy,
+        locale: seedFixture.geoVisibilityReport.locale,
+        market: seedFixture.geoVisibilityReport.market,
+        mentionRate: seedFixture.geoVisibilityReport.mentionRate,
+        observations: seedFixture.geoVisibilityReport.observations,
+        providerCount: seedFixture.geoVisibilityReport.providerCount,
+        queryCount: seedFixture.geoVisibilityReport.queryCount,
+        score: seedFixture.geoVisibilityReport.score,
+        status: seedFixture.geoVisibilityReport.status
+      },
+      create: seedFixture.geoVisibilityReport
     });
 
     console.log("SearchOps AI seed fixture inserted.");
