@@ -12,6 +12,8 @@ import {
 
 import {
   AeoReadinessReportListResponseSchema,
+  CmsContentUpdatedEventRequestSchema,
+  CmsContentUpdatedEventResponseSchema,
   ComplianceFlagListResponseSchema,
   ComplianceFlagSchema,
   ContentBriefDetailResponseSchema,
@@ -56,7 +58,10 @@ import {
   UpdateWorkOrderRequestSchema,
   WorkOrderListResponseSchema,
   WorkOrderSchema,
-  type KeywordTarget
+  type CmsContentUpdatedEventRequest,
+  type ComplianceFlag,
+  type KeywordTarget,
+  type RecheckComplianceFlagResponse
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
@@ -82,6 +87,18 @@ function notFound(message: string) {
   return { error: "not_found", message };
 }
 
+function isActiveComplianceFlag(flag: ComplianceFlag) {
+  return flag.status !== "dismissed" && flag.status !== "resolved";
+}
+
+function doesCmsEventMatchComplianceFlag(flag: ComplianceFlag, event: CmsContentUpdatedEventRequest) {
+  return flag.subjectId === event.externalId || flag.url === event.url;
+}
+
+function mapCmsContentStatusToPublishState(status: CmsContentUpdatedEventRequest["status"]) {
+  return status === "published" ? "published" : "draft";
+}
+
 export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
@@ -105,13 +122,13 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     HealthResponseSchema.parse({
       ok: true,
       service: "api"
-    }),
+    })
   );
 
   server.get("/auth/context", async (request) => resolveMockUserContext(request));
 
   server.get("/organizations", async () =>
-    OrganizationListResponseSchema.parse({ organizations: await repository.listOrganizations() }),
+    OrganizationListResponseSchema.parse({ organizations: await repository.listOrganizations() })
   );
 
   server.post("/organizations", async (request, reply) => {
@@ -250,14 +267,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(201)
-      .send(
-        CreateSchemaRecommendationsResponseSchema.parse({
-          recommendationSets,
-          recommendations
-        }),
-      );
+    reply.status(201).send(
+      CreateSchemaRecommendationsResponseSchema.parse({
+        recommendationSets,
+        recommendations
+      })
+    );
   });
 
   server.post("/sites/:id/aeo-readiness-reports", async (request, reply) => {
@@ -288,7 +303,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
           candidatePage,
           keyword
         },
-        { evaluatedAt },
+        { evaluatedAt }
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid AEO readiness input";
@@ -305,9 +320,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(201)
-      .send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
+    reply.status(201).send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
   });
 
   server.post("/sites/:id/geo-visibility-reports", async (request, reply) => {
@@ -352,9 +365,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(201)
-      .send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
+    reply.status(201).send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
   });
 
   server.post("/sites/:id/compliance-reviews", async (request, reply) => {
@@ -388,7 +399,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         ...reviewInput,
         industry: input.industry ?? site.industry
       },
-      { evaluatedAt: evaluatedAt ?? new Date().toISOString() },
+      { evaluatedAt: evaluatedAt ?? new Date().toISOString() }
     );
     const complianceFlags = await repository.createComplianceReview(id, { report });
     if (!complianceFlags) {
@@ -396,9 +407,90 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(201)
-      .send(CreateComplianceReviewResponseSchema.parse({ complianceFlags, report }));
+    reply.status(201).send(CreateComplianceReviewResponseSchema.parse({ complianceFlags, report }));
+  });
+
+  server.post("/sites/:id/cms/content-updated-events", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const event = CmsContentUpdatedEventRequestSchema.parse(request.body ?? {});
+    if (event.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "CMS content updated event siteId must match the route site"
+      });
+      return;
+    }
+
+    if (!isUrlAllowedForCrawl(event.url, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "CMS content updated event URL must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const complianceFlags = await repository.listComplianceFlags(site.id);
+    if (!complianceFlags) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const activeMatchingFlags = complianceFlags.filter(
+      (flag) => isActiveComplianceFlag(flag) && doesCmsEventMatchComplianceFlag(flag, event)
+    );
+    const rechecks: RecheckComplianceFlagResponse[] = [];
+    let skippedFlagCount = 0;
+
+    for (const complianceFlag of activeMatchingFlags) {
+      if (complianceFlag.ruleId === undefined || complianceFlag.siteId === null) {
+        skippedFlagCount += 1;
+        continue;
+      }
+
+      const report = evaluateCompliance(
+        {
+          industry: event.industry === undefined ? site.industry : event.industry,
+          locale: event.locale ?? `${site.language}-${site.country}`,
+          publishState: mapCmsContentStatusToPublishState(event.status),
+          siteId: site.id,
+          source: event.source,
+          subjectId: event.externalId,
+          subjectType: "page_copy",
+          text: event.text,
+          title: event.title,
+          url: event.url
+        },
+        { evaluatedAt: event.updatedAt }
+      );
+      const matchingFlag = report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
+      const result = await repository.recheckComplianceFlag(complianceFlag.id, {
+        matchingFlag,
+        report,
+        resolved: matchingFlag === null
+      });
+
+      if (result === null) {
+        skippedFlagCount += 1;
+        continue;
+      }
+
+      rechecks.push(result);
+    }
+
+    reply.send(
+      CmsContentUpdatedEventResponseSchema.parse({
+        event,
+        matchedFlagCount: activeMatchingFlags.length,
+        rechecks,
+        skippedFlagCount
+      })
+    );
   });
 
   server.post("/sites/:id/content-briefs", async (request, reply) => {
@@ -436,7 +528,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
             candidatePage,
             keyword
           },
-          { evaluatedAt },
+          { evaluatedAt }
         );
       draft = createContentBriefDraft({
         candidatePage,
@@ -458,9 +550,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(201)
-      .send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
+    reply.status(201).send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
   });
 
   server.post("/sites/:id/crawl-runs", async (request, reply) => {
@@ -530,9 +620,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       providers: input.providers
     });
 
-    reply
-      .status(202)
-      .send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
+    reply.status(202).send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
   });
 
   server.get("/sites/:id/connector-sync-runs", async (request, reply) => {
@@ -595,8 +683,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     try {
       draft = createWorkOrderFromComplianceFlag(complianceFlag);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Invalid compliance flag work order input";
+      const message = error instanceof Error ? error.message : "Invalid compliance flag work order input";
       reply.status(400).send({ error: "validation_error", message });
       return;
     }
@@ -641,7 +728,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     const input = RecheckComplianceFlagRequestSchema.parse(request.body ?? {});
-    const url = input.url === undefined ? complianceFlag.url ?? null : input.url;
+    const url = input.url === undefined ? (complianceFlag.url ?? null) : input.url;
     if (url !== null && !isUrlAllowedForCrawl(url, site.domain)) {
       reply.status(400).send({
         error: "validation_error",
@@ -660,10 +747,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         subjectId: complianceFlag.subjectId ?? null,
         subjectType: complianceFlag.subjectType ?? "page_copy",
         text: input.text,
-        title: input.title === undefined ? complianceFlag.title ?? null : input.title,
+        title: input.title === undefined ? (complianceFlag.title ?? null) : input.title,
         url
       },
-      { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() },
+      { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() }
     );
     const matchingFlag = report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
     const result = await repository.recheckComplianceFlag(id, {
@@ -856,9 +943,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply
-      .status(202)
-      .send(RecheckWorkOrderResponseSchema.parse({ workOrder: updatedWorkOrder, crawlRun, job }));
+    reply.status(202).send(RecheckWorkOrderResponseSchema.parse({ workOrder: updatedWorkOrder, crawlRun, job }));
   });
 
   server.post("/work-orders/:id/resolve", async (request, reply) => {
@@ -911,11 +996,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 }
 
 function isDomainAllowedForSite(domain: string, siteDomain: string) {
-  const normalizedDomain = domain.trim().toLowerCase().replace(/^www\./u, "");
-  const normalizedSiteDomain = siteDomain.trim().toLowerCase().replace(/^www\./u, "");
+  const normalizedDomain = domain
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./u, "");
+  const normalizedSiteDomain = siteDomain
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./u, "");
 
-  return (
-    normalizedDomain === normalizedSiteDomain ||
-    normalizedDomain.endsWith(`.${normalizedSiteDomain}`)
-  );
+  return normalizedDomain === normalizedSiteDomain || normalizedDomain.endsWith(`.${normalizedSiteDomain}`);
 }
