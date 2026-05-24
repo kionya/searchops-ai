@@ -1,7 +1,8 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 import { evaluateCompliance } from "@searchops/compliance";
+import { CmsWebhookProviderSchema, normalizeCmsWebhookPayload } from "@searchops/connectors";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
 import {
   extractJsonLdTypes,
@@ -66,6 +67,7 @@ import {
   type ComplianceFlag,
   type KeywordTarget,
   type RecheckComplianceFlagResponse,
+  type Site,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
@@ -85,6 +87,10 @@ import {
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
+const CmsWebhookParamsSchema = z.object({
+  cmsType: CmsWebhookProviderSchema,
+  id: z.string().min(1),
+});
 
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
@@ -125,6 +131,117 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     (Object.keys(cmsWebhookSecrets).length > 0 || process.env.NODE_ENV === "production");
   const currentTime = options.currentTime ?? (() => new Date());
   const server = Fastify({ logger: false });
+
+  async function sendCmsContentUpdatedEventResponse({
+    event,
+    now,
+    reply,
+    request,
+    routeSiteId,
+    site: preloadedSite,
+  }: {
+    readonly event: CmsContentUpdatedEventRequest;
+    readonly now: Date;
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+    readonly routeSiteId: string;
+    readonly site?: Site;
+  }) {
+    const webhookVerification = verifyCmsWebhookRequest({
+      event,
+      headers: request.headers,
+      now,
+      required: requireCmsWebhookSignature,
+      secrets: cmsWebhookSecrets,
+    });
+    if (!webhookVerification.ok) {
+      reply.status(401).send({
+        error: "unauthorized",
+        message: webhookVerification.message ?? "CMS webhook signature verification failed.",
+      });
+      return;
+    }
+
+    const site = preloadedSite ?? (await repository.getSite(routeSiteId));
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    if (event.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "CMS content updated event siteId must match the route site",
+      });
+      return;
+    }
+
+    if (!isUrlAllowedForCrawl(event.url, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "CMS content updated event URL must be within the site domain or its subdomains",
+      });
+      return;
+    }
+
+    const complianceFlags = await repository.listComplianceFlags(site.id);
+    if (!complianceFlags) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const activeMatchingFlags = complianceFlags.filter(
+      (flag) => isActiveComplianceFlag(flag) && doesCmsEventMatchComplianceFlag(flag, event),
+    );
+    const rechecks: RecheckComplianceFlagResponse[] = [];
+    let skippedFlagCount = 0;
+
+    for (const complianceFlag of activeMatchingFlags) {
+      if (complianceFlag.ruleId === undefined || complianceFlag.siteId === null) {
+        skippedFlagCount += 1;
+        continue;
+      }
+
+      const report = evaluateCompliance(
+        {
+          industry: event.industry === undefined ? site.industry : event.industry,
+          locale: event.locale ?? `${site.language}-${site.country}`,
+          publishState: mapCmsContentStatusToPublishState(event.status),
+          siteId: site.id,
+          source: event.source,
+          subjectId: event.externalId,
+          subjectType: "page_copy",
+          text: event.text,
+          title: event.title,
+          url: event.url,
+        },
+        { evaluatedAt: event.updatedAt },
+      );
+      const matchingFlag =
+        report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
+      const result = await repository.recheckComplianceFlag(complianceFlag.id, {
+        matchingFlag,
+        report,
+        resolved: matchingFlag === null,
+      });
+
+      if (result === null) {
+        skippedFlagCount += 1;
+        continue;
+      }
+
+      rechecks.push(result);
+    }
+
+    reply.send(
+      CmsContentUpdatedEventResponseSchema.parse({
+        event,
+        matchedFlagCount: activeMatchingFlags.length,
+        rechecks,
+        skippedFlagCount,
+      }),
+    );
+  }
 
   server.setErrorHandler((error: unknown, _request, reply) => {
     if (error instanceof ZodError) {
@@ -441,100 +558,42 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   server.post("/sites/:id/cms/content-updated-events", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const event = CmsContentUpdatedEventRequestSchema.parse(request.body ?? {});
-    const webhookVerification = verifyCmsWebhookRequest({
-      event,
-      headers: request.headers,
-      now: currentTime(),
-      required: requireCmsWebhookSignature,
-      secrets: cmsWebhookSecrets,
-    });
-    if (!webhookVerification.ok) {
-      reply.status(401).send({
-        error: "unauthorized",
-        message: webhookVerification.message ?? "CMS webhook signature verification failed.",
-      });
-      return;
-    }
 
+    await sendCmsContentUpdatedEventResponse({
+      event,
+      now: currentTime(),
+      reply,
+      request,
+      routeSiteId: id,
+    });
+  });
+
+  server.post("/sites/:id/cms/webhooks/:cmsType", async (request, reply) => {
+    const { cmsType, id } = CmsWebhookParamsSchema.parse(request.params);
     const site = await repository.getSite(id);
     if (!site) {
       reply.status(404).send(notFound("Site not found"));
       return;
     }
 
-    if (event.siteId !== site.id) {
-      reply.status(400).send({
-        error: "validation_error",
-        message: "CMS content updated event siteId must match the route site",
-      });
-      return;
-    }
+    const now = currentTime();
+    const event = normalizeCmsWebhookPayload(cmsType, {
+      defaultIndustry: site.industry,
+      defaultLocale: `${site.language}-${site.country}`,
+      payload: request.body ?? {},
+      receivedAt: now.toISOString(),
+      siteDomain: site.domain,
+      siteId: site.id,
+    });
 
-    if (!isUrlAllowedForCrawl(event.url, site.domain)) {
-      reply.status(400).send({
-        error: "validation_error",
-        message: "CMS content updated event URL must be within the site domain or its subdomains",
-      });
-      return;
-    }
-
-    const complianceFlags = await repository.listComplianceFlags(site.id);
-    if (!complianceFlags) {
-      reply.status(404).send(notFound("Site not found"));
-      return;
-    }
-
-    const activeMatchingFlags = complianceFlags.filter(
-      (flag) => isActiveComplianceFlag(flag) && doesCmsEventMatchComplianceFlag(flag, event),
-    );
-    const rechecks: RecheckComplianceFlagResponse[] = [];
-    let skippedFlagCount = 0;
-
-    for (const complianceFlag of activeMatchingFlags) {
-      if (complianceFlag.ruleId === undefined || complianceFlag.siteId === null) {
-        skippedFlagCount += 1;
-        continue;
-      }
-
-      const report = evaluateCompliance(
-        {
-          industry: event.industry === undefined ? site.industry : event.industry,
-          locale: event.locale ?? `${site.language}-${site.country}`,
-          publishState: mapCmsContentStatusToPublishState(event.status),
-          siteId: site.id,
-          source: event.source,
-          subjectId: event.externalId,
-          subjectType: "page_copy",
-          text: event.text,
-          title: event.title,
-          url: event.url,
-        },
-        { evaluatedAt: event.updatedAt },
-      );
-      const matchingFlag =
-        report.flags.find((flag) => flag.ruleId === complianceFlag.ruleId) ?? null;
-      const result = await repository.recheckComplianceFlag(complianceFlag.id, {
-        matchingFlag,
-        report,
-        resolved: matchingFlag === null,
-      });
-
-      if (result === null) {
-        skippedFlagCount += 1;
-        continue;
-      }
-
-      rechecks.push(result);
-    }
-
-    reply.send(
-      CmsContentUpdatedEventResponseSchema.parse({
-        event,
-        matchedFlagCount: activeMatchingFlags.length,
-        rechecks,
-        skippedFlagCount,
-      }),
-    );
+    await sendCmsContentUpdatedEventResponse({
+      event,
+      now,
+      reply,
+      request,
+      routeSiteId: id,
+      site,
+    });
   });
 
   server.post("/sites/:id/content-briefs", async (request, reply) => {

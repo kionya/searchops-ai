@@ -139,3 +139,5 @@ Medical content must stay draft-only until compliance review is complete. No Pha
 CMS-origin rechecks are event-driven. The API accepts a typed content update payload from a CMS adapter or webhook boundary and rechecks matching active ComplianceFlags from the supplied text. The API must not reach out to the CMS from inside the request handler.
 
 CMS webhook security lives at the API boundary, not inside `packages/compliance`. When provider secrets are configured, the API verifies `x-searchops-cms-type`, `x-searchops-timestamp`, and `x-searchops-signature` before any recheck side effect. The signature is an HMAC-SHA256 over the timestamp plus canonical normalized event payload, scoped to the provider-specific `cmsType` secret, with timestamp replay protection.
+
+Provider-specific CMS webhook payload adapters live in `packages/connectors`. WordPress, Webflow, and generic headless CMS payloads are normalized to `CmsContentUpdatedEventRequest` before the API invokes the shared CMS-origin recheck flow. These adapters are deterministic, fixture-tested, and do not fetch from or publish to CMS systems.

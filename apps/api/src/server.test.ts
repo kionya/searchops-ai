@@ -6,6 +6,7 @@ import type {
   ConnectorSyncResult,
   ConnectorSyncRun,
   ContentBrief,
+  CmsContentUpdatedEventRequest,
   CrawlerPageSnapshot,
   GeoVisibilityReportRecord,
   Organization,
@@ -15,6 +16,7 @@ import type {
   WorkOrder,
 } from "@searchops/types";
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
+import { normalizeCmsWebhookPayload } from "@searchops/connectors";
 
 import { createMemoryConnectorSyncQueue, createMemoryCrawlRunQueue } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
@@ -389,6 +391,26 @@ function buildSecuredComplianceTestServer() {
 
 function createSignedCmsEventRequest(payload: Record<string, unknown>, secret = "cms_secret_1") {
   const event = CmsContentUpdatedEventRequestSchema.parse(payload);
+  const timestamp = "2026-05-24T02:00:00.000Z";
+  return {
+    headers: {
+      "x-searchops-cms-type": event.cmsType,
+      "x-searchops-signature": createCmsWebhookSignature({ event, secret, timestamp }),
+      "x-searchops-timestamp": timestamp,
+    },
+    payload,
+  };
+}
+
+function createSignedCmsProviderWebhookRequest({
+  event,
+  payload,
+  secret = "cms_secret_1",
+}: {
+  readonly event: CmsContentUpdatedEventRequest;
+  readonly payload: Record<string, unknown>;
+  readonly secret?: string;
+}) {
   const timestamp = "2026-05-24T02:00:00.000Z";
   return {
     headers: {
@@ -1498,6 +1520,53 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
+      matchedFlagCount: 1,
+      rechecks: [
+        {
+          resolved: true,
+        },
+      ],
+    });
+  });
+
+  it("normalizes signed provider-specific CMS webhook payloads before recheck", async () => {
+    const server = buildSecuredComplianceTestServer();
+    const payload = {
+      id: "page_seed",
+      link: "https://exampleclinic.com/services/botox",
+      content: {
+        rendered:
+          "<p>This clinic explains consultation steps, possible discomfort, and individual variation.</p>",
+      },
+      modified_gmt: "2026-05-24T02:00:00",
+      status: "publish",
+      title: {
+        rendered: "Botox guide",
+      },
+    };
+    const event = normalizeCmsWebhookPayload("wordpress", {
+      defaultIndustry: seededSite.industry,
+      defaultLocale: `${seededSite.language}-${seededSite.country}`,
+      payload,
+      receivedAt: "2026-05-24T02:01:00.000Z",
+      siteDomain: seededSite.domain,
+      siteId: seededSite.id,
+    });
+    const request = createSignedCmsProviderWebhookRequest({ event, payload });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/webhooks/wordpress",
+      ...request,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      event: {
+        cmsType: "wordpress",
+        externalId: "page_seed",
+        status: "published",
+      },
       matchedFlagCount: 1,
       rechecks: [
         {
