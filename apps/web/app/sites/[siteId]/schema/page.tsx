@@ -20,18 +20,23 @@ import {
   formatSchemaRecommendationDate,
   getSchemaRecommendationPriorityTone,
   getSchemaRecommendationStatusTone,
+  getSchemaRecheckFeedback,
   getSchemaWorkOrderCreateFeedback,
   loadSchemaRecommendationDashboard,
   summarizeSchemaRecommendations,
   type SchemaRecommendationTone
 } from "../../../../src/schema-recommendations";
-import { createSchemaWorkOrderAction } from "./actions";
+import {
+  createSchemaWorkOrderAction,
+  recheckSchemaRecommendationAction
+} from "./actions";
 
 interface SchemaPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
   readonly searchParams: Promise<{
+    readonly recheck?: string;
     readonly recommendationId?: string;
     readonly schema?: string;
     readonly workOrderId?: string;
@@ -48,6 +53,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
     createSearchParams.workOrderId,
     createSearchParams.recommendationId,
   );
+  const recheckFeedback = getSchemaRecheckFeedback(
+    createSearchParams.recheck,
+    createSearchParams.workOrderId,
+    createSearchParams.recommendationId,
+  );
 
   return (
     <section aria-labelledby="schema-recommendation-heading">
@@ -60,9 +70,9 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
         <MetricCard label="Recommendations" value={String(summary.total)} />
         <MetricCard label="Open" value={String(summary.open)} />
         <MetricCard label="Converted" value={String(summary.converted)} />
-        <MetricCard label="High priority" value={String(summary.highPriority)} />
+        <MetricCard label="Resolved" value={String(summary.resolved)} />
       </div>
-      <SchemaWorkOrderPanel createFeedback={createFeedback} />
+      <SchemaWorkOrderPanel createFeedback={createFeedback} recheckFeedback={recheckFeedback} />
       <section aria-label="Schema recommendations" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -70,7 +80,7 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
               Recommendation queue
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              {summary.totalRequiredFields} required JSON-LD fields are tracked across open and converted recommendations.
+              {summary.totalRequiredFields} required JSON-LD fields are tracked; {summary.highPriority} recommendations are high priority.
             </p>
             {dashboard.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
@@ -110,7 +120,8 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
                 </tr>
               ) : (
                 dashboard.recommendations.map((recommendation) => {
-                  const action = createSchemaWorkOrderAction.bind(null, siteId, recommendation.id);
+                  const createAction = createSchemaWorkOrderAction.bind(null, siteId, recommendation.id);
+                  const recheckAction = recheckSchemaRecommendationAction.bind(null, siteId, recommendation);
 
                   return (
                     <tr key={recommendation.id}>
@@ -148,15 +159,24 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
                         </span>
                       </td>
                       <td style={tdStyle}>
-                        {recommendation.status === "open" ? (
-                          <form action={action}>
-                            <button style={createButtonStyle} type="submit">
-                              Create work order
-                            </button>
-                          </form>
-                        ) : (
+                        {recommendation.status === "resolved" || recommendation.status === "dismissed" ? (
                           <span style={{ color: "#64748b" }}>
-                            {recommendation.status === "converted" ? "Converted" : "No action"}
+                            {recommendation.status === "resolved" ? "Resolved" : "No action"}
+                          </span>
+                        ) : (
+                          <span style={actionStackStyle}>
+                            {recommendation.status === "open" ? (
+                              <form action={createAction}>
+                                <button style={createButtonStyle} type="submit">
+                                  Create work order
+                                </button>
+                              </form>
+                            ) : null}
+                            <form action={recheckAction}>
+                              <button style={secondaryButtonStyle} type="submit">
+                                Recheck
+                              </button>
+                            </form>
                           </span>
                         )}
                       </td>
@@ -199,9 +219,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
 }
 
 function SchemaWorkOrderPanel({
-  createFeedback
+  createFeedback,
+  recheckFeedback
 }: {
   readonly createFeedback: ReturnType<typeof getSchemaWorkOrderCreateFeedback>;
+  readonly recheckFeedback: ReturnType<typeof getSchemaRecheckFeedback>;
 }) {
   return (
     <section aria-label="Schema work order conversion" style={conversionPanelStyle}>
@@ -213,6 +235,11 @@ function SchemaWorkOrderPanel({
         {createFeedback ? (
           <p style={{ ...feedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>
             {createFeedback.message}
+          </p>
+        ) : null}
+        {recheckFeedback ? (
+          <p style={{ ...feedbackStyle[recheckFeedback.tone], margin: "10px 0 0" }}>
+            {recheckFeedback.message}
           </p>
         ) : null}
       </div>
@@ -265,6 +292,25 @@ const createButtonStyle = {
   fontWeight: 800,
   minHeight: 38,
   padding: "9px 12px"
+} as const;
+
+const secondaryButtonStyle = {
+  background: "#f8fafc",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  color: "#172033",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 800,
+  minHeight: 38,
+  padding: "9px 12px"
+} as const;
+
+const actionStackStyle = {
+  alignItems: "start",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8
 } as const;
 
 const previewGridStyle = {

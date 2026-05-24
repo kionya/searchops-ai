@@ -775,7 +775,12 @@ export const JsonLdRecommendationSetSchema = z.object({
 
 export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
 
-export const SchemaRecommendationStatusSchema = z.enum(["open", "converted", "dismissed"]);
+export const SchemaRecommendationStatusSchema = z.enum([
+  "open",
+  "converted",
+  "dismissed",
+  "resolved"
+]);
 
 export type SchemaRecommendationStatus = z.infer<typeof SchemaRecommendationStatusSchema>;
 
@@ -888,6 +893,26 @@ export const CreateSchemaRecommendationsResponseSchema = z.object({
 
 export type CreateSchemaRecommendationsResponse = z.infer<
   typeof CreateSchemaRecommendationsResponseSchema
+>;
+
+export const RecheckSchemaRecommendationRequestSchema = z.object({
+  snapshot: CrawlerPageSnapshotSchema
+});
+
+export type RecheckSchemaRecommendationRequest = z.infer<
+  typeof RecheckSchemaRecommendationRequestSchema
+>;
+
+export const RecheckSchemaRecommendationResponseSchema = z.object({
+  expectedType: SchemaJsonLdTypeSchema,
+  observedTypes: z.array(SchemaJsonLdTypeSchema),
+  recommendation: SchemaRecommendationRecordSchema,
+  resolved: z.boolean(),
+  workOrder: WorkOrderSchema.nullable()
+});
+
+export type RecheckSchemaRecommendationResponse = z.infer<
+  typeof RecheckSchemaRecommendationResponseSchema
 >;
 
 export const CrawlJobPageInputSchema = z.object({

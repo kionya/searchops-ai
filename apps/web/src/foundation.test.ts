@@ -49,11 +49,14 @@ import {
 import {
   convertSchemaRecommendationToWorkOrder,
   createDemoSchemaRecommendationDashboard,
+  createResolvedSchemaSnapshot,
   demoSchemaRecommendations,
   formatSchemaJsonLdType,
   getSchemaRecommendationStatusTone,
+  getSchemaRecheckFeedback,
   getSchemaWorkOrderCreateFeedback,
   loadSchemaRecommendationDashboard,
+  recheckSchemaRecommendationWithDraft,
   summarizeSchemaRecommendations
 } from "./schema-recommendations";
 import {
@@ -463,10 +466,12 @@ describe("web foundation", () => {
       dismissed: 0,
       highPriority: 2,
       open: 2,
+      resolved: 0,
       total: 3,
       totalRequiredFields: 12
     });
     expect(getSchemaRecommendationStatusTone("open")).toBe("risk");
+    expect(getSchemaRecommendationStatusTone("resolved")).toBe("good");
     expect(formatSchemaJsonLdType("MedicalClinic")).toBe("Medical Clinic");
   });
 
@@ -538,7 +543,68 @@ describe("web foundation", () => {
       .toContain("wo_schema_service");
   });
 
+  it("rechecks schema recommendations through the API response contract", async () => {
+    const recommendation = demoSchemaRecommendations[0];
+    const workOrder = demoWorkOrders[0];
+    if (!recommendation || !workOrder) {
+      throw new Error("Schema recheck API fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/schema-recommendations/${recommendation.id}/recheck`,
+        );
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          snapshot: {
+            url: recommendation.pageUrl
+          }
+        });
+
+        return Response.json({
+          expectedType: recommendation.type,
+          observedTypes: [recommendation.type],
+          recommendation: {
+            ...recommendation,
+            evidence: {
+              ...recommendation.evidence,
+              observedTypes: [recommendation.type]
+            },
+            status: "resolved"
+          },
+          resolved: true,
+          workOrder: {
+            ...workOrder,
+            id: "wo_schema_service",
+            schemaRecommendationId: recommendation.id,
+            seoIssueId: null,
+            status: "done"
+          }
+        });
+      }),
+    );
+
+    await expect(recheckSchemaRecommendationWithDraft(recommendation)).resolves.toMatchObject({
+      expectedType: recommendation.type,
+      observedTypes: [recommendation.type],
+      recommendationId: recommendation.id,
+      source: "api",
+      status: "resolved",
+      workOrderId: "wo_schema_service"
+    });
+    expect(getSchemaRecheckFeedback("resolved", "wo_schema_service", undefined)?.message)
+      .toContain("wo_schema_service");
+  });
+
   it("keeps schema dashboard deterministic without an API base URL", async () => {
+    const recommendation = demoSchemaRecommendations[0];
+    if (!recommendation) {
+      throw new Error("Schema recheck fixture is missing");
+    }
+
     await expect(loadSchemaRecommendationDashboard("site_1")).resolves.toMatchObject({
       recommendations: expect.arrayContaining([
         expect.objectContaining({
@@ -557,6 +623,24 @@ describe("web foundation", () => {
     expect(getSchemaWorkOrderCreateFeedback("fixture", undefined, "schema_rec_service")?.tone).toBe(
       "info",
     );
+    expect(createResolvedSchemaSnapshot(recommendation)).toMatchObject({
+      jsonLd: [
+        {
+          parsed: expect.objectContaining({
+            "@type": recommendation.type
+          })
+        }
+      ],
+      url: recommendation.pageUrl
+    });
+    await expect(recheckSchemaRecommendationWithDraft(recommendation)).resolves.toMatchObject({
+      expectedType: recommendation.type,
+      observedTypes: [recommendation.type],
+      recommendationId: recommendation.id,
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getSchemaRecheckFeedback("fixture", undefined, recommendation.id)?.tone).toBe("info");
   });
 
   it("summarizes deterministic connector sync history", () => {

@@ -1,7 +1,10 @@
 import {
   CreateSchemaRecommendationWorkOrderResponseSchema,
+  CrawlerPageSnapshotSchema,
+  RecheckSchemaRecommendationResponseSchema,
   SchemaRecommendationListResponseSchema,
   SchemaRecommendationRecordSchema,
+  type CrawlerPageSnapshot,
   type SchemaJsonLdType,
   type SchemaRecommendationPriority,
   type SchemaRecommendationRecord,
@@ -11,6 +14,7 @@ import {
 import { demoSite } from "./work-order-board";
 
 export type SchemaRecommendationDashboardSource = "api" | "fixture";
+export type SchemaRecommendationRecheckStatus = "failed" | "fixture" | "not_resolved" | "resolved";
 export type SchemaRecommendationTone = "good" | "neutral" | "risk";
 export type SchemaRecommendationWorkOrderStatus = "converted" | "failed" | "fixture";
 
@@ -25,6 +29,7 @@ export interface SchemaRecommendationDashboardSummary {
   readonly dismissed: number;
   readonly highPriority: number;
   readonly open: number;
+  readonly resolved: number;
   readonly total: number;
   readonly totalRequiredFields: number;
 }
@@ -38,6 +43,21 @@ export interface SchemaRecommendationWorkOrderResult {
 }
 
 export interface SchemaRecommendationWorkOrderFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
+export interface SchemaRecommendationRecheckResult {
+  readonly errorMessage: string | null;
+  readonly expectedType: SchemaJsonLdType;
+  readonly observedTypes: readonly SchemaJsonLdType[];
+  readonly recommendationId: string;
+  readonly source: SchemaRecommendationDashboardSource;
+  readonly status: SchemaRecommendationRecheckStatus;
+  readonly workOrderId: string | null;
+}
+
+export interface SchemaRecommendationRecheckFeedback {
   readonly message: string;
   readonly tone: "info" | "success" | "warning";
 }
@@ -209,6 +229,62 @@ export async function convertSchemaRecommendationToWorkOrder(
   }
 }
 
+export async function recheckSchemaRecommendationWithDraft(
+  recommendation: SchemaRecommendationRecord,
+): Promise<SchemaRecommendationRecheckResult> {
+  const snapshot = createResolvedSchemaSnapshot(recommendation);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      expectedType: recommendation.type,
+      observedTypes: [recommendation.type],
+      recommendationId: recommendation.id,
+      source: "fixture",
+      status: "fixture",
+      workOrderId: null
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendation.id)}/recheck`,
+      {
+        body: JSON.stringify({ snapshot }),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Schema recheck request failed with ${response.status}`);
+    }
+
+    const output = RecheckSchemaRecommendationResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      expectedType: output.expectedType,
+      observedTypes: output.observedTypes,
+      recommendationId: output.recommendation.id,
+      source: "api",
+      status: output.resolved ? "resolved" : "not_resolved",
+      workOrderId: output.workOrder?.id ?? null
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : "Schema recheck request failed",
+      expectedType: recommendation.type,
+      observedTypes: [],
+      recommendationId: recommendation.id,
+      source: "api",
+      status: "failed",
+      workOrderId: null
+    };
+  }
+}
+
 export function createDemoSchemaRecommendationDashboard(
   siteId: string = demoSite.id,
 ): SchemaRecommendationDashboardData {
@@ -234,6 +310,7 @@ export function summarizeSchemaRecommendations(
       recommendation.priority === "p0" || recommendation.priority === "p1",
     ).length,
     open: dashboard.recommendations.filter((recommendation) => recommendation.status === "open").length,
+    resolved: dashboard.recommendations.filter((recommendation) => recommendation.status === "resolved").length,
     total: dashboard.recommendations.length,
     totalRequiredFields: dashboard.recommendations.reduce(
       (total, recommendation) => total + recommendation.requiredFields.length,
@@ -245,7 +322,7 @@ export function summarizeSchemaRecommendations(
 export function getSchemaRecommendationStatusTone(
   status: SchemaRecommendationStatus,
 ): SchemaRecommendationTone {
-  if (status === "converted") {
+  if (status === "converted" || status === "resolved") {
     return "good";
   }
 
@@ -303,6 +380,46 @@ export function getSchemaWorkOrderCreateFeedback(
   return null;
 }
 
+export function getSchemaRecheckFeedback(
+  status: string | undefined,
+  workOrderId: string | undefined,
+  recommendationId: string | undefined,
+): SchemaRecommendationRecheckFeedback | null {
+  if (status === "resolved") {
+    return {
+      message: workOrderId
+        ? `Schema recommendation resolved and work order closed: ${workOrderId}`
+        : "Schema recommendation resolved.",
+      tone: "success"
+    };
+  }
+
+  if (status === "not_resolved") {
+    return {
+      message: "Schema recheck did not find the expected JSON-LD type yet.",
+      tone: "warning"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: recommendationId
+        ? `Fixture mode: ${recommendationId} was rechecked with a deterministic draft snapshot.`
+        : "Fixture mode: set SEARCHOPS_API_BASE_URL to persist schema rechecks.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "Schema recheck failed. Check the API server and retry.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
 export function formatSchemaJsonLdType(type: SchemaJsonLdType) {
   return type.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
@@ -313,6 +430,49 @@ export function formatSchemaPriority(priority: SchemaRecommendationPriority) {
 
 export function formatSchemaRecommendationDate(isoDate: string) {
   return isoDate.replace("T", " ").slice(0, 16);
+}
+
+export function createResolvedSchemaSnapshot(
+  recommendation: SchemaRecommendationRecord,
+): CrawlerPageSnapshot {
+  const rawJsonLd = JSON.stringify(recommendation.jsonLd);
+
+  return CrawlerPageSnapshotSchema.parse({
+    canonicalUrl: recommendation.pageUrl,
+    content: {
+      duplicateHash: "b".repeat(64),
+      textLength: 320,
+      wordCount: 48
+    },
+    finalUrl: null,
+    h1Count: 1,
+    h2Count: 0,
+    headings: {
+      h1: [`${formatSchemaJsonLdType(recommendation.type)} page`],
+      h2: []
+    },
+    images: [],
+    indexability: {
+      canonicalMismatch: false,
+      nofollow: false,
+      noindex: false,
+      robotsBlocked: null
+    },
+    jsonLd: [
+      {
+        parsed: recommendation.jsonLd,
+        raw: rawJsonLd
+      }
+    ],
+    links: {
+      external: [],
+      internal: []
+    },
+    metaDescription: recommendation.reason,
+    robotsMeta: "index,follow",
+    title: `${formatSchemaJsonLdType(recommendation.type)} schema recheck`,
+    url: recommendation.pageUrl
+  });
 }
 
 function createDemoSchemaRecommendation(input: {
