@@ -3,7 +3,10 @@ import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
 import { extractJsonLdTypes, hasSchemaType, recommendJsonLdForSnapshots } from "@searchops/schema-core";
-import { createWorkOrderFromSchemaRecommendation } from "@searchops/workorders";
+import {
+  createWorkOrderFromGeoVisibilityReport,
+  createWorkOrderFromSchemaRecommendation
+} from "@searchops/workorders";
 
 import {
   AeoReadinessReportListResponseSchema,
@@ -21,6 +24,7 @@ import {
   CreateCrawlRunResponseSchema,
   CreateGeoVisibilityReportRequestSchema,
   CreateGeoVisibilityReportResponseSchema,
+  CreateGeoVisibilityReportWorkOrderResponseSchema,
   CreateOrganizationRequestSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
@@ -486,6 +490,24 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ConnectorSyncRunDetailResponseSchema.parse(result));
+  });
+
+  server.post("/geo-visibility-reports/:id/work-order", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const report = await repository.getGeoVisibilityReport(id);
+    if (!report) {
+      reply.status(404).send(notFound("GEO visibility report not found"));
+      return;
+    }
+
+    const draft = createWorkOrderFromGeoVisibilityReport(report);
+    const result = await repository.createGeoVisibilityReportWorkOrder(id, { draft });
+    if (!result) {
+      reply.status(404).send(notFound("GEO visibility report not found"));
+      return;
+    }
+
+    reply.status(201).send(CreateGeoVisibilityReportWorkOrderResponseSchema.parse(result));
   });
 
   server.get("/schema-recommendations/:id", async (request, reply) => {

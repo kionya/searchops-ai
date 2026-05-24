@@ -63,6 +63,15 @@ export interface CreateSchemaRecommendationWorkOrderResult {
   workOrder: WorkOrder;
 }
 
+export interface CreateGeoVisibilityReportWorkOrderInput {
+  draft: WorkOrderDraft;
+}
+
+export interface CreateGeoVisibilityReportWorkOrderResult {
+  report: GeoVisibilityReportRecord;
+  workOrder: WorkOrder;
+}
+
 export interface RecheckSchemaRecommendationInput {
   observedTypes: readonly SchemaJsonLdType[];
   resolved: boolean;
@@ -103,6 +112,11 @@ export interface SearchOpsRepository {
     input: CreateGeoVisibilityReportInput,
   ): Promise<GeoVisibilityReportRecord | null>;
   listGeoVisibilityReports(siteId: string): Promise<GeoVisibilityReportRecord[] | null>;
+  getGeoVisibilityReport(id: string): Promise<GeoVisibilityReportRecord | null>;
+  createGeoVisibilityReportWorkOrder(
+    reportId: string,
+    input: CreateGeoVisibilityReportWorkOrderInput,
+  ): Promise<CreateGeoVisibilityReportWorkOrderResult | null>;
   createSchemaRecommendations(
     siteId: string,
     input: CreateSchemaRecommendationsInput,
@@ -510,6 +524,63 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         );
     },
 
+    async getGeoVisibilityReport(id) {
+      return geoVisibilityReports.get(id) ?? null;
+    },
+
+    async createGeoVisibilityReportWorkOrder(reportId, input) {
+      const report = geoVisibilityReports.get(reportId);
+      if (!report) {
+        return null;
+      }
+
+      const site = sites.get(report.siteId);
+      if (!site) {
+        return null;
+      }
+
+      const existingWorkOrder = [...workOrders.values()].find(
+        (workOrder) => workOrder.geoVisibilityReportId === reportId,
+      );
+      const timestamp = nowIso();
+      const workOrder: WorkOrder = {
+        id: existingWorkOrder?.id ?? createId("wo", workOrderCounter),
+        organizationId: site.organizationId,
+        siteId: site.id,
+        seoIssueId: null,
+        schemaRecommendationId: null,
+        geoVisibilityReportId: reportId,
+        status: existingWorkOrder?.status ?? "open",
+        priority: input.draft.priority,
+        title: input.draft.title,
+        description: null,
+        problem: input.draft.problem,
+        evidence: input.draft.evidence,
+        impact: input.draft.impact,
+        instructions: input.draft.instructions,
+        ownerType: input.draft.ownerType,
+        acceptanceCriteria: input.draft.acceptanceCriteria,
+        verificationMethod: input.draft.verificationMethod,
+        estimatedEffort: input.draft.estimatedEffort,
+        relatedIssues: input.draft.relatedIssues,
+        assignedTo: existingWorkOrder?.assignedTo ?? null,
+        dueDate: existingWorkOrder?.dueDate ?? null,
+        createdAt: existingWorkOrder?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+
+      if (!existingWorkOrder) {
+        workOrderCounter += 1;
+      }
+
+      workOrders.set(workOrder.id, workOrder);
+
+      return {
+        report,
+        workOrder
+      };
+    },
+
     async createSchemaRecommendations(siteId, input) {
       if (!sites.has(siteId)) {
         return null;
@@ -599,6 +670,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         siteId: site.id,
         seoIssueId: null,
         schemaRecommendationId: recommendationId,
+        geoVisibilityReportId: null,
         status: existingWorkOrder?.status ?? "open",
         priority: input.draft.priority,
         title: input.draft.title,

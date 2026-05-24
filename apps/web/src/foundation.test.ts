@@ -39,6 +39,7 @@ import {
   summarizeFutureModules
 } from "./future-module-skeletons";
 import {
+  convertGeoVisibilityReportToWorkOrder,
   createDemoGeoVisibilityDashboard,
   createGeoVisibilityReportFromFixture,
   demoGeoVisibilityReports,
@@ -47,6 +48,7 @@ import {
   formatGeoStatus,
   getGeoVisibilityCreateFeedback,
   getGeoVisibilityStatusTone,
+  getGeoVisibilityWorkOrderFeedback,
   loadGeoVisibilityDashboard,
   summarizeGeoVisibilityDashboard
 } from "./geo-visibility-dashboard";
@@ -278,6 +280,46 @@ describe("web foundation", () => {
     );
   });
 
+  it("creates GEO work orders through the API response contract", async () => {
+    const report = demoGeoVisibilityReports[1];
+    const workOrder = demoWorkOrders[0];
+    if (!report || !workOrder) {
+      throw new Error("GEO work order fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/geo-visibility-reports/${report.id}/work-order`,
+        );
+        expect(init?.method).toBe("POST");
+
+        return Response.json({
+          report,
+          workOrder: {
+            ...workOrder,
+            id: "wo_geo_visibility",
+            geoVisibilityReportId: report.id,
+            schemaRecommendationId: null,
+            seoIssueId: null,
+            title: "Example Clinic GEO visibility improvement"
+          }
+        });
+      }),
+    );
+
+    await expect(convertGeoVisibilityReportToWorkOrder(report.id)).resolves.toMatchObject({
+      reportId: report.id,
+      source: "api",
+      status: "converted",
+      workOrderId: "wo_geo_visibility"
+    });
+    expect(getGeoVisibilityWorkOrderFeedback("converted", "wo_geo_visibility", report.id)?.message)
+      .toContain("wo_geo_visibility");
+  });
+
   it("keeps GEO visibility deterministic without an API base URL", async () => {
     await expect(loadGeoVisibilityDashboard(demoSite)).resolves.toMatchObject({
       reports: expect.arrayContaining([
@@ -294,6 +336,16 @@ describe("web foundation", () => {
       status: "fixture"
     });
     expect(getGeoVisibilityCreateFeedback("fixture", undefined)?.tone).toBe("info");
+    await expect(convertGeoVisibilityReportToWorkOrder("geo_report_demo_visible"))
+      .resolves.toMatchObject({
+        reportId: "geo_report_demo_visible",
+        source: "fixture",
+        status: "fixture",
+        workOrderId: null
+      });
+    expect(
+      getGeoVisibilityWorkOrderFeedback("fixture", undefined, "geo_report_demo_visible")?.tone,
+    ).toBe("info");
   });
 
   it("summarizes deterministic content brief history", () => {

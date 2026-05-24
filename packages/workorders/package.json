@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@searchops/compliance": "workspace:*",
+    "@searchops/geo-core": "workspace:*",
     "@searchops/schema-core": "workspace:*",
     "@searchops/seo-core": "workspace:*",
     "@searchops/types": "workspace:*"

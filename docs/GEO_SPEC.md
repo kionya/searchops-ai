@@ -44,6 +44,7 @@ Inputs:
 Outputs:
 - `GeoVisibilityReport`: status, score, mention rate, owned citation rate, competitor citation rate, query/provider counts, citations, checks, `generatedBy = deterministic`, and evaluated timestamp.
 - `GeoVisibilityReportRecord`: persisted report history for API/dashboard use.
+- `WorkOrderDraft`: deterministic improvement or maintenance task generated from a persisted GEO visibility report.
 
 Visibility checks:
 - `BRAND_MENTIONED`: answer text mentions the brand name or owned domain.
@@ -57,6 +58,14 @@ Status thresholds:
 - `visible`: score >= 50 and < 75.
 - `weak`: score >= 25 and < 50.
 - `not_visible`: score < 25.
+
+Work order mapping:
+- `not_visible` reports map to `p0`, large effort work orders.
+- `weak` reports map to `p1`, medium effort work orders.
+- `visible` reports map to `p2`, medium effort work orders.
+- `strong` reports map to `p3`, small effort maintenance work orders.
+- Work order instructions are selected from failed or warning visibility checks only; no LLM is used.
+- Converting the same report is idempotent through `WorkOrder.geoVisibilityReportId`.
 
 Non-goals for Phase 9:
 - No LLM usage for visibility scoring, provider classification, or citations.

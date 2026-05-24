@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createWorkOrderFromGeoVisibilityReport,
   createWorkOrderFromSchemaRecommendation,
   createWorkOrderFromSeoIssue,
+  createWorkOrdersFromGeoVisibilityReports,
   createWorkOrdersFromSchemaRecommendations,
   createWorkOrdersFromSeoIssues,
   hasSchemaWorkOrderTemplate,
@@ -13,6 +15,7 @@ import {
   workordersPackage
 } from "./index.js";
 import type {
+  GeoVisibilityReportRecord,
   SchemaJsonLdType,
   SchemaRecommendationRecord,
   SeoIssueDraft,
@@ -179,13 +182,166 @@ function createSchemaRecommendation(
   };
 }
 
+function createGeoVisibilityReport(
+  overrides: Partial<GeoVisibilityReportRecord> = {},
+): GeoVisibilityReportRecord {
+  return {
+    id: "geo_report_visible",
+    siteId: "site_1",
+    brandName: "Example Clinic",
+    domain: "example.com",
+    locale: "ko-KR",
+    market: "KR",
+    status: "visible",
+    score: 72,
+    mentionRate: 67,
+    citationRate: 67,
+    competitorCitationRate: 33,
+    queryCount: 3,
+    providerCount: 2,
+    observations: [
+      {
+        provider: "chatgpt",
+        query: "seo clinic",
+        locale: "ko-KR",
+        answerText: "Example Clinic is mentioned.",
+        citedUrls: ["https://example.com/services/seo"],
+        observedAt: "2026-05-24T00:00:00.000Z",
+        source: "fixture"
+      }
+    ],
+    citations: [
+      {
+        domain: "example.com",
+        owned: true,
+        url: "https://example.com/services/seo"
+      }
+    ],
+    checks: [
+      {
+        checkId: "BRAND_MENTIONED",
+        status: "warning",
+        score: 60,
+        evidence: {
+          observedValue: 67,
+          expectedValue: ">= 70",
+          sourceField: "observations.answerText"
+        }
+      },
+      {
+        checkId: "OWNED_URL_CITED",
+        status: "pass",
+        score: 100,
+        evidence: {
+          observedValue: 67,
+          expectedValue: ">= 50",
+          sourceField: "observations.citedUrls"
+        }
+      }
+    ],
+    generatedBy: "deterministic",
+    evaluatedAt: "2026-05-24T00:00:00.000Z",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    ...overrides
+  };
+}
+
 describe("workorders foundation", () => {
   it("declares deterministic input sources", () => {
-    expect(workOrderInputSources).toEqual(["seo-core", "compliance", "schema-core"]);
+    expect(workOrderInputSources).toEqual([
+      "seo-core",
+      "compliance",
+      "schema-core",
+      "geo-core"
+    ]);
   });
 
   it("identifies the package", () => {
     expect(workordersPackage).toBe("workorders");
+  });
+});
+
+describe("GEO visibility report to work order mapper", () => {
+  it("creates a deterministic GEO visibility improvement work order", () => {
+    const report = createGeoVisibilityReport();
+
+    expect(createWorkOrderFromGeoVisibilityReport(report)).toEqual({
+      title: "Example Clinic GEO visibility improvement",
+      problem:
+        "GEO visibility is visible with a 72/100 score, 67% mention rate, and 67% owned citation rate.",
+      evidence: {
+        url: "https://example.com/",
+        observedValue: "status visible; score 72; mention 67%; citation 67%; competitor 33%",
+        expectedValue:
+          "strong score >= 75; mention >= 70%; owned citation >= 50%; competitor citation <= 40%",
+        sourceField: "geoVisibilityReport"
+      },
+      impact:
+        "AI answer engines may omit the brand, cite competitors, or fail to cite owned URLs when users ask non-brand discovery queries.",
+      instructions: [
+        "Review GEO observations by query and provider before editing content.",
+        "Prioritize owned pages that already match the query intent and can be cited naturally.",
+        "Keep all medical or claim-like content as draft until compliance review is complete.",
+        "Update entity and brand signals on answer-ready pages so the brand is explicitly mentioned in relevant query contexts."
+      ],
+      ownerType: "marketer",
+      priority: "p2",
+      acceptanceCriteria: [
+        "Next GEO visibility report reaches strong status.",
+        "Mention rate is at or above 70%.",
+        "Owned citation rate is at or above 50%.",
+        "Competitor citation rate is at or below 40%.",
+        "Report covers at least three distinct queries and two providers."
+      ],
+      verificationMethod:
+        "Create a new GEO visibility report from the same query set and confirm the score, mention rate, citation rate, and competitor citation risk meet the acceptance criteria.",
+      estimatedEffort: "m",
+      relatedIssues: []
+    });
+  });
+
+  it("maps GEO status to priority and effort deterministically", () => {
+    expect(
+      createWorkOrderFromGeoVisibilityReport(
+        createGeoVisibilityReport({ status: "not_visible", score: 15 }),
+      ),
+    ).toMatchObject({ estimatedEffort: "l", priority: "p0" });
+    expect(
+      createWorkOrderFromGeoVisibilityReport(
+        createGeoVisibilityReport({ status: "weak", score: 36 }),
+      ),
+    ).toMatchObject({ estimatedEffort: "m", priority: "p1" });
+    expect(
+      createWorkOrderFromGeoVisibilityReport(
+        createGeoVisibilityReport({ status: "strong", score: 94 }),
+      ),
+    ).toMatchObject({
+      estimatedEffort: "s",
+      priority: "p3",
+      title: "Example Clinic GEO visibility maintenance"
+    });
+  });
+
+  it("maps GEO report lists without shared state", () => {
+    const workOrders = createWorkOrdersFromGeoVisibilityReports([
+      createGeoVisibilityReport({ id: "geo_report_visible" }),
+      createGeoVisibilityReport({
+        id: "geo_report_not_visible",
+        status: "not_visible",
+        score: 15
+      })
+    ]);
+
+    expect(workOrders.map((workOrder) => workOrder.priority)).toEqual(["p2", "p0"]);
+  });
+
+  it("rejects invalid GEO report inputs", () => {
+    expect(() =>
+      createWorkOrderFromGeoVisibilityReport({
+        ...createGeoVisibilityReport(),
+        generatedBy: "llm"
+      } as unknown as GeoVisibilityReportRecord),
+    ).toThrow();
   });
 });
 

@@ -90,10 +90,12 @@ Phase 9 foundation status:
 - Deterministic visibility scoring is in `packages/geo-core` with independent unit tests.
 - API creation/history routes persist `GeoVisibilityReport` records through repository ports.
 - Dashboard GEO history and create action are connected with API data plus deterministic fixture fallback.
+- GEO visibility reports can be converted into idempotent WorkOrders through deterministic templates.
+- The GEO dashboard can trigger report-to-work-order conversion through API data with fixture fallback.
 
 Phase 9 remaining limitations:
 - Observation collection is fixture/manual input only; live AI answer monitoring remains future connector scope.
-- Reports evaluate current observations and do not yet create work orders automatically.
+- Reports are converted to work orders on explicit dashboard/API action; automatic bulk generation remains future scope.
 - Compliance review remains separate; medical claim risk flags are still Phase 10 scope.
 
 ## Phase 10. Compliance engine

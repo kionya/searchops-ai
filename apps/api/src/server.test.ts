@@ -218,6 +218,8 @@ const seededWorkOrder: WorkOrder = {
   organizationId: "org_seed",
   siteId: "site_seed",
   seoIssueId: "issue_seed",
+  schemaRecommendationId: null,
+  geoVisibilityReportId: null,
   status: "open",
   priority: "p1",
   title: "/services missing H1 fix",
@@ -955,6 +957,61 @@ describe("api foundation", () => {
         generatedBy: "deterministic"
       })
     ]);
+  });
+
+  it("converts GEO visibility reports to idempotent work orders", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const firstResponse = await server.inject({
+      method: "POST",
+      url: "/geo-visibility-reports/geo_report_seed/work-order"
+    });
+    const secondResponse = await server.inject({
+      method: "POST",
+      url: "/geo-visibility-reports/geo_report_seed/work-order"
+    });
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(firstResponse.json()).toMatchObject({
+      report: {
+        id: "geo_report_seed",
+        status: "visible"
+      },
+      workOrder: {
+        geoVisibilityReportId: "geo_report_seed",
+        ownerType: "marketer",
+        priority: "p2",
+        status: "open",
+        title: "Example Clinic GEO visibility improvement"
+      }
+    });
+    expect(secondResponse.statusCode).toBe(201);
+    expect(secondResponse.json().workOrder.id).toBe(firstResponse.json().workOrder.id);
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/work-orders"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().workOrders).toEqual([
+      expect.objectContaining({
+        geoVisibilityReportId: "geo_report_seed",
+        title: "Example Clinic GEO visibility improvement"
+      })
+    ]);
+  });
+
+  it("returns 404 for missing GEO visibility report work order conversion", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/geo-visibility-reports/geo_report_missing/work-order"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "not_found",
+      message: "GEO visibility report not found"
+    });
   });
 
   it("returns 404 for missing GEO visibility report site resources", async () => {

@@ -159,6 +159,7 @@ model WorkOrder {
   siteId             String?
   seoIssueId         String?
   schemaRecommendationId String? @unique
+  geoVisibilityReportId String? @unique
   status             String    @default("open")
   priority           String    @default("p2")
   title              String
@@ -181,11 +182,13 @@ model WorkOrder {
   site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
   seoIssue     SeoIssue?    @relation(fields: [seoIssueId], references: [id], onDelete: SetNull)
   schemaRecommendation SchemaRecommendation? @relation(fields: [schemaRecommendationId], references: [id], onDelete: SetNull)
+  geoVisibilityReport GeoVisibilityReport? @relation(fields: [geoVisibilityReportId], references: [id], onDelete: SetNull)
   complianceFlags ComplianceFlag[]
 
   @@index([organizationId])
   @@index([siteId])
   @@index([schemaRecommendationId])
+  @@index([geoVisibilityReportId])
   @@index([status])
   @@index([priority])
   @@index([ownerType])
@@ -305,6 +308,7 @@ model GeoVisibilityReport {
   createdAt              DateTime @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder?
 
   @@index([siteId])
   @@index([status])
