@@ -33,3 +33,33 @@ Non-goals for Phase 7:
 - No automatic publishing to CMS or external channels.
 - No live connector-driven keyword discovery.
 - No automatic FAQ gap generation beyond the current contract and mapper input support.
+
+## Phase 9 GEO Visibility Monitor V1
+GEO visibility monitoring is deterministic and input-driven. It evaluates stored answer observations from AI/search surfaces and does not call an LLM, browser, or live provider.
+
+Inputs:
+- `GeoTarget`: site id, brand name, owned domain, locale, and market.
+- `GeoAnswerObservation`: provider, query, locale, answer text, cited URLs, observed timestamp, and source.
+
+Outputs:
+- `GeoVisibilityReport`: status, score, mention rate, owned citation rate, competitor citation rate, query/provider counts, citations, checks, `generatedBy = deterministic`, and evaluated timestamp.
+- `GeoVisibilityReportRecord`: persisted report history for API/dashboard use.
+
+Visibility checks:
+- `BRAND_MENTIONED`: answer text mentions the brand name or owned domain.
+- `OWNED_URL_CITED`: cited URLs include the owned domain or subdomain.
+- `QUERY_COVERAGE`: observations cover at least three distinct queries.
+- `PROVIDER_DIVERSITY`: observations cover at least two providers.
+- `COMPETITOR_CITATION_RISK`: non-owned citations stay below the risk threshold.
+
+Status thresholds:
+- `strong`: score >= 75.
+- `visible`: score >= 50 and < 75.
+- `weak`: score >= 25 and < 50.
+- `not_visible`: score < 25.
+
+Non-goals for Phase 9:
+- No LLM usage for visibility scoring, provider classification, or citations.
+- No live AI provider scraping or external connector fetch in tests.
+- No automatic content publishing or CMS updates.
+- No claim/compliance approval automation.

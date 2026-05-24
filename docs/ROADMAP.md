@@ -79,6 +79,23 @@ Phase 8 remaining limitations:
 ## Phase 9. GEO monitor
 Monitor AI visibility signals and generative engine readiness using deterministic inputs where possible and clearly separated AI-assisted analysis where needed.
 
+Phase 9 non-negotiables:
+- Deterministic first. GEO scoring must be reproducible from stored observations and citations.
+- No LLM is required for brand mention detection, owned citation detection, provider diversity, or status scoring.
+- Live AI provider collection must stay behind future connector boundaries and fixture-based tests by default.
+- Public contracts are Zod-validated and independently unit tested.
+
+Phase 9 foundation status:
+- GEO visibility monitor contracts are in `packages/types` with Zod tests.
+- Deterministic visibility scoring is in `packages/geo-core` with independent unit tests.
+- API creation/history routes persist `GeoVisibilityReport` records through repository ports.
+- Dashboard GEO history and create action are connected with API data plus deterministic fixture fallback.
+
+Phase 9 remaining limitations:
+- Observation collection is fixture/manual input only; live AI answer monitoring remains future connector scope.
+- Reports evaluate current observations and do not yet create work orders automatically.
+- Compliance review remains separate; medical claim risk flags are still Phase 10 scope.
+
 ## Phase 10. Compliance engine
 Expand medical advertising risk filters, claim checks, approval states, and draft-only content safeguards.
 

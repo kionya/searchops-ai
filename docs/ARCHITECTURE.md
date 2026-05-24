@@ -17,6 +17,7 @@ Allowed:
 - `packages/compliance -> packages/types`
 - `packages/aeo-core -> packages/types`
 - `packages/schema-core -> packages/types`
+- `packages/geo-core -> packages/types`
 
 Forbidden:
 - `packages/* -> apps/*`
@@ -28,6 +29,9 @@ Forbidden:
 - `packages/schema-core -> packages/ai-core`
 - `packages/schema-core -> packages/db`
 - `packages/schema-core -> packages/connectors`
+- `packages/geo-core -> packages/ai-core`
+- `packages/geo-core -> packages/db`
+- `packages/geo-core -> packages/connectors`
 - `packages/crawler-core -> packages/seo-core`
 - `packages/ui -> packages/db | packages/connectors | apps/worker`
 
@@ -85,3 +89,14 @@ Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logi
 `packages/workorders` owns deterministic SchemaRecommendation to WorkOrder mapping. `apps/api` may convert a persisted schema recommendation into one idempotent work order and mark the recommendation `converted`; it must not publish JSON-LD to a CMS or production page.
 
 `apps/web` owns the dashboard surface for schema recommendations. It may read schema recommendation history, convert open recommendations to work orders, and submit deterministic snapshot rechecks through API helpers with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+
+## Phase 9 GEO Monitor Boundary
+Phase 9 starts with deterministic GEO visibility contracts and scoring. The `packages/geo-core` package owns brand mention detection, owned-domain citation detection, query coverage, provider diversity, competitor citation risk, and status scoring from typed observations.
+
+`packages/geo-core` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed `GeoTarget` and `GeoAnswerObservation` inputs, returns Zod-validated visibility reports, and remains independently unit testable. Optional explanation text or AI-assisted interpretation belongs later in `packages/ai-core`, while live observation collection belongs behind future connector adapters.
+
+`apps/api` owns the HTTP boundary for GEO visibility report creation/history. It may call deterministic `packages/geo-core`, validate requests and responses through `packages/types`, scope target domains to the registered site domain or subdomain, and persist through repository ports. It must not call LLM providers or live AI answer providers for Phase 9 flows.
+
+`packages/db` owns GEO visibility persistence. `GeoVisibilityReport` stores report history for dashboard use, including observations and citations as JSON evidence. Re-running a visibility evaluation creates another history row so the dashboard can show trendable snapshots.
+
+`apps/web` owns the dashboard surface for GEO visibility. It may read report history and create deterministic fixture-based reports through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.

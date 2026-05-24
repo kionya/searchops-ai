@@ -19,6 +19,8 @@ SearchOps AI is a SaaS platform for SEO/AEO/GEO diagnosis, content planning, str
 - packages/db: schema and migrations
 - packages/seo-core: deterministic SEO rules
 - packages/aeo-core: deterministic Keyword/AEO rules
+- packages/schema-core: deterministic structured data recommendation rules
+- packages/geo-core: deterministic GEO visibility scoring
 - packages/crawler-core: crawl and parse logic
 - packages/workorders: issue-to-task conversion
 - packages/ai-core: LLM provider adapters and prompts
@@ -31,6 +33,7 @@ SearchOps AI is a SaaS platform for SEO/AEO/GEO diagnosis, content planning, str
 - Use mock fixtures for external data by default.
 - SEO issue detection must be deterministic first. LLM may explain or draft, but must not be the only source of truth.
 - Keyword/AEO planning must be deterministic first. LLM must not be required for keyword intent, answer-readiness, FAQ gap, or ContentBrief draft generation.
+- Schema and GEO monitoring must be deterministic first. LLM must not be required for JSON-LD recommendations, AI visibility scoring, brand mention detection, or owned citation detection.
 - ContentBrief output must remain draft-only and must not auto-publish to a CMS or external channel.
 - Medical content must never be auto-published. It can only be generated as a draft with compliance flags.
 

@@ -6,6 +6,7 @@ import type {
   ConnectorSyncRun,
   ContentBrief,
   CrawlerPageSnapshot,
+  GeoVisibilityReportRecord,
   Organization,
   SchemaRecommendationRecord,
   SeoIssue,
@@ -131,6 +132,54 @@ const seededAeoReadinessReport: AeoReadinessReportRecord = {
   ],
   generatedBy: "deterministic",
   evaluatedAt: "2026-05-23T00:00:00.000Z",
+  createdAt
+};
+const seededGeoVisibilityReport: GeoVisibilityReportRecord = {
+  id: "geo_report_seed",
+  siteId: "site_seed",
+  brandName: "Example Clinic",
+  domain: "exampleclinic.com",
+  locale: "ko-KR",
+  market: "KR",
+  status: "visible",
+  score: 72,
+  mentionRate: 67,
+  citationRate: 67,
+  competitorCitationRate: 33,
+  queryCount: 3,
+  providerCount: 2,
+  observations: [
+    {
+      provider: "chatgpt",
+      query: "seo clinic",
+      locale: "ko-KR",
+      answerText: "Example Clinic is mentioned for SEO clinic research.",
+      citedUrls: ["https://exampleclinic.com/services/seo"],
+      observedAt: "2026-05-24T00:00:00.000Z",
+      source: "fixture"
+    }
+  ],
+  citations: [
+    {
+      url: "https://exampleclinic.com/services/seo",
+      domain: "exampleclinic.com",
+      owned: true
+    }
+  ],
+  checks: [
+    {
+      checkId: "BRAND_MENTIONED",
+      status: "warning",
+      score: 60,
+      evidence: {
+        observedValue: 67,
+        expectedValue: ">= 70",
+        sourceField: "observations.answerText"
+      }
+    }
+  ],
+  generatedBy: "deterministic",
+  evaluatedAt: "2026-05-24T00:00:00.000Z",
   createdAt
 };
 const seededSchemaRecommendation: SchemaRecommendationRecord = {
@@ -268,6 +317,16 @@ function buildAeoReadinessTestServer() {
       organizations: [seededOrganization],
       sites: [seededSite],
       aeoReadinessReports: [seededAeoReadinessReport]
+    })
+  });
+}
+
+function buildGeoVisibilityTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      geoVisibilityReports: [seededGeoVisibilityReport]
     })
   });
 }
@@ -809,6 +868,165 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("keyword");
+  });
+
+  it("creates deterministic GEO visibility reports and persists them", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-visibility-reports",
+      payload: {
+        target: {
+          siteId: "site_seed",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com"
+        },
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            answerText: "Example Clinic is a visible SEO clinic option.",
+            citedUrls: ["https://exampleclinic.com/services/seo"],
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture"
+          },
+          {
+            provider: "perplexity",
+            query: "medical seo checklist",
+            answerText: "Example Clinic publishes a medical SEO checklist.",
+            citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture"
+          },
+          {
+            provider: "gemini",
+            query: "seo clinic near gangnam",
+            answerText: "Example Clinic appears for local SEO clinic research.",
+            citedUrls: ["https://exampleclinic.com/locations/gangnam"],
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture"
+          }
+        ],
+        evaluatedAt: "2026-05-24T00:00:00.000Z"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      report: {
+        siteId: "site_seed",
+        brandName: "Example Clinic",
+        status: "strong",
+        score: 100,
+        mentionRate: 100,
+        citationRate: 100,
+        generatedBy: "deterministic"
+      },
+      visibilityReport: {
+        target: {
+          siteId: "site_seed"
+        },
+        status: "strong",
+        queryCount: 3,
+        providerCount: 3
+      }
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/geo-visibility-reports"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().reports).toHaveLength(2);
+  });
+
+  it("lists persisted GEO visibility report history", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/geo-visibility-reports"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().reports).toEqual([
+      expect.objectContaining({
+        id: "geo_report_seed",
+        status: "visible",
+        generatedBy: "deterministic"
+      })
+    ]);
+  });
+
+  it("returns 404 for missing GEO visibility report site resources", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/geo-visibility-reports"
+    });
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/geo-visibility-reports",
+      payload: {
+        target: {
+          siteId: "site_missing",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com"
+        },
+        observations: [
+          {
+            provider: "manual",
+            query: "seo clinic",
+            answerText: "",
+            citedUrls: [],
+            observedAt: "2026-05-24T00:00:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(listResponse.statusCode).toBe(404);
+    expect(createResponse.statusCode).toBe(404);
+  });
+
+  it("validates GEO visibility report request payloads and domain scope", async () => {
+    const server = buildGeoVisibilityTestServer();
+    const invalidPayloadResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-visibility-reports",
+      payload: {
+        target: {
+          siteId: "site_seed",
+          brandName: "",
+          domain: "exampleclinic.com"
+        },
+        observations: []
+      }
+    });
+    const outOfScopeResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-visibility-reports",
+      payload: {
+        target: {
+          siteId: "site_seed",
+          brandName: "Example Clinic",
+          domain: "example.net"
+        },
+        observations: [
+          {
+            provider: "manual",
+            query: "seo clinic",
+            answerText: "",
+            citedUrls: [],
+            observedAt: "2026-05-24T00:00:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(invalidPayloadResponse.statusCode).toBe(400);
+    expect(invalidPayloadResponse.json().message).toContain("brandName");
+    expect(outOfScopeResponse.statusCode).toBe(400);
+    expect(outOfScopeResponse.json().message).toContain("site domain");
   });
 
   it("creates deterministic schema recommendations and persists them", async () => {

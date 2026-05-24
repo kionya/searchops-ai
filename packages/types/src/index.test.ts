@@ -19,6 +19,8 @@ import {
   CreateCrawlRunRequestSchema,
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
+  CreateGeoVisibilityReportRequestSchema,
+  CreateGeoVisibilityReportResponseSchema,
   ConnectorSyncRunDetailResponseSchema,
   ConnectorSyncRunListResponseSchema,
   CreateSiteRequestSchema,
@@ -35,6 +37,9 @@ import {
   CreateSchemaRecommendationsResponseSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   HealthResponseSchema,
+  GeoVisibilityReportListResponseSchema,
+  GeoVisibilityReportRecordSchema,
+  GeoVisibilityReportSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
@@ -873,6 +878,101 @@ describe("types foundation", () => {
       .toHaveLength(1);
     expect(ContentBriefDetailResponseSchema.parse({ contentBrief: contentBrief }).contentBrief)
       .toMatchObject({ id: "brief_1" });
+  });
+
+  it("validates GEO visibility monitor contracts", () => {
+    const request = CreateGeoVisibilityReportRequestSchema.parse({
+      target: {
+        siteId: "site_1",
+        brandName: "Example Clinic",
+        domain: "example.com"
+      },
+      observations: [
+        {
+          provider: "chatgpt",
+          query: "best seo clinic",
+          answerText: "Example Clinic is mentioned as an SEO clinic option.",
+          citedUrls: ["https://example.com/service/seo"],
+          observedAt: "2026-05-24T00:00:00.000Z",
+          source: "fixture"
+        }
+      ],
+      evaluatedAt: "2026-05-24T00:00:00.000Z"
+    });
+    const visibilityReport = GeoVisibilityReportSchema.parse({
+      target: request.target,
+      status: "visible",
+      score: 72,
+      mentionRate: 100,
+      citationRate: 100,
+      competitorCitationRate: 0,
+      queryCount: 1,
+      providerCount: 1,
+      observations: request.observations,
+      citations: [
+        {
+          url: "https://example.com/service/seo",
+          domain: "example.com",
+          owned: true
+        }
+      ],
+      checks: [
+        {
+          checkId: "BRAND_MENTIONED",
+          status: "pass",
+          score: 100,
+          evidence: {
+            observedValue: 100,
+            expectedValue: ">= 70",
+            sourceField: "observations.answerText"
+          }
+        }
+      ],
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-24T00:00:00.000Z"
+    });
+    const record = GeoVisibilityReportRecordSchema.parse({
+      id: "geo_report_1",
+      siteId: "site_1",
+      brandName: request.target.brandName,
+      domain: request.target.domain,
+      locale: request.target.locale,
+      market: request.target.market,
+      status: visibilityReport.status,
+      score: visibilityReport.score,
+      mentionRate: visibilityReport.mentionRate,
+      citationRate: visibilityReport.citationRate,
+      competitorCitationRate: visibilityReport.competitorCitationRate,
+      queryCount: visibilityReport.queryCount,
+      providerCount: visibilityReport.providerCount,
+      observations: visibilityReport.observations,
+      citations: visibilityReport.citations,
+      checks: visibilityReport.checks,
+      generatedBy: "deterministic",
+      evaluatedAt: visibilityReport.evaluatedAt,
+      createdAt: "2026-05-24T00:00:00.000Z"
+    });
+
+    expect(CreateGeoVisibilityReportResponseSchema.parse({
+      report: record,
+      visibilityReport
+    })).toMatchObject({
+      report: {
+        status: "visible",
+        mentionRate: 100
+      },
+      visibilityReport: {
+        generatedBy: "deterministic"
+      }
+    });
+    expect(GeoVisibilityReportListResponseSchema.parse({ reports: [record] }).reports)
+      .toHaveLength(1);
+    expect(() =>
+      GeoVisibilityReportSchema.parse({
+        ...visibilityReport,
+        generatedBy: "llm"
+      }),
+    ).toThrow();
   });
 
   it("validates connector providers and normalized records", () => {

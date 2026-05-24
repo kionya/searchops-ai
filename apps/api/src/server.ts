@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
+import { evaluateGeoVisibility } from "@searchops/geo-core";
 import { extractJsonLdTypes, hasSchemaType, recommendJsonLdForSnapshots } from "@searchops/schema-core";
 import { createWorkOrderFromSchemaRecommendation } from "@searchops/workorders";
 
@@ -18,12 +19,15 @@ import {
   ConnectorSyncRunListResponseSchema,
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
+  CreateGeoVisibilityReportRequestSchema,
+  CreateGeoVisibilityReportResponseSchema,
   CreateOrganizationRequestSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
   HealthResponseSchema,
+  GeoVisibilityReportListResponseSchema,
   OrganizationListResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
@@ -169,6 +173,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(AeoReadinessReportListResponseSchema.parse({ reports }));
   });
 
+  server.get("/sites/:id/geo-visibility-reports", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const reports = await repository.listGeoVisibilityReports(id);
+    if (!reports) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(GeoVisibilityReportListResponseSchema.parse({ reports }));
+  });
+
   server.get("/sites/:id/schema-recommendations", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const recommendations = await repository.listSchemaRecommendations(id);
@@ -268,6 +283,53 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply
       .status(201)
       .send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
+  });
+
+  server.post("/sites/:id/geo-visibility-reports", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateGeoVisibilityReportRequestSchema.parse(request.body ?? {});
+    if (input.target.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "GEO target siteId must match the route site"
+      });
+      return;
+    }
+
+    if (!isDomainAllowedForSite(input.target.domain, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "GEO target domain must be the site domain or one of its subdomains"
+      });
+      return;
+    }
+
+    let visibilityReport;
+    try {
+      visibilityReport = evaluateGeoVisibility(input, {
+        evaluatedAt: input.evaluatedAt ?? new Date().toISOString()
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid GEO visibility input";
+      reply.status(400).send({ error: "validation_error", message });
+      return;
+    }
+
+    const report = await repository.createGeoVisibilityReport(id, { visibilityReport });
+    if (!report) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply
+      .status(201)
+      .send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
   });
 
   server.post("/sites/:id/content-briefs", async (request, reply) => {
@@ -643,4 +705,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   });
 
   return server;
+}
+
+function isDomainAllowedForSite(domain: string, siteDomain: string) {
+  const normalizedDomain = domain.trim().toLowerCase().replace(/^www\./u, "");
+  const normalizedSiteDomain = siteDomain.trim().toLowerCase().replace(/^www\./u, "");
+
+  return (
+    normalizedDomain === normalizedSiteDomain ||
+    normalizedDomain.endsWith(`.${normalizedSiteDomain}`)
+  );
 }
