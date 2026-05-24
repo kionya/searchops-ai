@@ -68,9 +68,11 @@ SchemaRecommendation records store deterministic JSON-LD recommendation drafts f
 - `generatedBy` must remain `deterministic`.
 - The unique key is `siteId`, `pageUrl`, and `type` so reruns update the same recommendation draft.
 
-No schema recommendation may be treated as an auto-publish payload. Dashboard surfaces and schema-specific recheck history belong to later Phase 8 tasks.
+Supported recommendation statuses are `open`, `converted`, `dismissed`, and `resolved`. Snapshot recheck updates `evidence.observedTypes`; if the expected JSON-LD type is present, the recommendation becomes `resolved`.
+
+No schema recommendation may be treated as an auto-publish payload. Dashboard actions can create work orders and submit deterministic recheck snapshots, but publishing JSON-LD to a CMS or production page remains out of scope.
 
 ## Phase 8 Schema WorkOrder Mapping
 WorkOrder records may link to one SchemaRecommendation through `schemaRecommendationId`. The field is nullable so existing SEO issue work orders remain unchanged, and unique so converting the same recommendation is idempotent.
 
-When a schema recommendation is converted, its status becomes `converted`; the resulting work order still requires human execution and review before any JSON-LD is deployed.
+When a schema recommendation is converted, its status becomes `converted`; the resulting work order still requires human execution and review before any JSON-LD is deployed. If a schema recheck resolves the recommendation, the linked work order is marked `done`.

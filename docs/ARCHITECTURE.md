@@ -76,10 +76,12 @@ ContentBrief outputs are draft-only planning artifacts. They must never auto-pub
 ## Phase 8 Schema Engine Boundary
 Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logic. The `packages/schema-core` package owns schema type extraction from crawler snapshots and JSON-LD recommendation drafts for WebSite, WebPage, Article, FAQPage, BreadcrumbList, LocalBusiness, MedicalClinic, and Service.
 
-`packages/schema-core` must have no LLM, DB, network, connector, or CMS dependency. It receives typed crawler snapshots plus site context, returns Zod-validated recommendation sets, and remains independently unit testable. Optional explanation text, code generation assistance, persistence, dashboard surfaces, work order mapping, and recheck automation belong to later Phase 8 tasks.
+`packages/schema-core` must have no LLM, DB, network, connector, or CMS dependency. It receives typed crawler snapshots plus site context, returns Zod-validated recommendation sets, and remains independently unit testable. Optional explanation text, code generation assistance, rich-result validation, and CMS publishing belong outside the deterministic core.
 
-`apps/api` owns the HTTP boundary for schema recommendation creation/history. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, and persist recommendation drafts through repository ports. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
+`apps/api` owns the HTTP boundary for schema recommendation creation/history, work order conversion, and snapshot-based recheck. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, and persist recommendation drafts through repository ports. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
 
-`packages/db` owns schema recommendation persistence. Recommendations are idempotent by site, page URL, and schema type so rerunning the same deterministic analysis updates the existing draft instead of creating duplicates.
+`packages/db` owns schema recommendation persistence. Recommendations are idempotent by site, page URL, and schema type so rerunning the same deterministic analysis updates the existing draft instead of creating duplicates. Recheck updates the recommendation evidence/status and, when a linked work order exists, may mark the work order `done` once the expected JSON-LD type is present.
 
 `packages/workorders` owns deterministic SchemaRecommendation to WorkOrder mapping. `apps/api` may convert a persisted schema recommendation into one idempotent work order and mark the recommendation `converted`; it must not publish JSON-LD to a CMS or production page.
+
+`apps/web` owns the dashboard surface for schema recommendations. It may read schema recommendation history, convert open recommendations to work orders, and submit deterministic snapshot rechecks through API helpers with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
