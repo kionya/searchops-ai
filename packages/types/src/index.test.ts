@@ -46,6 +46,8 @@ import {
   NormalizedUrlSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
+  RecheckSchemaRecommendationRequestSchema,
+  RecheckSchemaRecommendationResponseSchema,
   RecheckWorkOrderRequestSchema,
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
@@ -352,6 +354,93 @@ describe("types foundation", () => {
         }
       }).workOrder,
     ).toMatchObject({ schemaRecommendationId: "schema_rec_1" });
+    const recheckSnapshot = CrawlerPageSnapshotSchema.parse({
+      url: "https://example.com/services/seo",
+      finalUrl: null,
+      title: "SEO service",
+      metaDescription: "SEO service page",
+      robotsMeta: "index,follow",
+      canonicalUrl: "https://example.com/services/seo",
+      h1Count: 1,
+      h2Count: 0,
+      headings: { h1: ["SEO service"], h2: [] },
+      links: { internal: [], external: [] },
+      images: [],
+      jsonLd: [
+        {
+          raw: "{\"@context\":\"https://schema.org\",\"@type\":\"Service\"}",
+          parsed: {
+            "@context": "https://schema.org",
+            "@type": "Service"
+          }
+        }
+      ],
+      indexability: {
+        noindex: false,
+        nofollow: false,
+        canonicalMismatch: false,
+        robotsBlocked: null
+      },
+      content: {
+        textLength: 120,
+        wordCount: 20,
+        duplicateHash: "a".repeat(64)
+      }
+    });
+    expect(RecheckSchemaRecommendationRequestSchema.parse({ snapshot: recheckSnapshot }))
+      .toMatchObject({
+        snapshot: {
+          url: "https://example.com/services/seo"
+        }
+      });
+    expect(
+      RecheckSchemaRecommendationResponseSchema.parse({
+        expectedType: "Service",
+        observedTypes: ["Service"],
+        recommendation: {
+          ...record,
+          evidence: {
+            ...record.evidence,
+            observedTypes: ["Service"]
+          },
+          status: "resolved"
+        },
+        resolved: true,
+        workOrder: {
+          id: "wo_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          seoIssueId: null,
+          schemaRecommendationId: "schema_rec_1",
+          status: "done",
+          priority: "p1",
+          title: "/services/seo Service JSON-LD implementation",
+          description: null,
+          problem: "The service page has no Service JSON-LD block.",
+          evidence: {
+            url: "https://example.com/services/seo",
+            observedValue: ["WebPage"],
+            expectedValue: "Service",
+            sourceField: "jsonLd"
+          },
+          impact: "Structured service data helps search and answer engines understand the offering.",
+          instructions: ["Add the reviewed JSON-LD block to the page."],
+          ownerType: "developer",
+          acceptanceCriteria: ["A schema recommendation recheck no longer returns Service."],
+          verificationMethod: "Run schema recommendation recheck for the URL.",
+          estimatedEffort: "m",
+          relatedIssues: ["SCHEMA_MISSING"],
+          assignedTo: null,
+          dueDate: null,
+          createdAt: "2026-05-24T00:00:00.000Z",
+          updatedAt: "2026-05-24T00:00:00.000Z"
+        }
+      }),
+    ).toMatchObject({
+      recommendation: { status: "resolved" },
+      resolved: true,
+      workOrder: { status: "done" }
+    });
     expect(() =>
       SchemaRecommendationRecordSchema.parse({
         ...record,

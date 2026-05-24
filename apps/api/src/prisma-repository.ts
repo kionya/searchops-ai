@@ -471,6 +471,63 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       });
     },
 
+    async recheckSchemaRecommendation(recommendationId, input) {
+      return prisma.$transaction(async (transaction) => {
+        const recommendation = await transaction.schemaRecommendation.findUnique({
+          include: {
+            workOrder: true
+          },
+          where: { id: recommendationId }
+        });
+        if (recommendation === null) {
+          return null;
+        }
+
+        const currentRecommendation = toSchemaRecommendationRecord(recommendation);
+        const status = input.resolved
+          ? "resolved"
+          : currentRecommendation.status === "resolved"
+            ? "open"
+            : currentRecommendation.status;
+        const updatedRecommendation = await transaction.schemaRecommendation.update({
+          data: {
+            evidence: toJson({
+              ...currentRecommendation.evidence,
+              observedTypes: [...input.observedTypes]
+            }),
+            status
+          },
+          where: {
+            id: recommendationId
+          }
+        });
+
+        const workOrder =
+          recommendation.workOrder === null
+            ? null
+            : toWorkOrder(
+                input.resolved || recommendation.workOrder.status === "done"
+                  ? await transaction.workOrder.update({
+                      data: {
+                        status: input.resolved ? "done" : "in_review"
+                      },
+                      where: {
+                        id: recommendation.workOrder.id
+                      }
+                    })
+                  : recommendation.workOrder,
+              );
+
+        return {
+          expectedType: currentRecommendation.type,
+          observedTypes: [...input.observedTypes],
+          recommendation: toSchemaRecommendationRecord(updatedRecommendation),
+          resolved: input.resolved,
+          workOrder
+        };
+      });
+    },
+
     async listWorkOrders(siteId) {
       const site = await prisma.site.findUnique({
         select: { id: true },

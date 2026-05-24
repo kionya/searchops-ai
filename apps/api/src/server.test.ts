@@ -941,6 +941,84 @@ describe("api foundation", () => {
     });
   });
 
+  it("marks schema recommendations and linked work orders resolved after recheck", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/work-order"
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck",
+      payload: {
+        snapshot: createSchemaSnapshot({
+          jsonLd: [
+            {
+              raw: "{\"@context\":\"https://schema.org\",\"@type\":\"Service\"}",
+              parsed: {
+                "@context": "https://schema.org",
+                "@type": "Service"
+              }
+            }
+          ]
+        })
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      expectedType: "Service",
+      observedTypes: ["Service"],
+      resolved: true,
+      recommendation: {
+        id: "schema_rec_seed",
+        status: "resolved",
+        evidence: {
+          observedTypes: ["Service"]
+        }
+      },
+      workOrder: {
+        schemaRecommendationId: "schema_rec_seed",
+        status: "done"
+      }
+    });
+  });
+
+  it("keeps unresolved schema recommendations actionable after recheck", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/work-order"
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck",
+      payload: {
+        snapshot: createSchemaSnapshot()
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      expectedType: "Service",
+      observedTypes: [],
+      resolved: false,
+      recommendation: {
+        id: "schema_rec_seed",
+        status: "converted",
+        evidence: {
+          observedTypes: []
+        }
+      },
+      workOrder: {
+        schemaRecommendationId: "schema_rec_seed",
+        status: "open"
+      }
+    });
+  });
+
   it("rejects dismissed schema recommendation work order conversion", async () => {
     const server = buildApiServer({
       repository: createMemoryRepository({
@@ -985,11 +1063,19 @@ describe("api foundation", () => {
       method: "POST",
       url: "/schema-recommendations/schema_rec_missing/work-order"
     });
+    const recheckResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_missing/recheck",
+      payload: {
+        snapshot: createSchemaSnapshot()
+      }
+    });
 
     expect(listResponse.statusCode).toBe(404);
     expect(createResponse.statusCode).toBe(404);
     expect(detailResponse.statusCode).toBe(404);
     expect(workOrderResponse.statusCode).toBe(404);
+    expect(recheckResponse.statusCode).toBe(404);
   });
 
   it("validates schema recommendation request payloads", async () => {
@@ -1023,6 +1109,33 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("snapshot URLs");
+  });
+
+  it("rejects schema recommendation rechecks for mismatched or out-of-scope URLs", async () => {
+    const server = buildSchemaRecommendationTestServer();
+    const mismatchResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck",
+      payload: {
+        snapshot: createSchemaSnapshot({
+          url: "https://exampleclinic.com/services/other"
+        })
+      }
+    });
+    const scopeResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck",
+      payload: {
+        snapshot: createSchemaSnapshot({
+          finalUrl: "https://example.net/services/seo"
+        })
+      }
+    });
+
+    expect(mismatchResponse.statusCode).toBe(400);
+    expect(mismatchResponse.json().message).toContain("pageUrl");
+    expect(scopeResponse.statusCode).toBe(400);
+    expect(scopeResponse.json().message).toContain("site domain");
   });
 
   it("creates deterministic content brief drafts and persists them", async () => {

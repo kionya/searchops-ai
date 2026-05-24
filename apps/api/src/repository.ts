@@ -7,12 +7,15 @@ import type {
   ContentBrief,
   ContentBriefDraft,
   CrawlRun,
+  CrawlerPageSnapshot,
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
   CreateSiteRequest,
   JsonLdRecommendationSet,
   Organization,
+  RecheckSchemaRecommendationResponse,
   ResolveWorkOrderIssueResponse,
+  SchemaJsonLdType,
   SchemaRecommendationRecord,
   SeoIssue,
   Site,
@@ -54,6 +57,12 @@ export interface CreateSchemaRecommendationWorkOrderResult {
   workOrder: WorkOrder;
 }
 
+export interface RecheckSchemaRecommendationInput {
+  observedTypes: readonly SchemaJsonLdType[];
+  resolved: boolean;
+  snapshot: CrawlerPageSnapshot;
+}
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
@@ -93,6 +102,10 @@ export interface SearchOpsRepository {
     recommendationId: string,
     input: CreateSchemaRecommendationWorkOrderInput,
   ): Promise<CreateSchemaRecommendationWorkOrderResult | null>;
+  recheckSchemaRecommendation(
+    recommendationId: string,
+    input: RecheckSchemaRecommendationInput,
+  ): Promise<RecheckSchemaRecommendationResponse | null>;
   listWorkOrders(siteId: string): Promise<WorkOrder[] | null>;
   getWorkOrder(id: string): Promise<WorkOrder | null>;
   updateWorkOrder(id: string, input: UpdateWorkOrderRequest): Promise<WorkOrder | null>;
@@ -556,6 +569,58 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       return {
         recommendation: convertedRecommendation,
         workOrder
+      };
+    },
+
+    async recheckSchemaRecommendation(recommendationId, input) {
+      const recommendation = schemaRecommendations.get(recommendationId);
+      if (!recommendation) {
+        return null;
+      }
+
+      const timestamp = nowIso();
+      const status = input.resolved
+        ? "resolved"
+        : recommendation.status === "resolved"
+          ? "open"
+          : recommendation.status;
+      const updatedRecommendation: SchemaRecommendationRecord = {
+        ...recommendation,
+        evidence: {
+          ...recommendation.evidence,
+          observedTypes: [...input.observedTypes]
+        },
+        status,
+        updatedAt: timestamp
+      };
+
+      const existingWorkOrder = [...workOrders.values()].find(
+        (workOrder) => workOrder.schemaRecommendationId === recommendationId,
+      );
+      const updatedWorkOrder: WorkOrder | null =
+        existingWorkOrder === undefined
+          ? null
+          : {
+              ...existingWorkOrder,
+              status: input.resolved
+                ? "done"
+                : existingWorkOrder.status === "done"
+                  ? "in_review"
+                  : existingWorkOrder.status,
+              updatedAt: timestamp
+            };
+
+      schemaRecommendations.set(recommendationId, updatedRecommendation);
+      if (updatedWorkOrder !== null) {
+        workOrders.set(updatedWorkOrder.id, updatedWorkOrder);
+      }
+
+      return {
+        expectedType: recommendation.type,
+        observedTypes: [...input.observedTypes],
+        recommendation: updatedRecommendation,
+        resolved: input.resolved,
+        workOrder: updatedWorkOrder
       };
     },
 

@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
 import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
-import { recommendJsonLdForSnapshots } from "@searchops/schema-core";
+import { extractJsonLdTypes, hasSchemaType, recommendJsonLdForSnapshots } from "@searchops/schema-core";
 import { createWorkOrderFromSchemaRecommendation } from "@searchops/workorders";
 
 import {
@@ -25,6 +25,8 @@ import {
   CreateSiteRequestSchema,
   HealthResponseSchema,
   OrganizationListResponseSchema,
+  RecheckSchemaRecommendationRequestSchema,
+  RecheckSchemaRecommendationResponseSchema,
   RecheckWorkOrderRequestSchema,
   RecheckWorkOrderResponseSchema,
   ResolveWorkOrderIssueResponseSchema,
@@ -459,6 +461,55 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(CreateSchemaRecommendationWorkOrderResponseSchema.parse(result));
+  });
+
+  server.post("/schema-recommendations/:id/recheck", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const recommendation = await repository.getSchemaRecommendation(id);
+    if (!recommendation) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    const site = await repository.getSite(recommendation.siteId);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = RecheckSchemaRecommendationRequestSchema.parse(request.body ?? {});
+    const snapshotUrl = input.snapshot.finalUrl ?? input.snapshot.url;
+    if (input.snapshot.url !== recommendation.pageUrl && snapshotUrl !== recommendation.pageUrl) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "schema recheck snapshot URL must match the recommendation pageUrl"
+      });
+      return;
+    }
+
+    if (
+      !isUrlAllowedForCrawl(input.snapshot.url, site.domain) ||
+      (input.snapshot.finalUrl !== null && !isUrlAllowedForCrawl(input.snapshot.finalUrl, site.domain))
+    ) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "schema recheck snapshot URLs must be within the site domain or its subdomains"
+      });
+      return;
+    }
+
+    const observedTypes = extractJsonLdTypes(input.snapshot);
+    const result = await repository.recheckSchemaRecommendation(id, {
+      observedTypes,
+      resolved: hasSchemaType(input.snapshot, recommendation.type),
+      snapshot: input.snapshot
+    });
+    if (!result) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    reply.send(RecheckSchemaRecommendationResponseSchema.parse(result));
   });
 
   server.get("/content-briefs/:id", async (request, reply) => {
