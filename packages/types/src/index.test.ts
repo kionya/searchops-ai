@@ -1158,6 +1158,28 @@ describe("types foundation", () => {
       liveExternalApis: "disabled",
       provider: "chatgpt",
     });
+    expect(
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "perplexity",
+        observations: [
+          {
+            provider: "perplexity",
+            query: "clinic content marketing",
+            locale: "ko-KR",
+            answerText: "Example Clinic is cited for clinic content marketing.",
+            citedUrls: ["https://example.com/blog/seo-basics"],
+            observedAt: "2026-05-24T01:00:00.000Z",
+            source: "connector",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toMatchObject({
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      provider: "perplexity",
+    });
     const request = CreateGeoVisibilityReportRequestSchema.parse({
       target: {
         siteId: "site_1",

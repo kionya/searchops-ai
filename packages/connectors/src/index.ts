@@ -23,6 +23,7 @@ import {
   type GscSearchMetric,
   type KeywordDiscoveryCandidate,
   type KeywordDiscoverySet,
+  type LiveExternalApiMode,
   type PageSpeedMetric
 } from "@searchops/types";
 
@@ -30,6 +31,7 @@ export * from "./cms-webhooks.js";
 
 export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
+export const liveExternalApisEnabled = "enabled" as const;
 
 export const connectorProviders = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
@@ -181,13 +183,37 @@ export interface ConnectorBatchSyncResult {
 }
 
 export interface GeoAnswerMonitorAdapter {
-  readonly liveExternalApis: typeof liveExternalApisDefault;
+  readonly liveExternalApis: LiveExternalApiMode;
   readonly provider: GeoAnswerMonitorProvider;
   monitor(request: GeoAnswerMonitorRequest): Promise<GeoAnswerMonitorResult>;
 }
 
 export interface FixtureGeoAnswerMonitorAdapterConfig {
   readonly fixture: GeoAnswerMonitoringFixture;
+}
+
+export interface LiveGeoAnswerProviderClientInput {
+  readonly observedAt: string;
+  readonly query: string;
+  readonly queryLocale: string;
+  readonly target: GeoAnswerMonitorRequest["target"];
+}
+
+export interface LiveGeoAnswerProviderClientResponse {
+  readonly answerText: string;
+  readonly citedUrls?: readonly string[];
+  readonly observedAt?: string;
+}
+
+export interface LiveGeoAnswerProviderClient {
+  readonly provider: GeoAnswerMonitorProvider;
+  ask(input: LiveGeoAnswerProviderClientInput): Promise<LiveGeoAnswerProviderClientResponse>;
+}
+
+export interface LiveGeoAnswerMonitorAdapterConfig {
+  readonly client: LiveGeoAnswerProviderClient;
+  readonly observedAt?: () => string;
+  readonly provider?: GeoAnswerMonitorProvider;
 }
 
 export interface GeoAnswerMonitorBatchRequest extends GeoAnswerMonitorRequest {
@@ -535,6 +561,53 @@ export function createFixtureGeoAnswerMonitorAdapter({
         liveExternalApis: liveExternalApisDefault,
         observations,
         provider: fixture.provider
+      });
+    }
+  };
+}
+
+export function createLiveGeoAnswerMonitorAdapter({
+  client,
+  observedAt: getObservedAt,
+  provider = client.provider
+}: LiveGeoAnswerMonitorAdapterConfig): GeoAnswerMonitorAdapter {
+  if (client.provider !== provider) {
+    throw new Error(`GEO answer monitor client provider mismatch: ${client.provider} != ${provider}`);
+  }
+
+  return {
+    liveExternalApis: liveExternalApisEnabled,
+    provider,
+    async monitor(request) {
+      const parsedRequest = GeoAnswerMonitorRequestSchema.parse(request);
+      const observedAt = parsedRequest.observedAt ?? getObservedAt?.() ?? new Date().toISOString();
+      const observations = await Promise.all(
+        parsedRequest.queries.map(async (query) => {
+          const queryLocale = query.locale ?? parsedRequest.target.locale;
+          const response = await client.ask({
+            observedAt,
+            query: query.query,
+            queryLocale,
+            target: parsedRequest.target
+          });
+
+          return GeoAnswerObservationSchema.parse({
+            answerText: response.answerText,
+            citedUrls: response.citedUrls ?? [],
+            locale: queryLocale,
+            observedAt: response.observedAt ?? observedAt,
+            provider,
+            query: query.query,
+            source: "connector"
+          });
+        }),
+      );
+
+      return GeoAnswerMonitorResultSchema.parse({
+        generatedBy: "connector",
+        liveExternalApis: liveExternalApisEnabled,
+        observations,
+        provider
       });
     }
   };

@@ -6,6 +6,7 @@ import {
   connectorsPackage,
   createConnectorRunResult,
   createFixtureConnectorAdapter,
+  createLiveGeoAnswerMonitorAdapter,
   discoverKeywordTargetsFromConnectorResults,
   fixtureConnectorAdapters,
   fixtureGeoAnswerMonitorAdapters,
@@ -13,6 +14,7 @@ import {
   getFixtureGeoAnswerMonitorAdapter,
   geoAnswerMonitorProviders,
   liveExternalApisDefault,
+  liveExternalApisEnabled,
   mockBingUrlInspectionFixture,
   mockCmsPagesFixture,
   mockChatGptGeoAnswerFixture,
@@ -37,6 +39,7 @@ import {
 describe("connectors foundation", () => {
   it("keeps live external APIs disabled by default", () => {
     expect(liveExternalApisDefault).toBe("disabled");
+    expect(liveExternalApisEnabled).toBe("enabled");
   });
 
   it("identifies the package", () => {
@@ -360,6 +363,83 @@ describe("connectors foundation", () => {
 
     expect(second).toEqual(first);
     expect(mockPerplexityGeoAnswerFixture.provider).toBe("perplexity");
+  });
+
+  it("wraps injected live GEO answer clients behind the connector boundary", async () => {
+    const calls: unknown[] = [];
+    const adapter = createLiveGeoAnswerMonitorAdapter({
+      client: {
+        provider: "chatgpt",
+        async ask(input) {
+          calls.push(input);
+          return {
+            answerText: `${input.target.brandName} is cited for ${input.query}.`,
+            citedUrls: [`https://${input.target.domain}/service/seo`]
+          };
+        }
+      },
+      observedAt: () => "2026-05-25T03:00:00.000Z"
+    });
+
+    const result = await adapter.monitor({
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      },
+      queries: [{ query: "best seo clinic" }]
+    });
+
+    expect(adapter.liveExternalApis).toBe("enabled");
+    expect(calls).toEqual([
+      {
+        observedAt: "2026-05-25T03:00:00.000Z",
+        query: "best seo clinic",
+        queryLocale: "ko-KR",
+        target: {
+          brandName: "Example Clinic",
+          domain: "example-clinic.com",
+          locale: "ko-KR",
+          market: "KR",
+          siteId: "site_1"
+        }
+      }
+    ]);
+    expect(result).toEqual({
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      observations: [
+        {
+          answerText: "Example Clinic is cited for best seo clinic.",
+          citedUrls: ["https://example-clinic.com/service/seo"],
+          locale: "ko-KR",
+          observedAt: "2026-05-25T03:00:00.000Z",
+          provider: "chatgpt",
+          query: "best seo clinic",
+          source: "connector"
+        }
+      ],
+      provider: "chatgpt"
+    });
+  });
+
+  it("rejects live GEO answer adapter provider mismatches", () => {
+    expect(() =>
+      createLiveGeoAnswerMonitorAdapter({
+        client: {
+          provider: "chatgpt",
+          async ask() {
+            return {
+              answerText: "",
+              citedUrls: []
+            };
+          }
+        },
+        provider: "perplexity"
+      }),
+    ).toThrow(/provider mismatch/);
   });
 
   it("discovers keyword targets from connector run results deterministically", async () => {

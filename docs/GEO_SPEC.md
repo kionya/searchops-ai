@@ -46,6 +46,11 @@ Outputs:
 - `GeoVisibilityReportRecord`: persisted report history for API/dashboard use.
 - `WorkOrderDraft`: deterministic improvement or maintenance task generated from a persisted GEO visibility report.
 
+Connector boundary:
+- Fixture answer monitor adapters return `generatedBy = fixture`, `liveExternalApis = disabled`, and `source = fixture`.
+- Live answer monitor wrappers require an explicitly injected provider client, return `generatedBy = connector`, `liveExternalApis = enabled`, and normalize responses to `source = connector`.
+- No provider SDK, credential, browser automation, or network call is enabled by default.
+
 Visibility checks:
 - `BRAND_MENTIONED`: answer text mentions the brand name or owned domain.
 - `OWNED_URL_CITED`: cited URLs include the owned domain or subdomain.

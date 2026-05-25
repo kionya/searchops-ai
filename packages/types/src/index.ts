@@ -661,6 +661,16 @@ export const GeoAnswerMonitorProviderSchema = z.enum([
 
 export type GeoAnswerMonitorProvider = z.infer<typeof GeoAnswerMonitorProviderSchema>;
 
+export const LiveExternalApiModeSchema = z.enum(["disabled", "enabled"]);
+
+export type LiveExternalApiMode = z.infer<typeof LiveExternalApiModeSchema>;
+
+export const GeoAnswerMonitorGenerationModeSchema = z.enum(["fixture", "connector"]);
+
+export type GeoAnswerMonitorGenerationMode = z.infer<
+  typeof GeoAnswerMonitorGenerationModeSchema
+>;
+
 export const GeoObservationSourceSchema = z.enum(["manual", "fixture", "connector"]);
 
 export type GeoObservationSource = z.infer<typeof GeoObservationSourceSchema>;
@@ -749,8 +759,8 @@ export type GeoAnswerMonitorRequest = z.infer<typeof GeoAnswerMonitorRequestSche
 export const GeoAnswerMonitorResultSchema = z.object({
   provider: GeoAnswerMonitorProviderSchema,
   observations: z.array(GeoAnswerObservationSchema).min(1),
-  generatedBy: z.literal("fixture"),
-  liveExternalApis: z.literal("disabled"),
+  generatedBy: GeoAnswerMonitorGenerationModeSchema,
+  liveExternalApis: LiveExternalApiModeSchema,
 });
 
 export type GeoAnswerMonitorResult = z.infer<typeof GeoAnswerMonitorResultSchema>;
