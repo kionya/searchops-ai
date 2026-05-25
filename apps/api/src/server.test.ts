@@ -9,6 +9,7 @@ import type {
   CmsContentUpdatedEventRequest,
   CrawlerPageSnapshot,
   GeoVisibilityReportRecord,
+  KeywordDiscoveryCandidateRecord,
   Organization,
   SchemaRecommendationRecord,
   SeoIssue,
@@ -87,6 +88,119 @@ const seededConnectorSyncResult: ConnectorSyncResult = {
     },
   ],
   createdAt,
+};
+const seededKeywordDiscoverySyncRun: ConnectorSyncRun = {
+  id: "sync_keyword_seed",
+  organizationId: "org_seed",
+  siteId: "site_seed",
+  status: "completed",
+  providers: ["gsc", "cms"],
+  requestedByUserId: "user_connector",
+  fixture: true,
+  startedAt: "2026-05-25T00:00:00.000Z",
+  endedAt: "2026-05-25T00:01:00.000Z",
+  summary: {
+    failedProviders: 0,
+    okProviders: 2,
+    partialProviders: 0,
+    recordCountsByProvider: {
+      bing: 0,
+      cms: 1,
+      ga4: 0,
+      gsc: 2,
+      pagespeed: 0,
+    },
+    totalProviders: 2,
+    totalRecords: 3,
+  },
+};
+const seededKeywordDiscoveryResults: ConnectorSyncResult[] = [
+  {
+    id: "sync_result_keyword_gsc",
+    syncRunId: "sync_keyword_seed",
+    provider: "gsc",
+    status: "ok",
+    fetchedAt: "2026-05-25T00:00:00.000Z",
+    fixture: true,
+    recordCount: 2,
+    records: [
+      {
+        provider: "gsc",
+        siteUrl: "https://exampleclinic.com/",
+        query: "seo clinic",
+        page: "https://exampleclinic.com/service/seo",
+        country: "KR",
+        device: "mobile",
+        clicks: 12,
+        impressions: 120,
+        ctr: 0.1,
+        position: 3.2,
+        startDate: "2026-05-01",
+        endDate: "2026-05-20",
+      },
+      {
+        provider: "gsc",
+        siteUrl: "https://exampleclinic.com/",
+        query: "low volume query",
+        page: "https://exampleclinic.com/blog/low-volume",
+        country: "KR",
+        device: "desktop",
+        clicks: 0,
+        impressions: 1,
+        ctr: 0,
+        position: 42,
+        startDate: "2026-05-01",
+        endDate: "2026-05-20",
+      },
+    ],
+    createdAt,
+  },
+  {
+    id: "sync_result_keyword_cms",
+    syncRunId: "sync_keyword_seed",
+    provider: "cms",
+    status: "ok",
+    fetchedAt: "2026-05-25T00:00:00.000Z",
+    fixture: true,
+    recordCount: 1,
+    records: [
+      {
+        provider: "cms",
+        cmsType: "wordpress",
+        externalId: "post_1",
+        url: "https://exampleclinic.com/blog/medical-seo-checklist",
+        title: "medical seo checklist",
+        status: "published",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+      },
+    ],
+    createdAt,
+  },
+];
+const seededKeywordDiscoveryCandidate: KeywordDiscoveryCandidateRecord = {
+  id: "keyword_discovery_seed",
+  siteId: "site_seed",
+  keywordId: "keyword_seed",
+  phrase: "seed keyword discovery",
+  locale: "ko-KR",
+  language: "ko",
+  country: "KR",
+  intent: null,
+  source: "gsc",
+  pageUrl: "https://exampleclinic.com/service/seed",
+  score: 80,
+  evidence: {
+    provider: "gsc",
+    pageUrl: "https://exampleclinic.com/service/seed",
+    sourceField: "query",
+    clicks: 4,
+    impressions: 80,
+    position: 8,
+  },
+  generatedBy: "deterministic",
+  discoveredAt: "2026-05-24T00:00:00.000Z",
+  createdAt,
+  updatedAt: createdAt,
 };
 const seededContentBrief: ContentBrief = {
   id: "brief_seed",
@@ -351,6 +465,18 @@ function buildAeoReadinessTestServer() {
       organizations: [seededOrganization],
       sites: [seededSite],
       aeoReadinessReports: [seededAeoReadinessReport],
+    }),
+  });
+}
+
+function buildKeywordDiscoveryTestServer() {
+  return buildApiServer({
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      connectorSyncRuns: [seededKeywordDiscoverySyncRun],
+      connectorSyncResults: seededKeywordDiscoveryResults,
+      keywordDiscoveryCandidates: [seededKeywordDiscoveryCandidate],
     }),
   });
 }
@@ -1080,6 +1206,117 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain("keyword");
+  });
+
+  it("creates deterministic keyword discoveries from connector sync results", async () => {
+    const server = buildKeywordDiscoveryTestServer();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/keyword-discoveries",
+      payload: {
+        connectorSyncRunId: "sync_keyword_seed",
+        discoveredAt: "2026-05-25T00:00:00.000Z",
+        minImpressions: 10,
+        maxCandidates: 10,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      discoverySet: {
+        siteId: "site_seed",
+        generatedBy: "deterministic",
+        discoveredAt: "2026-05-25T00:00:00.000Z",
+      },
+      candidates: [
+        {
+          siteId: "site_seed",
+          phrase: "seo clinic",
+          source: "gsc",
+          pageUrl: "https://exampleclinic.com/service/seo",
+          generatedBy: "deterministic",
+        },
+        {
+          siteId: "site_seed",
+          phrase: "medical seo checklist",
+          source: "cms",
+          pageUrl: "https://exampleclinic.com/blog/medical-seo-checklist",
+          generatedBy: "deterministic",
+        },
+      ],
+    });
+    expect(response.json().discoverySet.candidates.map((candidate: { keyword: { phrase: string } }) => candidate.keyword.phrase)).toEqual([
+      "seo clinic",
+      "medical seo checklist",
+    ]);
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/keyword-discoveries",
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().candidates.map((candidate: { phrase: string }) => candidate.phrase)).toEqual([
+      "seo clinic",
+      "seed keyword discovery",
+      "medical seo checklist",
+    ]);
+  });
+
+  it("lists persisted keyword discovery candidates", async () => {
+    const server = buildKeywordDiscoveryTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/keyword-discoveries",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().candidates).toHaveLength(1);
+    expect(response.json().candidates[0]).toMatchObject({
+      id: "keyword_discovery_seed",
+      phrase: "seed keyword discovery",
+      source: "gsc",
+      generatedBy: "deterministic",
+    });
+  });
+
+  it("rejects keyword discovery for missing or cross-site connector sync history", async () => {
+    const otherSite: Site = {
+      ...seededSite,
+      id: "site_other",
+      domain: "other.exampleclinic.com",
+    };
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite, otherSite],
+        connectorSyncRuns: [seededKeywordDiscoverySyncRun],
+        connectorSyncResults: seededKeywordDiscoveryResults,
+      }),
+    });
+
+    const missingSiteResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/keyword-discoveries",
+    });
+    const missingSyncResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/keyword-discoveries",
+      payload: {
+        connectorSyncRunId: "sync_missing",
+      },
+    });
+    const crossSiteResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_other/keyword-discoveries",
+      payload: {
+        connectorSyncRunId: "sync_keyword_seed",
+      },
+    });
+
+    expect(missingSiteResponse.statusCode).toBe(404);
+    expect(missingSyncResponse.statusCode).toBe(404);
+    expect(crossSiteResponse.statusCode).toBe(400);
+    expect(crossSiteResponse.json().message).toContain("connectorSyncRunId");
   });
 
   it("creates deterministic GEO visibility reports and persists them", async () => {

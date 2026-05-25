@@ -60,10 +60,10 @@ Implemented:
 - Keyword/AEO dashboard readiness reports with persisted API data and fixture fallback.
 - Deterministic FAQ gap generation.
 - Connector-derived keyword candidate generation.
+- Keyword discovery persistence and dashboard workflow added through CDX-124.
 
 Remaining:
 
-- Keyword discovery persistence and dashboard workflows.
 - Optional LLM explanation/copy assist in `packages/ai-core`, later only.
 - ContentBriefs remain draft-only and must not auto-publish.
 
@@ -151,43 +151,38 @@ Remaining:
 
 Recommended order:
 
-1. CDX-124: Keyword discovery persistence and dashboard workflow
-   - Persist connector-derived keyword candidates.
-   - Add API history/list/create-from-connector-results flow.
-   - Connect dashboard Keyword/AEO section to persisted discovered candidates.
-
-2. CDX-125: GEO live provider runtime job wiring
+1. CDX-125: GEO live provider runtime job wiring
    - Add worker job contract for GEO answer monitoring.
    - Wire explicit injected clients behind connector ports.
    - Persist resulting observations as GeoVisibilityReports.
    - Keep tests fixture/fake-client only.
 
-3. CDX-126: Rich-result validator runtime wiring
+2. CDX-126: Rich-result validator runtime wiring
    - Add optional worker/API orchestration for explicit validator clients.
    - Store validation results or attach them to schema recommendation history.
    - Keep `schema-core` offline and deterministic.
 
-4. CDX-127: Dead-letter operations dashboard
+3. CDX-127: Dead-letter operations dashboard
    - Persist or expose dead-letter job metadata.
    - Add operator list/detail/replay-safe design.
    - Avoid storing secrets or raw credentials.
 
-5. CDX-128: Distributed rate limit adapter
+4. CDX-128: Distributed rate limit adapter
    - Keep current process-local limiter as default.
    - Add Redis/edge adapter boundary.
    - Add deterministic tests using fake storage.
 
-6. CDX-129: Auth/RBAC and tenant isolation hardening
+5. CDX-129: Auth/RBAC and tenant isolation hardening
    - Replace mock auth context with real auth boundary.
    - Add organization/user/site scoping tests.
    - Add negative tests for cross-tenant access.
 
-7. CDX-130: Observability export
+6. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-8. CDX-131: Backup, migration, and deployment runbooks
+7. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.

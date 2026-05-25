@@ -67,8 +67,12 @@ import {
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
+  KeywordDiscoveryCandidateRecordSchema,
+  KeywordDiscoveryListResponseSchema,
   KeywordDiscoverySetSchema,
   KeywordIntentSchema,
+  CreateKeywordDiscoveryRequestSchema,
+  CreateKeywordDiscoveryResponseSchema,
   KeywordSchema,
   KeywordTargetSchema,
   LinkSignalSchema,
@@ -814,6 +818,74 @@ describe("types foundation", () => {
 
     expect(discoverySet.candidates[0]?.keyword.source).toBe("gsc");
     expect(discoverySet.generatedBy).toBe("deterministic");
+  });
+
+  it("validates persisted keyword discovery API contracts", () => {
+    const record = KeywordDiscoveryCandidateRecordSchema.parse({
+      id: "keyword_discovery_1",
+      siteId: "site_1",
+      keywordId: "keyword_1",
+      phrase: "seo clinic",
+      locale: "ko-KR",
+      language: "ko",
+      country: "KR",
+      intent: null,
+      source: "gsc",
+      pageUrl: "https://example.com/service/seo",
+      score: 150,
+      evidence: {
+        provider: "gsc",
+        pageUrl: "https://example.com/service/seo",
+        sourceField: "query",
+        clicks: 12,
+        impressions: 120,
+        position: 3.2,
+      },
+      generatedBy: "deterministic",
+      discoveredAt: "2026-05-25T00:00:00.000Z",
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    const request = CreateKeywordDiscoveryRequestSchema.parse({
+      connectorSyncRunId: "sync_1",
+      maxCandidates: 10,
+    });
+    const response = CreateKeywordDiscoveryResponseSchema.parse({
+      discoverySet: {
+        siteId: "site_1",
+        candidates: [
+          {
+            keyword: {
+              siteId: "site_1",
+              phrase: "seo clinic",
+              locale: "ko-KR",
+              language: "ko",
+              country: "KR",
+              intent: null,
+              source: "gsc",
+            },
+            pageUrl: "https://example.com/service/seo",
+            score: 150,
+            evidence: {
+              provider: "gsc",
+              pageUrl: "https://example.com/service/seo",
+              sourceField: "query",
+              clicks: 12,
+              impressions: 120,
+              position: 3.2,
+            },
+          },
+        ],
+        generatedBy: "deterministic",
+        discoveredAt: "2026-05-25T00:00:00.000Z",
+      },
+      candidates: [record],
+    });
+    const list = KeywordDiscoveryListResponseSchema.parse({ candidates: [record] });
+
+    expect(request.minImpressions).toBe(1);
+    expect(response.candidates[0]?.generatedBy).toBe("deterministic");
+    expect(list.candidates[0]?.source).toBe("gsc");
   });
 
   it("validates deterministic AEO readiness reports", () => {

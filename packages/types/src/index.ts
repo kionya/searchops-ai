@@ -1746,6 +1746,60 @@ export const KeywordDiscoverySetSchema = z.object({
 
 export type KeywordDiscoverySet = z.infer<typeof KeywordDiscoverySetSchema>;
 
+export const KeywordDiscoveryCandidateRecordSchema = z.object({
+  id: IdSchema,
+  siteId: IdSchema,
+  keywordId: IdSchema.nullable(),
+  phrase: NonEmptyStringSchema,
+  locale: z.string().min(2),
+  language: z.string().min(2),
+  country: z.string().min(2),
+  intent: KeywordIntentSchema.nullable(),
+  source: KeywordSourceSchema,
+  pageUrl: NormalizedUrlSchema.nullable(),
+  score: z.number().int().nonnegative(),
+  evidence: KeywordDiscoveryEvidenceSchema,
+  generatedBy: z.literal("deterministic"),
+  discoveredAt: IsoDateTimeSchema,
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+});
+
+export type KeywordDiscoveryCandidateRecord = z.infer<
+  typeof KeywordDiscoveryCandidateRecordSchema
+>;
+
+export const CreateKeywordDiscoveryRequestSchema = z.object({
+  connectorSyncRunId: IdSchema,
+  discoveredAt: IsoDateTimeSchema.optional(),
+  minImpressions: NonNegativeIntegerSchema.default(1),
+  maxCandidates: z.number().int().positive().max(100).default(25),
+  locale: z.string().min(2).optional(),
+  language: z.string().min(2).optional(),
+  country: z.string().min(2).optional(),
+});
+
+export type CreateKeywordDiscoveryRequest = z.infer<
+  typeof CreateKeywordDiscoveryRequestSchema
+>;
+
+export const CreateKeywordDiscoveryResponseSchema = z.object({
+  discoverySet: KeywordDiscoverySetSchema,
+  candidates: z.array(KeywordDiscoveryCandidateRecordSchema),
+});
+
+export type CreateKeywordDiscoveryResponse = z.infer<
+  typeof CreateKeywordDiscoveryResponseSchema
+>;
+
+export const KeywordDiscoveryListResponseSchema = z.object({
+  candidates: z.array(KeywordDiscoveryCandidateRecordSchema),
+});
+
+export type KeywordDiscoveryListResponse = z.infer<
+  typeof KeywordDiscoveryListResponseSchema
+>;
+
 export const ConnectorRunResultSchema = z
   .object({
     provider: ConnectorProviderSchema,

@@ -43,6 +43,29 @@ export const seedFixture = {
     locale: "ko-KR",
     intent: "commercial"
   },
+  keywordDiscoveryCandidate: {
+    id: "keyword_discovery_demo_aeo",
+    siteId: "site_demo_rejuel",
+    keywordId: "keyword_demo_aeo",
+    phrase: "answer engine optimization clinic",
+    locale: "ko-KR",
+    language: "ko",
+    country: "KR",
+    intent: "commercial",
+    source: "gsc",
+    pageUrl: "https://example-clinic.com/services/aeo",
+    score: 132,
+    evidence: {
+      provider: "gsc",
+      pageUrl: "https://example-clinic.com/services/aeo",
+      sourceField: "query",
+      clicks: 14,
+      impressions: 132,
+      position: 4.2
+    },
+    generatedBy: "deterministic",
+    discoveredAt: new Date("2026-05-25T00:00:00.000Z")
+  },
   contentBrief: {
     id: "brief_demo_aeo",
     siteId: "site_demo_rejuel",
@@ -274,6 +297,25 @@ async function main() {
         phrase: seedFixture.keyword.phrase
       },
       create: seedFixture.keyword
+    });
+
+    await prisma.keywordDiscoveryCandidate.upsert({
+      where: { id: seedFixture.keywordDiscoveryCandidate.id },
+      update: {
+        country: seedFixture.keywordDiscoveryCandidate.country,
+        discoveredAt: seedFixture.keywordDiscoveryCandidate.discoveredAt,
+        evidence: seedFixture.keywordDiscoveryCandidate.evidence,
+        generatedBy: seedFixture.keywordDiscoveryCandidate.generatedBy,
+        intent: seedFixture.keywordDiscoveryCandidate.intent,
+        keywordId: seedFixture.keywordDiscoveryCandidate.keywordId,
+        language: seedFixture.keywordDiscoveryCandidate.language,
+        locale: seedFixture.keywordDiscoveryCandidate.locale,
+        pageUrl: seedFixture.keywordDiscoveryCandidate.pageUrl,
+        phrase: seedFixture.keywordDiscoveryCandidate.phrase,
+        score: seedFixture.keywordDiscoveryCandidate.score,
+        source: seedFixture.keywordDiscoveryCandidate.source
+      },
+      create: seedFixture.keywordDiscoveryCandidate
     });
 
     await prisma.contentBrief.upsert({

@@ -136,6 +136,22 @@ The API computes readiness through `packages/aeo-core`, persists the report, and
 
 AEO readiness persistence uses deterministic rules only. It does not call `packages/ai-core`, LLM providers, live connector APIs, or CMS publishing adapters.
 
+## Keyword Discoveries
+
+`POST /sites/:siteId/keyword-discoveries` accepts:
+
+- `connectorSyncRunId` required persisted connector sync run id for the same site.
+- `discoveredAt` optional ISO datetime used for deterministic evidence timestamps.
+- `minImpressions` optional GSC threshold. Defaults to `1`.
+- `maxCandidates` optional result limit. Defaults to `25`.
+- `locale`, `language`, and `country` optional keyword normalization hints.
+
+The API reads persisted connector sync results, derives keyword candidates through deterministic connector rules, persists idempotent `KeywordDiscoveryCandidate` records by site, phrase, locale, and source, and returns `CreateKeywordDiscoveryResponse`.
+
+`GET /sites/:siteId/keyword-discoveries` returns `KeywordDiscoveryListResponse` ordered by score, discovery date, and phrase.
+
+Keyword discovery persistence does not call live connector APIs, LLM providers, or CMS publishing adapters. It only transforms already persisted connector results.
+
 ## Content Briefs
 
 `POST /sites/:siteId/content-briefs` accepts:

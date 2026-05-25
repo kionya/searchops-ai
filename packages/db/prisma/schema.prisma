@@ -50,6 +50,7 @@ model Site {
   workOrders      WorkOrder[]
   connectorSyncRuns ConnectorSyncRun[]
   keywords        Keyword[]
+  keywordDiscoveries KeywordDiscoveryCandidate[]
   contentBriefs   ContentBrief[]
   aeoReadinessReports AeoReadinessReport[]
   geoVisibilityReports GeoVisibilityReport[]
@@ -207,9 +208,39 @@ model Keyword {
   site          Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
   contentBriefs ContentBrief[]
   aeoReadinessReports AeoReadinessReport[]
+  keywordDiscoveries KeywordDiscoveryCandidate[]
 
   @@unique([siteId, phrase, locale])
   @@index([siteId])
+}
+
+model KeywordDiscoveryCandidate {
+  id           String   @id @default(cuid())
+  siteId       String
+  keywordId    String?
+  phrase       String
+  locale       String   @default("ko-KR")
+  language     String   @default("ko")
+  country      String   @default("KR")
+  intent       String?
+  source       String
+  pageUrl      String?
+  score        Int
+  evidence     Json
+  generatedBy  String   @default("deterministic")
+  discoveredAt DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  keyword Keyword? @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, phrase, locale, source])
+  @@index([siteId])
+  @@index([keywordId])
+  @@index([source])
+  @@index([score])
+  @@index([discoveredAt])
 }
 
 model ContentBrief {
