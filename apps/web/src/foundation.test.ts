@@ -476,6 +476,21 @@ describe("web foundation", () => {
             summary: contentBrief.summary,
             title: contentBrief.title
           },
+          faqGapSet: {
+            evaluatedAt: "2026-05-23T00:00:00.000Z",
+            gaps: [],
+            generatedBy: "deterministic",
+            keyword: {
+              country: "KR",
+              intent: contentBrief.intent,
+              language: "ko",
+              locale: contentBrief.locale,
+              phrase: contentBrief.primaryKeyword,
+              siteId: "site_1",
+              source: "manual"
+            },
+            pageUrl: null
+          },
           readinessReport: {
             checks: [
               {

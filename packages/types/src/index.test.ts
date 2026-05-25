@@ -930,11 +930,36 @@ describe("types foundation", () => {
       publishPolicy: "draft_only",
       createdAt: "2026-05-23T00:00:00.000Z",
     });
+    const faqGapSet = AeoFaqGapSetSchema.parse({
+      evaluatedAt: "2026-05-23T00:00:00.000Z",
+      gaps: [
+        {
+          evidence: {
+            expectedValue: "What does seo clinic include?",
+            observedValue: [],
+            sourceField: "questionHeadings,answerBlocks",
+            url: null,
+          },
+          intent: "definition",
+          priority: "p1",
+          question: "What does seo clinic include?",
+          suggestedAnswerAngle: "Define the topic in a short answer block.",
+        },
+      ],
+      generatedBy: "deterministic",
+      keyword: {
+        siteId: "site_1",
+        phrase: "seo clinic",
+        intent: "commercial",
+      },
+      pageUrl: null,
+    });
 
     expect(
       CreateContentBriefDraftResponseSchema.parse({
         contentBrief,
         draft,
+        faqGapSet,
         readinessReport: {
           keyword: {
             siteId: "site_1",
@@ -968,6 +993,9 @@ describe("types foundation", () => {
       },
       draft: {
         generationMode: "deterministic",
+      },
+      faqGapSet: {
+        generatedBy: "deterministic",
       },
     });
     expect(

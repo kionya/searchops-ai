@@ -8,6 +8,7 @@
 } from "@searchops/types";
 import type {
   AeoEvidenceValue,
+  AeoFaqGap,
   AeoFaqGapSet,
   AeoPageSignal,
   AeoReadinessCheck,
@@ -45,6 +46,12 @@ export interface AeoReadinessRule {
 export interface AeoReadinessEvaluationOptions {
   readonly evaluatedAt: string;
   readonly rules?: readonly AeoReadinessRule[];
+}
+
+export interface AeoFaqGapGenerationOptions {
+  readonly evaluatedAt: string;
+  readonly maxGaps?: number;
+  readonly readinessReport?: AeoReadinessReport;
 }
 
 export interface ContentBriefDraftMapperInput {
@@ -551,19 +558,71 @@ export function evaluateAeoReadiness(
   });
 }
 
+export function generateAeoFaqGapSet(
+  input: KeywordAeoInput,
+  options: AeoFaqGapGenerationOptions,
+): AeoFaqGapSet {
+  const parsedInput = KeywordAeoInputSchema.parse(input);
+  const keyword = classifyKeywordTargetIntent(parsedInput.keyword);
+  const candidatePage = parsedInput.candidatePage;
+  const readinessReport =
+    options.readinessReport ??
+    evaluateAeoReadiness(
+      {
+        candidatePage,
+        keyword
+      },
+      { evaluatedAt: options.evaluatedAt },
+    );
+
+  assertKeywordAlignment(keyword, readinessReport.keyword, "readinessReport.keyword");
+
+  const observedQuestions = collectObservedQuestions(candidatePage);
+  const priority = getFaqGapPriority(candidatePage, readinessReport);
+  const gaps = createFaqGapQuestions(keyword, candidatePage, readinessReport)
+    .filter((question) => !observedQuestions.normalized.has(normalizeKeywordPhrase(question)))
+    .slice(0, options.maxGaps ?? 6)
+    .map<AeoFaqGap>((question) => ({
+      evidence: {
+        expectedValue: question,
+        observedValue: observedQuestions.values,
+        sourceField: "questionHeadings,answerBlocks",
+        url: candidatePage?.url ?? null
+      },
+      intent: classifyQuestionIntent(question),
+      priority,
+      question,
+      suggestedAnswerAngle: createSuggestedAnswerAngle(question)
+    }));
+
+  return AeoFaqGapSetSchema.parse({
+    evaluatedAt: options.evaluatedAt,
+    gaps,
+    generatedBy: aeoCoreGenerationMode,
+    keyword,
+    pageUrl: candidatePage?.url ?? null
+  });
+}
+
 export function createContentBriefDraft(
   input: ContentBriefDraftMapperInput,
 ): ContentBriefDraft {
   const keyword = classifyKeywordTargetIntent(input.keyword);
   const candidatePage = input.candidatePage ?? null;
   const readinessReport = resolveReadinessReport(input, keyword, candidatePage);
-  const faqGapSet = input.faqGapSet ? AeoFaqGapSetSchema.parse(input.faqGapSet) : null;
+  const faqGapSet = input.faqGapSet
+    ? AeoFaqGapSetSchema.parse(input.faqGapSet)
+    : generateAeoFaqGapSet(
+        {
+          candidatePage,
+          keyword
+        },
+        { evaluatedAt: readinessReport.evaluatedAt, readinessReport },
+      );
 
   assertKeywordAlignment(keyword, readinessReport.keyword, "readinessReport.keyword");
 
-  if (faqGapSet) {
-    assertKeywordAlignment(keyword, faqGapSet.keyword, "faqGapSet.keyword");
-  }
+  assertKeywordAlignment(keyword, faqGapSet.keyword, "faqGapSet.keyword");
 
   const faqQuestions = collectContentBriefQuestions(keyword, candidatePage, faqGapSet);
   const acceptanceCriteria = createContentBriefAcceptanceCriteria(readinessReport);
@@ -751,6 +810,140 @@ function collectContentBriefQuestions(
     ...(candidatePage?.answerBlocks.map((block) => block.question) ?? []),
     ...createDefaultQuestions(keyword)
   ]).slice(0, 6);
+}
+
+function createFaqGapQuestions(
+  keyword: KeywordTarget,
+  candidatePage: AeoPageSignal | null,
+  readinessReport: AeoReadinessReport,
+) {
+  if (!candidatePage) {
+    return createDefaultQuestions(keyword);
+  }
+
+  const weakCheckIds = new Set(
+    readinessReport.checks
+      .filter((check) => check.status !== "pass")
+      .map((check) => check.checkId),
+  );
+
+  if (
+    !weakCheckIds.has("ANSWER_SUMMARY_PRESENT") &&
+    !weakCheckIds.has("QUESTION_COVERAGE") &&
+    !weakCheckIds.has("CONTENT_DEPTH")
+  ) {
+    return [];
+  }
+
+  return createDefaultQuestions(keyword);
+}
+
+function collectObservedQuestions(candidatePage: AeoPageSignal | null) {
+  const values = uniqueNonBlankStrings([
+    ...(candidatePage?.questionHeadings ?? []),
+    ...(candidatePage?.answerBlocks.map((block) => block.question) ?? [])
+  ]);
+
+  return {
+    normalized: new Set(values.map(normalizeKeywordPhrase)),
+    values
+  };
+}
+
+function getFaqGapPriority(
+  candidatePage: AeoPageSignal | null,
+  readinessReport: AeoReadinessReport,
+): AeoFaqGap["priority"] {
+  if (!candidatePage || readinessReport.status === "not_ready") {
+    return "p1";
+  }
+
+  if (
+    readinessReport.checks.some(
+      (check) =>
+        check.status === "fail" &&
+        ["ANSWER_SUMMARY_PRESENT", "QUESTION_COVERAGE", "CONTENT_DEPTH"].includes(check.checkId),
+    )
+  ) {
+    return "p1";
+  }
+
+  if (
+    readinessReport.checks.some(
+      (check) =>
+        check.status === "warning" &&
+        ["ANSWER_SUMMARY_PRESENT", "QUESTION_COVERAGE", "CONTENT_DEPTH"].includes(check.checkId),
+    )
+  ) {
+    return "p2";
+  }
+
+  return "p3";
+}
+
+function classifyQuestionIntent(question: string): AeoFaqGap["intent"] {
+  const normalizedQuestion = normalizeKeywordPhrase(question);
+
+  if (/^(what is|what are|what does)\b/u.test(normalizedQuestion)) {
+    return "definition";
+  }
+
+  if (/^how much\b/u.test(normalizedQuestion)) {
+    return "pricing";
+  }
+
+  if (/\b(compare|comparison|best|option|options)\b/u.test(normalizedQuestion)) {
+    return "comparison";
+  }
+
+  if (/\b(cost|price|pricing|fee|fees)\b/u.test(normalizedQuestion)) {
+    return "pricing";
+  }
+
+  if (/^(how|how can|how does|what happens)/u.test(normalizedQuestion)) {
+    return "how_to";
+  }
+
+  if (/\b(where|near me|nearby|local|location|directions)\b/u.test(normalizedQuestion)) {
+    return "local";
+  }
+
+  if (/\b(risk|risks|side effect|side effects|safe|safety)\b/u.test(normalizedQuestion)) {
+    return "risk";
+  }
+
+  if (/\b(eligible|eligibility|candidate|right for them)\b/u.test(normalizedQuestion)) {
+    return "eligibility";
+  }
+
+  if (/\b(after|aftercare|recovery|follow up)\b/u.test(normalizedQuestion)) {
+    return "aftercare";
+  }
+
+  return "other";
+}
+
+function createSuggestedAnswerAngle(question: string) {
+  switch (classifyQuestionIntent(question)) {
+    case "aftercare":
+      return "Explain the follow-up or aftercare steps without promising outcomes.";
+    case "comparison":
+      return "Compare decision criteria objectively and avoid unsupported superiority claims.";
+    case "definition":
+      return "Define the topic in a short answer block before adding supporting detail.";
+    case "eligibility":
+      return "Describe who the topic may fit and what should be checked before deciding.";
+    case "how_to":
+      return "Answer the process step-by-step with clear prerequisites and next actions.";
+    case "local":
+      return "Answer location-sensitive intent and make the local next step clear.";
+    case "pricing":
+      return "Explain price factors and scope without unsupported discount or guarantee claims.";
+    case "risk":
+      return "Explain risks, limits, and review needs in balanced language.";
+    case "other":
+      return "Answer the question directly, then add evidence and next-step guidance.";
+  }
 }
 
 function createDefaultQuestions(keyword: KeywordTarget) {

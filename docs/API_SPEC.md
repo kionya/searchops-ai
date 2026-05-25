@@ -18,7 +18,7 @@ The connector sync API creates connector sync runs, enqueues connector jobs, lis
 
 ## Phase 7 API
 
-The ContentBrief API creates deterministic draft-only content briefs from Keyword/AEO signals and reads persisted draft history. It does not call LLM providers or publish to a CMS.
+The ContentBrief API creates deterministic draft-only content briefs from Keyword/AEO signals and reads persisted draft history. If a request does not provide a FAQ gap set, the API generates one deterministically from the same candidate page and readiness signals and returns it with the draft response. It does not call LLM providers or publish to a CMS.
 
 The AEO readiness API computes deterministic readiness reports from keyword and page signals, persists them, and reads report history for dashboard use.
 

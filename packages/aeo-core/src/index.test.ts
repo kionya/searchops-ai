@@ -12,6 +12,7 @@ import {
   evaluateAeoReadiness,
   evaluateAeoReadinessRule,
   faqSchemaPresentRule,
+  generateAeoFaqGapSet,
   inferKeywordIntent,
   keywordIntentDefinedRule,
   normalizeKeywordPhrase,
@@ -301,6 +302,79 @@ describe("AEO readiness engine", () => {
   it("calculates readiness score boundaries", () => {
     expect(calculateAeoReadinessScore([{ ...contentDepthRule.evaluate({ candidatePage: readyPage, keyword: createInput().keyword }), score: 80 }])).toBe(80);
     expect(() => calculateAeoReadinessScore([])).toThrow(/at least one check/);
+  });
+});
+
+describe("FAQ gap generator", () => {
+  it("generates deterministic FAQ gaps from weak readiness signals", () => {
+    const candidatePage = {
+      ...readyPage,
+      answerBlocks: [],
+      h2: ["What does SEO clinic include?"],
+      questionHeadings: ["What does SEO clinic include?"],
+      schemaTypes: [],
+      wordCount: 320
+    };
+    const readinessReport = evaluateAeoReadiness(createInput({}, candidatePage), { evaluatedAt });
+    const gapSet = generateAeoFaqGapSet(
+      {
+        candidatePage,
+        keyword: readinessReport.keyword
+      },
+      { evaluatedAt, readinessReport },
+    );
+
+    expect(gapSet).toMatchObject({
+      evaluatedAt,
+      generatedBy: "deterministic",
+      pageUrl: candidatePage.url,
+      keyword: {
+        intent: "commercial"
+      }
+    });
+    expect(gapSet.gaps.map((gap) => gap.question)).toEqual([
+      "What does seo clinic price comparison include?",
+      "How much does seo clinic price comparison cost?",
+      "How should users compare seo clinic price comparison options?"
+    ]);
+    expect(gapSet.gaps.map((gap) => gap.intent)).toEqual([
+      "definition",
+      "pricing",
+      "comparison"
+    ]);
+    expect(gapSet.gaps.every((gap) => gap.priority === "p2")).toBe(true);
+  });
+
+  it("returns no FAQ gaps when the candidate page already passes AEO question checks", () => {
+    const readinessReport = evaluateAeoReadiness(createInput(), { evaluatedAt });
+    const gapSet = generateAeoFaqGapSet(
+      {
+        candidatePage: readyPage,
+        keyword: readinessReport.keyword
+      },
+      { evaluatedAt, readinessReport },
+    );
+
+    expect(gapSet.gaps).toEqual([]);
+  });
+
+  it("creates p1 FAQ gaps when no candidate page exists", () => {
+    const gapSet = generateAeoFaqGapSet(createInput({}, null), { evaluatedAt });
+
+    expect(gapSet.pageUrl).toBeNull();
+    expect(gapSet.gaps[0]).toMatchObject({
+      priority: "p1",
+      question: "What does seo clinic price comparison include?"
+    });
+    expect(gapSet.gaps).toHaveLength(3);
+  });
+
+  it("is deterministic for the same FAQ gap input", () => {
+    const input = createInput({}, null);
+
+    expect(generateAeoFaqGapSet(input, { evaluatedAt })).toEqual(
+      generateAeoFaqGapSet(input, { evaluatedAt }),
+    );
   });
 });
 
