@@ -171,7 +171,7 @@ Content brief creation is draft-only. The API persists `status = draft`, `genera
 
 `POST /schema-recommendations/:schemaRecommendationId/recheck` accepts a caller-provided crawler snapshot for the same page URL, detects JSON-LD types deterministically, updates recommendation status/evidence, and closes the linked WorkOrder when the expected schema type is present.
 
-`POST /schema-recommendations/:schemaRecommendationId/recheck-crawl` creates a `queued` CrawlRun with `maxPages = 1` and enqueues a crawl job for the recommendation's `pageUrl`. The page URL must stay within the registered site domain or its subdomains. This route only orchestrates the crawl; converting the later UrlRecord snapshot into a schema recheck remains a separate worker handoff.
+`POST /schema-recommendations/:schemaRecommendationId/recheck-crawl` creates a `queued` CrawlRun with `maxPages = 1` and enqueues a crawl job for the recommendation's `pageUrl`. The page URL must stay within the registered site domain or its subdomains. The queued payload carries `schemaRecommendationId` so the worker can convert the completed crawler snapshot into a deterministic schema recommendation recheck and close the linked work order when the expected JSON-LD type is present.
 
 ## Compliance Reviews
 

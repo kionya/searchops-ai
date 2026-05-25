@@ -598,6 +598,7 @@ describe("types foundation", () => {
             siteId: "site_1",
             siteDomain: "example.com",
             requestedByUserId: "user_1",
+            schemaRecommendationId: "schema_rec_1",
             startUrl: "https://example.com/services/seo",
             maxPages: 1,
             pages: [],
@@ -627,11 +628,13 @@ describe("types foundation", () => {
       siteId: "site_1",
       siteDomain: "example.com",
       requestedByUserId: "user_1",
+      schemaRecommendationId: "schema_rec_1",
       startUrl: "https://example.com/",
       maxPages: 10,
     });
 
     expect(parsed.pages).toEqual([]);
+    expect(parsed.schemaRecommendationId).toBe("schema_rec_1");
   });
 
   it("validates crawl job results", () => {

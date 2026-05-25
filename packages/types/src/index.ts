@@ -1475,6 +1475,7 @@ export const CrawlJobPayloadSchema = z.object({
   siteId: IdSchema,
   siteDomain: DomainSchema,
   requestedByUserId: IdSchema,
+  schemaRecommendationId: IdSchema.nullable().optional(),
   startUrl: NormalizedUrlSchema,
   maxPages: z.number().int().positive().max(100),
   pages: z.array(CrawlJobPageInputSchema).default([]),
