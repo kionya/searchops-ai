@@ -1,6 +1,10 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { ZodError, z } from "zod";
-import { createContentBriefDraft, evaluateAeoReadiness } from "@searchops/aeo-core";
+import {
+  createContentBriefDraft,
+  evaluateAeoReadiness,
+  generateAeoFaqGapSet,
+} from "@searchops/aeo-core";
 import { evaluateCompliance } from "@searchops/compliance";
 import { CmsWebhookProviderSchema, normalizeCmsWebhookPayload } from "@searchops/connectors";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
@@ -841,6 +845,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     let readinessReport;
     let draft;
+    let faqGapSet;
     try {
       readinessReport =
         input.readinessReport ??
@@ -851,13 +856,22 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
           },
           { evaluatedAt },
         );
+      faqGapSet =
+        input.faqGapSet ??
+        generateAeoFaqGapSet(
+          {
+            candidatePage,
+            keyword,
+          },
+          { evaluatedAt, readinessReport },
+        );
       draft = createContentBriefDraft({
         candidatePage,
         evaluatedAt,
+        faqGapSet,
         keyword,
         keywordId: input.keywordId ?? null,
         readinessReport,
-        ...(input.faqGapSet === undefined ? {} : { faqGapSet: input.faqGapSet }),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid content brief input";
@@ -873,7 +887,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     reply
       .status(201)
-      .send(CreateContentBriefDraftResponseSchema.parse({ contentBrief, draft, readinessReport }));
+      .send(
+        CreateContentBriefDraftResponseSchema.parse({
+          contentBrief,
+          draft,
+          faqGapSet,
+          readinessReport,
+        }),
+      );
   });
 
   server.post("/sites/:id/crawl-runs", async (request, reply) => {

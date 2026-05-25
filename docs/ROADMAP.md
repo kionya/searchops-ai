@@ -56,11 +56,11 @@ Phase 7 foundation status:
 - ContentBrief dashboard history and create UI are connected with API data plus deterministic fixture fallback.
 - Keyword/AEO dashboard readiness reports are connected to persisted AEO readiness API data plus deterministic fixture fallback.
 - AEO readiness report persistence is in place for dashboard history; report generation stays rule-based and deterministic.
+- Automatic FAQ gap generation is connected through `packages/aeo-core` and the ContentBrief API response, using deterministic page/readiness signals only.
 
 Phase 7 remaining limitations:
 
 - No LLM explanation or copy-assist flow is connected; any future AI support must stay optional in `packages/ai-core`.
-- FAQ gap records are modeled as deterministic contracts and mapper inputs, but automatic FAQ gap generation is still future scope.
 - ContentBriefs remain draft-only and are not published to CMS or external channels.
 - Live connector-derived keyword discovery is still future scope; current dashboard/API flows work with manual or fixture keyword inputs.
 

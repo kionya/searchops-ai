@@ -2258,11 +2258,22 @@ describe("api foundation", () => {
         status: "draft",
         publishPolicy: "draft_only",
       },
+      faqGapSet: {
+        generatedBy: "deterministic",
+        pageUrl: "https://exampleclinic.com/service/seo",
+      },
       readinessReport: {
         status: "needs_work",
         generatedBy: "deterministic",
       },
     });
+    expect(response.json().faqGapSet.gaps.map((gap: { question: string }) => gap.question)).toEqual(
+      [
+        "What does seo clinic price comparison include?",
+        "How much does seo clinic price comparison cost?",
+        "How should users compare seo clinic price comparison options?",
+      ],
+    );
 
     const listResponse = await server.inject({
       method: "GET",

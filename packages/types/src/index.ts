@@ -622,6 +622,7 @@ export type AeoReadinessReportListResponse = z.infer<typeof AeoReadinessReportLi
 export const CreateContentBriefDraftResponseSchema = z.object({
   contentBrief: ContentBriefSchema,
   draft: ContentBriefDraftSchema,
+  faqGapSet: AeoFaqGapSetSchema,
   readinessReport: AeoReadinessReportSchema,
 });
 

@@ -88,6 +88,8 @@ ContentBrief outputs are draft-only planning artifacts. They must never auto-pub
 
 `apps/api` owns the HTTP boundary for AEO readiness report creation/history and ContentBrief draft creation/history. It may call deterministic `packages/aeo-core` functions, validate requests and responses through `packages/types`, and persist through repository ports. It must not call LLM providers, live connectors, or CMS publish adapters for Phase 7 flows.
 
+When a ContentBrief request does not include a FAQ gap set, the API generates one through `packages/aeo-core` from the typed keyword, candidate page, and readiness report. The generated gap set is returned as response evidence but is not a publishing action.
+
 `packages/db` owns AEO readiness and ContentBrief persistence. `AeoReadinessReport` stores deterministic report history for dashboard use, while `ContentBrief` stores draft-only planning output. Retrying or re-running a readiness evaluation can create another history row; the dashboard orders the latest evaluations first.
 
 `apps/web` may read AEO readiness and ContentBrief history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable or not configured, it renders deterministic fixture fallback states and labels them as fixture data.

@@ -32,7 +32,7 @@ Non-goals for Phase 7:
 - No LLM usage for readiness, scoring, or ContentBrief generation.
 - No automatic publishing to CMS or external channels.
 - No live connector-driven keyword discovery.
-- No automatic FAQ gap generation beyond the current contract and mapper input support.
+- FAQ gap generation is deterministic and can be produced from Keyword/AEO inputs without LLM usage.
 
 ## Phase 9 GEO Visibility Monitor V1
 GEO visibility monitoring is deterministic and input-driven. It evaluates stored answer observations from AI/search surfaces and does not call an LLM, browser, or live provider.
