@@ -57,12 +57,13 @@ Phase 7 foundation status:
 - Keyword/AEO dashboard readiness reports are connected to persisted AEO readiness API data plus deterministic fixture fallback.
 - AEO readiness report persistence is in place for dashboard history; report generation stays rule-based and deterministic.
 - Automatic FAQ gap generation is connected through `packages/aeo-core` and the ContentBrief API response, using deterministic page/readiness signals only.
+- Connector-derived keyword discovery can turn normalized GSC/CMS connector results into deterministic `KeywordTarget` candidates without live API calls.
 
 Phase 7 remaining limitations:
 
 - No LLM explanation or copy-assist flow is connected; any future AI support must stay optional in `packages/ai-core`.
 - ContentBriefs remain draft-only and are not published to CMS or external channels.
-- Live connector-derived keyword discovery is still future scope; current dashboard/API flows work with manual or fixture keyword inputs.
+- Keyword discovery persistence and dashboard workflows are still future scope; current ContentBrief create flow still works with manual or fixture keyword inputs.
 
 ## Phase 8. Schema engine
 

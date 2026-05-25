@@ -4,6 +4,7 @@ import {
   ConnectorRunResultSchema,
   Ga4PageMetricSchema,
   GscSearchMetricSchema,
+  KeywordDiscoverySetSchema,
   PageSpeedMetricSchema,
   type BingUrlMetric,
   type CmsPageRecord,
@@ -13,6 +14,8 @@ import {
   type ConnectorRunResult,
   type Ga4PageMetric,
   type GscSearchMetric,
+  type KeywordDiscoveryCandidate,
+  type KeywordDiscoverySet,
   type PageSpeedMetric
 } from "@searchops/types";
 
@@ -147,6 +150,16 @@ export interface ConnectorBatchSyncSummary {
 export interface ConnectorBatchSyncResult {
   readonly results: readonly ConnectorRunResult[];
   readonly summary: ConnectorBatchSyncSummary;
+}
+
+export interface KeywordDiscoveryRequest {
+  readonly country?: string;
+  readonly discoveredAt: string;
+  readonly language?: string;
+  readonly locale?: string;
+  readonly maxCandidates?: number;
+  readonly minImpressions?: number;
+  readonly siteId: string;
 }
 
 export const mockGscSearchAnalyticsFixture: GscSearchAnalyticsFixture = {
@@ -471,10 +484,116 @@ export function summarizeConnectorRunResults(
   };
 }
 
+export function discoverKeywordTargetsFromConnectorResults(
+  results: readonly ConnectorRunResult[],
+  request: KeywordDiscoveryRequest,
+): KeywordDiscoverySet {
+  const candidatesByPhrase = new Map<string, KeywordDiscoveryCandidate>();
+  const minImpressions = request.minImpressions ?? 1;
+
+  for (const result of results.map((item) => ConnectorRunResultSchema.parse(item))) {
+    for (const record of result.records) {
+      const candidate = createKeywordDiscoveryCandidate(record, request, minImpressions);
+      if (!candidate) {
+        continue;
+      }
+
+      const key = normalizeKeywordPhrase(candidate.keyword.phrase);
+      const existing = candidatesByPhrase.get(key);
+      if (!existing || candidate.score > existing.score) {
+        candidatesByPhrase.set(key, candidate);
+      }
+    }
+  }
+
+  return KeywordDiscoverySetSchema.parse({
+    candidates: [...candidatesByPhrase.values()]
+      .sort((left, right) => right.score - left.score || left.keyword.phrase.localeCompare(right.keyword.phrase))
+      .slice(0, request.maxCandidates ?? 25),
+    discoveredAt: request.discoveredAt,
+    generatedBy: "deterministic",
+    siteId: request.siteId
+  });
+}
+
 function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
   const requested = new Set(providers);
 
   return connectorProviders.filter((provider) => requested.has(provider));
+}
+
+function createKeywordDiscoveryCandidate(
+  record: ConnectorRecord,
+  request: KeywordDiscoveryRequest,
+  minImpressions: number,
+): KeywordDiscoveryCandidate | null {
+  if (record.provider === "gsc") {
+    if (record.impressions < minImpressions) {
+      return null;
+    }
+
+    const country = record.country || request.country || "KR";
+    const language = request.language ?? "ko";
+
+    return {
+      evidence: {
+        clicks: record.clicks,
+        impressions: record.impressions,
+        pageUrl: record.page,
+        position: record.position,
+        provider: "gsc",
+        sourceField: "query"
+      },
+      keyword: {
+        country,
+        intent: null,
+        language,
+        locale: request.locale ?? `${language}-${country}`,
+        phrase: normalizeKeywordPhrase(record.query),
+        siteId: request.siteId,
+        source: "gsc"
+      },
+      pageUrl: record.page,
+      score: scoreGscKeyword(record)
+    };
+  }
+
+  if (record.provider === "cms" && record.status === "published") {
+    const country = request.country ?? "KR";
+    const language = request.language ?? "ko";
+
+    return {
+      evidence: {
+        pageUrl: record.url,
+        provider: "cms",
+        sourceField: "title",
+        title: record.title
+      },
+      keyword: {
+        country,
+        intent: null,
+        language,
+        locale: request.locale ?? `${language}-${country}`,
+        phrase: normalizeKeywordPhrase(record.title),
+        siteId: request.siteId,
+        source: "cms"
+      },
+      pageUrl: record.url,
+      score: 25
+    };
+  }
+
+  return null;
+}
+
+function scoreGscKeyword(record: GscSearchMetric) {
+  const positionScore = Math.max(0, 100 - Math.round(record.position * 10));
+
+  return Math.max(0, Math.round(record.impressions + record.clicks * 10 + positionScore));
+}
+
+function normalizeKeywordPhrase(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function parseIntegerMetric(value: string) {
