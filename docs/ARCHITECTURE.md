@@ -138,7 +138,7 @@ Phase 10 starts with deterministic compliance review contracts and medical adver
 
 `apps/web` owns the dashboard surface for compliance review history. It may run fixture-backed reviews, update flag statuses, create legal-review work orders, and recheck revised fixture copy through API helpers, with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
 
-`kr-medical` rule pack refinements stay inside `packages/compliance`. They extend the shared rule IDs with Korean medical advertising phrases for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
+`kr-medical` rule pack refinements stay inside `packages/compliance`. They extend the shared rule IDs with Korean medical advertising phrases for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions. Rule pack selection may use locale or Korean-market domains, but detection remains deterministic and independently tested.
 
 Medical content must stay draft-only until compliance review is complete. No Phase 10 layer may publish to a CMS or call LLM providers for risk detection.
 

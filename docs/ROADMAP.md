@@ -144,7 +144,8 @@ Phase 10 foundation status:
 - Compliance dashboard history, fixture review action, status updates, and WorkOrder conversion are connected with API data plus deterministic fixture fallback.
 - Compliance flags can be converted into idempotent legal-owned WorkOrders through deterministic templates.
 - Deterministic rule pack selection is available for `global` and `kr-medical` packs.
-- `kr-medical` adds Korean medical advertising refinements for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
+- `kr-medical` adds readable Korean medical advertising refinements for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
+- `kr-medical` rule pack selection can use either Korean locale signals or Korean-market `.kr` domains.
 - Revised compliance copy can be rechecked through the API and dashboard; resolved flags close linked WorkOrders, while still-failing rules keep work open.
 - CMS content update events can trigger deterministic rechecks for matching active ComplianceFlags without fetching from or publishing to the live CMS.
 - CMS webhook signature verification is enforced when provider secrets are configured, using provider-scoped HMAC headers plus timestamp replay protection.

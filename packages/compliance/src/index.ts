@@ -344,14 +344,29 @@ export function evaluateCompliance(
 export function selectComplianceRulePackId(input: ComplianceReviewInput): ComplianceRulePackId {
   const parsedInput = ComplianceReviewInputSchema.parse(input);
 
-  if (
-    complianceRulePacks["kr-medical"].localePattern.test(parsedInput.locale) &&
-    isMedicalContext(parsedInput)
-  ) {
+  if (isKrMarketContext(parsedInput) && isMedicalContext(parsedInput)) {
     return "kr-medical";
   }
 
   return "global";
+}
+
+function isKrMarketContext(input: ComplianceReviewInput) {
+  return (
+    complianceRulePacks["kr-medical"].localePattern.test(input.locale) || isKrDomain(input.url)
+  );
+}
+
+function isKrDomain(url: string | null) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    return new URL(url).hostname.toLowerCase().endsWith(".kr");
+  } catch {
+    return false;
+  }
 }
 
 function createPatternRule(config: CompliancePatternRuleConfig): ComplianceRule {
