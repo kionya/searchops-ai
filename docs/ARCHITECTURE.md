@@ -78,6 +78,8 @@ Runtime crawling is scoped to the registered site domain and its subdomains. Loc
 
 `apps/web` may trigger syncs and read sync history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable in local shell views, the dashboard may render deterministic fixture-facing states, but those states must not be confused with live external provider data.
 
+Connector-derived keyword discovery lives in `packages/connectors` because it translates normalized provider records into `KeywordTarget` candidates. The discovery step remains deterministic, uses stored or fixture connector results, and does not call live provider APIs by itself.
+
 ## Phase 7 Keyword and AEO Boundary
 
 Phase 7 introduces deterministic Keyword/AEO contracts before any generation layer. The `packages/aeo-core` package owns keyword intent, answer-readiness, FAQ gap, and content planning signal logic.

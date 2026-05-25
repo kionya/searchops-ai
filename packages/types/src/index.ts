@@ -1613,6 +1613,36 @@ export const ConnectorRecordSchema = z.discriminatedUnion("provider", [
 
 export type ConnectorRecord = z.infer<typeof ConnectorRecordSchema>;
 
+export const KeywordDiscoveryEvidenceSchema = z.object({
+  provider: ConnectorProviderSchema,
+  pageUrl: NormalizedUrlSchema.nullable(),
+  sourceField: NonEmptyStringSchema,
+  clicks: NonNegativeIntegerSchema.optional(),
+  impressions: NonNegativeIntegerSchema.optional(),
+  position: z.number().nonnegative().nullable().optional(),
+  title: NonEmptyStringSchema.optional(),
+});
+
+export type KeywordDiscoveryEvidence = z.infer<typeof KeywordDiscoveryEvidenceSchema>;
+
+export const KeywordDiscoveryCandidateSchema = z.object({
+  keyword: KeywordTargetSchema,
+  pageUrl: NormalizedUrlSchema.nullable(),
+  score: z.number().int().nonnegative(),
+  evidence: KeywordDiscoveryEvidenceSchema,
+});
+
+export type KeywordDiscoveryCandidate = z.infer<typeof KeywordDiscoveryCandidateSchema>;
+
+export const KeywordDiscoverySetSchema = z.object({
+  siteId: IdSchema,
+  candidates: z.array(KeywordDiscoveryCandidateSchema),
+  generatedBy: z.literal("deterministic"),
+  discoveredAt: IsoDateTimeSchema,
+});
+
+export type KeywordDiscoverySet = z.infer<typeof KeywordDiscoverySetSchema>;
+
 export const ConnectorRunResultSchema = z
   .object({
     provider: ConnectorProviderSchema,

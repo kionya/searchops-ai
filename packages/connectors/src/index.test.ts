@@ -6,6 +6,7 @@ import {
   connectorsPackage,
   createConnectorRunResult,
   createFixtureConnectorAdapter,
+  discoverKeywordTargetsFromConnectorResults,
   fixtureConnectorAdapters,
   getFixtureConnectorAdapter,
   liveExternalApisDefault,
@@ -230,5 +231,58 @@ describe("connectors foundation", () => {
       totalProviders: 2,
       totalRecords: 3
     });
+  });
+
+  it("discovers keyword targets from connector run results deterministically", async () => {
+    const batch = await syncFixtureConnectors({
+      fetchedAt: "2026-05-25T00:00:00.000Z",
+      providers: ["gsc", "cms"]
+    });
+    const discoverySet = discoverKeywordTargetsFromConnectorResults(batch.results, {
+      discoveredAt: "2026-05-25T00:00:00.000Z",
+      siteId: "site_1"
+    });
+
+    expect(discoverySet).toMatchObject({
+      generatedBy: "deterministic",
+      siteId: "site_1"
+    });
+    expect(discoverySet.candidates.map((candidate) => candidate.keyword.phrase)).toEqual([
+      "seo clinic",
+      "clinic content marketing",
+      "seo service"
+    ]);
+    expect(discoverySet.candidates.map((candidate) => candidate.keyword.source)).toEqual([
+      "gsc",
+      "gsc",
+      "cms"
+    ]);
+    expect(discoverySet.candidates[0]).toMatchObject({
+      pageUrl: "https://example-clinic.com/service/seo",
+      score: 308,
+      evidence: {
+        clicks: 12,
+        impressions: 120,
+        provider: "gsc",
+        sourceField: "query"
+      }
+    });
+  });
+
+  it("filters and limits discovered keyword targets without live APIs", async () => {
+    const batch = await syncFixtureConnectors({
+      fetchedAt: "2026-05-25T00:00:00.000Z",
+      providers: ["gsc", "cms"]
+    });
+    const discoverySet = discoverKeywordTargetsFromConnectorResults(batch.results, {
+      discoveredAt: "2026-05-25T00:00:00.000Z",
+      maxCandidates: 1,
+      minImpressions: 100,
+      siteId: "site_1"
+    });
+
+    expect(discoverySet.candidates.map((candidate) => candidate.keyword.phrase)).toEqual([
+      "seo clinic"
+    ]);
   });
 });

@@ -64,6 +64,7 @@ import {
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
+  KeywordDiscoverySetSchema,
   KeywordIntentSchema,
   KeywordSchema,
   KeywordTargetSchema,
@@ -688,6 +689,40 @@ describe("types foundation", () => {
         candidatePage: page,
       }).candidatePage,
     ).toMatchObject({ wordCount: 420 });
+  });
+
+  it("validates deterministic keyword discovery contracts", () => {
+    const discoverySet = KeywordDiscoverySetSchema.parse({
+      siteId: "site_1",
+      candidates: [
+        {
+          keyword: {
+            siteId: "site_1",
+            phrase: "seo clinic",
+            locale: "ko-KR",
+            language: "ko",
+            country: "KR",
+            intent: null,
+            source: "gsc",
+          },
+          pageUrl: "https://example.com/service/seo",
+          score: 150,
+          evidence: {
+            provider: "gsc",
+            pageUrl: "https://example.com/service/seo",
+            sourceField: "query",
+            clicks: 12,
+            impressions: 120,
+            position: 3.2,
+          },
+        },
+      ],
+      generatedBy: "deterministic",
+      discoveredAt: "2026-05-25T00:00:00.000Z",
+    });
+
+    expect(discoverySet.candidates[0]?.keyword.source).toBe("gsc");
+    expect(discoverySet.generatedBy).toBe("deterministic");
   });
 
   it("validates deterministic AEO readiness reports", () => {
