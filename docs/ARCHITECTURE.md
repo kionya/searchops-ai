@@ -114,7 +114,9 @@ Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logi
 
 Phase 9 starts with deterministic GEO visibility contracts and scoring. The `packages/geo-core` package owns brand mention detection, owned-domain citation detection, query coverage, provider diversity, competitor citation risk, and status scoring from typed observations.
 
-`packages/geo-core` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed `GeoTarget` and `GeoAnswerObservation` inputs, returns Zod-validated visibility reports, and remains independently unit testable. Optional explanation text or AI-assisted interpretation belongs later in `packages/ai-core`, while live observation collection belongs behind future connector adapters.
+`packages/geo-core` must have no LLM, DB, network, connector, browser, or CMS dependency. It receives typed `GeoTarget` and `GeoAnswerObservation` inputs, returns Zod-validated visibility reports, and remains independently unit testable. Optional explanation text or AI-assisted interpretation belongs later in `packages/ai-core`, while answer observation collection belongs behind connector adapters.
+
+`packages/connectors` owns GEO answer monitor adapter ports and fixture adapters for AI-answer providers such as ChatGPT, Perplexity, Gemini, Copilot, and Claude. Fixture adapters normalize stored answer observations into `GeoAnswerObservation` records with `liveExternalApis = disabled`; live provider calls remain an explicit future adapter implementation.
 
 `apps/api` owns the HTTP boundary for GEO visibility report creation/history and report-to-work-order conversion. It may call deterministic `packages/geo-core` and `packages/workorders`, validate requests and responses through `packages/types`, scope target domains to the registered site domain or subdomain, and persist through repository ports. It must not call LLM providers or live AI answer providers for Phase 9 flows.
 

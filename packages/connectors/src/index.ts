@@ -3,6 +3,9 @@ import {
   CmsPageRecordSchema,
   ConnectorRunResultSchema,
   Ga4PageMetricSchema,
+  GeoAnswerMonitorRequestSchema,
+  GeoAnswerMonitorResultSchema,
+  GeoAnswerObservationSchema,
   GscSearchMetricSchema,
   KeywordDiscoverySetSchema,
   PageSpeedMetricSchema,
@@ -13,6 +16,10 @@ import {
   type ConnectorRecord,
   type ConnectorRunResult,
   type Ga4PageMetric,
+  type GeoAnswerMonitorProvider,
+  type GeoAnswerMonitorRequest,
+  type GeoAnswerMonitorResult,
+  type GeoAnswerObservation,
   type GscSearchMetric,
   type KeywordDiscoveryCandidate,
   type KeywordDiscoverySet,
@@ -25,6 +32,14 @@ export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
 
 export const connectorProviders = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
+
+export const geoAnswerMonitorProviders = [
+  "chatgpt",
+  "perplexity",
+  "gemini",
+  "copilot",
+  "claude"
+] as const satisfies readonly GeoAnswerMonitorProvider[];
 
 export const connectorAuthModes = {
   bing: "api_key",
@@ -111,6 +126,19 @@ export interface CmsPagesFixtureRow {
   readonly updatedAt: string;
 }
 
+export interface GeoAnswerMonitoringFixture {
+  readonly observedAt: string;
+  readonly provider: GeoAnswerMonitorProvider;
+  readonly rows: readonly GeoAnswerMonitoringFixtureRow[];
+}
+
+export interface GeoAnswerMonitoringFixtureRow {
+  readonly answerText: string;
+  readonly citedUrls: readonly string[];
+  readonly locale?: string;
+  readonly query: string;
+}
+
 export type ConnectorFixtureInput =
   | BingUrlInspectionFixture
   | CmsPagesFixture
@@ -150,6 +178,25 @@ export interface ConnectorBatchSyncSummary {
 export interface ConnectorBatchSyncResult {
   readonly results: readonly ConnectorRunResult[];
   readonly summary: ConnectorBatchSyncSummary;
+}
+
+export interface GeoAnswerMonitorAdapter {
+  readonly liveExternalApis: typeof liveExternalApisDefault;
+  readonly provider: GeoAnswerMonitorProvider;
+  monitor(request: GeoAnswerMonitorRequest): Promise<GeoAnswerMonitorResult>;
+}
+
+export interface FixtureGeoAnswerMonitorAdapterConfig {
+  readonly fixture: GeoAnswerMonitoringFixture;
+}
+
+export interface GeoAnswerMonitorBatchRequest extends GeoAnswerMonitorRequest {
+  readonly providers?: readonly GeoAnswerMonitorProvider[];
+}
+
+export interface GeoAnswerMonitorBatchResult {
+  readonly observations: readonly GeoAnswerObservation[];
+  readonly results: readonly GeoAnswerMonitorResult[];
 }
 
 export interface KeywordDiscoveryRequest {
@@ -256,6 +303,42 @@ export const mockCmsPagesFixture: CmsPagesFixture = {
       title: "Draft landing page",
       status: "draft",
       updatedAt: "2026-05-20T00:00:00.000Z"
+    }
+  ]
+};
+
+export const mockChatGptGeoAnswerFixture: GeoAnswerMonitoringFixture = {
+  observedAt: "2026-05-25T00:00:00.000Z",
+  provider: "chatgpt",
+  rows: [
+    {
+      answerText:
+        "Example Clinic is a relevant option for medical SEO planning and cites its service page.",
+      citedUrls: ["https://example-clinic.com/service/seo"],
+      query: "best seo clinic"
+    },
+    {
+      answerText: "Example Clinic publishes guidance for clinic content marketing.",
+      citedUrls: ["https://example-clinic.com/blog/seo-basics"],
+      query: "clinic content marketing"
+    }
+  ]
+};
+
+export const mockPerplexityGeoAnswerFixture: GeoAnswerMonitoringFixture = {
+  observedAt: "2026-05-25T00:00:00.000Z",
+  provider: "perplexity",
+  rows: [
+    {
+      answerText:
+        "For best SEO clinic research, Example Clinic and another agency are both mentioned.",
+      citedUrls: ["https://example-clinic.com/service/seo", "https://competitor.example/seo"],
+      query: "best seo clinic"
+    },
+    {
+      answerText: "The answer discusses clinic content marketing but does not cite the brand.",
+      citedUrls: ["https://competitor.example/content"],
+      query: "clinic content marketing"
     }
   ]
 };
@@ -374,6 +457,30 @@ export function normalizeConnectorFixture(
   throw new Error(`Unsupported connector provider: ${provider}`);
 }
 
+export function normalizeGeoAnswerMonitoringFixture(
+  fixture: GeoAnswerMonitoringFixture,
+  request: GeoAnswerMonitorRequest,
+): GeoAnswerObservation[] {
+  const parsedRequest = GeoAnswerMonitorRequestSchema.parse(request);
+  const rowsByQuery = new Map(
+    fixture.rows.map((row) => [normalizeMonitorQuery(row.query), row] as const),
+  );
+
+  return parsedRequest.queries.map((queryInput) => {
+    const row = rowsByQuery.get(normalizeMonitorQuery(queryInput.query));
+
+    return GeoAnswerObservationSchema.parse({
+      answerText: row?.answerText ?? "",
+      citedUrls: row?.citedUrls ?? [],
+      locale: queryInput.locale ?? row?.locale ?? parsedRequest.target.locale,
+      observedAt: parsedRequest.observedAt ?? fixture.observedAt,
+      provider: fixture.provider,
+      query: queryInput.query,
+      source: "fixture"
+    });
+  });
+}
+
 export function createConnectorRunResult({
   fetchedAt,
   provider,
@@ -414,6 +521,25 @@ export function createFixtureConnectorAdapter({
   };
 }
 
+export function createFixtureGeoAnswerMonitorAdapter({
+  fixture
+}: FixtureGeoAnswerMonitorAdapterConfig): GeoAnswerMonitorAdapter {
+  return {
+    liveExternalApis: liveExternalApisDefault,
+    provider: fixture.provider,
+    async monitor(request) {
+      const observations = normalizeGeoAnswerMonitoringFixture(fixture, request);
+
+      return GeoAnswerMonitorResultSchema.parse({
+        generatedBy: "fixture",
+        liveExternalApis: liveExternalApisDefault,
+        observations,
+        provider: fixture.provider
+      });
+    }
+  };
+}
+
 export const fixtureConnectorAdapters = {
   bing: createFixtureConnectorAdapter({
     fixture: mockBingUrlInspectionFixture,
@@ -437,8 +563,32 @@ export const fixtureConnectorAdapters = {
   })
 } as const satisfies Record<ConnectorProvider, ConnectorAdapter>;
 
+export const fixtureGeoAnswerMonitorAdapters = {
+  chatgpt: createFixtureGeoAnswerMonitorAdapter({
+    fixture: mockChatGptGeoAnswerFixture
+  }),
+  claude: createFixtureGeoAnswerMonitorAdapter({
+    fixture: createEmptyGeoAnswerMonitoringFixture("claude")
+  }),
+  copilot: createFixtureGeoAnswerMonitorAdapter({
+    fixture: createEmptyGeoAnswerMonitoringFixture("copilot")
+  }),
+  gemini: createFixtureGeoAnswerMonitorAdapter({
+    fixture: createEmptyGeoAnswerMonitoringFixture("gemini")
+  }),
+  perplexity: createFixtureGeoAnswerMonitorAdapter({
+    fixture: mockPerplexityGeoAnswerFixture
+  })
+} as const satisfies Record<GeoAnswerMonitorProvider, GeoAnswerMonitorAdapter>;
+
 export function getFixtureConnectorAdapter(provider: ConnectorProvider): ConnectorAdapter {
   return fixtureConnectorAdapters[provider];
+}
+
+export function getFixtureGeoAnswerMonitorAdapter(
+  provider: GeoAnswerMonitorProvider,
+): GeoAnswerMonitorAdapter {
+  return fixtureGeoAnswerMonitorAdapters[provider];
 }
 
 export async function syncFixtureConnector(
@@ -460,6 +610,28 @@ export async function syncFixtureConnectors({
   return {
     results,
     summary: summarizeConnectorRunResults(results)
+  };
+}
+
+export async function monitorFixtureGeoAnswers(
+  provider: GeoAnswerMonitorProvider,
+  request: GeoAnswerMonitorRequest,
+): Promise<GeoAnswerMonitorResult> {
+  return getFixtureGeoAnswerMonitorAdapter(provider).monitor(request);
+}
+
+export async function monitorFixtureGeoAnswersBatch({
+  providers = geoAnswerMonitorProviders,
+  ...request
+}: GeoAnswerMonitorBatchRequest): Promise<GeoAnswerMonitorBatchResult> {
+  const orderedProviders = orderGeoAnswerMonitorProviders(providers);
+  const results = await Promise.all(
+    orderedProviders.map((provider) => monitorFixtureGeoAnswers(provider, request)),
+  );
+
+  return {
+    observations: results.flatMap((result) => result.observations),
+    results
   };
 }
 
@@ -520,6 +692,26 @@ function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
   const requested = new Set(providers);
 
   return connectorProviders.filter((provider) => requested.has(provider));
+}
+
+function orderGeoAnswerMonitorProviders(providers: readonly GeoAnswerMonitorProvider[]) {
+  const requested = new Set(providers);
+
+  return geoAnswerMonitorProviders.filter((provider) => requested.has(provider));
+}
+
+function createEmptyGeoAnswerMonitoringFixture(
+  provider: GeoAnswerMonitorProvider,
+): GeoAnswerMonitoringFixture {
+  return {
+    observedAt: "2026-05-25T00:00:00.000Z",
+    provider,
+    rows: []
+  };
+}
+
+function normalizeMonitorQuery(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/gu, " ");
 }
 
 function createKeywordDiscoveryCandidate(

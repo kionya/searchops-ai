@@ -103,7 +103,7 @@ Phase 9 non-negotiables:
 
 - Deterministic first. GEO scoring must be reproducible from stored observations and citations.
 - No LLM is required for brand mention detection, owned citation detection, provider diversity, or status scoring.
-- Live AI provider collection must stay behind future connector boundaries and fixture-based tests by default.
+- Live AI provider collection must stay behind connector boundaries and fixture-based tests by default.
 - Public contracts are Zod-validated and independently unit tested.
 
 Phase 9 foundation status:
@@ -114,10 +114,11 @@ Phase 9 foundation status:
 - Dashboard GEO history and create action are connected with API data plus deterministic fixture fallback.
 - GEO visibility reports can be converted into idempotent WorkOrders through deterministic templates.
 - The GEO dashboard can trigger report-to-work-order conversion through API data with fixture fallback.
+- GEO answer monitor provider contracts and fixture adapters live in `packages/connectors` with live external APIs disabled by default.
 
 Phase 9 remaining limitations:
 
-- Observation collection is fixture/manual input only; live AI answer monitoring remains future connector scope.
+- Observation collection is fixture/manual input only; live AI answer provider API calls remain future connector scope.
 - Reports are converted to work orders on explicit dashboard/API action; automatic bulk generation remains future scope.
 - Compliance review remains separate; medical claim risk flags are still Phase 10 scope.
 

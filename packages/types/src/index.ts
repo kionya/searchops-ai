@@ -651,6 +651,16 @@ export const GeoProviderSchema = z.enum([
 
 export type GeoProvider = z.infer<typeof GeoProviderSchema>;
 
+export const GeoAnswerMonitorProviderSchema = z.enum([
+  "chatgpt",
+  "perplexity",
+  "gemini",
+  "copilot",
+  "claude",
+]);
+
+export type GeoAnswerMonitorProvider = z.infer<typeof GeoAnswerMonitorProviderSchema>;
+
 export const GeoObservationSourceSchema = z.enum(["manual", "fixture", "connector"]);
 
 export type GeoObservationSource = z.infer<typeof GeoObservationSourceSchema>;
@@ -720,6 +730,30 @@ export const GeoAnswerObservationSchema = z.object({
 });
 
 export type GeoAnswerObservation = z.infer<typeof GeoAnswerObservationSchema>;
+
+export const GeoAnswerMonitorQuerySchema = z.object({
+  query: NonEmptyStringSchema,
+  locale: z.string().min(2).optional(),
+});
+
+export type GeoAnswerMonitorQuery = z.infer<typeof GeoAnswerMonitorQuerySchema>;
+
+export const GeoAnswerMonitorRequestSchema = z.object({
+  target: GeoTargetSchema,
+  queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
+  observedAt: IsoDateTimeSchema.optional(),
+});
+
+export type GeoAnswerMonitorRequest = z.infer<typeof GeoAnswerMonitorRequestSchema>;
+
+export const GeoAnswerMonitorResultSchema = z.object({
+  provider: GeoAnswerMonitorProviderSchema,
+  observations: z.array(GeoAnswerObservationSchema).min(1),
+  generatedBy: z.literal("fixture"),
+  liveExternalApis: z.literal("disabled"),
+});
+
+export type GeoAnswerMonitorResult = z.infer<typeof GeoAnswerMonitorResultSchema>;
 
 export const GeoVisibilityCheckSchema = z.object({
   checkId: GeoVisibilityCheckIdSchema,
