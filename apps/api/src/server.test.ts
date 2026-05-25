@@ -389,6 +389,36 @@ function buildSecuredComplianceTestServer() {
   });
 }
 
+function buildSecuredComplianceAuditTestServer() {
+  const complianceWorkOrder: WorkOrder = {
+    ...seededWorkOrder,
+    id: "wo_compliance_seed",
+    organizationId: seededOrganization.id,
+    siteId: seededSite.id,
+    seoIssueId: null,
+    status: "in_review",
+    title: "Resolve absolute safety claim",
+    ownerType: "legal",
+  };
+  return buildApiServer({
+    cmsWebhookSecrets: {
+      wordpress: "cms_secret_1",
+    },
+    currentTime: () => new Date("2026-05-24T02:01:00.000Z"),
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      complianceFlags: [
+        {
+          ...seededComplianceFlag,
+          workOrderId: complianceWorkOrder.id,
+        },
+      ],
+      workOrders: [complianceWorkOrder],
+    }),
+  });
+}
+
 function createSignedCmsEventRequest(payload: Record<string, unknown>, secret = "cms_secret_1") {
   const event = CmsContentUpdatedEventRequestSchema.parse(payload);
   const timestamp = "2026-05-24T02:00:00.000Z";
@@ -1573,6 +1603,54 @@ describe("api foundation", () => {
           resolved: true,
         },
       ],
+    });
+  });
+
+  it("records closed-loop audit events for CMS-triggered compliance resolution", async () => {
+    const server = buildSecuredComplianceAuditTestServer();
+    const request = createSignedCmsEventRequest({
+      siteId: "site_seed",
+      cmsType: "wordpress",
+      externalId: "page_seed",
+      url: "https://exampleclinic.com/services/botox",
+      text: "This clinic explains consultation steps, possible discomfort, and individual variation.",
+      updatedAt: "2026-05-24T02:00:00.000Z",
+    });
+
+    const cmsResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/cms/content-updated-events",
+      ...request,
+    });
+    const auditResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/closed-loop-audit-events",
+    });
+
+    expect(cmsResponse.statusCode).toBe(200);
+    expect(auditResponse.statusCode).toBe(200);
+    expect(auditResponse.json()).toMatchObject({
+      auditEvents: expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "cms_content_updated",
+          status: "received",
+        }),
+        expect.objectContaining({
+          eventType: "compliance_recheck",
+          status: "resolved",
+          complianceFlagId: "compliance_flag_seed",
+          workOrderId: "wo_compliance_seed",
+        }),
+        expect.objectContaining({
+          eventType: "compliance_flag_resolved",
+          status: "resolved",
+        }),
+        expect.objectContaining({
+          eventType: "work_order_done",
+          status: "done",
+          workOrderId: "wo_compliance_seed",
+        }),
+      ]),
     });
   });
 

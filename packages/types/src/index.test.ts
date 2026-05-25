@@ -10,6 +10,10 @@ import {
   CmsContentUpdatedEventRequestSchema,
   CmsContentUpdatedEventResponseSchema,
   CmsWebhookSignatureHeadersSchema,
+  ClosedLoopAuditEventListResponseSchema,
+  ClosedLoopAuditEventSchema,
+  ClosedLoopAuditEventStatusSchema,
+  ClosedLoopAuditEventTypeSchema,
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
   ContentBriefDraftSchema,
@@ -1529,6 +1533,20 @@ describe("types foundation", () => {
       resolved: true,
     });
     expect(CmsContentStatusSchema.options).toEqual(["draft", "published", "archived"]);
+    expect(ClosedLoopAuditEventTypeSchema.options).toEqual([
+      "cms_content_updated",
+      "compliance_recheck",
+      "compliance_flag_resolved",
+      "work_order_done",
+    ]);
+    expect(ClosedLoopAuditEventStatusSchema.options).toEqual([
+      "received",
+      "skipped",
+      "open",
+      "resolved",
+      "done",
+      "failed",
+    ]);
 
     const cmsEvent = CmsContentUpdatedEventRequestSchema.parse({
       siteId: "site_1",
@@ -1588,6 +1606,28 @@ describe("types foundation", () => {
         },
       ],
     });
+    const auditEvent = ClosedLoopAuditEventSchema.parse({
+      id: "audit_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      eventType: "compliance_flag_resolved",
+      status: "resolved",
+      source: "cms_webhook",
+      subjectType: "page_copy",
+      subjectId: "page_1",
+      cmsType: "wordpress",
+      externalId: "page_1",
+      complianceFlagId: "flag_1",
+      workOrderId: "wo_1",
+      message: "Compliance flag flag_1 resolved after CMS update.",
+      metadata: {
+        ruleId: "ABSOLUTE_SAFETY_CLAIM",
+      },
+      createdAt: "2026-05-24T02:00:00.000Z",
+    });
+    expect(
+      ClosedLoopAuditEventListResponseSchema.parse({ auditEvents: [auditEvent] }).auditEvents,
+    ).toHaveLength(1);
   });
 
   it("validates deterministic SEO issue drafts", () => {

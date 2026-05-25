@@ -1027,6 +1027,54 @@ export const CmsContentUpdatedEventResponseSchema = z.object({
 
 export type CmsContentUpdatedEventResponse = z.infer<typeof CmsContentUpdatedEventResponseSchema>;
 
+export const ClosedLoopAuditEventTypeSchema = z.enum([
+  "cms_content_updated",
+  "compliance_recheck",
+  "compliance_flag_resolved",
+  "work_order_done",
+]);
+
+export type ClosedLoopAuditEventType = z.infer<typeof ClosedLoopAuditEventTypeSchema>;
+
+export const ClosedLoopAuditEventStatusSchema = z.enum([
+  "received",
+  "skipped",
+  "open",
+  "resolved",
+  "done",
+  "failed",
+]);
+
+export type ClosedLoopAuditEventStatus = z.infer<typeof ClosedLoopAuditEventStatusSchema>;
+
+export const ClosedLoopAuditEventSchema = z.object({
+  id: IdSchema,
+  organizationId: IdSchema,
+  siteId: IdSchema.nullable(),
+  eventType: ClosedLoopAuditEventTypeSchema,
+  status: ClosedLoopAuditEventStatusSchema,
+  source: z.string().min(1),
+  subjectType: z.string().min(1).nullable(),
+  subjectId: z.string().min(1).nullable(),
+  cmsType: z.string().min(1).nullable(),
+  externalId: z.string().min(1).nullable(),
+  complianceFlagId: IdSchema.nullable(),
+  workOrderId: IdSchema.nullable(),
+  message: z.string().min(1),
+  metadata: z.record(z.unknown()).nullable(),
+  createdAt: IsoDateTimeSchema,
+});
+
+export type ClosedLoopAuditEvent = z.infer<typeof ClosedLoopAuditEventSchema>;
+
+export const ClosedLoopAuditEventListResponseSchema = z.object({
+  auditEvents: z.array(ClosedLoopAuditEventSchema),
+});
+
+export type ClosedLoopAuditEventListResponse = z.infer<
+  typeof ClosedLoopAuditEventListResponseSchema
+>;
+
 export const CmsWebhookSignatureHeadersSchema = z.object({
   "x-searchops-cms-type": z.string().min(1),
   "x-searchops-timestamp": IsoDateTimeSchema,

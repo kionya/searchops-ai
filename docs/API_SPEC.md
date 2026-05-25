@@ -54,6 +54,7 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 - `POST /sites/:siteId/compliance-reviews`
 - `POST /sites/:siteId/cms/content-updated-events`
 - `POST /sites/:siteId/cms/webhooks/:cmsType`
+- `GET /sites/:siteId/closed-loop-audit-events`
 - `GET /sites/:siteId/compliance-flags`
 - `PATCH /compliance-flags/:complianceFlagId`
 - `POST /compliance-flags/:complianceFlagId/work-order`
@@ -191,6 +192,8 @@ When webhook secrets are configured, the request must include `CmsWebhookSignatu
 The event URL must stay within the registered site domain or subdomains. The API does not fetch from the live CMS; it treats the payload as the source of truth for this event. Active ComplianceFlags match when their `subjectId` equals the CMS `externalId` or their `url` equals the event URL. Each matching flag with a `ruleId` is rechecked through the deterministic compliance engine, linked WorkOrders are closed when resolved, and the response is `CmsContentUpdatedEventResponse` with `matchedFlagCount`, `skippedFlagCount`, and `rechecks`.
 
 `POST /sites/:siteId/cms/webhooks/:cmsType` accepts provider-specific CMS webhook payloads for `wordpress`, `webflow`, and `headless`. `packages/connectors` normalizes the provider payload into the same `CmsContentUpdatedEventRequest`, then the API applies the same signature verification, site URL scoping, compliance recheck, and response contract. The route still does not fetch from or publish to a live CMS.
+
+CMS-triggered rechecks write closed-loop audit events for the received CMS update, each compliance recheck, resolved flags, and completed linked WorkOrders. `GET /sites/:siteId/closed-loop-audit-events` returns `ClosedLoopAuditEventListResponse` ordered by newest event first for operator review and debugging.
 
 ## Work Orders
 

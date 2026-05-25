@@ -18,6 +18,7 @@ model Organization {
   connectorSyncRuns ConnectorSyncRun[]
   aiPrompts       AiPrompt[]
   complianceFlags ComplianceFlag[]
+  closedLoopAuditEvents ClosedLoopAuditEvent[]
 }
 
 model User {
@@ -54,6 +55,7 @@ model Site {
   geoVisibilityReports GeoVisibilityReport[]
   schemaRecommendations SchemaRecommendation[]
   complianceFlags ComplianceFlag[]
+  closedLoopAuditEvents ClosedLoopAuditEvent[]
 
   @@unique([organizationId, domain])
   @@index([organizationId])
@@ -372,5 +374,34 @@ model ComplianceFlag {
   @@index([ruleId])
   @@index([riskLevel])
   @@index([status])
+  @@index([createdAt])
+}
+
+model ClosedLoopAuditEvent {
+  id               String   @id @default(cuid())
+  organizationId   String
+  siteId           String?
+  eventType        String
+  status           String
+  source           String
+  subjectType      String?
+  subjectId        String?
+  cmsType          String?
+  externalId       String?
+  complianceFlagId String?
+  workOrderId      String?
+  message          String
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([eventType])
+  @@index([status])
+  @@index([complianceFlagId])
+  @@index([workOrderId])
   @@index([createdAt])
 }
