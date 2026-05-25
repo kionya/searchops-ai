@@ -1,11 +1,13 @@
 import {
   AeoReadinessReportListResponseSchema,
   AeoReadinessReportSchema,
+  KeywordDiscoveryListResponseSchema,
   type AeoReadinessCheck,
   type AeoReadinessCheckStatus,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
-  type AeoReadinessStatus
+  type AeoReadinessStatus,
+  type KeywordDiscoveryCandidateRecord
 } from "@searchops/types";
 
 import { demoSite } from "./work-order-board";
@@ -15,6 +17,7 @@ export type AeoReadinessTone = "good" | "neutral" | "risk";
 
 export interface KeywordAeoDashboardData {
   readonly errorMessage: string | null;
+  readonly keywordDiscoveries: readonly KeywordDiscoveryCandidateRecord[];
   readonly reports: readonly AeoReadinessReport[];
   readonly source: KeywordAeoDashboardSource;
 }
@@ -126,11 +129,66 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
   }
 ];
 
+export const demoKeywordDiscoveryCandidates: KeywordDiscoveryCandidateRecord[] = [
+  {
+    id: "keyword_discovery_fixture_1",
+    siteId: demoSite.id,
+    keywordId: "keyword_fixture_1",
+    phrase: "answer engine optimization clinic",
+    locale: "ko-KR",
+    language: "ko",
+    country: "KR",
+    intent: "commercial",
+    source: "gsc",
+    pageUrl: "https://example-clinic.com/service/aeo",
+    score: 132,
+    evidence: {
+      provider: "gsc",
+      pageUrl: "https://example-clinic.com/service/aeo",
+      sourceField: "query",
+      clicks: 14,
+      impressions: 132,
+      position: 4.2
+    },
+    generatedBy: "deterministic",
+    discoveredAt: "2026-05-25T00:00:00.000Z",
+    createdAt: "2026-05-25T00:00:00.000Z",
+    updatedAt: "2026-05-25T00:00:00.000Z"
+  },
+  {
+    id: "keyword_discovery_fixture_2",
+    siteId: demoSite.id,
+    keywordId: "keyword_fixture_2",
+    phrase: "medical seo checklist",
+    locale: "ko-KR",
+    language: "ko",
+    country: "KR",
+    intent: "informational",
+    source: "cms",
+    pageUrl: "https://example-clinic.com/blog/medical-seo-checklist",
+    score: 25,
+    evidence: {
+      provider: "cms",
+      pageUrl: "https://example-clinic.com/blog/medical-seo-checklist",
+      sourceField: "title",
+      title: "medical seo checklist"
+    },
+    generatedBy: "deterministic",
+    discoveredAt: "2026-05-25T00:00:00.000Z",
+    createdAt: "2026-05-25T00:00:00.000Z",
+    updatedAt: "2026-05-25T00:00:00.000Z"
+  }
+];
+
 export function createDemoKeywordAeoDashboard(
   siteId: string = demoSite.id,
 ): KeywordAeoDashboardData {
   return {
     errorMessage: null,
+    keywordDiscoveries: demoKeywordDiscoveryCandidates.map((candidate) => ({
+      ...candidate,
+      siteId
+    })),
     reports: demoAeoReadinessReports.map((report) =>
       AeoReadinessReportSchema.parse({
         ...report,
@@ -151,19 +209,26 @@ export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAe
   }
 
   try {
-    const response = await fetch(
-      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/aeo-readiness-reports`,
-      {
+    const [readinessResponse, discoveryResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/aeo-readiness-reports`, {
         cache: "no-store"
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`Keyword/AEO readiness request failed with ${response.status}`);
+      }),
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
+        cache: "no-store"
+      })
+    ]);
+    if (!readinessResponse.ok) {
+      throw new Error(`Keyword/AEO readiness request failed with ${readinessResponse.status}`);
+    }
+    if (!discoveryResponse.ok) {
+      throw new Error(`Keyword discovery request failed with ${discoveryResponse.status}`);
     }
 
-    const list = AeoReadinessReportListResponseSchema.parse(await response.json());
+    const list = AeoReadinessReportListResponseSchema.parse(await readinessResponse.json());
+    const discoveryList = KeywordDiscoveryListResponseSchema.parse(await discoveryResponse.json());
     return {
       errorMessage: null,
+      keywordDiscoveries: discoveryList.candidates,
       reports: list.reports.map((report) => mapRecordToReadinessReport(report)),
       source: "api"
     };

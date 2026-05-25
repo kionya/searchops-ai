@@ -572,6 +572,10 @@ describe("web foundation", () => {
       "site_1",
       "site_1"
     ]);
+    expect(dashboard.keywordDiscoveries.map((candidate) => candidate.siteId)).toEqual([
+      "site_1",
+      "site_1"
+    ]);
     expect(summarizeKeywordAeoDashboard(dashboard)).toEqual({
       averageScore: "61",
       needsWork: 1,
@@ -595,36 +599,69 @@ describe("web foundation", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/aeo-readiness-reports");
+        const url = String(input);
 
+        if (url.endsWith("/sites/site_1/aeo-readiness-reports")) {
+          return Response.json({
+            reports: [
+              {
+                checks: [
+                  {
+                    checkId: "KEYWORD_INTENT_DEFINED",
+                    evidence: {
+                      expectedValue: "Non-null deterministic keyword intent",
+                      observedValue: "commercial",
+                      sourceField: "keyword.intent",
+                      url: null
+                    },
+                    score: 100,
+                    status: "pass"
+                  }
+                ],
+                createdAt: "2026-05-23T00:00:00.000Z",
+                evaluatedAt: "2026-05-23T00:00:00.000Z",
+                generatedBy: "deterministic",
+                id: "aeo_report_1",
+                intent: "commercial",
+                keywordId: "keyword_1",
+                locale: "ko-KR",
+                pageUrl: "https://example-clinic.com/service/seo",
+                phrase: "seo clinic",
+                score: 72,
+                siteId: "site_1",
+                status: "needs_work"
+              }
+            ]
+          });
+        }
+
+        expect(url).toBe("https://api.searchops.test/sites/site_1/keyword-discoveries");
         return Response.json({
-          reports: [
+          candidates: [
             {
-              checks: [
-                {
-                  checkId: "KEYWORD_INTENT_DEFINED",
-                  evidence: {
-                    expectedValue: "Non-null deterministic keyword intent",
-                    observedValue: "commercial",
-                    sourceField: "keyword.intent",
-                    url: null
-                  },
-                  score: 100,
-                  status: "pass"
-                }
-              ],
-              createdAt: "2026-05-23T00:00:00.000Z",
-              evaluatedAt: "2026-05-23T00:00:00.000Z",
-              generatedBy: "deterministic",
-              id: "aeo_report_1",
-              intent: "commercial",
-              keywordId: "keyword_1",
-              locale: "ko-KR",
-              pageUrl: "https://example-clinic.com/service/seo",
-              phrase: "seo clinic",
-              score: 72,
+              id: "keyword_discovery_1",
               siteId: "site_1",
-              status: "needs_work"
+              keywordId: "keyword_1",
+              phrase: "seo clinic",
+              locale: "ko-KR",
+              language: "ko",
+              country: "KR",
+              intent: "commercial",
+              source: "gsc",
+              pageUrl: "https://example-clinic.com/service/seo",
+              score: 120,
+              evidence: {
+                provider: "gsc",
+                pageUrl: "https://example-clinic.com/service/seo",
+                sourceField: "query",
+                clicks: 12,
+                impressions: 120,
+                position: 3.2
+              },
+              generatedBy: "deterministic",
+              discoveredAt: "2026-05-25T00:00:00.000Z",
+              createdAt: "2026-05-25T00:00:00.000Z",
+              updatedAt: "2026-05-25T00:00:00.000Z"
             }
           ]
         });
@@ -644,6 +681,11 @@ describe("web foundation", () => {
       score: 72,
       status: "needs_work"
     });
+    expect(dashboard.keywordDiscoveries).toHaveLength(1);
+    expect(dashboard.keywordDiscoveries[0]).toMatchObject({
+      phrase: "seo clinic",
+      source: "gsc"
+    });
   });
 
   it("keeps keyword AEO readiness deterministic without an API base URL", async () => {
@@ -652,6 +694,12 @@ describe("web foundation", () => {
         expect.objectContaining({
           generatedBy: "deterministic",
           keyword: expect.objectContaining({ siteId: "site_1" })
+        })
+      ]),
+      keywordDiscoveries: expect.arrayContaining([
+        expect.objectContaining({
+          generatedBy: "deterministic",
+          siteId: "site_1"
         })
       ]),
       source: "fixture"
@@ -670,6 +718,7 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("fixture");
     expect(dashboard.errorMessage).toContain("503");
     expect(dashboard.reports).toHaveLength(3);
+    expect(dashboard.keywordDiscoveries).toHaveLength(2);
   });
 
   it("summarizes deterministic schema recommendation fixtures", () => {

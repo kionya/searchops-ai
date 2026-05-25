@@ -7,6 +7,7 @@ import {
   ContentBriefSchema,
   CrawlRunSchema,
   GeoVisibilityReportRecordSchema,
+  KeywordDiscoveryCandidateRecordSchema,
   OrganizationSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueSchema,
@@ -25,6 +26,7 @@ import {
   type GeoVisibilityReportRecord,
   type JsonLdRecommendation,
   type JsonLdRecommendationSet,
+  type KeywordDiscoveryCandidateRecord,
   type Organization,
   type SchemaRecommendationRecord,
   type SeoIssue,
@@ -54,6 +56,9 @@ type ClosedLoopAuditEventRecord = Awaited<
 type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
 type AeoReadinessReportRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["aeoReadinessReport"]["findFirst"]>
+>;
+type KeywordDiscoveryCandidateRecordResult = Awaited<
+  ReturnType<SearchOpsPrismaClient["keywordDiscoveryCandidate"]["findFirst"]>
 >;
 type GeoVisibilityReportRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["geoVisibilityReport"]["findFirst"]>
@@ -456,6 +461,101 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         where: { siteId }
       });
       return reports.map(toAeoReadinessReportRecord);
+    },
+
+    async createKeywordDiscoveryCandidates(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null || input.discoverySet.siteId !== siteId) {
+        return null;
+      }
+
+      const records = await prisma.$transaction(async (transaction) => {
+        const persisted: NonNullable<KeywordDiscoveryCandidateRecordResult>[] = [];
+
+        for (const candidate of input.discoverySet.candidates) {
+          const keyword = await transaction.keyword.upsert({
+            create: {
+              intent: candidate.keyword.intent,
+              locale: candidate.keyword.locale,
+              phrase: candidate.keyword.phrase,
+              siteId
+            },
+            select: { id: true },
+            update: {
+              intent: candidate.keyword.intent
+            },
+            where: {
+              siteId_phrase_locale: {
+                locale: candidate.keyword.locale,
+                phrase: candidate.keyword.phrase,
+                siteId
+              }
+            }
+          });
+
+          persisted.push(
+            await transaction.keywordDiscoveryCandidate.upsert({
+              create: {
+                country: candidate.keyword.country,
+                discoveredAt: new Date(input.discoverySet.discoveredAt),
+                evidence: candidate.evidence,
+                generatedBy: input.discoverySet.generatedBy,
+                intent: candidate.keyword.intent,
+                keywordId: keyword.id,
+                language: candidate.keyword.language,
+                locale: candidate.keyword.locale,
+                pageUrl: candidate.pageUrl,
+                phrase: candidate.keyword.phrase,
+                score: candidate.score,
+                siteId,
+                source: candidate.keyword.source
+              },
+              update: {
+                country: candidate.keyword.country,
+                discoveredAt: new Date(input.discoverySet.discoveredAt),
+                evidence: candidate.evidence,
+                generatedBy: input.discoverySet.generatedBy,
+                intent: candidate.keyword.intent,
+                keywordId: keyword.id,
+                language: candidate.keyword.language,
+                pageUrl: candidate.pageUrl,
+                score: candidate.score
+              },
+              where: {
+                siteId_phrase_locale_source: {
+                  locale: candidate.keyword.locale,
+                  phrase: candidate.keyword.phrase,
+                  siteId,
+                  source: candidate.keyword.source
+                }
+              }
+            }),
+          );
+        }
+
+        return persisted;
+      });
+
+      return records.map(toKeywordDiscoveryCandidateRecord).sort(orderKeywordDiscoveryCandidates);
+    },
+
+    async listKeywordDiscoveryCandidates(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const candidates = await prisma.keywordDiscoveryCandidate.findMany({
+        orderBy: [{ score: "desc" }, { discoveredAt: "desc" }, { phrase: "asc" }],
+        where: { siteId }
+      });
+      return candidates.map(toKeywordDiscoveryCandidateRecord);
     },
 
     async createGeoVisibilityReport(siteId, input) {
@@ -1346,6 +1446,40 @@ function toAeoReadinessReportRecord(
     evaluatedAt: record.evaluatedAt.toISOString(),
     createdAt: record.createdAt.toISOString()
   });
+}
+
+function toKeywordDiscoveryCandidateRecord(
+  record: NonNullable<KeywordDiscoveryCandidateRecordResult>,
+): KeywordDiscoveryCandidateRecord {
+  return KeywordDiscoveryCandidateRecordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    keywordId: record.keywordId,
+    phrase: record.phrase,
+    locale: record.locale,
+    language: record.language,
+    country: record.country,
+    intent: record.intent,
+    source: record.source,
+    pageUrl: record.pageUrl,
+    score: record.score,
+    evidence: record.evidence,
+    generatedBy: record.generatedBy,
+    discoveredAt: record.discoveredAt.toISOString(),
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  });
+}
+
+function orderKeywordDiscoveryCandidates(
+  left: KeywordDiscoveryCandidateRecord,
+  right: KeywordDiscoveryCandidateRecord,
+) {
+  return (
+    right.score - left.score ||
+    right.discoveredAt.localeCompare(left.discoveredAt) ||
+    left.phrase.localeCompare(right.phrase)
+  );
 }
 
 function toGeoVisibilityReportRecord(

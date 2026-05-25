@@ -17,6 +17,8 @@ import type {
   GeoVisibilityReport,
   GeoVisibilityReportRecord,
   JsonLdRecommendationSet,
+  KeywordDiscoveryCandidateRecord,
+  KeywordDiscoverySet,
   Organization,
   RecheckSchemaRecommendationResponse,
   ResolveWorkOrderIssueResponse,
@@ -64,6 +66,10 @@ export interface CreateContentBriefDraftInput {
 export interface CreateAeoReadinessReportInput {
   keywordId?: string | null;
   readinessReport: AeoReadinessReport;
+}
+
+export interface CreateKeywordDiscoveryCandidatesInput {
+  discoverySet: KeywordDiscoverySet;
 }
 
 export interface CreateGeoVisibilityReportInput {
@@ -157,6 +163,13 @@ export interface SearchOpsRepository {
     input: CreateAeoReadinessReportInput,
   ): Promise<AeoReadinessReportRecord | null>;
   listAeoReadinessReports(siteId: string): Promise<AeoReadinessReportRecord[] | null>;
+  createKeywordDiscoveryCandidates(
+    siteId: string,
+    input: CreateKeywordDiscoveryCandidatesInput,
+  ): Promise<KeywordDiscoveryCandidateRecord[] | null>;
+  listKeywordDiscoveryCandidates(siteId: string): Promise<
+    KeywordDiscoveryCandidateRecord[] | null
+  >;
   createGeoVisibilityReport(
     siteId: string,
     input: CreateGeoVisibilityReportInput,
@@ -214,6 +227,7 @@ export interface MemoryRepositorySeed {
   readonly closedLoopAuditEvents?: readonly ClosedLoopAuditEvent[];
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
+  readonly keywordDiscoveryCandidates?: readonly KeywordDiscoveryCandidateRecord[];
   readonly geoVisibilityReports?: readonly GeoVisibilityReportRecord[];
   readonly complianceFlags?: readonly ComplianceFlag[];
   readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
@@ -229,6 +243,20 @@ function createId(prefix: string, index: number) {
   return `${prefix}_${index.toString().padStart(4, "0")}`;
 }
 
+function createKeywordDiscoveryKey({
+  locale,
+  phrase,
+  siteId,
+  source
+}: {
+  readonly locale: string;
+  readonly phrase: string;
+  readonly siteId: string;
+  readonly source: string;
+}) {
+  return `${siteId}::${phrase}::${locale}::${source}`;
+}
+
 export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchOpsRepository {
   const organizations = new Map<string, Organization>();
   const sites = new Map<string, Site>();
@@ -238,6 +266,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const closedLoopAuditEvents = new Map<string, ClosedLoopAuditEvent>();
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
+  const keywordDiscoveryCandidates = new Map<string, KeywordDiscoveryCandidateRecord>();
   const geoVisibilityReports = new Map<string, GeoVisibilityReportRecord>();
   const complianceFlags = new Map<string, ComplianceFlag>();
   const schemaRecommendations = new Map<string, SchemaRecommendationRecord>();
@@ -250,6 +279,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let closedLoopAuditEventCounter = 1;
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
+  let keywordDiscoveryCandidateCounter = 1;
   let geoVisibilityReportCounter = 1;
   let complianceFlagCounter = 1;
   let schemaRecommendationCounter = 1;
@@ -293,6 +323,19 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const aeoReadinessReport of seed.aeoReadinessReports ?? []) {
     aeoReadinessReports.set(aeoReadinessReport.id, aeoReadinessReport);
     aeoReadinessReportCounter += 1;
+  }
+
+  for (const candidate of seed.keywordDiscoveryCandidates ?? []) {
+    keywordDiscoveryCandidates.set(
+      createKeywordDiscoveryKey({
+        locale: candidate.locale,
+        phrase: candidate.phrase,
+        siteId: candidate.siteId,
+        source: candidate.source
+      }),
+      candidate,
+    );
+    keywordDiscoveryCandidateCounter += 1;
   }
 
   for (const geoVisibilityReport of seed.geoVisibilityReports ?? []) {
@@ -604,6 +647,75 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           (a, b) =>
             b.evaluatedAt.localeCompare(a.evaluatedAt) ||
             b.createdAt.localeCompare(a.createdAt) ||
+            a.phrase.localeCompare(b.phrase),
+        );
+    },
+
+    async createKeywordDiscoveryCandidates(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site || input.discoverySet.siteId !== siteId) {
+        return null;
+      }
+
+      const timestamp = nowIso();
+      const records = input.discoverySet.candidates.map((candidate) => {
+        const key = createKeywordDiscoveryKey({
+          locale: candidate.keyword.locale,
+          phrase: candidate.keyword.phrase,
+          siteId,
+          source: candidate.keyword.source
+        });
+        const existing = keywordDiscoveryCandidates.get(key);
+        const keywordId = existing?.keywordId ?? createId("keyword", keywordCounter);
+        if (!existing?.keywordId) {
+          keywordCounter += 1;
+        }
+
+        const record: KeywordDiscoveryCandidateRecord = {
+          id: existing?.id ?? createId("keyword_discovery", keywordDiscoveryCandidateCounter),
+          siteId,
+          keywordId,
+          phrase: candidate.keyword.phrase,
+          locale: candidate.keyword.locale,
+          language: candidate.keyword.language,
+          country: candidate.keyword.country,
+          intent: candidate.keyword.intent,
+          source: candidate.keyword.source,
+          pageUrl: candidate.pageUrl,
+          score: candidate.score,
+          evidence: candidate.evidence,
+          generatedBy: input.discoverySet.generatedBy,
+          discoveredAt: input.discoverySet.discoveredAt,
+          createdAt: existing?.createdAt ?? timestamp,
+          updatedAt: timestamp
+        };
+
+        if (!existing) {
+          keywordDiscoveryCandidateCounter += 1;
+        }
+        keywordDiscoveryCandidates.set(key, record);
+        return record;
+      });
+
+      return records.sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.discoveredAt.localeCompare(a.discoveredAt) ||
+          a.phrase.localeCompare(b.phrase),
+      );
+    },
+
+    async listKeywordDiscoveryCandidates(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...keywordDiscoveryCandidates.values()]
+        .filter((candidate) => candidate.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            b.discoveredAt.localeCompare(a.discoveredAt) ||
             a.phrase.localeCompare(b.phrase),
         );
     },

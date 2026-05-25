@@ -197,6 +197,7 @@ function KeywordAeoReadinessPanel({
         <MetricCard label="Ready" value={String(summary.ready)} />
         <MetricCard label="Needs work" value={String(summary.needsWork + summary.notReady)} />
         <MetricCard label="Avg score" value={summary.averageScore} />
+        <MetricCard label="Discovered" value={String(dashboard.keywordDiscoveries.length)} />
       </div>
       <div style={tableScrollStyle}>
         <table style={{ ...tableStyle, minWidth: 980 }}>
@@ -261,6 +262,58 @@ function KeywordAeoReadinessPanel({
                   </tr>
                 );
               })
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ ...tableScrollStyle, marginTop: 12 }}>
+        <table style={{ ...tableStyle, minWidth: 940 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Discovered keyword</th>
+              <th style={thStyle}>Source</th>
+              <th style={thStyle}>Score</th>
+              <th style={thStyle}>Candidate page</th>
+              <th style={thStyle}>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dashboard.keywordDiscoveries.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
+                  No keyword discovery candidates yet.
+                </td>
+              </tr>
+            ) : (
+              dashboard.keywordDiscoveries.slice(0, 8).map((candidate) => (
+                <tr key={candidate.id}>
+                  <td style={tdStyle}>
+                    <strong>{candidate.phrase}</strong>
+                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      {candidate.locale}; {candidate.intent ?? "unclassified"}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+                      {candidate.source}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <strong>{candidate.score}</strong>
+                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      {candidate.generatedBy}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    {candidate.pageUrl ?? "No candidate page"}
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{ color: "#64748b", display: "block", fontSize: 13 }}>
+                      {candidate.evidence.sourceField}; {candidate.evidence.impressions ?? candidate.evidence.title ?? "record"}
+                    </span>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

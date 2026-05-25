@@ -6,7 +6,11 @@ import {
   generateAeoFaqGapSet,
 } from "@searchops/aeo-core";
 import { evaluateCompliance } from "@searchops/compliance";
-import { CmsWebhookProviderSchema, normalizeCmsWebhookPayload } from "@searchops/connectors";
+import {
+  CmsWebhookProviderSchema,
+  discoverKeywordTargetsFromConnectorResults,
+  normalizeCmsWebhookPayload,
+} from "@searchops/connectors";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
 import {
   extractJsonLdTypes,
@@ -45,6 +49,8 @@ import {
   CreateGeoVisibilityReportRequestSchema,
   CreateGeoVisibilityReportResponseSchema,
   CreateGeoVisibilityReportWorkOrderResponseSchema,
+  CreateKeywordDiscoveryRequestSchema,
+  CreateKeywordDiscoveryResponseSchema,
   CreateOrganizationRequestSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
@@ -52,6 +58,7 @@ import {
   CreateSiteRequestSchema,
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
+  KeywordDiscoveryListResponseSchema,
   OrganizationListResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
   RecheckComplianceFlagRequestSchema,
@@ -556,6 +563,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(AeoReadinessReportListResponseSchema.parse({ reports }));
   });
 
+  server.get("/sites/:id/keyword-discoveries", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const candidates = await repository.listKeywordDiscoveryCandidates(id);
+    if (!candidates) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(KeywordDiscoveryListResponseSchema.parse({ candidates }));
+  });
+
   server.get("/sites/:id/geo-visibility-reports", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const reports = await repository.listGeoVisibilityReports(id);
@@ -687,6 +705,62 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply
       .status(201)
       .send(CreateAeoReadinessReportResponseSchema.parse({ report, readinessReport }));
+  });
+
+  server.post("/sites/:id/keyword-discoveries", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = CreateKeywordDiscoveryRequestSchema.parse(request.body ?? {});
+    const syncDetail = await repository.getConnectorSyncRun(input.connectorSyncRunId);
+    if (!syncDetail) {
+      reply.status(404).send(notFound("Connector sync run not found"));
+      return;
+    }
+
+    if (syncDetail.connectorSyncRun.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "connectorSyncRunId must belong to the route site",
+      });
+      return;
+    }
+
+    const connectorResults = syncDetail.results.map((result) => ({
+      fetchedAt: result.fetchedAt,
+      fixture: result.fixture,
+      provider: result.provider,
+      records: result.records,
+      status: result.status,
+    }));
+    const discoverySet = discoverKeywordTargetsFromConnectorResults(connectorResults, {
+      ...(input.country === undefined ? {} : { country: input.country }),
+      ...(input.language === undefined ? {} : { language: input.language }),
+      ...(input.locale === undefined ? {} : { locale: input.locale }),
+      discoveredAt: input.discoveredAt ?? new Date().toISOString(),
+      maxCandidates: input.maxCandidates,
+      minImpressions: input.minImpressions,
+      siteId: site.id,
+    });
+
+    const candidates = await repository.createKeywordDiscoveryCandidates(site.id, {
+      discoverySet,
+    });
+    if (!candidates) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.status(201).send(
+      CreateKeywordDiscoveryResponseSchema.parse({
+        discoverySet,
+        candidates,
+      }),
+    );
   });
 
   server.post("/sites/:id/geo-visibility-reports", async (request, reply) => {
