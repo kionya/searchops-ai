@@ -16,6 +16,8 @@ import {
   type PageSpeedMetric
 } from "@searchops/types";
 
+export * from "./cms-webhooks.js";
+
 export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
 

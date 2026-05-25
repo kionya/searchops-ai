@@ -12,4 +12,5 @@ This package owns auth, retries, rate-limit behavior, and response normalization
 - `ConnectorAdapter` defines the async sync port that future live adapters will implement.
 - `fixtureConnectorAdapters` provides the current deterministic adapter registry.
 - `syncFixtureConnectors` runs fixture adapters in canonical provider order and returns a batch summary.
+- CMS webhook adapters normalize WordPress, Webflow, and generic headless CMS payloads into `CmsContentUpdatedEventRequest` without live CMS fetches or publishing.
 - Runtime auth, retries, pagination, and rate limiting are future adapter work; tests use fixtures only.
