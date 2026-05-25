@@ -26,9 +26,14 @@ The AEO readiness API computes deterministic readiness reports from keyword and 
 
 The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, converts open flags into legal-review WorkOrders, rechecks revised draft copy, and accepts CMS content update events that trigger deterministic rechecks for matching active flags. It does not call LLM providers, live CMS APIs, or publish medical content.
 
+## Phase 11 API
+
+The API exposes process-local operational metrics and can enforce request rate limits from validated environment settings. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
+
 ## Routes
 
 - `GET /health`
+- `GET /metrics`
 - `GET /auth/context`
 - `GET /organizations`
 - `POST /organizations`

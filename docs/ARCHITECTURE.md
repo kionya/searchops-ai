@@ -143,3 +143,9 @@ CMS webhook security lives at the API boundary, not inside `packages/compliance`
 Provider-specific CMS webhook payload adapters live in `packages/connectors`. WordPress, Webflow, and generic headless CMS payloads are normalized to `CmsContentUpdatedEventRequest` before the API invokes the shared CMS-origin recheck flow. These adapters are deterministic, fixture-tested, and do not fetch from or publish to CMS systems.
 
 Closed-loop audit logging is owned by the API and DB layers. The deterministic compliance engine still returns only review results; the API records operational events such as CMS update received, compliance recheck, flag resolved, and linked WorkOrder completed so operators can inspect the loop without coupling audit persistence into `packages/compliance`.
+
+## Phase 11 Production Hardening Boundary
+
+Production hardening starts at runtime boundaries before deeper platform policy work. `apps/api` owns HTTP rate limiting and request metrics because those controls depend on request identity and deployment topology. The first implementation is in-memory and deterministic for local/test environments; distributed rate limiting can replace the same boundary later.
+
+`apps/worker` owns BullMQ worker failure handling. Queue producers define retry/backoff defaults, while worker runtimes write failed jobs to a dead-letter queue after BullMQ exhausts retries. Dead-letter payloads intentionally store queue/job metadata and failure reason, not secrets or raw external credentials.

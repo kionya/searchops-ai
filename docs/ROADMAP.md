@@ -163,3 +163,11 @@ Phase 11 starting status:
 - `CDX-111`: CMS content update events now support provider-scoped HMAC signature verification, timestamp replay protection, and explicit webhook secret env validation.
 - `CDX-112`: CMS provider webhook adapters normalize WordPress, Webflow, and generic headless payloads into the shared deterministic CMS content event contract before recheck.
 - `CDX-113`: Closed-loop audit logs persist CMS-triggered recheck transitions and expose site-scoped history through the API.
+- `CDX-114`: Production hardening foundation adds API rate-limit controls, request metrics, BullMQ retry/backoff assertions, and worker dead-letter queue payloads for failed jobs.
+
+Phase 11 remaining limitations:
+
+- API rate limiting is currently process-local. Multi-instance deployments still need a Redis-backed or edge rate limiter.
+- Request metrics are runtime-local JSON metrics, not yet exported to a central observability stack.
+- Dead-letter queues capture failed job metadata, but operator dashboard views and replay workflows are still future scope.
+- Auth/RBAC, tenant isolation hardening, backup/migration runbooks, and deployment secret rotation still need dedicated PRs.

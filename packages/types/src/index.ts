@@ -23,6 +23,13 @@ const JsonObjectStringSchema = z.string().refine((value) => {
     return false;
   }
 }, "Expected a JSON object string");
+const BooleanStringSchema = z
+  .enum(["true", "false"])
+  .transform((value) => value === "true");
+const PositiveIntegerStringSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/, "Expected a positive integer")
+  .transform((value) => Number(value));
 export const NormalizedUrlSchema = HttpUrlSchema;
 
 export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
@@ -42,10 +49,35 @@ export const HealthResponseSchema = z.object({
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+export const ApiMetricsResponseSchema = z.object({
+  service: z.literal("api"),
+  uptimeSeconds: z.number().nonnegative(),
+  requests: z.object({
+    total: z.number().int().nonnegative(),
+    byStatus: z.record(z.number().int().nonnegative()),
+  }),
+});
+
+export type ApiMetricsResponse = z.infer<typeof ApiMetricsResponseSchema>;
+
+export const DeadLetterJobPayloadSchema = z.object({
+  originalQueue: NonEmptyStringSchema,
+  originalJobName: NonEmptyStringSchema,
+  originalJobId: z.string().min(1).nullable(),
+  failedReason: NonEmptyStringSchema,
+  attemptsMade: z.number().int().nonnegative(),
+  failedAt: IsoDateTimeSchema,
+});
+
+export type DeadLetterJobPayload = z.infer<typeof DeadLetterJobPayloadSchema>;
+
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
+  SEARCHOPS_RATE_LIMIT_ENABLED: BooleanStringSchema.optional(),
+  SEARCHOPS_RATE_LIMIT_MAX: PositiveIntegerStringSchema.optional(),
+  SEARCHOPS_RATE_LIMIT_WINDOW_MS: PositiveIntegerStringSchema.optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

@@ -16,6 +16,7 @@ import {
 } from "@searchops/workorders";
 
 import {
+  ApiMetricsResponseSchema,
   AeoReadinessReportListResponseSchema,
   ClosedLoopAuditEventListResponseSchema,
   CmsContentUpdatedEventRequestSchema,
@@ -103,11 +104,57 @@ export interface BuildApiServerOptions {
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
   readonly currentTime?: () => Date;
+  readonly rateLimit?: ApiRateLimitOptions;
   readonly requireCmsWebhookSignature?: boolean;
+}
+
+export interface ApiRateLimitOptions {
+  readonly enabled: boolean;
+  readonly maxRequests: number;
+  readonly windowMs: number;
+}
+
+interface RateLimitBucket {
+  count: number;
+  resetAtMs: number;
 }
 
 function notFound(message: string) {
   return { error: "not_found", message };
+}
+
+function getRateLimitKey(request: FastifyRequest) {
+  const forwardedFor = request.headers["x-forwarded-for"];
+  const firstForwardedFor = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const forwardedIp = firstForwardedFor?.split(",")[0]?.trim();
+
+  return forwardedIp && forwardedIp.length > 0 ? forwardedIp : request.ip;
+}
+
+function shouldRateLimitRequest(
+  buckets: Map<string, RateLimitBucket>,
+  key: string,
+  nowMs: number,
+  options: ApiRateLimitOptions,
+) {
+  for (const [bucketKey, bucketValue] of buckets.entries()) {
+    if (nowMs >= bucketValue.resetAtMs) {
+      buckets.delete(bucketKey);
+    }
+  }
+
+  const bucket = buckets.get(key);
+  if (bucket === undefined || nowMs >= bucket.resetAtMs) {
+    buckets.set(key, { count: 1, resetAtMs: nowMs + options.windowMs });
+    return false;
+  }
+
+  if (bucket.count >= options.maxRequests) {
+    return true;
+  }
+
+  bucket.count += 1;
+  return false;
 }
 
 function isActiveComplianceFlag(flag: ComplianceFlag) {
@@ -135,7 +182,45 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.requireCmsWebhookSignature ??
     (Object.keys(cmsWebhookSecrets).length > 0 || process.env.NODE_ENV === "production");
   const currentTime = options.currentTime ?? (() => new Date());
+  const rateLimit = options.rateLimit ?? {
+    enabled: false,
+    maxRequests: 120,
+    windowMs: 60_000,
+  };
+  const rateLimitBuckets = new Map<string, RateLimitBucket>();
+  const metricsStartedAtMs = currentTime().getTime();
+  const requestMetrics = {
+    byStatus: new Map<number, number>(),
+    total: 0,
+  };
   const server = Fastify({ logger: false });
+
+  server.addHook("onRequest", async (request, reply) => {
+    if (!rateLimit.enabled) {
+      return;
+    }
+
+    const limited = shouldRateLimitRequest(
+      rateLimitBuckets,
+      getRateLimitKey(request),
+      currentTime().getTime(),
+      rateLimit,
+    );
+    if (limited) {
+      return reply.status(429).send({
+        error: "rate_limited",
+        message: "Too many requests.",
+      });
+    }
+  });
+
+  server.addHook("onResponse", async (_request, reply) => {
+    requestMetrics.total += 1;
+    requestMetrics.byStatus.set(
+      reply.statusCode,
+      (requestMetrics.byStatus.get(reply.statusCode) ?? 0) + 1,
+    );
+  });
 
   async function sendCmsContentUpdatedEventResponse({
     event,
@@ -371,6 +456,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     HealthResponseSchema.parse({
       ok: true,
       service: "api",
+    }),
+  );
+
+  server.get("/metrics", async () =>
+    ApiMetricsResponseSchema.parse({
+      service: "api",
+      uptimeSeconds: Math.max(0, (currentTime().getTime() - metricsStartedAtMs) / 1000),
+      requests: {
+        total: requestMetrics.total,
+        byStatus: Object.fromEntries(
+          [...requestMetrics.byStatus.entries()].map(([status, count]) => [String(status), count]),
+        ),
+      },
     }),
   );
 

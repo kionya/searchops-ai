@@ -532,6 +532,85 @@ describe("api foundation", () => {
     expect(response.json()).toEqual({ ok: true, service: "api" });
   }, 10_000);
 
+  it("reports basic request metrics", async () => {
+    let now = new Date("2026-05-25T00:00:00.000Z");
+    const server = buildApiServer({
+      currentTime: () => now,
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    const healthResponse = await server.inject({ method: "GET", url: "/health" });
+    now = new Date("2026-05-25T00:00:12.000Z");
+    const metricsResponse = await server.inject({ method: "GET", url: "/metrics" });
+
+    expect(healthResponse.statusCode).toBe(200);
+    expect(metricsResponse.statusCode).toBe(200);
+    expect(metricsResponse.json()).toEqual({
+      service: "api",
+      uptimeSeconds: 12,
+      requests: {
+        total: 1,
+        byStatus: {
+          "200": 1,
+        },
+      },
+    });
+  });
+
+  it("rate limits requests when enabled", async () => {
+    const server = buildApiServer({
+      rateLimit: {
+        enabled: true,
+        maxRequests: 2,
+        windowMs: 60_000,
+      },
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    const firstResponse = await server.inject({ method: "GET", url: "/health" });
+    const secondResponse = await server.inject({ method: "GET", url: "/health" });
+    const limitedResponse = await server.inject({ method: "GET", url: "/health" });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(limitedResponse.statusCode).toBe(429);
+    expect(limitedResponse.json()).toEqual({
+      error: "rate_limited",
+      message: "Too many requests.",
+    });
+  });
+
+  it("resets rate-limit buckets after the configured window", async () => {
+    let now = new Date("2026-05-25T00:00:00.000Z");
+    const server = buildApiServer({
+      currentTime: () => now,
+      rateLimit: {
+        enabled: true,
+        maxRequests: 1,
+        windowMs: 1000,
+      },
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    const firstResponse = await server.inject({ method: "GET", url: "/health" });
+    const limitedResponse = await server.inject({ method: "GET", url: "/health" });
+    now = new Date("2026-05-25T00:00:01.000Z");
+    const resetResponse = await server.inject({ method: "GET", url: "/health" });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(limitedResponse.statusCode).toBe(429);
+    expect(resetResponse.statusCode).toBe(200);
+  });
+
   it("provides mock auth context without real login", async () => {
     const server = buildTestServer();
     const response = await server.inject({
