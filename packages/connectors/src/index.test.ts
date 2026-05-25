@@ -7,6 +7,7 @@ import {
   createConnectorRunResult,
   createFixtureConnectorAdapter,
   createLiveGeoAnswerMonitorAdapter,
+  createLiveSchemaRichResultValidatorAdapter,
   discoverKeywordTargetsFromConnectorResults,
   fixtureConnectorAdapters,
   fixtureGeoAnswerMonitorAdapters,
@@ -440,6 +441,76 @@ describe("connectors foundation", () => {
         provider: "perplexity"
       }),
     ).toThrow(/provider mismatch/);
+  });
+
+  it("wraps injected live rich-result validator clients behind the connector boundary", async () => {
+    const calls: unknown[] = [];
+    const adapter = createLiveSchemaRichResultValidatorAdapter({
+      client: {
+        async validate(input) {
+          calls.push(input);
+          return {
+            eligible: true,
+            issues: [],
+            missingRecommendedFields: [],
+            missingRequiredFields: [],
+            status: "eligible"
+          };
+        }
+      },
+      requestedAt: () => "2026-05-25T04:00:00.000Z"
+    });
+
+    const result = await adapter.validate({
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: "SEO service",
+        provider: {
+          "@type": "Organization",
+          name: "Example Clinic"
+        },
+        url: "https://example-clinic.com/service/seo"
+      },
+      recommendedFields: ["description"],
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+      type: "Service",
+      url: "https://example-clinic.com/service/seo"
+    });
+
+    expect(adapter.liveExternalApis).toBe("enabled");
+    expect(calls).toEqual([
+      {
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          provider: {
+            "@type": "Organization",
+            name: "Example Clinic"
+          },
+          url: "https://example-clinic.com/service/seo"
+        },
+        recommendedFields: ["description"],
+        requestedAt: "2026-05-25T04:00:00.000Z",
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        type: "Service",
+        url: "https://example-clinic.com/service/seo"
+      }
+    ]);
+    expect(result).toEqual({
+      eligible: true,
+      generatedBy: "connector",
+      issues: [],
+      liveExternalApis: "enabled",
+      missingRecommendedFields: [],
+      missingRequiredFields: [],
+      recommendedFields: ["description"],
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+      status: "eligible",
+      type: "Service",
+      url: "https://example-clinic.com/service/seo"
+    });
   });
 
   it("discovers keyword targets from connector run results deterministically", async () => {

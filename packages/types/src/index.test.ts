@@ -350,6 +350,25 @@ describe("types foundation", () => {
       issues: [{ severity: "error" }, { severity: "warning" }],
       status: "needs_required_fields",
     });
+    expect(
+      SchemaRichResultValidationResultSchema.parse({
+        type: "FAQPage",
+        url: "https://example.com/faq",
+        status: "eligible",
+        eligible: true,
+        requiredFields: ["@context", "@type", "mainEntity"],
+        missingRequiredFields: [],
+        recommendedFields: ["name"],
+        missingRecommendedFields: [],
+        issues: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toMatchObject({
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      status: "eligible",
+    });
   });
 
   it("validates persisted schema recommendation API contracts", () => {

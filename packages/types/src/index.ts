@@ -1316,6 +1316,15 @@ export type SchemaRichResultValidationIssue = z.infer<
   typeof SchemaRichResultValidationIssueSchema
 >;
 
+export const SchemaRichResultValidationGenerationModeSchema = z.enum([
+  "deterministic",
+  "connector",
+]);
+
+export type SchemaRichResultValidationGenerationMode = z.infer<
+  typeof SchemaRichResultValidationGenerationModeSchema
+>;
+
 export const SchemaRichResultValidationResultSchema = z.object({
   type: SchemaJsonLdTypeSchema,
   url: NormalizedUrlSchema,
@@ -1326,7 +1335,8 @@ export const SchemaRichResultValidationResultSchema = z.object({
   recommendedFields: z.array(NonEmptyStringSchema),
   missingRecommendedFields: z.array(NonEmptyStringSchema),
   issues: z.array(SchemaRichResultValidationIssueSchema),
-  generatedBy: z.literal("deterministic"),
+  generatedBy: SchemaRichResultValidationGenerationModeSchema,
+  liveExternalApis: LiveExternalApiModeSchema.default("disabled"),
 });
 
 export type SchemaRichResultValidationResult = z.infer<

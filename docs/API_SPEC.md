@@ -24,7 +24,7 @@ The AEO readiness API computes deterministic readiness reports from keyword and 
 
 ## Phase 8 API
 
-The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, and can queue a one-page crawl for a recommendation's page URL. It does not call LLM providers, live rich-result validators, or CMS publish adapters.
+The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, and can queue a one-page crawl for a recommendation's page URL. It does not call LLM providers, live rich-result validators, or CMS publish adapters. Optional live rich-result validation belongs behind `packages/connectors` adapter ports and is not invoked by API handlers by default.
 
 ## Phase 10 API
 
