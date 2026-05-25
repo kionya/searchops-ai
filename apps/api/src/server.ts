@@ -17,6 +17,7 @@ import {
 
 import {
   AeoReadinessReportListResponseSchema,
+  ClosedLoopAuditEventListResponseSchema,
   CmsContentUpdatedEventRequestSchema,
   CmsContentUpdatedEventResponseSchema,
   ComplianceFlagListResponseSchema,
@@ -78,7 +79,11 @@ import {
   createMemoryConnectorSyncQueue,
   createMemoryCrawlRunQueue,
 } from "./queue.js";
-import { type SearchOpsRepository, createMemoryRepository } from "./repository.js";
+import {
+  type CreateClosedLoopAuditEventInput,
+  type SearchOpsRepository,
+  createMemoryRepository,
+} from "./repository.js";
 import {
   parseCmsWebhookSecrets,
   verifyCmsWebhookRequest,
@@ -184,6 +189,24 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    await recordClosedLoopAuditEvent({
+      cmsType: event.cmsType,
+      eventType: "cms_content_updated",
+      externalId: event.externalId,
+      message: `CMS content update received for ${event.url}.`,
+      metadata: {
+        status: event.status,
+        updatedAt: event.updatedAt,
+        url: event.url,
+      },
+      organizationId: site.organizationId,
+      siteId: site.id,
+      source: "cms_webhook",
+      status: "received",
+      subjectId: event.externalId,
+      subjectType: "page_copy",
+    });
+
     const complianceFlags = await repository.listComplianceFlags(site.id);
     if (!complianceFlags) {
       reply.status(404).send(notFound("Site not found"));
@@ -195,6 +218,25 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     );
     const rechecks: RecheckComplianceFlagResponse[] = [];
     let skippedFlagCount = 0;
+
+    if (activeMatchingFlags.length === 0) {
+      await recordClosedLoopAuditEvent({
+        cmsType: event.cmsType,
+        eventType: "compliance_recheck",
+        externalId: event.externalId,
+        message: `No active compliance flags matched CMS content ${event.externalId}.`,
+        metadata: {
+          matchedFlagCount: 0,
+          url: event.url,
+        },
+        organizationId: site.organizationId,
+        siteId: site.id,
+        source: "cms_webhook",
+        status: "skipped",
+        subjectId: event.externalId,
+        subjectType: "page_copy",
+      });
+    }
 
     for (const complianceFlag of activeMatchingFlags) {
       if (complianceFlag.ruleId === undefined || complianceFlag.siteId === null) {
@@ -230,6 +272,69 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         continue;
       }
 
+      await recordClosedLoopAuditEvent({
+        cmsType: event.cmsType,
+        complianceFlagId: result.complianceFlag.id,
+        eventType: "compliance_recheck",
+        externalId: event.externalId,
+        message: `Compliance flag ${result.complianceFlag.id} rechecked after CMS update.`,
+        metadata: {
+          reportStatus: report.status,
+          resolved: result.resolved,
+          ruleId: complianceFlag.ruleId,
+          workOrderStatus: result.workOrder?.status ?? null,
+        },
+        organizationId: site.organizationId,
+        siteId: site.id,
+        source: "cms_webhook",
+        status: result.resolved ? "resolved" : "open",
+        subjectId: event.externalId,
+        subjectType: "page_copy",
+        workOrderId: result.workOrder?.id ?? complianceFlag.workOrderId ?? null,
+      });
+
+      if (result.resolved) {
+        await recordClosedLoopAuditEvent({
+          cmsType: event.cmsType,
+          complianceFlagId: result.complianceFlag.id,
+          eventType: "compliance_flag_resolved",
+          externalId: event.externalId,
+          message: `Compliance flag ${result.complianceFlag.id} resolved after CMS update.`,
+          metadata: {
+            ruleId: complianceFlag.ruleId,
+            url: event.url,
+          },
+          organizationId: site.organizationId,
+          siteId: site.id,
+          source: "cms_webhook",
+          status: "resolved",
+          subjectId: event.externalId,
+          subjectType: "page_copy",
+          workOrderId: result.workOrder?.id ?? complianceFlag.workOrderId ?? null,
+        });
+      }
+
+      if (result.workOrder?.status === "done") {
+        await recordClosedLoopAuditEvent({
+          cmsType: event.cmsType,
+          complianceFlagId: result.complianceFlag.id,
+          eventType: "work_order_done",
+          externalId: event.externalId,
+          message: `Work order ${result.workOrder.id} completed after CMS recheck.`,
+          metadata: {
+            complianceFlagId: result.complianceFlag.id,
+            ruleId: complianceFlag.ruleId,
+          },
+          organizationId: site.organizationId,
+          siteId: site.id,
+          source: "cms_webhook",
+          status: "done",
+          subjectId: event.externalId,
+          subjectType: "page_copy",
+          workOrderId: result.workOrder.id,
+        });
+      }
+
       rechecks.push(result);
     }
 
@@ -241,6 +346,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         skippedFlagCount,
       }),
     );
+  }
+
+  async function recordClosedLoopAuditEvent(input: CreateClosedLoopAuditEventInput) {
+    await repository.createClosedLoopAuditEvent(input);
   }
 
   server.setErrorHandler((error: unknown, _request, reply) => {
@@ -364,6 +473,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ComplianceFlagListResponseSchema.parse({ complianceFlags }));
+  });
+
+  server.get("/sites/:id/closed-loop-audit-events", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const auditEvents = await repository.listClosedLoopAuditEvents(id);
+    if (!auditEvents) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(ClosedLoopAuditEventListResponseSchema.parse({ auditEvents }));
   });
 
   server.get("/sites/:id/schema-recommendations", async (request, reply) => {

@@ -1,6 +1,7 @@
 import type {
   AeoReadinessReport,
   AeoReadinessReportRecord,
+  ClosedLoopAuditEvent,
   ComplianceFlag,
   ComplianceReviewReport,
   ConnectorProviderList,
@@ -38,6 +39,22 @@ export interface CreateConnectorSyncRunInput {
 export interface ConnectorSyncRunDetail {
   connectorSyncRun: ConnectorSyncRun;
   results: ConnectorSyncResult[];
+}
+
+export interface CreateClosedLoopAuditEventInput {
+  readonly organizationId: string;
+  readonly siteId: string | null;
+  readonly eventType: ClosedLoopAuditEvent["eventType"];
+  readonly status: ClosedLoopAuditEvent["status"];
+  readonly source: string;
+  readonly subjectType?: string | null;
+  readonly subjectId?: string | null;
+  readonly cmsType?: string | null;
+  readonly externalId?: string | null;
+  readonly complianceFlagId?: string | null;
+  readonly workOrderId?: string | null;
+  readonly message: string;
+  readonly metadata?: Record<string, unknown> | null;
 }
 
 export interface CreateContentBriefDraftInput {
@@ -125,6 +142,10 @@ export interface SearchOpsRepository {
   ): Promise<ConnectorSyncRun | null>;
   listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
   getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
+  createClosedLoopAuditEvent(
+    input: CreateClosedLoopAuditEventInput,
+  ): Promise<ClosedLoopAuditEvent | null>;
+  listClosedLoopAuditEvents(siteId: string): Promise<ClosedLoopAuditEvent[] | null>;
   createContentBriefDraft(
     siteId: string,
     input: CreateContentBriefDraftInput,
@@ -190,6 +211,7 @@ export interface MemoryRepositorySeed {
   readonly crawlRuns?: readonly CrawlRun[];
   readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
+  readonly closedLoopAuditEvents?: readonly ClosedLoopAuditEvent[];
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
   readonly geoVisibilityReports?: readonly GeoVisibilityReportRecord[];
@@ -213,6 +235,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const crawlRuns = new Map<string, CrawlRun>();
   const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
+  const closedLoopAuditEvents = new Map<string, ClosedLoopAuditEvent>();
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
   const geoVisibilityReports = new Map<string, GeoVisibilityReportRecord>();
@@ -224,6 +247,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let siteCounter = 1;
   let crawlRunCounter = 1;
   let connectorSyncRunCounter = 1;
+  let closedLoopAuditEventCounter = 1;
   let contentBriefCounter = 1;
   let aeoReadinessReportCounter = 1;
   let geoVisibilityReportCounter = 1;
@@ -254,6 +278,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
   for (const connectorSyncResult of seed.connectorSyncResults ?? []) {
     connectorSyncResults.set(connectorSyncResult.id, connectorSyncResult);
+  }
+
+  for (const auditEvent of seed.closedLoopAuditEvents ?? []) {
+    closedLoopAuditEvents.set(auditEvent.id, auditEvent);
+    closedLoopAuditEventCounter += 1;
   }
 
   for (const contentBrief of seed.contentBriefs ?? []) {
@@ -438,6 +467,52 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           .filter((result) => result.syncRunId === id)
           .sort((a, b) => a.provider.localeCompare(b.provider))
       };
+    },
+
+    async createClosedLoopAuditEvent(input) {
+      if (!organizations.has(input.organizationId)) {
+        return null;
+      }
+
+      if (input.siteId !== null && !sites.has(input.siteId)) {
+        return null;
+      }
+
+      const auditEvent: ClosedLoopAuditEvent = {
+        id: createId("audit", closedLoopAuditEventCounter),
+        organizationId: input.organizationId,
+        siteId: input.siteId,
+        eventType: input.eventType,
+        status: input.status,
+        source: input.source,
+        subjectType: input.subjectType ?? null,
+        subjectId: input.subjectId ?? null,
+        cmsType: input.cmsType ?? null,
+        externalId: input.externalId ?? null,
+        complianceFlagId: input.complianceFlagId ?? null,
+        workOrderId: input.workOrderId ?? null,
+        message: input.message,
+        metadata: input.metadata ?? null,
+        createdAt: nowIso()
+      };
+      closedLoopAuditEventCounter += 1;
+      closedLoopAuditEvents.set(auditEvent.id, auditEvent);
+      return auditEvent;
+    },
+
+    async listClosedLoopAuditEvents(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...closedLoopAuditEvents.values()]
+        .filter((event) => event.siteId === siteId)
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) ||
+            a.eventType.localeCompare(b.eventType) ||
+            a.id.localeCompare(b.id),
+        );
     },
 
     async createContentBriefDraft(siteId, input) {

@@ -145,6 +145,7 @@ Phase 10 foundation status:
 - CMS content update events can trigger deterministic rechecks for matching active ComplianceFlags without fetching from or publishing to the live CMS.
 - CMS webhook signature verification is enforced when provider secrets are configured, using provider-scoped HMAC headers plus timestamp replay protection.
 - WordPress, Webflow, and generic headless CMS webhook payloads can be normalized through `packages/connectors` before entering the shared CMS recheck flow.
+- Closed-loop audit events persist the CMS update, compliance recheck, resolved flag, and completed WorkOrder transitions for history lookup.
 
 Phase 10 remaining limitations:
 
@@ -161,3 +162,4 @@ Phase 11 starting status:
 - Pull requests and pushes to `main` run GitHub Actions CI for install, lint, typecheck, test, and build.
 - `CDX-111`: CMS content update events now support provider-scoped HMAC signature verification, timestamp replay protection, and explicit webhook secret env validation.
 - `CDX-112`: CMS provider webhook adapters normalize WordPress, Webflow, and generic headless payloads into the shared deterministic CMS content event contract before recheck.
+- `CDX-113`: Closed-loop audit logs persist CMS-triggered recheck transitions and expose site-scoped history through the API.

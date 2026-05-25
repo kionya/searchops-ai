@@ -132,4 +132,16 @@ ComplianceFlag rows now store deterministic medical advertising review history:
 
 ComplianceFlag rows are history records. A new compliance review can create new flags from the same source text so reviewers can see what was flagged at each review point. Status updates, work order conversion, and revised-copy rechecks happen on a specific persisted flag.
 
-CMS content update events are API boundary payloads, not persisted domain rows in the current model. The event includes the CMS type, external content id, URL, status, updated timestamp, and changed text. The API matches active ComplianceFlags by `subjectId` or URL and updates those existing flag/work order rows through deterministic recheck results. If event audit history becomes a product requirement, add a dedicated CMS event table in a later migration.
+CMS content update events are API boundary payloads, not persisted domain rows in the current model. The event includes the CMS type, external content id, URL, status, updated timestamp, and changed text. The API matches active ComplianceFlags by `subjectId` or URL and updates those existing flag/work order rows through deterministic recheck results. Operational history for this loop is persisted separately as append-only audit events.
+
+## Closed Loop Audit Events
+
+`ClosedLoopAuditEvent` records operational history for the CMS-origin recheck loop.
+
+- `eventType`: `cms_content_updated`, `compliance_recheck`, `compliance_flag_resolved`, or `work_order_done`.
+- `status`: `received`, `skipped`, `open`, `resolved`, `done`, or `failed`.
+- `source`: event boundary such as `cms_webhook`.
+- `cmsType`, `externalId`, `complianceFlagId`, and `workOrderId` connect the event back to the normalized CMS payload and affected workflow objects.
+- `metadata` stores deterministic evidence such as URL, rule id, report status, and work order status.
+
+Audit events are append-only history records. They do not drive compliance decisions; those remain in `packages/compliance` and persisted `ComplianceFlag`/`WorkOrder` state.

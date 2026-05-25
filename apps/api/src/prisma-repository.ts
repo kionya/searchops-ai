@@ -1,5 +1,6 @@
 import {
   AeoReadinessReportRecordSchema,
+  ClosedLoopAuditEventSchema,
   ComplianceFlagSchema,
   ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
@@ -13,6 +14,7 @@ import {
   WorkOrderSchema,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
+  type ClosedLoopAuditEvent,
   type ComplianceFlag,
   type ComplianceReviewReport,
   type ContentBrief,
@@ -45,6 +47,9 @@ type ConnectorSyncRunRecord = Awaited<
 >;
 type ConnectorSyncResultRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["connectorSyncResult"]["findFirst"]>
+>;
+type ClosedLoopAuditEventRecord = Awaited<
+  ReturnType<SearchOpsPrismaClient["closedLoopAuditEvent"]["findFirst"]>
 >;
 type ContentBriefRecord = Awaited<ReturnType<SearchOpsPrismaClient["contentBrief"]["findFirst"]>>;
 type AeoReadinessReportRecordResult = Awaited<
@@ -282,6 +287,62 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         connectorSyncRun: toConnectorSyncRun(connectorSyncRun),
         results: results.map(toConnectorSyncResult)
       };
+    },
+
+    async createClosedLoopAuditEvent(input) {
+      const organization = await prisma.organization.findUnique({
+        select: { id: true },
+        where: { id: input.organizationId }
+      });
+      if (organization === null) {
+        return null;
+      }
+
+      if (input.siteId !== null) {
+        const site = await prisma.site.findUnique({
+          select: { id: true },
+          where: { id: input.siteId }
+        });
+        if (site === null) {
+          return null;
+        }
+      }
+
+      return toClosedLoopAuditEvent(
+        await prisma.closedLoopAuditEvent.create({
+          data: {
+            cmsType: input.cmsType ?? null,
+            complianceFlagId: input.complianceFlagId ?? null,
+            eventType: input.eventType,
+            externalId: input.externalId ?? null,
+            message: input.message,
+            ...(input.metadata == null ? {} : { metadata: toJson(input.metadata) }),
+            organizationId: input.organizationId,
+            siteId: input.siteId,
+            source: input.source,
+            status: input.status,
+            subjectId: input.subjectId ?? null,
+            subjectType: input.subjectType ?? null,
+            workOrderId: input.workOrderId ?? null
+          }
+        }),
+      );
+    },
+
+    async listClosedLoopAuditEvents(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const events = await prisma.closedLoopAuditEvent.findMany({
+        orderBy: [{ createdAt: "desc" }, { eventType: "asc" }, { id: "asc" }],
+        where: { siteId }
+      });
+      return events.map(toClosedLoopAuditEvent);
     },
 
     async createContentBriefDraft(siteId, input) {
@@ -1217,6 +1278,28 @@ function toConnectorSyncResult(
     fixture: record.fixture,
     recordCount: record.recordCount,
     records: record.records,
+    createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toClosedLoopAuditEvent(
+  record: NonNullable<ClosedLoopAuditEventRecord>,
+): ClosedLoopAuditEvent {
+  return ClosedLoopAuditEventSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    eventType: record.eventType,
+    status: record.status,
+    source: record.source,
+    subjectType: record.subjectType,
+    subjectId: record.subjectId,
+    cmsType: record.cmsType,
+    externalId: record.externalId,
+    complianceFlagId: record.complianceFlagId,
+    workOrderId: record.workOrderId,
+    message: record.message,
+    metadata: record.metadata,
     createdAt: record.createdAt.toISOString()
   });
 }
