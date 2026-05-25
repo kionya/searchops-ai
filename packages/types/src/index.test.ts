@@ -86,6 +86,7 @@ import {
   SchemaRecommendationListResponseSchema,
   SchemaRecommendationRecordSchema,
   SchemaJsonLdTypeSchema,
+  SchemaRichResultValidationResultSchema,
   SearchOpsEnvSchema,
   SeoIssueSchema,
   SeoIssueDraftSchema,
@@ -312,6 +313,40 @@ describe("types foundation", () => {
         generatedBy: "llm",
       }),
     ).toThrow();
+  });
+
+  it("validates offline schema rich result validation contracts", () => {
+    expect(
+      SchemaRichResultValidationResultSchema.parse({
+        type: "Service",
+        url: "https://example.com/services/seo",
+        status: "needs_required_fields",
+        eligible: false,
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        missingRequiredFields: ["provider"],
+        recommendedFields: ["description", "serviceType"],
+        missingRecommendedFields: ["description", "serviceType"],
+        issues: [
+          {
+            severity: "error",
+            field: "provider",
+            message: "Required field provider is missing from Service JSON-LD.",
+            sourceField: "jsonLd",
+          },
+          {
+            severity: "warning",
+            field: "description",
+            message: "Recommended field description is missing from Service JSON-LD.",
+            sourceField: "jsonLd",
+          },
+        ],
+        generatedBy: "deterministic",
+      }),
+    ).toMatchObject({
+      eligible: false,
+      issues: [{ severity: "error" }, { severity: "warning" }],
+      status: "needs_required_fields",
+    });
   });
 
   it("validates persisted schema recommendation API contracts", () => {

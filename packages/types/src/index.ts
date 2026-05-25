@@ -1251,6 +1251,44 @@ export const JsonLdRecommendationSetSchema = z.object({
 
 export type JsonLdRecommendationSet = z.infer<typeof JsonLdRecommendationSetSchema>;
 
+export const SchemaRichResultValidationStatusSchema = z.enum([
+  "eligible",
+  "needs_required_fields",
+  "type_mismatch",
+]);
+
+export type SchemaRichResultValidationStatus = z.infer<
+  typeof SchemaRichResultValidationStatusSchema
+>;
+
+export const SchemaRichResultValidationIssueSchema = z.object({
+  severity: z.enum(["error", "warning"]),
+  field: NonEmptyStringSchema,
+  message: NonEmptyStringSchema,
+  sourceField: NonEmptyStringSchema,
+});
+
+export type SchemaRichResultValidationIssue = z.infer<
+  typeof SchemaRichResultValidationIssueSchema
+>;
+
+export const SchemaRichResultValidationResultSchema = z.object({
+  type: SchemaJsonLdTypeSchema,
+  url: NormalizedUrlSchema,
+  status: SchemaRichResultValidationStatusSchema,
+  eligible: z.boolean(),
+  requiredFields: z.array(NonEmptyStringSchema),
+  missingRequiredFields: z.array(NonEmptyStringSchema),
+  recommendedFields: z.array(NonEmptyStringSchema),
+  missingRecommendedFields: z.array(NonEmptyStringSchema),
+  issues: z.array(SchemaRichResultValidationIssueSchema),
+  generatedBy: z.literal("deterministic"),
+});
+
+export type SchemaRichResultValidationResult = z.infer<
+  typeof SchemaRichResultValidationResultSchema
+>;
+
 export const SchemaRecommendationStatusSchema = z.enum([
   "open",
   "converted",
