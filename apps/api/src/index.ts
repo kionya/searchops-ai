@@ -9,12 +9,18 @@ const env = parseSearchOpsEnv(process.env);
 const prisma = createSearchOpsPrismaClient();
 const crawlRunQueue = createBullMqCrawlRunQueue({ redisUrl: env.REDIS_URL });
 const connectorSyncQueue = createBullMqConnectorSyncQueue({ redisUrl: env.REDIS_URL });
+const rateLimitEnabled = env.SEARCHOPS_RATE_LIMIT_ENABLED ?? (env.NODE_ENV === "production");
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "127.0.0.1";
 const server = buildApiServer({
   connectorSyncQueue,
   crawlRunQueue,
+  rateLimit: {
+    enabled: rateLimitEnabled,
+    maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,
+    windowMs: env.SEARCHOPS_RATE_LIMIT_WINDOW_MS ?? 60_000
+  },
   repository: createPrismaRepository(prisma)
 });
 

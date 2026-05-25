@@ -43,6 +43,10 @@ describe("BullMQ queue adapters", () => {
       name: "crawl",
       options: {
         attempts: 3,
+        backoff: {
+          delay: 1000,
+          type: "exponential"
+        },
         removeOnComplete: 100,
         removeOnFail: 1000
       }
@@ -85,6 +89,10 @@ describe("BullMQ queue adapters", () => {
       name: "connector-sync",
       options: {
         attempts: 3,
+        backoff: {
+          delay: 1000,
+          type: "exponential"
+        },
         removeOnComplete: 100,
         removeOnFail: 1000
       }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ApiMetricsResponseSchema,
   AeoFaqGapSetSchema,
   AeoPageSignalSchema,
   AeoReadinessReportListResponseSchema,
@@ -55,6 +56,7 @@ import {
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
+  DeadLetterJobPayloadSchema,
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   GeoVisibilityReportRecordSchema,
@@ -107,6 +109,42 @@ describe("types foundation", () => {
     });
   });
 
+  it("validates API metrics responses", () => {
+    expect(
+      ApiMetricsResponseSchema.parse({
+        service: "api",
+        uptimeSeconds: 12.5,
+        requests: {
+          total: 3,
+          byStatus: {
+            "200": 2,
+            "429": 1,
+          },
+        },
+      }),
+    ).toMatchObject({
+      requests: {
+        total: 3,
+      },
+    });
+  });
+
+  it("validates dead-letter queue job payloads", () => {
+    expect(
+      DeadLetterJobPayloadSchema.parse({
+        originalQueue: "searchops-crawl",
+        originalJobName: "crawl",
+        originalJobId: "42",
+        failedReason: "Fetch timed out",
+        attemptsMade: 3,
+        failedAt: "2026-05-25T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      originalJobName: "crawl",
+      attemptsMade: 3,
+    });
+  });
+
   it("validates Phase 1 organization DTOs", () => {
     expect(
       OrganizationSchema.parse({
@@ -142,11 +180,17 @@ describe("types foundation", () => {
       SearchOpsEnvSchema.parse({
         DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
         SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+        SEARCHOPS_RATE_LIMIT_ENABLED: "true",
+        SEARCHOPS_RATE_LIMIT_MAX: "60",
+        SEARCHOPS_RATE_LIMIT_WINDOW_MS: "30000",
         REDIS_URL: "redis://localhost:6379",
       }),
     ).toMatchObject({
       NODE_ENV: "development",
       SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+      SEARCHOPS_RATE_LIMIT_ENABLED: true,
+      SEARCHOPS_RATE_LIMIT_MAX: 60,
+      SEARCHOPS_RATE_LIMIT_WINDOW_MS: 30000,
     });
     expect(() =>
       SearchOpsEnvSchema.parse({
@@ -155,6 +199,13 @@ describe("types foundation", () => {
         REDIS_URL: "redis://localhost:6379",
       }),
     ).toThrow(/JSON object/);
+    expect(() =>
+      SearchOpsEnvSchema.parse({
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
+        SEARCHOPS_RATE_LIMIT_MAX: "0",
+        REDIS_URL: "redis://localhost:6379",
+      }),
+    ).toThrow(/positive integer/);
   });
 
   it("validates normalized crawler URLs", () => {

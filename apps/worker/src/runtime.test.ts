@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConnectorSyncPersistenceClient, CrawlPersistenceClient } from "@searchops/db";
 
+import { buildDeadLetterJobPayload } from "./dead-letter.js";
 import { createConnectorSyncJobProcessor, createCrawlJobProcessor } from "./runtime.js";
 
 const html = `
@@ -133,6 +134,28 @@ describe("worker runtime", () => {
       summary: {
         totalRecords: 0
       }
+    });
+  });
+
+  it("builds deterministic dead-letter payloads for failed worker jobs", () => {
+    expect(
+      buildDeadLetterJobPayload({
+        error: new Error("Fetch timed out"),
+        failedAt: new Date("2026-05-25T00:00:00.000Z"),
+        job: {
+          attemptsMade: 3,
+          id: "42",
+          name: "crawl"
+        },
+        queueName: "searchops-crawl"
+      }),
+    ).toEqual({
+      originalQueue: "searchops-crawl",
+      originalJobName: "crawl",
+      originalJobId: "42",
+      failedReason: "Fetch timed out",
+      attemptsMade: 3,
+      failedAt: "2026-05-25T00:00:00.000Z"
     });
   });
 });
