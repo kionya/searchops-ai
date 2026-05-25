@@ -89,11 +89,12 @@ Phase 8 foundation status:
 - Schema recommendation recheck can queue a scoped one-page crawl for the recommendation page URL through the API/worker crawl boundary.
 - Queued schema recheck crawls carry `schemaRecommendationId`; the worker can persist UrlRecords, extract observed JSON-LD types from the completed snapshot, update recommendation evidence/status, and close/reopen the linked work order.
 - Offline rich-result validation contracts can check JSON-LD root type, required fields, and recommended fields without live external validators.
+- Live rich-result validator wrappers can accept explicit validator clients and normalize responses through `packages/connectors`; no validator SDK, credential, or network client is enabled by default.
 
 Phase 8 remaining limitations:
 
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
-- Validation against live rich result tooling remains future scope.
+- Runtime wiring for live rich-result validator clients remains future deployment scope.
 
 ## Phase 9. GEO monitor
 

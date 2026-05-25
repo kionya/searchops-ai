@@ -6,6 +6,7 @@ import {
   GeoAnswerMonitorRequestSchema,
   GeoAnswerMonitorResultSchema,
   GeoAnswerObservationSchema,
+  SchemaRichResultValidationResultSchema,
   GscSearchMetricSchema,
   KeywordDiscoverySetSchema,
   PageSpeedMetricSchema,
@@ -23,8 +24,13 @@ import {
   type GscSearchMetric,
   type KeywordDiscoveryCandidate,
   type KeywordDiscoverySet,
+  type JsonLdObject,
   type LiveExternalApiMode,
-  type PageSpeedMetric
+  type PageSpeedMetric,
+  type SchemaJsonLdType,
+  type SchemaRichResultValidationIssue,
+  type SchemaRichResultValidationResult,
+  type SchemaRichResultValidationStatus
 } from "@searchops/types";
 
 export * from "./cms-webhooks.js";
@@ -214,6 +220,46 @@ export interface LiveGeoAnswerMonitorAdapterConfig {
   readonly client: LiveGeoAnswerProviderClient;
   readonly observedAt?: () => string;
   readonly provider?: GeoAnswerMonitorProvider;
+}
+
+export interface SchemaRichResultValidatorAdapterInput {
+  readonly jsonLd: JsonLdObject;
+  readonly recommendedFields?: readonly string[];
+  readonly requestedAt?: string;
+  readonly requiredFields: readonly string[];
+  readonly type: SchemaJsonLdType;
+  readonly url: string;
+}
+
+export interface LiveSchemaRichResultValidatorClientInput
+  extends SchemaRichResultValidatorAdapterInput {
+  readonly requestedAt: string;
+}
+
+export interface LiveSchemaRichResultValidatorClientResponse {
+  readonly eligible: boolean;
+  readonly issues?: readonly SchemaRichResultValidationIssue[];
+  readonly missingRecommendedFields?: readonly string[];
+  readonly missingRequiredFields?: readonly string[];
+  readonly recommendedFields?: readonly string[];
+  readonly requiredFields?: readonly string[];
+  readonly status: SchemaRichResultValidationStatus;
+}
+
+export interface LiveSchemaRichResultValidatorClient {
+  validate(
+    input: LiveSchemaRichResultValidatorClientInput,
+  ): Promise<LiveSchemaRichResultValidatorClientResponse>;
+}
+
+export interface SchemaRichResultValidatorAdapter {
+  readonly liveExternalApis: LiveExternalApiMode;
+  validate(input: SchemaRichResultValidatorAdapterInput): Promise<SchemaRichResultValidationResult>;
+}
+
+export interface LiveSchemaRichResultValidatorAdapterConfig {
+  readonly client: LiveSchemaRichResultValidatorClient;
+  readonly requestedAt?: () => string;
 }
 
 export interface GeoAnswerMonitorBatchRequest extends GeoAnswerMonitorRequest {
@@ -608,6 +654,36 @@ export function createLiveGeoAnswerMonitorAdapter({
         liveExternalApis: liveExternalApisEnabled,
         observations,
         provider
+      });
+    }
+  };
+}
+
+export function createLiveSchemaRichResultValidatorAdapter({
+  client,
+  requestedAt: getRequestedAt
+}: LiveSchemaRichResultValidatorAdapterConfig): SchemaRichResultValidatorAdapter {
+  return {
+    liveExternalApis: liveExternalApisEnabled,
+    async validate(input) {
+      const requestedAt = input.requestedAt ?? getRequestedAt?.() ?? new Date().toISOString();
+      const response = await client.validate({
+        ...input,
+        requestedAt
+      });
+
+      return SchemaRichResultValidationResultSchema.parse({
+        eligible: response.eligible,
+        generatedBy: "connector",
+        issues: response.issues ?? [],
+        liveExternalApis: liveExternalApisEnabled,
+        missingRecommendedFields: response.missingRecommendedFields ?? [],
+        missingRequiredFields: response.missingRequiredFields ?? [],
+        recommendedFields: response.recommendedFields ?? input.recommendedFields ?? [],
+        requiredFields: response.requiredFields ?? input.requiredFields,
+        status: response.status,
+        type: input.type,
+        url: input.url
       });
     }
   };
