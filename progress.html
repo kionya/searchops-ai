@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SearchOps AI Progress</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --ink: #17202a;
+        --muted: #5c6672;
+        --line: #d8dee8;
+        --accent: #1268b3;
+        --accent-soft: #e7f1fb;
+        --done: #16805d;
+        --warn: #a15c00;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 36px 0 56px;
+      }
+
+      header {
+        margin-bottom: 28px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.2;
+      }
+
+      h1 {
+        font-size: 34px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin-top: 28px;
+        font-size: 22px;
+      }
+
+      h3 {
+        margin-bottom: 10px;
+        font-size: 16px;
+      }
+
+      p {
+        margin: 8px 0 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 5px 0;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .stat,
+      .phase,
+      .plan,
+      .guardrails {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 22px;
+      }
+
+      .stat span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .phase {
+        min-height: 220px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 3px 9px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .done {
+        background: #e8f6f0;
+        color: var(--done);
+      }
+
+      .partial {
+        background: #fff4df;
+        color: var(--warn);
+      }
+
+      .plan-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .plan {
+        display: grid;
+        grid-template-columns: 86px 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .ticket {
+        color: var(--accent);
+        font-weight: 800;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      code {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #f1f4f8;
+        padding: 1px 5px;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      @media (max-width: 900px) {
+        .summary,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .plan {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>SearchOps AI Progress</h1>
+        <p class="meta">Updated: 2026-05-25 · Branch: <code>main</code> aligned with <code>origin/main</code></p>
+        <div class="summary">
+          <div class="stat">
+            <strong>3</strong>
+            <span>Recent PRs merged: #58, #59, #60</span>
+          </div>
+          <div class="stat">
+            <strong>Passed</strong>
+            <span>Latest local <code>corepack pnpm verify</code></span>
+          </div>
+          <div class="stat">
+            <strong>Passed</strong>
+            <span>GitHub Actions verify on recent PRs</span>
+          </div>
+          <div class="stat">
+            <strong>Draft-only</strong>
+            <span>No CMS auto-publish or LLM truth source</span>
+          </div>
+        </div>
+      </header>
+
+      <section>
+        <h2>Phase Progress</h2>
+        <div class="grid">
+          <article class="phase">
+            <span class="status done">Completed foundation</span>
+            <h3>Phase 0-5</h3>
+            <p>Monorepo, core SaaS shell, crawler, SEO issue engine, work orders, and dashboard route foundations are in place.</p>
+            <ul>
+              <li>Runtime crawl queue and persistence are wired.</li>
+              <li>Deterministic SEO issue rules and work order mapping are implemented.</li>
+              <li>Dashboard shells and core routes are available.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status done">Foundation complete</span>
+            <h3>Phase 6 Connectors</h3>
+            <p>Connector contracts, fixture adapters, sync jobs, persistence, history API, dashboard history, and trigger UI are connected.</p>
+            <ul>
+              <li>Live external provider calls are still deferred.</li>
+              <li>Connector-derived keyword discovery is deterministic.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status partial">MVP complete</span>
+            <h3>Phase 7 Keyword/AEO</h3>
+            <p>Contracts, deterministic readiness rules, ContentBrief drafts, FAQ gap generation, API persistence, and dashboard surfaces are connected.</p>
+            <ul>
+              <li>Keyword discovery persistence is still pending.</li>
+              <li>ContentBriefs remain draft-only.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status partial">MVP plus adapters</span>
+            <h3>Phase 8 Schema</h3>
+            <p>JSON-LD recommendations, schema work orders, recheck crawl handoff, offline validation, and live validator adapter ports are in place.</p>
+            <ul>
+              <li>Runtime live validator wiring is still pending.</li>
+              <li>JSON-LD remains recommendation draft output only.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status partial">MVP plus adapters</span>
+            <h3>Phase 9 GEO</h3>
+            <p>GEO visibility scoring, report history, dashboard, work order conversion, fixture answer monitors, and live adapter ports are connected.</p>
+            <ul>
+              <li>Runtime live provider job wiring is still pending.</li>
+              <li>API/dashboard collection remains manual or fixture-driven.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status partial">Closed-loop MVP</span>
+            <h3>Phase 10 Compliance</h3>
+            <p>Compliance flags, rule packs, Korean medical refinements, CMS webhook recheck, signature verification, and audit logging are in place.</p>
+            <ul>
+              <li>Native provider signature schemes are future hardening.</li>
+              <li>Live CMS management APIs remain out of scope.</li>
+            </ul>
+          </article>
+
+          <article class="phase">
+            <span class="status partial">Started</span>
+            <h3>Phase 11 Hardening</h3>
+            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, metrics foundation, retry/backoff checks, and dead-letter payloads are in place.</p>
+            <ul>
+              <li>Distributed rate limiting is pending.</li>
+              <li>Auth/RBAC, tenant isolation, observability export, and runbooks remain.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Next Implementation Plan</h2>
+        <div class="plan-list">
+          <article class="plan">
+            <div class="ticket">CDX-124</div>
+            <div>
+              <h3>Keyword discovery persistence and dashboard workflow</h3>
+              <p class="small">Persist connector-derived keyword candidates, expose API history/list/create flows, and connect the Keyword/AEO dashboard section.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-125</div>
+            <div>
+              <h3>GEO live provider runtime job wiring</h3>
+              <p class="small">Add worker job contracts for GEO answer monitoring, use explicit connector clients, and persist resulting visibility reports.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-126</div>
+            <div>
+              <h3>Rich-result validator runtime wiring</h3>
+              <p class="small">Add optional orchestration for explicit validator clients and attach validation results to schema recommendation history.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-127</div>
+            <div>
+              <h3>Dead-letter operations dashboard</h3>
+              <p class="small">Expose failed job metadata, detail views, and replay-safe operator workflows without storing secrets.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-128</div>
+            <div>
+              <h3>Distributed rate limit adapter</h3>
+              <p class="small">Keep process-local defaults and add Redis or edge-backed adapter boundaries with fake-storage tests.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-129</div>
+            <div>
+              <h3>Auth/RBAC and tenant isolation hardening</h3>
+              <p class="small">Replace mock auth boundaries, add organization/site scoping checks, and test cross-tenant denial paths.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-130</div>
+            <div>
+              <h3>Observability export</h3>
+              <p class="small">Export request and worker metrics, define structured logs, and document dashboard/alert expectations.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-131</div>
+            <div>
+              <h3>Backup, migration, and deployment runbooks</h3>
+              <p class="small">Document backup/restore, migration verification, secret rotation, and deployment environment checks.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="guardrails">
+        <h2>Guardrails</h2>
+        <ul>
+          <li>No LLM usage for SEO/AEO/GEO/compliance detection truth.</li>
+          <li>No live external API calls in tests.</li>
+          <li>No CMS auto-publish.</li>
+          <li>Medical content remains draft-only.</li>
+          <li>Live provider clients must be explicit runtime wiring, not default package behavior.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
