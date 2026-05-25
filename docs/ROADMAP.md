@@ -115,10 +115,11 @@ Phase 9 foundation status:
 - GEO visibility reports can be converted into idempotent WorkOrders through deterministic templates.
 - The GEO dashboard can trigger report-to-work-order conversion through API data with fixture fallback.
 - GEO answer monitor provider contracts and fixture adapters live in `packages/connectors` with live external APIs disabled by default.
+- GEO answer monitor live adapter wrappers can accept explicit provider clients and normalize responses into `source = connector` observations; no SDK, credential, or network client is enabled by default.
 
 Phase 9 remaining limitations:
 
-- Observation collection is fixture/manual input only; live AI answer provider API calls remain future connector scope.
+- Observation collection through the API/dashboard is still fixture/manual input only; wiring live provider clients into runtime jobs remains future deployment scope.
 - Reports are converted to work orders on explicit dashboard/API action; automatic bulk generation remains future scope.
 - Compliance review remains separate; medical claim risk flags are still Phase 10 scope.
 
