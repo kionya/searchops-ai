@@ -1236,6 +1236,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       siteId: site.id,
       siteDomain: site.domain,
       requestedByUserId: userContext.userId,
+      schemaRecommendationId: recommendation.id,
       startUrl: recommendation.pageUrl,
       maxPages: 1,
       pages: [],

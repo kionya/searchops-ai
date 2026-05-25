@@ -2100,6 +2100,7 @@ describe("api foundation", () => {
         payload: {
           maxPages: 1,
           requestedByUserId: "user_schema",
+          schemaRecommendationId: "schema_rec_seed",
           siteDomain: "exampleclinic.com",
           startUrl: "https://exampleclinic.com/services/seo",
         },

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConnectorSyncPersistenceClient, CrawlPersistenceClient } from "@searchops/db";
+import type {
+  ConnectorSyncPersistenceClient,
+  CrawlPersistenceClient,
+  SchemaRecommendationRecheckPersistenceClient
+} from "@searchops/db";
 
 import {
   processAndPersistConnectorSyncJob,
@@ -36,6 +40,25 @@ const noindexHtml = `
   </head>
   <body>
     <h1>Noindex Fixture</h1>
+  </body>
+</html>
+`;
+
+const serviceSchemaHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Service Fixture</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        "name": "SEO consulting"
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Service Fixture</h1>
   </body>
 </html>
 `;
@@ -235,6 +258,104 @@ describe("processCrawlJob", () => {
     expect(result.status).toBe("completed");
     expect(upserts).toHaveLength(1);
     expect(updates).toHaveLength(1);
+  });
+
+  it("hands schema recommendation recheck crawl results to persistence", async () => {
+    const recommendationUpdates: unknown[] = [];
+    const workOrderUpdates: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          return args;
+        }
+      }
+    };
+    const schemaRecommendationRecheckClient: SchemaRecommendationRecheckPersistenceClient = {
+      schemaRecommendation: {
+        async findUnique(args) {
+          expect(args.where.id).toBe("schema_rec_1");
+          return {
+            evidence: {
+              expectedType: "Service",
+              observedTypes: []
+            },
+            id: "schema_rec_1",
+            status: "converted",
+            type: "Service",
+            workOrder: {
+              id: "wo_schema_1",
+              status: "in_review"
+            }
+          };
+        },
+        async update(args) {
+          recommendationUpdates.push(args);
+          return {
+            evidence: args.data.evidence,
+            id: args.where.id,
+            status: args.data.status
+          };
+        }
+      },
+      workOrder: {
+        async update(args) {
+          workOrderUpdates.push(args);
+          return {
+            id: args.where.id,
+            status: args.data.status
+          };
+        }
+      }
+    };
+
+    const result = await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_schema_recheck",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        schemaRecommendationId: "schema_rec_1",
+        startUrl: "https://example.com/services/seo",
+        maxPages: 1,
+        pages: [
+          {
+            url: "https://example.com/services/seo",
+            statusCode: 200,
+            html: serviceSchemaHtml
+          }
+        ]
+      },
+      persistenceClient,
+      {
+        schemaRecommendationRecheckClient
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(recommendationUpdates[0]).toMatchObject({
+      data: {
+        evidence: {
+          observedTypes: ["Service"]
+        },
+        status: "resolved"
+      },
+      where: {
+        id: "schema_rec_1"
+      }
+    });
+    expect(workOrderUpdates[0]).toEqual({
+      data: {
+        status: "done"
+      },
+      where: {
+        id: "wo_schema_1"
+      }
+    });
   });
 
   it("marks the crawl run as failed when runtime crawling fails", async () => {

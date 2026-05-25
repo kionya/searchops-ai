@@ -3,6 +3,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import {
   createPrismaConnectorSyncPersistenceClient,
   createPrismaCrawlPersistenceClient,
+  createPrismaSchemaRecommendationRecheckPersistenceClient,
   createSearchOpsPrismaClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
@@ -127,10 +128,16 @@ export function createConnectorSyncJobProcessor(
 export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
+  const schemaRecommendationRecheckClient =
+    createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
+  const processorOptions: ProcessAndPersistCrawlJobOptions = {
+    schemaRecommendationRecheckClient,
+    ...options.processorOptions
+  };
   const queueName = options.queueName ?? crawlQueueName;
   const worker = new Worker<CrawlJobPayload, CrawlJobResult, "crawl">(
     queueName,
-    createCrawlJobProcessor(persistenceClient, options.processorOptions),
+    createCrawlJobProcessor(persistenceClient, processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

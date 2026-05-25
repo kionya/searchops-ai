@@ -4,13 +4,16 @@ import {
   type ConnectorBatchSyncResult
 } from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
+import { extractJsonLdTypes } from "@searchops/schema-core";
 import {
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
+  persistSchemaRecommendationRecheck,
   type ConnectorSyncPersistenceClient,
-  type CrawlPersistenceClient
+  type CrawlPersistenceClient,
+  type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 import {
   ConnectorSyncJobPayloadSchema,
@@ -26,6 +29,7 @@ import {
 
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
+  readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
 }
 
 export interface ProcessConnectorSyncJobOptions {
@@ -117,6 +121,11 @@ export async function processAndPersistCrawlJob(
 
     const result = processCrawlJob(payload);
     await persistCrawlJobResult(persistenceClient, result, payload.pages);
+    await persistSchemaRecommendationRecheckFromCrawlResult(
+      payload,
+      result,
+      options.schemaRecommendationRecheckClient,
+    );
     return result;
   } catch (error) {
     await markCrawlRunFailed(persistenceClient, {
@@ -140,4 +149,38 @@ function extractPageSignals(page: CrawlJobPageInput) {
     finalUrl: page.finalUrl,
     html: page.html
   });
+}
+
+async function persistSchemaRecommendationRecheckFromCrawlResult(
+  payload: CrawlJobPayload,
+  result: CrawlJobResult,
+  recheckClient: SchemaRecommendationRecheckPersistenceClient | undefined,
+) {
+  if (payload.schemaRecommendationId === undefined || payload.schemaRecommendationId === null) {
+    return null;
+  }
+
+  if (recheckClient === undefined) {
+    return null;
+  }
+
+  const snapshot = findSchemaRecommendationRecheckSnapshot(payload, result);
+  if (snapshot === null) {
+    return null;
+  }
+
+  return persistSchemaRecommendationRecheck(recheckClient, {
+    observedTypes: extractJsonLdTypes(snapshot),
+    recommendationId: payload.schemaRecommendationId
+  });
+}
+
+function findSchemaRecommendationRecheckSnapshot(payload: CrawlJobPayload, result: CrawlJobResult) {
+  return (
+    result.snapshots.find(
+      (snapshot) => snapshot.url === payload.startUrl || snapshot.finalUrl === payload.startUrl,
+    ) ??
+    result.snapshots[0] ??
+    null
+  );
 }

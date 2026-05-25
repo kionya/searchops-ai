@@ -35,6 +35,20 @@ export {
   type PersistConnectorSyncJobResultOutput
 } from "./connector-sync.js";
 
+export {
+  createPrismaSchemaRecommendationRecheckPersistenceClient,
+  persistSchemaRecommendationRecheck,
+  type PersistSchemaRecommendationRecheckInput,
+  type PersistSchemaRecommendationRecheckOutput,
+  type SchemaRecommendationRecheckFindUniqueArgs,
+  type SchemaRecommendationRecheckPersistenceClient,
+  type SchemaRecommendationRecheckRecord,
+  type SchemaRecommendationRecheckUpdateArgs,
+  type SchemaRecommendationRecheckUpdateRecord,
+  type SchemaRecommendationRecheckWorkOrderRecord,
+  type SchemaRecommendationWorkOrderUpdateArgs
+} from "./schema-recommendation.js";
+
 export const phaseOneSeedIds = {
   organizationId: "org_demo",
   userId: "user_demo_owner",
