@@ -194,6 +194,48 @@ describe("compliance report evaluation", () => {
     });
   });
 
+  it("flags readable Korean medical advertising phrases deterministically", () => {
+    const report = evaluateCompliance(
+      createInput({
+        text: [
+          "100% 효과 보장",
+          "부작용 없는 무통 시술",
+          "전후 사진과 환자 후기",
+          "선착순 할인 이벤트"
+        ].join(" ")
+      }),
+      { evaluatedAt },
+    );
+
+    expect(report.rulePackId).toBe("kr-medical");
+    expect(report.flags.map((flag) => flag.ruleId)).toEqual([
+      "GUARANTEED_RESULT_CLAIM",
+      "ABSOLUTE_SAFETY_CLAIM",
+      "BEFORE_AFTER_REFERENCE",
+      "PATIENT_TESTIMONIAL_REFERENCE",
+      "PRICE_DISCOUNT_PROMOTION"
+    ]);
+  });
+
+  it("selects the KR medical rule pack for Korean market domains", () => {
+    const input = createInput({
+      locale: "en-US",
+      url: "https://example-clinic.kr/services/botox",
+      text: "100% 효과 보장"
+    });
+
+    expect(selectComplianceRulePackId(input)).toBe("kr-medical");
+    expect(evaluateCompliance(input, { evaluatedAt })).toMatchObject({
+      flags: [
+        {
+          ruleId: "GUARANTEED_RESULT_CLAIM",
+          riskLevel: "critical"
+        }
+      ],
+      rulePackId: "kr-medical"
+    });
+  });
+
   it("is reproducible for the same input and timestamp", () => {
     const input = createInput({
       text: "This medical clinic has before and after treatment results in review."
