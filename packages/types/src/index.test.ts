@@ -61,6 +61,9 @@ import {
   GeoVisibilityReportListResponseSchema,
   GeoVisibilityReportRecordSchema,
   GeoVisibilityReportSchema,
+  GeoAnswerMonitorProviderSchema,
+  GeoAnswerMonitorRequestSchema,
+  GeoAnswerMonitorResultSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
@@ -1110,6 +1113,48 @@ describe("types foundation", () => {
   });
 
   it("validates GEO visibility monitor contracts", () => {
+    expect(GeoAnswerMonitorProviderSchema.options).toEqual([
+      "chatgpt",
+      "perplexity",
+      "gemini",
+      "copilot",
+      "claude",
+    ]);
+    const monitorRequest = GeoAnswerMonitorRequestSchema.parse({
+      target: {
+        siteId: "site_1",
+        brandName: "Example Clinic",
+        domain: "example.com",
+      },
+      queries: [
+        {
+          query: "best seo clinic",
+        },
+      ],
+      observedAt: "2026-05-24T00:00:00.000Z",
+    });
+    expect(
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            locale: monitorRequest.target.locale,
+            answerText: "Example Clinic is mentioned as an SEO clinic option.",
+            citedUrls: ["https://example.com/service/seo"],
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture",
+          },
+        ],
+        generatedBy: "fixture",
+        liveExternalApis: "disabled",
+      }),
+    ).toMatchObject({
+      generatedBy: "fixture",
+      liveExternalApis: "disabled",
+      provider: "chatgpt",
+    });
     const request = CreateGeoVisibilityReportRequestSchema.parse({
       target: {
         siteId: "site_1",

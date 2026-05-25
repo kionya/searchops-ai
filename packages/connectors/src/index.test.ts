@@ -8,16 +8,24 @@ import {
   createFixtureConnectorAdapter,
   discoverKeywordTargetsFromConnectorResults,
   fixtureConnectorAdapters,
+  fixtureGeoAnswerMonitorAdapters,
   getFixtureConnectorAdapter,
+  getFixtureGeoAnswerMonitorAdapter,
+  geoAnswerMonitorProviders,
   liveExternalApisDefault,
   mockBingUrlInspectionFixture,
   mockCmsPagesFixture,
+  mockChatGptGeoAnswerFixture,
   mockGa4ReportFixture,
   mockGscSearchAnalyticsFixture,
   mockPageSpeedFixture,
+  mockPerplexityGeoAnswerFixture,
+  monitorFixtureGeoAnswers,
+  monitorFixtureGeoAnswersBatch,
   normalizeBingUrlInspection,
   normalizeCmsPages,
   normalizeConnectorFixture,
+  normalizeGeoAnswerMonitoringFixture,
   normalizeGa4Report,
   normalizeGscSearchAnalytics,
   normalizePageSpeed,
@@ -231,6 +239,127 @@ describe("connectors foundation", () => {
       totalProviders: 2,
       totalRecords: 3
     });
+  });
+
+  it("normalizes GEO answer monitor fixtures into typed observations", () => {
+    const observations = normalizeGeoAnswerMonitoringFixture(mockChatGptGeoAnswerFixture, {
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      },
+      queries: [
+        { query: "best seo clinic" },
+        { locale: "en-US", query: "missing query" }
+      ],
+      observedAt: "2026-05-25T01:00:00.000Z"
+    });
+
+    expect(observations).toEqual([
+      {
+        answerText:
+          "Example Clinic is a relevant option for medical SEO planning and cites its service page.",
+        citedUrls: ["https://example-clinic.com/service/seo"],
+        locale: "ko-KR",
+        observedAt: "2026-05-25T01:00:00.000Z",
+        provider: "chatgpt",
+        query: "best seo clinic",
+        source: "fixture"
+      },
+      {
+        answerText: "",
+        citedUrls: [],
+        locale: "en-US",
+        observedAt: "2026-05-25T01:00:00.000Z",
+        provider: "chatgpt",
+        query: "missing query",
+        source: "fixture"
+      }
+    ]);
+  });
+
+  it("registers GEO answer fixture adapters without enabling live AI APIs", async () => {
+    expect(geoAnswerMonitorProviders).toEqual([
+      "chatgpt",
+      "perplexity",
+      "gemini",
+      "copilot",
+      "claude"
+    ]);
+    expect(Object.keys(fixtureGeoAnswerMonitorAdapters).sort()).toEqual([
+      "chatgpt",
+      "claude",
+      "copilot",
+      "gemini",
+      "perplexity"
+    ]);
+
+    const adapter = getFixtureGeoAnswerMonitorAdapter("perplexity");
+    const result = await adapter.monitor({
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      },
+      queries: [{ query: "best seo clinic" }]
+    });
+
+    expect(adapter.liveExternalApis).toBe("disabled");
+    expect(result).toMatchObject({
+      generatedBy: "fixture",
+      liveExternalApis: "disabled",
+      provider: "perplexity"
+    });
+    expect(result.observations[0]).toMatchObject({
+      answerText:
+        "For best SEO clinic research, Example Clinic and another agency are both mentioned.",
+      provider: "perplexity",
+      source: "fixture"
+    });
+  });
+
+  it("monitors fixture GEO answers in canonical provider order", async () => {
+    const batch = await monitorFixtureGeoAnswersBatch({
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      },
+      providers: ["perplexity", "chatgpt"],
+      queries: [{ query: "best seo clinic" }]
+    });
+
+    expect(batch.results.map((result) => result.provider)).toEqual(["chatgpt", "perplexity"]);
+    expect(batch.observations).toHaveLength(2);
+    expect(batch.observations.map((observation) => observation.provider)).toEqual([
+      "chatgpt",
+      "perplexity"
+    ]);
+  });
+
+  it("keeps direct GEO answer fixture monitors deterministic", async () => {
+    const request = {
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      },
+      queries: [{ query: "clinic content marketing" }],
+      observedAt: "2026-05-25T02:00:00.000Z"
+    };
+    const first = await monitorFixtureGeoAnswers("perplexity", request);
+    const second = await monitorFixtureGeoAnswers("perplexity", request);
+
+    expect(second).toEqual(first);
+    expect(mockPerplexityGeoAnswerFixture.provider).toBe("perplexity");
   });
 
   it("discovers keyword targets from connector run results deterministically", async () => {
