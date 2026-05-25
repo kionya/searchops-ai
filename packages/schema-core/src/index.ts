@@ -1,7 +1,8 @@
 import {
   CrawlerPageSnapshotSchema,
   JsonLdRecommendationSchema,
-  JsonLdRecommendationSetSchema
+  JsonLdRecommendationSetSchema,
+  SchemaRichResultValidationResultSchema
 } from "@searchops/types";
 import type {
   CrawlerPageSnapshot,
@@ -9,7 +10,8 @@ import type {
   JsonLdRecommendation,
   JsonLdRecommendationSet,
   SchemaJsonLdType,
-  SchemaRecommendationPriority
+  SchemaRecommendationPriority,
+  SchemaRichResultValidationResult
 } from "@searchops/types";
 
 export const schemaCorePackage = "schema-core" as const;
@@ -46,6 +48,14 @@ export interface SchemaRecommendationSummary {
   readonly byPriority: Record<SchemaRecommendationPriority, number>;
   readonly byType: Record<SchemaJsonLdType, number>;
   readonly total: number;
+}
+
+export interface SchemaRichResultValidationInput {
+  readonly jsonLd: JsonLdObject;
+  readonly recommendedFields?: readonly string[];
+  readonly requiredFields: readonly string[];
+  readonly type: SchemaJsonLdType;
+  readonly url: string;
 }
 
 const supportedSchemaTypes = [
@@ -437,6 +447,89 @@ export function hasSchemaType(
   return extractJsonLdTypes(snapshot).includes(expectedType);
 }
 
+export function validateJsonLdDraft(
+  input: SchemaRichResultValidationInput,
+): SchemaRichResultValidationResult {
+  const requiredFields = uniqueNonBlankStrings(input.requiredFields);
+  const recommendedFields = uniqueNonBlankStrings(input.recommendedFields ?? []);
+  const observedRootTypes = getRootJsonLdTypes(input.jsonLd);
+  const hasExpectedRootType = observedRootTypes.includes(input.type);
+  const missingRequiredFields = requiredFields.filter(
+    (field) => !hasValueAtPath(input.jsonLd, field),
+  );
+  const missingRecommendedFields = recommendedFields.filter(
+    (field) => !hasValueAtPath(input.jsonLd, field),
+  );
+
+  const issues = [
+    ...(hasExpectedRootType
+      ? []
+      : [
+          {
+            field: "@type",
+            message: `Root @type must include ${input.type}.`,
+            severity: "error" as const,
+            sourceField: "jsonLd"
+          }
+        ]),
+    ...missingRequiredFields.map((field) => ({
+      field,
+      message: `Required field ${field} is missing from ${input.type} JSON-LD.`,
+      severity: "error" as const,
+      sourceField: "jsonLd"
+    })),
+    ...missingRecommendedFields.map((field) => ({
+      field,
+      message: `Recommended field ${field} is missing from ${input.type} JSON-LD.`,
+      severity: "warning" as const,
+      sourceField: "jsonLd"
+    }))
+  ];
+
+  const status = !hasExpectedRootType
+    ? "type_mismatch"
+    : missingRequiredFields.length > 0
+      ? "needs_required_fields"
+      : "eligible";
+
+  return SchemaRichResultValidationResultSchema.parse({
+    eligible: status === "eligible",
+    generatedBy: schemaCoreGenerationMode,
+    issues,
+    missingRecommendedFields,
+    missingRequiredFields,
+    recommendedFields,
+    requiredFields,
+    status,
+    type: input.type,
+    url: input.url
+  });
+}
+
+export function validateJsonLdRecommendation(
+  recommendation: Pick<
+    JsonLdRecommendation,
+    "jsonLd" | "recommendedFields" | "requiredFields" | "type" | "url"
+  >,
+) {
+  return validateJsonLdDraft({
+    jsonLd: recommendation.jsonLd,
+    recommendedFields: recommendation.recommendedFields,
+    requiredFields: recommendation.requiredFields,
+    type: recommendation.type,
+    url: recommendation.url
+  });
+}
+
+export function validateJsonLdRecommendations(
+  recommendations: readonly Pick<
+    JsonLdRecommendation,
+    "jsonLd" | "recommendedFields" | "requiredFields" | "type" | "url"
+  >[],
+) {
+  return recommendations.map((recommendation) => validateJsonLdRecommendation(recommendation));
+}
+
 function createRecommendation({
   context,
   instructions,
@@ -526,6 +619,58 @@ function normalizeSchemaType(value: string): SchemaJsonLdType | null {
   }
 
   return supportedSchemaTypes.find((type) => type.toLowerCase() === cleaned.toLowerCase()) ?? null;
+}
+
+function getRootJsonLdTypes(jsonLd: JsonLdObject) {
+  const rootTypes = new Set<SchemaJsonLdType>();
+
+  for (const typeValue of extractTypeValues(jsonLd["@type"])) {
+    const normalizedType = normalizeSchemaType(typeValue);
+
+    if (normalizedType) {
+      rootTypes.add(normalizedType);
+    }
+  }
+
+  return supportedSchemaTypes.filter((type) => rootTypes.has(type));
+}
+
+function hasValueAtPath(value: unknown, path: string): boolean {
+  const [head, ...tail] = path.split(".").filter(Boolean);
+
+  if (!head) {
+    return hasUsableValue(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.every((item) => hasValueAtPath(item, path));
+  }
+
+  if (!isRecord(value) || !(head in value)) {
+    return false;
+  }
+
+  return hasValueAtPath(value[head], tail.join("."));
+}
+
+function hasUsableValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.every((item) => hasUsableValue(item));
+  }
+
+  if (isRecord(value)) {
+    return Object.keys(value).length > 0;
+  }
+
+  return true;
 }
 
 function getPathSegments(url: string) {

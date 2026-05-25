@@ -10,7 +10,10 @@ import {
   schemaCoreGenerationMode,
   schemaCorePackage,
   serviceRecommendationRule,
-  summarizeJsonLdRecommendations
+  summarizeJsonLdRecommendations,
+  validateJsonLdDraft,
+  validateJsonLdRecommendation,
+  validateJsonLdRecommendations
 } from "./index.js";
 import type { CrawlerPageSnapshot } from "@searchops/types";
 import type { SchemaRuleContext, SchemaSiteContext } from "./index.js";
@@ -320,5 +323,112 @@ describe("JSON-LD recommendation engine", () => {
     expect(summary.byType.MedicalClinic).toBe(2);
     expect(summary.byPriority.p1).toBe(3);
     expect(summary.byPriority.p2).toBe(5);
+  });
+});
+
+describe("offline rich result validation", () => {
+  it("marks generated JSON-LD drafts eligible when required fields and root type are present", () => {
+    const set = recommendJsonLdForSnapshot(createContext());
+    const serviceRecommendation = set.recommendations.find(
+      (recommendation) => recommendation.type === "Service",
+    );
+
+    expect(serviceRecommendation).toBeDefined();
+    if (!serviceRecommendation) {
+      throw new Error("Expected Service recommendation");
+    }
+
+    expect(validateJsonLdRecommendation(serviceRecommendation)).toMatchObject({
+      eligible: true,
+      generatedBy: "deterministic",
+      missingRecommendedFields: ["description", "serviceType"],
+      missingRequiredFields: [],
+      status: "eligible",
+      type: "Service"
+    });
+  });
+
+  it("flags missing required fields without calling live validators", () => {
+    const result = validateJsonLdDraft({
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: "SEO service",
+        url: "https://example.com/services/seo"
+      },
+      recommendedFields: ["description"],
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+      type: "Service",
+      url: "https://example.com/services/seo"
+    });
+
+    expect(result).toMatchObject({
+      eligible: false,
+      missingRecommendedFields: ["description"],
+      missingRequiredFields: ["provider"],
+      status: "needs_required_fields"
+    });
+    expect(result.issues).toEqual([
+      {
+        field: "provider",
+        message: "Required field provider is missing from Service JSON-LD.",
+        severity: "error",
+        sourceField: "jsonLd"
+      },
+      {
+        field: "description",
+        message: "Recommended field description is missing from Service JSON-LD.",
+        severity: "warning",
+        sourceField: "jsonLd"
+      }
+    ]);
+  });
+
+  it("checks root @type instead of accepting only nested supported types", () => {
+    const result = validateJsonLdDraft({
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: "SEO service",
+        provider: {
+          "@type": "Service",
+          name: "Nested service"
+        },
+        url: "https://example.com/services/seo"
+      },
+      recommendedFields: [],
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+      type: "Service",
+      url: "https://example.com/services/seo"
+    });
+
+    expect(result).toMatchObject({
+      eligible: false,
+      missingRequiredFields: [],
+      status: "type_mismatch"
+    });
+    expect(result.issues).toEqual([
+      {
+        field: "@type",
+        message: "Root @type must include Service.",
+        severity: "error",
+        sourceField: "jsonLd"
+      }
+    ]);
+  });
+
+  it("validates recommendation batches deterministically", () => {
+    const set = recommendJsonLdForSnapshot(createContext());
+    const first = validateJsonLdRecommendations(set.recommendations);
+    const second = validateJsonLdRecommendations(set.recommendations);
+
+    expect(second).toEqual(first);
+    expect(first.map((result) => result.type)).toEqual([
+      "WebPage",
+      "BreadcrumbList",
+      "FAQPage",
+      "Service",
+      "MedicalClinic"
+    ]);
   });
 });
