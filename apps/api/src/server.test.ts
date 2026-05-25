@@ -462,6 +462,20 @@ function buildSchemaRecommendationTestServer() {
   });
 }
 
+function buildSchemaRecommendationRecheckCrawlTestContext() {
+  const crawlRunQueue = createMemoryCrawlRunQueue();
+  const server = buildApiServer({
+    crawlRunQueue,
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      schemaRecommendations: [seededSchemaRecommendation],
+    }),
+  });
+
+  return { crawlRunQueue, server };
+}
+
 function buildWorkOrderTestServer() {
   return buildApiServer({
     repository: createMemoryRepository({
@@ -2065,6 +2079,39 @@ describe("api foundation", () => {
     });
   });
 
+  it("queues one-page crawl orchestration for schema recommendation rechecks", async () => {
+    const { crawlRunQueue, server } = buildSchemaRecommendationRecheckCrawlTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck-crawl",
+      headers: {
+        "x-mock-user-id": "user_schema",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      crawlRun: {
+        siteId: "site_seed",
+        status: "queued",
+      },
+      job: {
+        name: "crawl",
+        payload: {
+          maxPages: 1,
+          requestedByUserId: "user_schema",
+          siteDomain: "exampleclinic.com",
+          startUrl: "https://exampleclinic.com/services/seo",
+        },
+      },
+      recommendation: {
+        id: "schema_rec_seed",
+        pageUrl: "https://exampleclinic.com/services/seo",
+      },
+    });
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+  });
+
   it("keeps unresolved schema recommendations actionable after recheck", async () => {
     const server = buildSchemaRecommendationTestServer();
     await server.inject({
@@ -2150,12 +2197,17 @@ describe("api foundation", () => {
         snapshot: createSchemaSnapshot(),
       },
     });
+    const recheckCrawlResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_missing/recheck-crawl",
+    });
 
     expect(listResponse.statusCode).toBe(404);
     expect(createResponse.statusCode).toBe(404);
     expect(detailResponse.statusCode).toBe(404);
     expect(workOrderResponse.statusCode).toBe(404);
     expect(recheckResponse.statusCode).toBe(404);
+    expect(recheckCrawlResponse.statusCode).toBe(404);
   });
 
   it("validates schema recommendation request payloads", async () => {
@@ -2216,6 +2268,32 @@ describe("api foundation", () => {
     expect(mismatchResponse.json().message).toContain("pageUrl");
     expect(scopeResponse.statusCode).toBe(400);
     expect(scopeResponse.json().message).toContain("site domain");
+  });
+
+  it("rejects schema recommendation recheck crawl outside the site scope", async () => {
+    const crawlRunQueue = createMemoryCrawlRunQueue();
+    const server = buildApiServer({
+      crawlRunQueue,
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        schemaRecommendations: [
+          {
+            ...seededSchemaRecommendation,
+            pageUrl: "https://example.net/services/seo",
+          },
+        ],
+      }),
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/recheck-crawl",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("pageUrl");
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(0);
   });
 
   it("creates deterministic content brief drafts and persists them", async () => {

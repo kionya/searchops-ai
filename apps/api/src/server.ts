@@ -53,6 +53,7 @@ import {
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   OrganizationListResponseSchema,
+  QueueSchemaRecommendationRecheckCrawlResponseSchema,
   RecheckComplianceFlagRequestSchema,
   RecheckComplianceFlagResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
@@ -1196,6 +1197,57 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(RecheckSchemaRecommendationResponseSchema.parse(result));
+  });
+
+  server.post("/schema-recommendations/:id/recheck-crawl", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const recommendation = await repository.getSchemaRecommendation(id);
+    if (!recommendation) {
+      reply.status(404).send(notFound("Schema recommendation not found"));
+      return;
+    }
+
+    const site = await repository.getSite(recommendation.siteId);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    if (!isUrlAllowedForCrawl(recommendation.pageUrl, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "schema recommendation pageUrl must be within the site domain or its subdomains",
+      });
+      return;
+    }
+
+    const crawlRun = await repository.createCrawlRun(site.id, {
+      maxPages: 1,
+      startUrl: recommendation.pageUrl,
+    });
+    if (!crawlRun) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const userContext = resolveMockUserContext(request);
+    const job = await crawlRunQueue.enqueueCrawl({
+      crawlRunId: crawlRun.id,
+      siteId: site.id,
+      siteDomain: site.domain,
+      requestedByUserId: userContext.userId,
+      startUrl: recommendation.pageUrl,
+      maxPages: 1,
+      pages: [],
+    });
+
+    reply.status(202).send(
+      QueueSchemaRecommendationRecheckCrawlResponseSchema.parse({
+        crawlRun,
+        job,
+        recommendation,
+      }),
+    );
   });
 
   server.get("/content-briefs/:id", async (request, reply) => {

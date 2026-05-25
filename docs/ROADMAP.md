@@ -86,11 +86,12 @@ Phase 8 foundation status:
 - Schema recommendations can be converted into idempotent WorkOrders through deterministic templates.
 - Schema recommendation dashboard history, work order conversion actions, and deterministic fixture fallback are connected in `apps/web`.
 - Schema recommendation recheck can accept a crawler snapshot, detect the expected JSON-LD type deterministically, update recommendation status/evidence, and close a linked work order when resolved.
+- Schema recommendation recheck can queue a scoped one-page crawl for the recommendation page URL through the API/worker crawl boundary.
 
 Phase 8 remaining limitations:
 
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
-- Recheck currently uses caller-provided snapshots; live crawl orchestration for schema recheck remains future scope.
+- The queued crawl result still needs an automatic worker handoff from persisted UrlRecord snapshot to schema recommendation recheck.
 - Schema validation against live rich result tooling remains future scope.
 
 ## Phase 9. GEO monitor
