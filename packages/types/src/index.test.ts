@@ -73,6 +73,7 @@ import {
   NormalizedUrlSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
+  QueueSchemaRecommendationRecheckCrawlResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
   RecheckComplianceFlagRequestSchema,
@@ -539,6 +540,36 @@ describe("types foundation", () => {
       recommendation: { status: "resolved" },
       resolved: true,
       workOrder: { status: "done" },
+    });
+    expect(
+      QueueSchemaRecommendationRecheckCrawlResponseSchema.parse({
+        recommendation: record,
+        crawlRun: {
+          id: "crawl_1",
+          siteId: "site_1",
+          status: "queued",
+          startedAt: "2026-05-24T00:00:00.000Z",
+          endedAt: null,
+          summary: null,
+        },
+        job: {
+          id: "job_1",
+          name: "crawl",
+          payload: {
+            crawlRunId: "crawl_1",
+            siteId: "site_1",
+            siteDomain: "example.com",
+            requestedByUserId: "user_1",
+            startUrl: "https://example.com/services/seo",
+            maxPages: 1,
+            pages: [],
+          },
+        },
+      }),
+    ).toMatchObject({
+      crawlRun: { status: "queued" },
+      job: { name: "crawl" },
+      recommendation: { id: "schema_rec_1" },
     });
     expect(() =>
       SchemaRecommendationRecordSchema.parse({

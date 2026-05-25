@@ -22,6 +22,10 @@ The ContentBrief API creates deterministic draft-only content briefs from Keywor
 
 The AEO readiness API computes deterministic readiness reports from keyword and page signals, persists them, and reads report history for dashboard use.
 
+## Phase 8 API
+
+The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, and can queue a one-page crawl for a recommendation's page URL. It does not call LLM providers, live rich-result validators, or CMS publish adapters.
+
 ## Phase 10 API
 
 The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, converts open flags into legal-review WorkOrders, rechecks revised draft copy, and accepts CMS content update events that trigger deterministic rechecks for matching active flags. It does not call LLM providers, live CMS APIs, or publish medical content.
@@ -56,6 +60,12 @@ The API exposes process-local operational metrics and can enforce request rate l
 - `POST /sites/:siteId/content-briefs`
 - `GET /sites/:siteId/content-briefs`
 - `GET /content-briefs/:contentBriefId`
+- `GET /sites/:siteId/schema-recommendations`
+- `POST /sites/:siteId/schema-recommendations`
+- `GET /schema-recommendations/:schemaRecommendationId`
+- `POST /schema-recommendations/:schemaRecommendationId/work-order`
+- `POST /schema-recommendations/:schemaRecommendationId/recheck`
+- `POST /schema-recommendations/:schemaRecommendationId/recheck-crawl`
 - `POST /sites/:siteId/compliance-reviews`
 - `POST /sites/:siteId/cms/content-updated-events`
 - `POST /sites/:siteId/cms/webhooks/:cmsType`
@@ -148,6 +158,20 @@ If `readinessReport` is absent, the API computes deterministic readiness through
 `GET /content-briefs/:contentBriefId` returns `ContentBriefDetailResponse`.
 
 Content brief creation is draft-only. The API persists `status = draft`, `generationMode = deterministic`, and `publishPolicy = draft_only`; it does not publish to CMS or call `packages/ai-core`.
+
+## Schema Recommendations
+
+`POST /sites/:siteId/schema-recommendations` accepts crawler snapshots plus site context, runs deterministic `packages/schema-core` recommendation rules, and persists idempotent recommendation rows by site, page URL, and schema type.
+
+`GET /sites/:siteId/schema-recommendations` returns the site's persisted schema recommendation history.
+
+`GET /schema-recommendations/:schemaRecommendationId` returns one persisted recommendation.
+
+`POST /schema-recommendations/:schemaRecommendationId/work-order` converts an open recommendation into one idempotent WorkOrder using deterministic templates.
+
+`POST /schema-recommendations/:schemaRecommendationId/recheck` accepts a caller-provided crawler snapshot for the same page URL, detects JSON-LD types deterministically, updates recommendation status/evidence, and closes the linked WorkOrder when the expected schema type is present.
+
+`POST /schema-recommendations/:schemaRecommendationId/recheck-crawl` creates a `queued` CrawlRun with `maxPages = 1` and enqueues a crawl job for the recommendation's `pageUrl`. The page URL must stay within the registered site domain or its subdomains. This route only orchestrates the crawl; converting the later UrlRecord snapshot into a schema recheck remains a separate worker handoff.
 
 ## Compliance Reviews
 

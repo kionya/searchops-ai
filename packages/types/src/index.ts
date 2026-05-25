@@ -1425,6 +1425,16 @@ export const CreateCrawlRunResponseSchema = z.object({
 
 export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema>;
 
+export const QueueSchemaRecommendationRecheckCrawlResponseSchema = z.object({
+  recommendation: SchemaRecommendationRecordSchema,
+  crawlRun: CrawlRunSchema,
+  job: QueuedCrawlJobSchema,
+});
+
+export type QueueSchemaRecommendationRecheckCrawlResponse = z.infer<
+  typeof QueueSchemaRecommendationRecheckCrawlResponseSchema
+>;
+
 export const RecheckWorkOrderResponseSchema = z.object({
   workOrder: WorkOrderSchema,
   crawlRun: CrawlRunSchema,

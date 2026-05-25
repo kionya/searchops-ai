@@ -102,13 +102,13 @@ Phase 8 starts with deterministic JSON-LD recommendation contracts and rule logi
 
 `packages/schema-core` must have no LLM, DB, network, connector, or CMS dependency. It receives typed crawler snapshots plus site context, returns Zod-validated recommendation sets, and remains independently unit testable. Optional explanation text, code generation assistance, rich-result validation, and CMS publishing belong outside the deterministic core.
 
-`apps/api` owns the HTTP boundary for schema recommendation creation/history, work order conversion, and snapshot-based recheck. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, and persist recommendation drafts through repository ports. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
+`apps/api` owns the HTTP boundary for schema recommendation creation/history, work order conversion, snapshot-based recheck, and crawl orchestration for recommendation rechecks. It may call deterministic `packages/schema-core`, validate requests and responses through `packages/types`, scope recommendation page URLs to the registered site domain/subdomains, persist recommendation drafts through repository ports, and enqueue a one-page crawl for a recommendation page URL. It must not call LLM providers, live rich-result validators, or CMS publish adapters for Phase 8 schema recommendation flows.
 
 `packages/db` owns schema recommendation persistence. Recommendations are idempotent by site, page URL, and schema type so rerunning the same deterministic analysis updates the existing draft instead of creating duplicates. Recheck updates the recommendation evidence/status and, when a linked work order exists, may mark the work order `done` once the expected JSON-LD type is present.
 
 `packages/workorders` owns deterministic SchemaRecommendation to WorkOrder mapping. `apps/api` may convert a persisted schema recommendation into one idempotent work order and mark the recommendation `converted`; it must not publish JSON-LD to a CMS or production page.
 
-`apps/web` owns the dashboard surface for schema recommendations. It may read schema recommendation history, convert open recommendations to work orders, and submit deterministic snapshot rechecks through API helpers with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
+`apps/web` owns the dashboard surface for schema recommendations. It may read schema recommendation history, convert open recommendations to work orders, submit deterministic snapshot rechecks, and trigger API-owned recheck crawl orchestration through API helpers with fixture fallback when `SEARCHOPS_API_BASE_URL` is unavailable.
 
 ## Phase 9 GEO Monitor Boundary
 
