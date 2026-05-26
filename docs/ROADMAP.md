@@ -176,10 +176,11 @@ Phase 11 starting status:
 - `CDX-114`: Production hardening foundation adds API rate-limit controls, request metrics, BullMQ retry/backoff assertions, and worker dead-letter queue payloads for failed jobs.
 - `CDX-127`: Dead-letter operations APIs and dashboard expose worker failure metadata and allow safe entry cleanup without storing secrets or raw credentials.
 - `CDX-128`: API rate limiting now uses an injectable store boundary with in-memory defaults and a Redis-like distributed counter adapter for multi-instance deployments.
+- `CDX-129`: Mock auth context now carries roles and is enforced for tenant-scoped API reads/writes. Cross-tenant organization/site access is denied and viewer writes are blocked.
 
 Phase 11 remaining limitations:
 
 - API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
 - Request metrics are runtime-local JSON metrics, not yet exported to a central observability stack.
 - Dead-letter queues capture failed job metadata and expose operator cleanup views, but replay workflows are still future scope.
-- Auth/RBAC, tenant isolation hardening, backup/migration runbooks, and deployment secret rotation still need dedicated PRs.
+- External identity-provider integration, deployment auth middleware, backup/migration runbooks, and deployment secret rotation still need dedicated PRs.

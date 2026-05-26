@@ -38,6 +38,8 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 
 The API exposes process-local operational metrics, can enforce request rate limits from validated environment settings, and exposes worker dead-letter metadata for operator cleanup. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
 
+Tenant access is enforced at the API boundary from the authenticated user context. In the current development runtime this context is still provided by mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`), but organization/site routes and site-scoped resource routes use it for cross-tenant denial and write-role checks.
+
 ## Routes
 
 - `GET /health`

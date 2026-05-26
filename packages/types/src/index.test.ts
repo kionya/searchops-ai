@@ -230,6 +230,7 @@ describe("types foundation", () => {
     ).toEqual({
       userId: "usr_1",
       organizationId: "org_1",
+      role: "admin",
       source: "mock",
     });
   });

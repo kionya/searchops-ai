@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import type {
   AeoReadinessReportRecord,
@@ -34,13 +34,18 @@ import { createCmsWebhookSignature } from "./webhook-security.js";
 
 const createdAt = "2026-05-19T00:00:00.000Z";
 const seededOrganization: Organization = {
-  id: "org_seed",
+  id: "org_demo",
   name: "Seed Organization",
+  createdAt,
+};
+const otherOrganization: Organization = {
+  id: "org_other",
+  name: "Other Organization",
   createdAt,
 };
 const seededSite: Site = {
   id: "site_seed",
-  organizationId: "org_seed",
+  organizationId: "org_demo",
   domain: "exampleclinic.com",
   name: "Example Clinic",
   industry: "medical",
@@ -48,9 +53,19 @@ const seededSite: Site = {
   country: "KR",
   createdAt,
 };
+const otherSite: Site = {
+  id: "site_other",
+  organizationId: "org_other",
+  domain: "otherclinic.com",
+  name: "Other Clinic",
+  industry: "medical",
+  language: "ko",
+  country: "KR",
+  createdAt,
+};
 const seededConnectorSyncRun: ConnectorSyncRun = {
   id: "sync_seed",
-  organizationId: "org_seed",
+  organizationId: "org_demo",
   siteId: "site_seed",
   status: "completed",
   providers: ["pagespeed"],
@@ -99,7 +114,7 @@ const seededConnectorSyncResult: ConnectorSyncResult = {
 };
 const seededKeywordDiscoverySyncRun: ConnectorSyncRun = {
   id: "sync_keyword_seed",
-  organizationId: "org_seed",
+  organizationId: "org_demo",
   siteId: "site_seed",
   status: "completed",
   providers: ["gsc", "cms"],
@@ -311,7 +326,7 @@ const seededGeoVisibilityReport: GeoVisibilityReportRecord = {
 };
 const seededComplianceFlag: ComplianceFlag = {
   id: "compliance_flag_seed",
-  organizationId: "org_seed",
+  organizationId: "org_demo",
   siteId: "site_seed",
   workOrderId: null,
   subjectType: "page_copy",
@@ -369,7 +384,7 @@ const seededSchemaRecommendation: SchemaRecommendationRecord = {
 };
 const seededWorkOrder: WorkOrder = {
   id: "wo_seed",
-  organizationId: "org_seed",
+  organizationId: "org_demo",
   siteId: "site_seed",
   seoIssueId: "issue_seed",
   schemaRecommendationId: null,
@@ -921,15 +936,106 @@ describe("api foundation", () => {
       url: "/auth/context",
       headers: {
         "x-mock-user-id": "user_test",
-        "x-mock-organization-id": "org_seed",
+        "x-mock-organization-id": "org_demo",
       },
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       userId: "user_test",
-      organizationId: "org_seed",
+      organizationId: "org_demo",
+      role: "admin",
       source: "mock",
+    });
+  });
+
+  it("limits organization lists to the authenticated tenant", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/organizations",
+      headers: {
+        "x-mock-organization-id": "org_demo",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      organizations: [seededOrganization],
+    });
+  });
+
+  it("blocks cross-tenant organization and site access", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const organizationResponse = await server.inject({
+      method: "GET",
+      url: "/organizations/org_other/sites",
+      headers: {
+        "x-mock-organization-id": "org_demo",
+      },
+    });
+    const siteResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_other",
+      headers: {
+        "x-mock-organization-id": "org_demo",
+      },
+    });
+
+    expect(organizationResponse.statusCode).toBe(403);
+    expect(organizationResponse.json()).toEqual({
+      error: "forbidden",
+      message: "User cannot access this organization",
+    });
+    expect(siteResponse.statusCode).toBe(403);
+    expect(siteResponse.json()).toEqual({
+      error: "forbidden",
+      message: "User cannot access this organization",
+    });
+  });
+
+  it("allows same-tenant reads but blocks viewer writes", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+    const readResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed",
+      headers: {
+        "x-mock-organization-id": "org_demo",
+        "x-mock-user-role": "viewer",
+      },
+    });
+    const writeResponse = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers: {
+        "x-mock-organization-id": "org_demo",
+        "x-mock-user-role": "viewer",
+      },
+      payload: {
+        name: "Viewer edit",
+      },
+    });
+
+    expect(readResponse.statusCode).toBe(200);
+    expect(writeResponse.statusCode).toBe(403);
+    expect(writeResponse.json()).toEqual({
+      error: "forbidden",
+      message: "User role cannot modify this resource",
     });
   });
 
@@ -944,7 +1050,13 @@ describe("api foundation", () => {
     expect(createResponse.statusCode).toBe(201);
     expect(createResponse.json()).toMatchObject({ name: "New Organization" });
 
-    const listResponse = await server.inject({ method: "GET", url: "/organizations" });
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/organizations",
+      headers: {
+        "x-mock-user-role": "system",
+      },
+    });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().organizations).toHaveLength(2);
   });
@@ -953,7 +1065,7 @@ describe("api foundation", () => {
     const server = buildTestServer();
     const createResponse = await server.inject({
       method: "POST",
-      url: "/organizations/org_seed/sites",
+      url: "/organizations/org_demo/sites",
       payload: {
         domain: "ExampleClinic.COM",
         name: "Example Clinic",
@@ -964,7 +1076,7 @@ describe("api foundation", () => {
     expect(createResponse.statusCode).toBe(201);
     const created = createResponse.json();
     expect(created).toMatchObject({
-      organizationId: "org_seed",
+      organizationId: "org_demo",
       domain: "exampleclinic.com",
       name: "Example Clinic",
       industry: "medical",
@@ -974,7 +1086,7 @@ describe("api foundation", () => {
 
     const listResponse = await server.inject({
       method: "GET",
-      url: "/organizations/org_seed/sites",
+      url: "/organizations/org_demo/sites",
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().sites).toHaveLength(1);
@@ -1002,7 +1114,7 @@ describe("api foundation", () => {
     const server = buildTestServer();
     const response = await server.inject({
       method: "POST",
-      url: "/organizations/org_seed/sites",
+      url: "/organizations/org_demo/sites",
       payload: { domain: "not-a-domain" },
     });
 
@@ -1120,7 +1232,7 @@ describe("api foundation", () => {
     const body = response.json();
     expect(body.connectorSyncRun).toMatchObject({
       id: "sync_0001",
-      organizationId: "org_seed",
+      organizationId: "org_demo",
       siteId: "site_seed",
       status: "queued",
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
@@ -1134,7 +1246,7 @@ describe("api foundation", () => {
       name: "connector-sync",
       payload: {
         connectorSyncRunId: "sync_0001",
-        organizationId: "org_seed",
+        organizationId: "org_demo",
         siteId: "site_seed",
         siteDomain: "exampleclinic.com",
         requestedByUserId: "user_connector",
@@ -1584,7 +1696,7 @@ describe("api foundation", () => {
         id: "job_0001",
         name: "geo-answer-monitor",
         payload: {
-          organizationId: "org_seed",
+          organizationId: "org_demo",
           siteId: "site_seed",
           siteDomain: "exampleclinic.com",
           requestedByUserId: "user_geo",
