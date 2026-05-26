@@ -1313,9 +1313,14 @@ export const SiteListResponseSchema = z.object({
 
 export type SiteListResponse = z.infer<typeof SiteListResponseSchema>;
 
+export const AuthRoleSchema = z.enum(["admin", "editor", "owner", "system", "viewer"]);
+
+export type AuthRole = z.infer<typeof AuthRoleSchema>;
+
 export const MockUserContextSchema = z.object({
   userId: IdSchema,
   organizationId: IdSchema,
+  role: AuthRoleSchema.default("admin"),
   source: z.literal("mock"),
 });
 

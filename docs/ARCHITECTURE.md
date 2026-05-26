@@ -163,3 +163,5 @@ Production hardening starts at runtime boundaries before deeper platform policy 
 `apps/worker` owns BullMQ worker failure handling. Queue producers define retry/backoff defaults, while worker runtimes write failed jobs to a dead-letter queue after BullMQ exhausts retries. Dead-letter payloads intentionally store queue/job metadata and failure reason, not secrets or raw external credentials.
 
 `apps/api` owns the operations boundary for dead-letter inspection. It can list and clear dead-letter queue entries through BullMQ-backed adapters, while local tests use an in-memory store. Replay is intentionally not automatic until a safe, queue-specific retry policy is defined.
+
+`apps/api` also owns tenant and role enforcement at the HTTP boundary. The current auth context is still mock-header based, but route handlers now consume that context for organization/site scoping and write-role checks. Cross-tenant reads return `403`, viewer writes are blocked, and CMS webhook routes continue to rely on their signature boundary instead of user headers. External identity-provider integration remains a later hardening step.

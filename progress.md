@@ -142,33 +142,34 @@ Implemented:
 - Worker dead-letter queue payloads.
 - Dead-letter operations API and dashboard.
 - Injectable API rate-limit store with a Redis-like distributed adapter boundary.
+- Mock auth roles enforced for tenant-scoped API access and viewer write denial.
 
 Remaining:
 
 - Deployment-specific Redis client wiring or edge-backed rate limiting.
 - Central observability export for metrics/logs.
 - Dead-letter replay workflow.
-- Real auth/RBAC and tenant isolation hardening.
+- External identity-provider integration and deployment auth middleware.
 - Backup, migration, and deployment secret rotation runbooks.
 
 ## Next Implementation Plan
 
 Recommended order:
 
-1. CDX-129: Auth/RBAC and tenant isolation hardening
-   - Replace mock auth context with real auth boundary.
-   - Add organization/user/site scoping tests.
-   - Add negative tests for cross-tenant access.
-
-2. CDX-130: Observability export
+1. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-3. CDX-131: Backup, migration, and deployment runbooks
+2. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.
+
+3. Follow-up auth hardening
+   - Wire a deployment identity provider or middleware.
+   - Map provider claims into the existing API auth context.
+   - Keep cross-tenant negative tests as the contract.
 
 ## Guardrails
 

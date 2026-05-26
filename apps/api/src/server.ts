@@ -91,7 +91,12 @@ import {
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
-import { resolveMockUserContext } from "./auth.js";
+import {
+  canAccessOrganization,
+  canManageOperations,
+  canWriteWithRole,
+  resolveMockUserContext,
+} from "./auth.js";
 import {
   type ConnectorSyncQueue,
   type CrawlRunQueue,
@@ -153,6 +158,10 @@ function notFound(message: string) {
   return { error: "not_found", message };
 }
 
+function forbidden(message: string) {
+  return { error: "forbidden", message };
+}
+
 function getRateLimitKey(request: FastifyRequest) {
   const forwardedFor = request.headers["x-forwarded-for"];
   const firstForwardedFor = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
@@ -204,6 +213,173 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   };
   const server = Fastify({ logger: false });
 
+  function isWriteRequest(request: FastifyRequest) {
+    return request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS";
+  }
+
+  function sendForbidden(reply: FastifyReply, message: string) {
+    reply.status(403).send(forbidden(message));
+  }
+
+  function ensureOrganizationAccess({
+    organizationId,
+    reply,
+    request,
+  }: {
+    readonly organizationId: string;
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+  }) {
+    const userContext = resolveMockUserContext(request);
+    if (!canAccessOrganization(userContext, organizationId)) {
+      sendForbidden(reply, "User cannot access this organization");
+      return false;
+    }
+
+    if (isWriteRequest(request) && !canWriteWithRole(userContext.role)) {
+      sendForbidden(reply, "User role cannot modify this resource");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function ensureSiteAccess({
+    reply,
+    request,
+    siteId,
+  }: {
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+    readonly siteId: string;
+  }) {
+    const site = await repository.getSite(siteId);
+    if (!site) {
+      return true;
+    }
+
+    return ensureOrganizationAccess({
+      organizationId: site.organizationId,
+      reply,
+      request,
+    });
+  }
+
+  async function ensureSiteScopedResourceAccess({
+    getSiteId,
+    reply,
+    request,
+  }: {
+    readonly getSiteId: () => Promise<string | null>;
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+  }) {
+    const siteId = await getSiteId();
+    if (siteId === null) {
+      return true;
+    }
+
+    return ensureSiteAccess({ reply, request, siteId });
+  }
+
+  async function authorizeTenantAccess(request: FastifyRequest, reply: FastifyReply) {
+    const routeUrl = request.routeOptions.url ?? "";
+
+    if (
+      routeUrl === "/health" ||
+      routeUrl === "/metrics" ||
+      routeUrl === "/auth/context" ||
+      routeUrl === "/sites/:id/cms/content-updated-events" ||
+      routeUrl === "/sites/:id/cms/webhooks/:cmsType"
+    ) {
+      return true;
+    }
+
+    if (routeUrl.startsWith("/ops/")) {
+      const userContext = resolveMockUserContext(request);
+      if (!canManageOperations(userContext.role)) {
+        sendForbidden(reply, "User role cannot manage operations");
+        return false;
+      }
+      return true;
+    }
+
+    if (routeUrl === "/organizations/:organizationId/sites") {
+      const { organizationId } = OrganizationParamsSchema.parse(request.params);
+      return ensureOrganizationAccess({ organizationId, reply, request });
+    }
+
+    if (routeUrl.startsWith("/sites/:id")) {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteAccess({ reply, request, siteId: id });
+    }
+
+    if (routeUrl === "/connector-sync-runs/:id") {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteScopedResourceAccess({
+        getSiteId: async () => (await repository.getConnectorSyncRun(id))?.connectorSyncRun.siteId ?? null,
+        reply,
+        request,
+      });
+    }
+
+    if (routeUrl === "/geo-visibility-reports/:id/work-order") {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteScopedResourceAccess({
+        getSiteId: async () => (await repository.getGeoVisibilityReport(id))?.siteId ?? null,
+        reply,
+        request,
+      });
+    }
+
+    if (routeUrl.startsWith("/compliance-flags/:id")) {
+      const { id } = IdParamsSchema.parse(request.params);
+      const complianceFlag = await repository.getComplianceFlag(id);
+      if (!complianceFlag) {
+        return true;
+      }
+
+      if (complianceFlag.siteId !== null) {
+        return ensureSiteAccess({ reply, request, siteId: complianceFlag.siteId });
+      }
+
+      return ensureOrganizationAccess({
+        organizationId: complianceFlag.organizationId,
+        reply,
+        request,
+      });
+    }
+
+    if (routeUrl.startsWith("/schema-recommendations/:id")) {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteScopedResourceAccess({
+        getSiteId: async () => (await repository.getSchemaRecommendation(id))?.siteId ?? null,
+        reply,
+        request,
+      });
+    }
+
+    if (routeUrl === "/content-briefs/:id") {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteScopedResourceAccess({
+        getSiteId: async () => (await repository.getContentBrief(id))?.siteId ?? null,
+        reply,
+        request,
+      });
+    }
+
+    if (routeUrl.startsWith("/work-orders/:id")) {
+      const { id } = IdParamsSchema.parse(request.params);
+      return ensureSiteScopedResourceAccess({
+        getSiteId: async () => (await repository.getWorkOrder(id))?.siteId ?? null,
+        reply,
+        request,
+      });
+    }
+
+    return true;
+  }
+
   server.addHook("onRequest", async (request, reply) => {
     if (!rateLimit.enabled) {
       return;
@@ -229,6 +405,13 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       reply.statusCode,
       (requestMetrics.byStatus.get(reply.statusCode) ?? 0) + 1,
     );
+  });
+
+  server.addHook("preHandler", async (request, reply) => {
+    const authorized = await authorizeTenantAccess(request, reply);
+    if (!authorized) {
+      return reply;
+    }
   });
 
   async function sendCmsContentUpdatedEventResponse({
@@ -515,11 +698,25 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
   server.get("/auth/context", async (request) => resolveMockUserContext(request));
 
-  server.get("/organizations", async () =>
-    OrganizationListResponseSchema.parse({ organizations: await repository.listOrganizations() }),
-  );
+  server.get("/organizations", async (request) => {
+    const userContext = resolveMockUserContext(request);
+    const organizations = await repository.listOrganizations();
+
+    return OrganizationListResponseSchema.parse({
+      organizations:
+        userContext.role === "system"
+          ? organizations
+          : organizations.filter((organization) => organization.id === userContext.organizationId),
+    });
+  });
 
   server.post("/organizations", async (request, reply) => {
+    const userContext = resolveMockUserContext(request);
+    if (!canWriteWithRole(userContext.role)) {
+      reply.status(403).send(forbidden("User role cannot create organizations"));
+      return;
+    }
+
     const input = CreateOrganizationRequestSchema.parse(request.body);
     const organization = await repository.createOrganization(input);
     reply.status(201).send(organization);
