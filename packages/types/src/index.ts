@@ -4,6 +4,8 @@ export const productName = "SearchOps AI" as const;
 export const crawlQueueName = "searchops-crawl" as const;
 export const connectorQueueName = "searchops-connectors" as const;
 export const connectorSyncJobName = "connector-sync" as const;
+export const geoAnswerMonitorQueueName = "searchops-geo-answer-monitor" as const;
+export const geoAnswerMonitorJobName = "geo-answer-monitor" as const;
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const IdSchema = z.string().min(1);
@@ -756,6 +758,19 @@ export const GeoAnswerMonitorRequestSchema = z.object({
 
 export type GeoAnswerMonitorRequest = z.infer<typeof GeoAnswerMonitorRequestSchema>;
 
+export const GeoAnswerMonitorProviderListSchema = z
+  .array(GeoAnswerMonitorProviderSchema)
+  .min(1)
+  .refine((providers) => new Set(providers).size === providers.length, {
+    message: "GEO answer monitor providers must be unique",
+  });
+
+export type GeoAnswerMonitorProviderList = z.infer<
+  typeof GeoAnswerMonitorProviderListSchema
+>;
+
+export const DefaultGeoAnswerMonitorProviders = ["chatgpt", "perplexity"] as const;
+
 export const GeoAnswerMonitorResultSchema = z.object({
   provider: GeoAnswerMonitorProviderSchema,
   observations: z.array(GeoAnswerObservationSchema).min(1),
@@ -848,6 +863,58 @@ export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
 
 export type CreateGeoVisibilityReportWorkOrderResponse = z.infer<
   typeof CreateGeoVisibilityReportWorkOrderResponseSchema
+>;
+
+export const GeoAnswerMonitorJobPayloadSchema = z.object({
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  target: GeoTargetSchema,
+  queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
+  observedAt: IsoDateTimeSchema,
+  providers: GeoAnswerMonitorProviderListSchema.default([
+    ...DefaultGeoAnswerMonitorProviders,
+  ]),
+});
+
+export type GeoAnswerMonitorJobPayload = z.infer<typeof GeoAnswerMonitorJobPayloadSchema>;
+
+export const GeoAnswerMonitorJobResultSchema = z.object({
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  observedAt: IsoDateTimeSchema,
+  providers: GeoAnswerMonitorProviderListSchema,
+  monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
+  visibilityReport: GeoVisibilityReportSchema,
+});
+
+export type GeoAnswerMonitorJobResult = z.infer<typeof GeoAnswerMonitorJobResultSchema>;
+
+export const QueuedGeoAnswerMonitorJobSchema = z.object({
+  id: IdSchema,
+  name: z.literal(geoAnswerMonitorJobName),
+  payload: GeoAnswerMonitorJobPayloadSchema,
+});
+
+export type QueuedGeoAnswerMonitorJob = z.infer<typeof QueuedGeoAnswerMonitorJobSchema>;
+
+export const QueueGeoAnswerMonitorRequestSchema = GeoAnswerMonitorRequestSchema.extend({
+  providers: GeoAnswerMonitorProviderListSchema.default([
+    ...DefaultGeoAnswerMonitorProviders,
+  ]),
+});
+
+export type QueueGeoAnswerMonitorRequest = z.infer<typeof QueueGeoAnswerMonitorRequestSchema>;
+
+export const QueueGeoAnswerMonitorResponseSchema = z.object({
+  job: QueuedGeoAnswerMonitorJobSchema,
+});
+
+export type QueueGeoAnswerMonitorResponse = z.infer<
+  typeof QueueGeoAnswerMonitorResponseSchema
 >;
 
 export const AiPromptSchema = z.object({

@@ -26,6 +26,10 @@ The AEO readiness API computes deterministic readiness reports from keyword and 
 
 The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, and can queue a one-page crawl for a recommendation's page URL. It does not call LLM providers, live rich-result validators, or CMS publish adapters. Optional live rich-result validation belongs behind `packages/connectors` adapter ports and is not invoked by API handlers by default.
 
+## Phase 9 API
+
+The GEO API creates deterministic visibility reports from supplied observations, enqueues answer monitor jobs for worker runtime evaluation, lists persisted report history, and converts reports to WorkOrders. The API does not call live AI providers; provider collection stays behind worker-injected connector adapters and fixture mode remains the default.
+
 ## Phase 10 API
 
 The Compliance API evaluates deterministic medical advertising risk rules, persists ComplianceFlag history, updates review status, converts open flags into legal-review WorkOrders, rechecks revised draft copy, and accepts CMS content update events that trigger deterministic rechecks for matching active flags. It does not call LLM providers, live CMS APIs, or publish medical content.
@@ -66,6 +70,10 @@ The API exposes process-local operational metrics and can enforce request rate l
 - `POST /schema-recommendations/:schemaRecommendationId/work-order`
 - `POST /schema-recommendations/:schemaRecommendationId/recheck`
 - `POST /schema-recommendations/:schemaRecommendationId/recheck-crawl`
+- `POST /sites/:siteId/geo-visibility-reports`
+- `GET /sites/:siteId/geo-visibility-reports`
+- `POST /sites/:siteId/geo-answer-monitor-jobs`
+- `POST /geo-visibility-reports/:geoVisibilityReportId/work-order`
 - `POST /sites/:siteId/compliance-reviews`
 - `POST /sites/:siteId/cms/content-updated-events`
 - `POST /sites/:siteId/cms/webhooks/:cmsType`
@@ -188,6 +196,16 @@ Content brief creation is draft-only. The API persists `status = draft`, `genera
 `POST /schema-recommendations/:schemaRecommendationId/recheck` accepts a caller-provided crawler snapshot for the same page URL, detects JSON-LD types deterministically, updates recommendation status/evidence, and closes the linked WorkOrder when the expected schema type is present.
 
 `POST /schema-recommendations/:schemaRecommendationId/recheck-crawl` creates a `queued` CrawlRun with `maxPages = 1` and enqueues a crawl job for the recommendation's `pageUrl`. The page URL must stay within the registered site domain or its subdomains. The queued payload carries `schemaRecommendationId` so the worker can convert the completed crawler snapshot into a deterministic schema recommendation recheck and close the linked work order when the expected JSON-LD type is present.
+
+## GEO Visibility Reports
+
+`POST /sites/:siteId/geo-visibility-reports` accepts `CreateGeoVisibilityReportRequest`, validates that `target.siteId` and `target.domain` stay within the routed site, evaluates observations through deterministic `packages/geo-core`, persists report history, and returns `CreateGeoVisibilityReportResponse`.
+
+`POST /sites/:siteId/geo-answer-monitor-jobs` accepts `QueueGeoAnswerMonitorRequest`, validates the same site and domain scope, and returns `202 Accepted` with a typed `geo-answer-monitor` job payload. The API only enqueues work; the worker owns provider collection through connector adapters, deterministic report evaluation, and persistence.
+
+`GET /sites/:siteId/geo-visibility-reports` returns `GeoVisibilityReportListResponse` ordered by latest report first.
+
+`POST /geo-visibility-reports/:geoVisibilityReportId/work-order` converts a persisted report into one idempotent WorkOrder using deterministic templates.
 
 ## Compliance Reviews
 

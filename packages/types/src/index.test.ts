@@ -61,6 +61,8 @@ import {
   GeoVisibilityReportListResponseSchema,
   GeoVisibilityReportRecordSchema,
   GeoVisibilityReportSchema,
+  GeoAnswerMonitorJobPayloadSchema,
+  GeoAnswerMonitorJobResultSchema,
   GeoAnswerMonitorProviderSchema,
   GeoAnswerMonitorRequestSchema,
   GeoAnswerMonitorResultSchema,
@@ -80,6 +82,8 @@ import {
   NormalizedUrlSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
+  QueueGeoAnswerMonitorRequestSchema,
+  QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
@@ -1406,6 +1410,102 @@ describe("types foundation", () => {
         generatedBy: "llm",
       }),
     ).toThrow();
+  });
+
+  it("validates GEO answer monitor runtime job contracts", () => {
+    const payload = GeoAnswerMonitorJobPayloadSchema.parse({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      target: {
+        siteId: "site_1",
+        brandName: "Example Clinic",
+        domain: "example.com",
+      },
+      queries: [
+        {
+          query: "best seo clinic",
+        },
+      ],
+      observedAt: "2026-05-26T00:00:00.000Z",
+    });
+    const monitorResult = GeoAnswerMonitorResultSchema.parse({
+      provider: "chatgpt",
+      observations: [
+        {
+          provider: "chatgpt",
+          query: "best seo clinic",
+          answerText: "Example Clinic is mentioned.",
+          citedUrls: ["https://example.com/services/seo"],
+          observedAt: "2026-05-26T00:00:00.000Z",
+          source: "connector",
+        },
+      ],
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+    });
+    const visibilityReport = GeoVisibilityReportSchema.parse({
+      target: payload.target,
+      status: "visible",
+      score: 72,
+      mentionRate: 100,
+      citationRate: 100,
+      competitorCitationRate: 0,
+      queryCount: 1,
+      providerCount: 1,
+      observations: monitorResult.observations,
+      citations: [
+        {
+          url: "https://example.com/services/seo",
+          domain: "example.com",
+          owned: true,
+        },
+      ],
+      checks: [
+        {
+          checkId: "BRAND_MENTIONED",
+          status: "pass",
+          score: 100,
+          evidence: {
+            observedValue: 100,
+            expectedValue: ">= 70",
+            sourceField: "observations.answerText",
+          },
+        },
+      ],
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-05-26T00:00:00.000Z",
+    });
+
+    expect(payload.providers).toEqual(["chatgpt", "perplexity"]);
+    expect(
+      GeoAnswerMonitorJobResultSchema.parse({
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        observedAt: "2026-05-26T00:00:00.000Z",
+        providers: ["chatgpt"],
+        monitorResults: [monitorResult],
+        visibilityReport,
+      }).visibilityReport.generatedBy,
+    ).toBe("deterministic");
+    expect(
+      QueueGeoAnswerMonitorRequestSchema.parse({
+        target: payload.target,
+        queries: payload.queries,
+      }).providers,
+    ).toEqual(["chatgpt", "perplexity"]);
+    expect(
+      QueueGeoAnswerMonitorResponseSchema.parse({
+        job: {
+          id: "job_1",
+          name: "geo-answer-monitor",
+          payload,
+        },
+      }).job.name,
+    ).toBe("geo-answer-monitor");
   });
 
   it("validates connector providers and normalized records", () => {

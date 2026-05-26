@@ -1,11 +1,16 @@
 import {
+  monitorFixtureGeoAnswersBatch,
   syncFixtureConnectors,
   type ConnectorBatchSyncRequest,
-  type ConnectorBatchSyncResult
+  type ConnectorBatchSyncResult,
+  type GeoAnswerMonitorBatchRequest,
+  type GeoAnswerMonitorBatchResult
 } from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
 import { extractJsonLdTypes } from "@searchops/schema-core";
+import { evaluateGeoVisibility } from "@searchops/geo-core";
 import {
+  persistGeoAnswerMonitorJobResult,
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
   persistConnectorSyncJobResult,
@@ -13,6 +18,7 @@ import {
   persistSchemaRecommendationRecheck,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
+  type GeoVisibilityPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 import {
@@ -20,11 +26,15 @@ import {
   ConnectorSyncJobResultSchema,
   CrawlJobPayloadSchema,
   CrawlJobResultSchema,
+  GeoAnswerMonitorJobPayloadSchema,
+  GeoAnswerMonitorJobResultSchema,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
   type CrawlJobPageInput,
   type CrawlJobPayload,
-  type CrawlJobResult
+  type CrawlJobResult,
+  type GeoAnswerMonitorJobPayload,
+  type GeoAnswerMonitorJobResult
 } from "@searchops/types";
 
 export interface ProcessAndPersistCrawlJobOptions {
@@ -34,6 +44,12 @@ export interface ProcessAndPersistCrawlJobOptions {
 
 export interface ProcessConnectorSyncJobOptions {
   readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
+}
+
+export interface ProcessGeoAnswerMonitorJobOptions {
+  readonly monitorGeoAnswers?: (
+    input: GeoAnswerMonitorBatchRequest,
+  ) => Promise<GeoAnswerMonitorBatchResult>;
 }
 
 export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
@@ -98,6 +114,49 @@ export async function processAndPersistConnectorSyncJob(
     });
     throw error;
   }
+}
+
+export async function processGeoAnswerMonitorJob(
+  input: GeoAnswerMonitorJobPayload,
+  options: ProcessGeoAnswerMonitorJobOptions = {},
+): Promise<GeoAnswerMonitorJobResult> {
+  const payload = GeoAnswerMonitorJobPayloadSchema.parse(input);
+  const monitorResult = await (options.monitorGeoAnswers ?? monitorFixtureGeoAnswersBatch)({
+    observedAt: payload.observedAt,
+    providers: payload.providers,
+    queries: payload.queries,
+    target: payload.target
+  });
+  const visibilityReport = evaluateGeoVisibility(
+    {
+      observations: [...monitorResult.observations],
+      target: payload.target
+    },
+    {
+      evaluatedAt: payload.observedAt
+    },
+  );
+
+  return GeoAnswerMonitorJobResultSchema.parse({
+    organizationId: payload.organizationId,
+    siteId: payload.siteId,
+    siteDomain: payload.siteDomain,
+    requestedByUserId: payload.requestedByUserId,
+    observedAt: payload.observedAt,
+    providers: payload.providers,
+    monitorResults: [...monitorResult.results],
+    visibilityReport
+  });
+}
+
+export async function processAndPersistGeoAnswerMonitorJob(
+  input: GeoAnswerMonitorJobPayload,
+  persistenceClient: GeoVisibilityPersistenceClient,
+  options: ProcessGeoAnswerMonitorJobOptions = {},
+): Promise<GeoAnswerMonitorJobResult> {
+  const result = await processGeoAnswerMonitorJob(input, options);
+  await persistGeoAnswerMonitorJobResult(persistenceClient, result);
+  return result;
 }
 
 export async function processAndPersistCrawlJob(

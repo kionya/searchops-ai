@@ -19,7 +19,11 @@ import type {
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
 import { normalizeCmsWebhookPayload } from "@searchops/connectors";
 
-import { createMemoryConnectorSyncQueue, createMemoryCrawlRunQueue } from "./queue.js";
+import {
+  createMemoryConnectorSyncQueue,
+  createMemoryCrawlRunQueue,
+  createMemoryGeoAnswerMonitorQueue,
+} from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import { createCmsWebhookSignature } from "./webhook-security.js";
@@ -436,6 +440,20 @@ function buildConnectorSyncTestContext() {
   });
 
   return { server, connectorSyncQueue };
+}
+
+function buildGeoAnswerMonitorTestContext() {
+  const geoAnswerMonitorQueue = createMemoryGeoAnswerMonitorQueue();
+  const server = buildApiServer({
+    currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+    }),
+    geoAnswerMonitorQueue,
+  });
+
+  return { server, geoAnswerMonitorQueue };
 }
 
 function buildConnectorSyncHistoryTestServer() {
@@ -1387,6 +1405,102 @@ describe("api foundation", () => {
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().reports).toHaveLength(2);
+  });
+
+  it("enqueues GEO answer monitor jobs for deterministic worker evaluation", async () => {
+    const { server, geoAnswerMonitorQueue } = buildGeoAnswerMonitorTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-answer-monitor-jobs",
+      headers: {
+        "x-mock-user-id": "user_geo",
+      },
+      payload: {
+        target: {
+          siteId: "site_seed",
+          brandName: "Example Clinic",
+          domain: "answers.exampleclinic.com",
+          locale: "ko-KR",
+          market: "KR",
+        },
+        queries: [
+          {
+            query: "best seo clinic",
+            locale: "ko-KR",
+          },
+        ],
+        providers: ["chatgpt"],
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      job: {
+        id: "job_0001",
+        name: "geo-answer-monitor",
+        payload: {
+          organizationId: "org_seed",
+          siteId: "site_seed",
+          siteDomain: "exampleclinic.com",
+          requestedByUserId: "user_geo",
+          observedAt: "2026-05-26T00:00:00.000Z",
+          providers: ["chatgpt"],
+          target: {
+            siteId: "site_seed",
+            brandName: "Example Clinic",
+            domain: "answers.exampleclinic.com",
+          },
+        },
+      },
+    });
+    expect(geoAnswerMonitorQueue.listQueuedGeoAnswerMonitorJobs()).toHaveLength(1);
+  });
+
+  it("rejects GEO answer monitor jobs outside the routed site scope", async () => {
+    const { server, geoAnswerMonitorQueue } = buildGeoAnswerMonitorTestContext();
+    const mismatchedSiteResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-answer-monitor-jobs",
+      payload: {
+        target: {
+          siteId: "site_other",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+        },
+        queries: [{ query: "best seo clinic" }],
+      },
+    });
+    const outOfScopeDomainResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/geo-answer-monitor-jobs",
+      payload: {
+        target: {
+          siteId: "site_seed",
+          brandName: "Example Clinic",
+          domain: "example.net",
+        },
+        queries: [{ query: "best seo clinic" }],
+      },
+    });
+    const missingSiteResponse = await server.inject({
+      method: "POST",
+      url: "/sites/site_missing/geo-answer-monitor-jobs",
+      payload: {
+        target: {
+          siteId: "site_missing",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+        },
+        queries: [{ query: "best seo clinic" }],
+      },
+    });
+
+    expect(mismatchedSiteResponse.statusCode).toBe(400);
+    expect(mismatchedSiteResponse.json().message).toContain("siteId");
+    expect(outOfScopeDomainResponse.statusCode).toBe(400);
+    expect(outOfScopeDomainResponse.json().message).toContain("site domain");
+    expect(missingSiteResponse.statusCode).toBe(404);
+    expect(geoAnswerMonitorQueue.listQueuedGeoAnswerMonitorJobs()).toHaveLength(0);
   });
 
   it("lists persisted GEO visibility report history", async () => {

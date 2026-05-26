@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 import type {
   ConnectorSyncPersistenceClient,
   CrawlPersistenceClient,
+  GeoVisibilityPersistenceClient,
   SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 
 import {
   processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
+  processAndPersistGeoAnswerMonitorJob,
   processConnectorSyncJob,
-  processCrawlJob
+  processCrawlJob,
+  processGeoAnswerMonitorJob
 } from "./processor.js";
 
 const normalHtml = `
@@ -584,6 +587,154 @@ describe("processCrawlJob", () => {
             message: "connector failed"
           }
         }
+      }
+    });
+  });
+
+  it("processes GEO answer monitor jobs through an injected monitor adapter", async () => {
+    const result = await processGeoAnswerMonitorJob(
+      {
+        organizationId: "org_geo",
+        siteId: "site_geo",
+        siteDomain: "exampleclinic.com",
+        requestedByUserId: "user_geo",
+        observedAt: "2026-05-26T00:00:00.000Z",
+        providers: ["chatgpt"],
+        target: {
+          siteId: "site_geo",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+          locale: "ko-KR",
+          market: "KR"
+        },
+        queries: [{ query: "best seo clinic", locale: "ko-KR" }]
+      },
+      {
+        async monitorGeoAnswers(input) {
+          expect(input).toMatchObject({
+            observedAt: "2026-05-26T00:00:00.000Z",
+            providers: ["chatgpt"],
+            target: {
+              siteId: "site_geo",
+              domain: "exampleclinic.com"
+            }
+          });
+
+          const observations = [
+            {
+              provider: "chatgpt" as const,
+              query: "best seo clinic",
+              locale: "ko-KR",
+              answerText: "Example Clinic is cited for SEO clinic research.",
+              citedUrls: ["https://exampleclinic.com/services/seo"],
+              observedAt: "2026-05-26T00:00:00.000Z",
+              source: "connector" as const
+            }
+          ];
+
+          return {
+            observations,
+            results: [
+              {
+                provider: "chatgpt",
+                observations,
+                generatedBy: "connector",
+                liveExternalApis: "enabled"
+              }
+            ]
+          };
+        }
+      },
+    );
+
+    expect(result).toMatchObject({
+      organizationId: "org_geo",
+      siteId: "site_geo",
+      observedAt: "2026-05-26T00:00:00.000Z",
+      monitorResults: [
+        {
+          provider: "chatgpt",
+          generatedBy: "connector",
+          liveExternalApis: "enabled"
+        }
+      ],
+      visibilityReport: {
+        generatedBy: "deterministic",
+        status: "strong",
+        score: 90,
+        mentionRate: 100,
+        citationRate: 100
+      }
+    });
+  });
+
+  it("persists GEO answer monitor results through the DB boundary", async () => {
+    const creates: unknown[] = [];
+    const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityReport: {
+        async create(args) {
+          creates.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistGeoAnswerMonitorJob(
+      {
+        organizationId: "org_geo",
+        siteId: "site_geo",
+        siteDomain: "exampleclinic.com",
+        requestedByUserId: "user_geo",
+        observedAt: "2026-05-26T01:00:00.000Z",
+        providers: ["perplexity"],
+        target: {
+          siteId: "site_geo",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+          locale: "ko-KR",
+          market: "KR"
+        },
+        queries: [{ query: "medical seo checklist", locale: "ko-KR" }]
+      },
+      persistenceClient,
+      {
+        async monitorGeoAnswers() {
+          const observations = [
+            {
+              provider: "perplexity" as const,
+              query: "medical seo checklist",
+              locale: "ko-KR",
+              answerText: "Example Clinic publishes a medical SEO checklist.",
+              citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
+              observedAt: "2026-05-26T01:00:00.000Z",
+              source: "connector" as const
+            }
+          ];
+
+          return {
+            observations,
+            results: [
+              {
+                provider: "perplexity",
+                observations,
+                generatedBy: "connector",
+                liveExternalApis: "enabled"
+              }
+            ]
+          };
+        }
+      },
+    );
+
+    expect(result.visibilityReport.generatedBy).toBe("deterministic");
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).toMatchObject({
+      data: {
+        brandName: "Example Clinic",
+        domain: "exampleclinic.com",
+        generatedBy: "deterministic",
+        siteId: "site_geo",
+        status: "strong"
       }
     });
   });

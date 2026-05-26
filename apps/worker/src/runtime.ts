@@ -3,10 +3,12 @@ import { Queue, Worker, type Job } from "bullmq";
 import {
   createPrismaConnectorSyncPersistenceClient,
   createPrismaCrawlPersistenceClient,
+  createPrismaGeoVisibilityPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   createSearchOpsPrismaClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
+  type GeoVisibilityPersistenceClient,
   type SearchOpsPrismaClient
 } from "@searchops/db";
 import {
@@ -15,20 +17,28 @@ import {
   CrawlJobResultSchema,
   connectorQueueName,
   crawlQueueName,
+  GeoAnswerMonitorJobPayloadSchema,
+  GeoAnswerMonitorJobResultSchema,
+  geoAnswerMonitorQueueName,
   type connectorSyncJobName,
+  type geoAnswerMonitorJobName,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
   type CrawlJobPayload,
   type CrawlJobResult,
-  type DeadLetterJobPayload
+  type DeadLetterJobPayload,
+  type GeoAnswerMonitorJobPayload,
+  type GeoAnswerMonitorJobResult
 } from "@searchops/types";
 
 import { buildDeadLetterJobPayload, deadLetterJobName } from "./dead-letter.js";
 import {
   processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
+  processAndPersistGeoAnswerMonitorJob,
   type ProcessAndPersistCrawlJobOptions,
-  type ProcessConnectorSyncJobOptions
+  type ProcessConnectorSyncJobOptions,
+  type ProcessGeoAnswerMonitorJobOptions
 } from "./processor.js";
 
 export interface CreateCrawlWorkerOptions {
@@ -50,6 +60,17 @@ export interface CreateConnectorSyncWorkerOptions {
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
   readonly processorOptions?: ProcessConnectorSyncJobOptions;
+  readonly queueName?: string;
+}
+
+export interface CreateGeoAnswerMonitorWorkerOptions {
+  readonly redisUrl: string;
+  readonly prisma?: SearchOpsPrismaClient;
+  readonly concurrency?: number;
+  readonly deadLetterQueueName?: string;
+  readonly enableDeadLetterQueue?: boolean;
+  readonly failedAt?: () => Date;
+  readonly processorOptions?: ProcessGeoAnswerMonitorJobOptions;
   readonly queueName?: string;
 }
 
@@ -125,6 +146,19 @@ export function createConnectorSyncJobProcessor(
   };
 }
 
+export function createGeoAnswerMonitorJobProcessor(
+  persistenceClient: GeoVisibilityPersistenceClient,
+  options: ProcessGeoAnswerMonitorJobOptions = {},
+) {
+  return async (
+    job: Pick<Job<GeoAnswerMonitorJobPayload, GeoAnswerMonitorJobResult, typeof geoAnswerMonitorJobName>, "data">,
+  ) => {
+    const payload = GeoAnswerMonitorJobPayloadSchema.parse(job.data);
+    const result = await processAndPersistGeoAnswerMonitorJob(payload, persistenceClient, options);
+    return GeoAnswerMonitorJobResultSchema.parse(result);
+  };
+}
+
 export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
@@ -174,6 +208,42 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
   >(
     queueName,
     createConnectorSyncJobProcessor(persistenceClient, options.processorOptions),
+    {
+      concurrency: options.concurrency ?? 2,
+      connection: {
+        url: options.redisUrl
+      }
+    },
+  );
+  const deadLetterQueue =
+    options.enableDeadLetterQueue === false
+      ? null
+      : createDeadLetterQueue(queueName, options.redisUrl, options.deadLetterQueueName);
+  registerDeadLetterHandler(worker, queueName, deadLetterQueue, options.failedAt ?? (() => new Date()));
+
+  return {
+    worker,
+    async close() {
+      await worker.close();
+      await deadLetterQueue?.close();
+      if (options.prisma === undefined) {
+        await prisma.$disconnect();
+      }
+    }
+  };
+}
+
+export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWorkerOptions) {
+  const prisma = options.prisma ?? createSearchOpsPrismaClient();
+  const persistenceClient = createPrismaGeoVisibilityPersistenceClient(prisma);
+  const queueName = options.queueName ?? geoAnswerMonitorQueueName;
+  const worker = new Worker<
+    GeoAnswerMonitorJobPayload,
+    GeoAnswerMonitorJobResult,
+    typeof geoAnswerMonitorJobName
+  >(
+    queueName,
+    createGeoAnswerMonitorJobProcessor(persistenceClient, options.processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

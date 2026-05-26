@@ -118,10 +118,11 @@ Phase 9 foundation status:
 - The GEO dashboard can trigger report-to-work-order conversion through API data with fixture fallback.
 - GEO answer monitor provider contracts and fixture adapters live in `packages/connectors` with live external APIs disabled by default.
 - GEO answer monitor live adapter wrappers can accept explicit provider clients and normalize responses into `source = connector` observations; no SDK, credential, or network client is enabled by default.
+- GEO answer monitor jobs can be enqueued through the API, consumed by the worker, evaluated by deterministic `geo-core`, and persisted as `GeoVisibilityReport` history.
 
 Phase 9 remaining limitations:
 
-- Observation collection through the API/dashboard is still fixture/manual input only; wiring live provider clients into runtime jobs remains future deployment scope.
+- Observation collection through the dashboard is still fixture/manual input only; live provider credentials and deployment-specific client injection remain future deployment scope.
 - Reports are converted to work orders on explicit dashboard/API action; automatic bulk generation remains future scope.
 - Compliance review remains separate; medical claim risk flags are still Phase 10 scope.
 

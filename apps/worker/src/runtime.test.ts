@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConnectorSyncPersistenceClient, CrawlPersistenceClient } from "@searchops/db";
+import type {
+  ConnectorSyncPersistenceClient,
+  CrawlPersistenceClient,
+  GeoVisibilityPersistenceClient
+} from "@searchops/db";
 
 import { buildDeadLetterJobPayload } from "./dead-letter.js";
-import { createConnectorSyncJobProcessor, createCrawlJobProcessor } from "./runtime.js";
+import {
+  createConnectorSyncJobProcessor,
+  createCrawlJobProcessor,
+  createGeoAnswerMonitorJobProcessor
+} from "./runtime.js";
 
 const html = `
 <!doctype html>
@@ -135,6 +143,81 @@ describe("worker runtime", () => {
         totalRecords: 0
       }
     });
+  });
+
+  it("processes BullMQ GEO answer monitor job data through persistence", async () => {
+    const creates: unknown[] = [];
+    const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityReport: {
+        async create(args) {
+          creates.push(args);
+          return args;
+        }
+      }
+    };
+    const processor = createGeoAnswerMonitorJobProcessor(persistenceClient, {
+      async monitorGeoAnswers(input) {
+        expect(input.providers).toEqual(["chatgpt"]);
+        const observations = [
+          {
+            provider: "chatgpt" as const,
+            query: "best seo clinic",
+            locale: "ko-KR",
+            answerText: "Example Clinic is cited as a strong SEO clinic.",
+            citedUrls: ["https://exampleclinic.com/services/seo"],
+            observedAt: "2026-05-26T00:00:00.000Z",
+            source: "connector" as const
+          }
+        ];
+
+        return {
+          observations,
+          results: [
+            {
+              provider: "chatgpt",
+              observations,
+              generatedBy: "connector",
+              liveExternalApis: "enabled"
+            }
+          ]
+        };
+      }
+    });
+
+    const result = await processor({
+      data: {
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "exampleclinic.com",
+        requestedByUserId: "user_1",
+        observedAt: "2026-05-26T00:00:00.000Z",
+        providers: ["chatgpt"],
+        target: {
+          siteId: "site_1",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+          locale: "ko-KR",
+          market: "KR"
+        },
+        queries: [{ query: "best seo clinic", locale: "ko-KR" }]
+      }
+    });
+
+    expect(result).toMatchObject({
+      organizationId: "org_1",
+      siteId: "site_1",
+      monitorResults: [
+        {
+          provider: "chatgpt",
+          generatedBy: "connector"
+        }
+      ],
+      visibilityReport: {
+        generatedBy: "deterministic",
+        status: "strong"
+      }
+    });
+    expect(creates).toHaveLength(1);
   });
 
   it("builds deterministic dead-letter payloads for failed worker jobs", () => {

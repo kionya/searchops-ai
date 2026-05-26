@@ -4,7 +4,14 @@ import { defaultJobOptions, workerJobNames, type WorkerJobPayloadMap } from "./j
 
 describe("worker foundation", () => {
   it("declares the core job names", () => {
-    expect(workerJobNames).toEqual(["crawl", "connector-sync", "analyze", "generate", "recheck"]);
+    expect(workerJobNames).toEqual([
+      "crawl",
+      "connector-sync",
+      "geo-answer-monitor",
+      "analyze",
+      "generate",
+      "recheck"
+    ]);
   });
 
   it("uses retry defaults for future BullMQ jobs", () => {
@@ -31,6 +38,22 @@ describe("worker foundation", () => {
         fetchedAt: "2026-05-22T00:00:00.000Z",
         providers: ["gsc", "ga4"]
       },
+      "geo-answer-monitor": {
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        observedAt: "2026-05-26T00:00:00.000Z",
+        providers: ["chatgpt"],
+        target: {
+          siteId: "site_1",
+          brandName: "Example Clinic",
+          domain: "example.com",
+          locale: "ko-KR",
+          market: "KR"
+        },
+        queries: [{ query: "best seo clinic", locale: "ko-KR" }]
+      },
       analyze: { crawlRunId: "crawl_1" },
       generate: { workOrderId: "wo_1" },
       recheck: { workOrderId: "wo_1", siteId: "site_1" }
@@ -38,5 +61,6 @@ describe("worker foundation", () => {
 
     expect(payloads.crawl.siteId).toBe("site_1");
     expect(payloads["connector-sync"].providers).toEqual(["gsc", "ga4"]);
+    expect(payloads["geo-answer-monitor"].providers).toEqual(["chatgpt"]);
   });
 });
