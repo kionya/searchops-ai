@@ -1,4 +1,4 @@
-﻿-- CDX-066 connector sync run history and result persistence.
+-- CDX-066 connector sync run history and result persistence.
 
 CREATE TABLE "ConnectorSyncRun" (
   "id" TEXT NOT NULL,
