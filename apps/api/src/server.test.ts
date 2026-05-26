@@ -23,6 +23,7 @@ import {
   createMemoryConnectorSyncQueue,
   createMemoryCrawlRunQueue,
   createMemoryGeoAnswerMonitorQueue,
+  createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
@@ -618,6 +619,21 @@ function buildSchemaRecommendationRecheckCrawlTestContext() {
   });
 
   return { crawlRunQueue, server };
+}
+
+function buildSchemaRichResultValidationQueueTestContext() {
+  const schemaRichResultValidationQueue = createMemorySchemaRichResultValidationQueue();
+  const server = buildApiServer({
+    currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+      schemaRecommendations: [seededSchemaRecommendation],
+    }),
+    schemaRichResultValidationQueue,
+  });
+
+  return { schemaRichResultValidationQueue, server };
 }
 
 function buildWorkOrderTestServer() {
@@ -2464,6 +2480,44 @@ describe("api foundation", () => {
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
   });
 
+  it("queues rich-result validation jobs for schema recommendations", async () => {
+    const { schemaRichResultValidationQueue, server } =
+      buildSchemaRichResultValidationQueueTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/rich-result-validation-jobs",
+      headers: {
+        "x-mock-user-id": "user_schema",
+      },
+      payload: {
+        requestedAt: "2026-05-26T01:00:00.000Z",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      recommendation: {
+        id: "schema_rec_seed",
+      },
+      job: {
+        id: "job_0001",
+        name: "schema-rich-result-validation",
+        payload: {
+          recommendationId: "schema_rec_seed",
+          siteId: "site_seed",
+          siteDomain: "exampleclinic.com",
+          requestedByUserId: "user_schema",
+          requestedAt: "2026-05-26T01:00:00.000Z",
+          url: "https://exampleclinic.com/services/seo",
+          type: "Service",
+        },
+      },
+    });
+    expect(
+      schemaRichResultValidationQueue.listQueuedSchemaRichResultValidationJobs(),
+    ).toHaveLength(1);
+  });
+
   it("keeps unresolved schema recommendations actionable after recheck", async () => {
     const server = buildSchemaRecommendationTestServer();
     await server.inject({
@@ -2553,6 +2607,10 @@ describe("api foundation", () => {
       method: "POST",
       url: "/schema-recommendations/schema_rec_missing/recheck-crawl",
     });
+    const richResultValidationResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_missing/rich-result-validation-jobs",
+    });
 
     expect(listResponse.statusCode).toBe(404);
     expect(createResponse.statusCode).toBe(404);
@@ -2560,6 +2618,7 @@ describe("api foundation", () => {
     expect(workOrderResponse.statusCode).toBe(404);
     expect(recheckResponse.statusCode).toBe(404);
     expect(recheckCrawlResponse.statusCode).toBe(404);
+    expect(richResultValidationResponse.statusCode).toBe(404);
   });
 
   it("validates schema recommendation request payloads", async () => {
@@ -2624,8 +2683,10 @@ describe("api foundation", () => {
 
   it("rejects schema recommendation recheck crawl outside the site scope", async () => {
     const crawlRunQueue = createMemoryCrawlRunQueue();
+    const schemaRichResultValidationQueue = createMemorySchemaRichResultValidationQueue();
     const server = buildApiServer({
       crawlRunQueue,
+      schemaRichResultValidationQueue,
       repository: createMemoryRepository({
         organizations: [seededOrganization],
         sites: [seededSite],
@@ -2642,10 +2703,18 @@ describe("api foundation", () => {
       method: "POST",
       url: "/schema-recommendations/schema_rec_seed/recheck-crawl",
     });
+    const validationResponse = await server.inject({
+      method: "POST",
+      url: "/schema-recommendations/schema_rec_seed/rich-result-validation-jobs",
+    });
 
     expect(response.statusCode).toBe(400);
+    expect(validationResponse.statusCode).toBe(400);
     expect(response.json().message).toContain("pageUrl");
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(0);
+    expect(
+      schemaRichResultValidationQueue.listQueuedSchemaRichResultValidationJobs(),
+    ).toHaveLength(0);
   });
 
   it("creates deterministic content brief drafts and persists them", async () => {

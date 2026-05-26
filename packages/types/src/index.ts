@@ -6,6 +6,9 @@ export const connectorQueueName = "searchops-connectors" as const;
 export const connectorSyncJobName = "connector-sync" as const;
 export const geoAnswerMonitorQueueName = "searchops-geo-answer-monitor" as const;
 export const geoAnswerMonitorJobName = "geo-answer-monitor" as const;
+export const schemaRichResultValidationQueueName =
+  "searchops-schema-rich-result-validation" as const;
+export const schemaRichResultValidationJobName = "schema-rich-result-validation" as const;
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const IdSchema = z.string().min(1);
@@ -1410,6 +1413,46 @@ export type SchemaRichResultValidationResult = z.infer<
   typeof SchemaRichResultValidationResultSchema
 >;
 
+export const SchemaRichResultValidationJobPayloadSchema = z.object({
+  recommendationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  requestedAt: IsoDateTimeSchema,
+  url: NormalizedUrlSchema,
+  type: SchemaJsonLdTypeSchema,
+  jsonLd: JsonLdObjectSchema,
+  requiredFields: z.array(NonEmptyStringSchema).min(1),
+  recommendedFields: z.array(NonEmptyStringSchema).default([]),
+});
+
+export type SchemaRichResultValidationJobPayload = z.infer<
+  typeof SchemaRichResultValidationJobPayloadSchema
+>;
+
+export const SchemaRichResultValidationJobResultSchema = z.object({
+  recommendationId: IdSchema,
+  siteId: IdSchema,
+  siteDomain: DomainSchema,
+  requestedByUserId: IdSchema,
+  requestedAt: IsoDateTimeSchema,
+  validationResult: SchemaRichResultValidationResultSchema,
+});
+
+export type SchemaRichResultValidationJobResult = z.infer<
+  typeof SchemaRichResultValidationJobResultSchema
+>;
+
+export const QueuedSchemaRichResultValidationJobSchema = z.object({
+  id: IdSchema,
+  name: z.literal(schemaRichResultValidationJobName),
+  payload: SchemaRichResultValidationJobPayloadSchema,
+});
+
+export type QueuedSchemaRichResultValidationJob = z.infer<
+  typeof QueuedSchemaRichResultValidationJobSchema
+>;
+
 export const SchemaRecommendationStatusSchema = z.enum([
   "open",
   "converted",
@@ -1593,6 +1636,23 @@ export const QueueSchemaRecommendationRecheckCrawlResponseSchema = z.object({
 
 export type QueueSchemaRecommendationRecheckCrawlResponse = z.infer<
   typeof QueueSchemaRecommendationRecheckCrawlResponseSchema
+>;
+
+export const QueueSchemaRichResultValidationRequestSchema = z.object({
+  requestedAt: IsoDateTimeSchema.optional(),
+});
+
+export type QueueSchemaRichResultValidationRequest = z.infer<
+  typeof QueueSchemaRichResultValidationRequestSchema
+>;
+
+export const QueueSchemaRichResultValidationResponseSchema = z.object({
+  recommendation: SchemaRecommendationRecordSchema,
+  job: QueuedSchemaRichResultValidationJobSchema,
+});
+
+export type QueueSchemaRichResultValidationResponse = z.infer<
+  typeof QueueSchemaRichResultValidationResponseSchema
 >;
 
 export const RecheckWorkOrderResponseSchema = z.object({

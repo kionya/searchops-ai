@@ -63,6 +63,8 @@ import {
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
+  QueueSchemaRichResultValidationRequestSchema,
+  QueueSchemaRichResultValidationResponseSchema,
   RecheckComplianceFlagRequestSchema,
   RecheckComplianceFlagResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
@@ -92,9 +94,11 @@ import {
   type ConnectorSyncQueue,
   type CrawlRunQueue,
   type GeoAnswerMonitorQueue,
+  type SchemaRichResultValidationQueue,
   createMemoryConnectorSyncQueue,
   createMemoryCrawlRunQueue,
   createMemoryGeoAnswerMonitorQueue,
+  createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
 import {
   type CreateClosedLoopAuditEventInput,
@@ -119,6 +123,7 @@ export interface BuildApiServerOptions {
   readonly crawlRunQueue?: CrawlRunQueue;
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
+  readonly schemaRichResultValidationQueue?: SchemaRichResultValidationQueue;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
   readonly currentTime?: () => Date;
   readonly rateLimit?: ApiRateLimitOptions;
@@ -195,6 +200,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const connectorSyncQueue = options.connectorSyncQueue ?? createMemoryConnectorSyncQueue();
   const geoAnswerMonitorQueue =
     options.geoAnswerMonitorQueue ?? createMemoryGeoAnswerMonitorQueue();
+  const schemaRichResultValidationQueue =
+    options.schemaRichResultValidationQueue ?? createMemorySchemaRichResultValidationQueue();
   const cmsWebhookSecrets =
     options.cmsWebhookSecrets ?? parseCmsWebhookSecrets(process.env.SEARCHOPS_CMS_WEBHOOK_SECRETS);
   const requireCmsWebhookSignature =
@@ -1372,6 +1379,55 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       }),
     );
   });
+
+  server.post(
+    "/schema-recommendations/:id/rich-result-validation-jobs",
+    async (request, reply) => {
+      const { id } = IdParamsSchema.parse(request.params);
+      const recommendation = await repository.getSchemaRecommendation(id);
+      if (!recommendation) {
+        reply.status(404).send(notFound("Schema recommendation not found"));
+        return;
+      }
+
+      const site = await repository.getSite(recommendation.siteId);
+      if (!site) {
+        reply.status(404).send(notFound("Site not found"));
+        return;
+      }
+
+      if (!isUrlAllowedForCrawl(recommendation.pageUrl, site.domain)) {
+        reply.status(400).send({
+          error: "validation_error",
+          message:
+            "schema recommendation pageUrl must be within the site domain or its subdomains",
+        });
+        return;
+      }
+
+      const input = QueueSchemaRichResultValidationRequestSchema.parse(request.body ?? {});
+      const userContext = resolveMockUserContext(request);
+      const job = await schemaRichResultValidationQueue.enqueueSchemaRichResultValidation({
+        recommendationId: recommendation.id,
+        siteId: site.id,
+        siteDomain: site.domain,
+        requestedByUserId: userContext.userId,
+        requestedAt: input.requestedAt ?? currentTime().toISOString(),
+        url: recommendation.pageUrl,
+        type: recommendation.type,
+        jsonLd: recommendation.jsonLd,
+        requiredFields: recommendation.requiredFields,
+        recommendedFields: recommendation.recommendedFields,
+      });
+
+      reply.status(202).send(
+        QueueSchemaRichResultValidationResponseSchema.parse({
+          job,
+          recommendation,
+        }),
+      );
+    },
+  );
 
   server.get("/content-briefs/:id", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);

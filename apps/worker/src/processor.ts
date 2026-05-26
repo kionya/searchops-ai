@@ -4,13 +4,15 @@ import {
   type ConnectorBatchSyncRequest,
   type ConnectorBatchSyncResult,
   type GeoAnswerMonitorBatchRequest,
-  type GeoAnswerMonitorBatchResult
+  type GeoAnswerMonitorBatchResult,
+  type SchemaRichResultValidatorAdapterInput
 } from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
-import { extractJsonLdTypes } from "@searchops/schema-core";
+import { extractJsonLdTypes, validateJsonLdDraft } from "@searchops/schema-core";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
 import {
   persistGeoAnswerMonitorJobResult,
+  persistSchemaRichResultValidationJobResult,
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
   persistConnectorSyncJobResult,
@@ -19,6 +21,7 @@ import {
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
+  type SchemaRichResultValidationPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 import {
@@ -28,13 +31,18 @@ import {
   CrawlJobResultSchema,
   GeoAnswerMonitorJobPayloadSchema,
   GeoAnswerMonitorJobResultSchema,
+  SchemaRichResultValidationJobPayloadSchema,
+  SchemaRichResultValidationJobResultSchema,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
   type CrawlJobPageInput,
   type CrawlJobPayload,
   type CrawlJobResult,
   type GeoAnswerMonitorJobPayload,
-  type GeoAnswerMonitorJobResult
+  type GeoAnswerMonitorJobResult,
+  type SchemaRichResultValidationJobPayload,
+  type SchemaRichResultValidationJobResult,
+  type SchemaRichResultValidationResult
 } from "@searchops/types";
 
 export interface ProcessAndPersistCrawlJobOptions {
@@ -50,6 +58,12 @@ export interface ProcessGeoAnswerMonitorJobOptions {
   readonly monitorGeoAnswers?: (
     input: GeoAnswerMonitorBatchRequest,
   ) => Promise<GeoAnswerMonitorBatchResult>;
+}
+
+export interface ProcessSchemaRichResultValidationJobOptions {
+  readonly validateRichResult?: (
+    input: SchemaRichResultValidatorAdapterInput,
+  ) => Promise<SchemaRichResultValidationResult>;
 }
 
 export function processCrawlJob(input: CrawlJobPayload): CrawlJobResult {
@@ -156,6 +170,39 @@ export async function processAndPersistGeoAnswerMonitorJob(
 ): Promise<GeoAnswerMonitorJobResult> {
   const result = await processGeoAnswerMonitorJob(input, options);
   await persistGeoAnswerMonitorJobResult(persistenceClient, result);
+  return result;
+}
+
+export async function processSchemaRichResultValidationJob(
+  input: SchemaRichResultValidationJobPayload,
+  options: ProcessSchemaRichResultValidationJobOptions = {},
+): Promise<SchemaRichResultValidationJobResult> {
+  const payload = SchemaRichResultValidationJobPayloadSchema.parse(input);
+  const validationResult = await (options.validateRichResult ?? validateJsonLdDraft)({
+    jsonLd: payload.jsonLd,
+    recommendedFields: payload.recommendedFields,
+    requiredFields: payload.requiredFields,
+    type: payload.type,
+    url: payload.url
+  });
+
+  return SchemaRichResultValidationJobResultSchema.parse({
+    recommendationId: payload.recommendationId,
+    siteId: payload.siteId,
+    siteDomain: payload.siteDomain,
+    requestedByUserId: payload.requestedByUserId,
+    requestedAt: payload.requestedAt,
+    validationResult
+  });
+}
+
+export async function processAndPersistSchemaRichResultValidationJob(
+  input: SchemaRichResultValidationJobPayload,
+  persistenceClient: SchemaRichResultValidationPersistenceClient,
+  options: ProcessSchemaRichResultValidationJobOptions = {},
+): Promise<SchemaRichResultValidationJobResult> {
+  const result = await processSchemaRichResultValidationJob(input, options);
+  await persistSchemaRichResultValidationJobResult(persistenceClient, result);
   return result;
 }
 

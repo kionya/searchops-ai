@@ -91,11 +91,12 @@ Phase 8 foundation status:
 - Queued schema recheck crawls carry `schemaRecommendationId`; the worker can persist UrlRecords, extract observed JSON-LD types from the completed snapshot, update recommendation evidence/status, and close/reopen the linked work order.
 - Offline rich-result validation contracts can check JSON-LD root type, required fields, and recommended fields without live external validators.
 - Live rich-result validator wrappers can accept explicit validator clients and normalize responses through `packages/connectors`; no validator SDK, credential, or network client is enabled by default.
+- Rich-result validation jobs can be enqueued through the API, consumed by the worker, run through deterministic offline validation or explicit connector injection, and persisted into schema recommendation evidence.
 
 Phase 8 remaining limitations:
 
 - JSON-LD output is a recommendation draft, not an auto-publish payload.
-- Runtime wiring for live rich-result validator clients remains future deployment scope.
+- Deployment-specific live validator credentials/client injection and dashboard trigger UI remain future scope.
 
 ## Phase 9. GEO monitor
 

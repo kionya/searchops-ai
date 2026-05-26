@@ -2,13 +2,15 @@ import type { JobsOptions } from "bullmq";
 import type {
   ConnectorSyncJobPayload,
   CrawlJobPayload,
-  GeoAnswerMonitorJobPayload
+  GeoAnswerMonitorJobPayload,
+  SchemaRichResultValidationJobPayload
 } from "@searchops/types";
 
 export const workerJobNames = [
   "crawl",
   "connector-sync",
   "geo-answer-monitor",
+  "schema-rich-result-validation",
   "analyze",
   "generate",
   "recheck"
@@ -33,6 +35,7 @@ export interface WorkerJobPayloadMap {
   readonly crawl: CrawlJobPayload;
   readonly "connector-sync": ConnectorSyncJobPayload;
   readonly "geo-answer-monitor": GeoAnswerMonitorJobPayload;
+  readonly "schema-rich-result-validation": SchemaRichResultValidationJobPayload;
   readonly analyze: AnalyzeJobPayload;
   readonly generate: GenerateJobPayload;
   readonly recheck: RecheckJobPayload;
