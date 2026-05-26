@@ -448,6 +448,7 @@ describe("types foundation", () => {
       SearchOpsEnvSchema.parse({
         DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
         SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+        SEARCHOPS_IDP_JWKS_JSON: '{"keys":[]}',
         SEARCHOPS_RATE_LIMIT_ENABLED: "true",
         SEARCHOPS_RATE_LIMIT_MAX: "60",
         SEARCHOPS_RATE_LIMIT_WINDOW_MS: "30000",
@@ -456,6 +457,7 @@ describe("types foundation", () => {
     ).toMatchObject({
       NODE_ENV: "development",
       SEARCHOPS_CMS_WEBHOOK_SECRETS: '{"wordpress":"secret_1"}',
+      SEARCHOPS_IDP_JWKS_JSON: '{"keys":[]}',
       SEARCHOPS_RATE_LIMIT_ENABLED: true,
       SEARCHOPS_RATE_LIMIT_MAX: 60,
       SEARCHOPS_RATE_LIMIT_WINDOW_MS: 30000,

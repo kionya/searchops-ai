@@ -79,11 +79,12 @@ Required environment:
 - `SEARCHOPS_RATE_LIMIT_ENABLED`, `SEARCHOPS_RATE_LIMIT_MAX`, and `SEARCHOPS_RATE_LIMIT_WINDOW_MS` when API rate limits are enabled.
 - `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL` and optional token when metrics exports should post to a provider log drain.
 - `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL` and optional token when operational alerts should post to a provider alert route.
-- `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience when the API verifies bearer tokens directly.
+- `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience when the API verifies HS256 bearer tokens directly.
+- `SEARCHOPS_IDP_JWKS_JSON`, optional issuer, and optional audience when the API verifies RS256/JWKS bearer tokens directly.
 - `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL` and optional token when restore drills are scheduled by an external executor.
 - `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL` and optional token when secret rotations are executed by an external secret manager workflow.
 - Provider credentials only in deployment secret storage, never in fixtures or committed files.
-- External IdP verification can happen before traffic reaches the API through trusted `x-searchops-idp-*` claims, or inside the API runtime with the configured HS256 bearer-token verifier.
+- External IdP verification can happen before traffic reaches the API through trusted `x-searchops-idp-*` claims, or inside the API runtime with the configured HS256 or RS256/JWKS bearer-token verifier.
 
 Pre-deploy checks:
 1. Run `corepack pnpm verify` on the release commit.
@@ -99,6 +100,36 @@ Post-deploy checks:
 2. Confirm worker queues consume jobs and dead-letter queues remain empty.
 3. Confirm `/ops/metrics-export` reports request counters and zero unexpected alerts.
 4. Confirm CMS webhook signature failures return `401` before side effects.
+
+### Railway API/Worker And Redis Checks
+
+Purpose:
+- Keep the Railway API and worker services observable without relying on dashboard-only knowledge.
+- Prevent BullMQ from running on a Redis policy that can evict queue data under pressure.
+
+Expected Railway services:
+- `searchops-api`: HTTP service that exposes `/health`, `/metrics`, and `/ops/metrics-export`.
+- `searchops-worker`: worker process that starts BullMQ consumers for `crawl`, `connector-sync`, `geo-answer-monitor`, `schema-rich-result-validation`, `analyze`, `generate`, and `recheck`.
+- Redis/Upstash service referenced by both services through the same `REDIS_URL`.
+
+Required Redis setting:
+- BullMQ expects Redis `maxmemory-policy` to be `noeviction`.
+- If Railway or Upstash logs show `IMPORTANT! Eviction policy is ... It should be "noeviction"`, treat it as an operations warning before production traffic.
+- Do not ignore the warning for production crawls because evicted queue keys can break delayed jobs, retries, or dead-letter inspection.
+
+Smoke check sequence:
+1. Open the deployed API `/health` URL and confirm a `200` response.
+2. Open `/ops/metrics-export` and confirm `api`, `workers`, and `alerts` sections are present.
+3. In Railway worker logs, confirm `SearchOps worker listening for jobs: ...`.
+4. Queue one fixture-safe crawl or connector-sync job from a demo tenant.
+5. Confirm the worker logs a completed job and the API history endpoint shows persisted output.
+6. Confirm dead-letter queues are empty, or inspect `/ops/dead-letter-jobs` if any job failed.
+
+If Redis eviction warnings continue:
+1. Prefer a Redis provider or plan that supports `noeviction`.
+2. If the provider does not allow `CONFIG SET maxmemory-policy noeviction`, move BullMQ to a Redis deployment that does.
+3. Keep rate-limit counters and BullMQ queues separate if an edge/provider cache requires volatile eviction policies.
+4. Record the Redis provider, plan, region, and eviction policy in deployment notes.
 
 ## Secret Rotation
 

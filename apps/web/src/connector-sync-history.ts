@@ -9,6 +9,7 @@ import {
   type ConnectorSyncRun
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { demoSite } from "./work-order-board";
 
 export type ConnectorSyncHistorySource = "api" | "fixture";
@@ -492,13 +493,4 @@ export function formatSyncDuration(startedAt: string, endedAt: string | null) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}m ${remainingSeconds}s`;
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }

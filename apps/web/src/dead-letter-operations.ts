@@ -5,6 +5,8 @@ import {
   type DeadLetterJobStatus,
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
+
 export type DeadLetterOperationsSource = "api" | "fixture";
 export type DeadLetterClearStatus = "cleared" | "failed" | "fixture";
 export type DeadLetterStatusTone = "done" | "failed" | "queued" | "running";
@@ -211,13 +213,4 @@ export function getDeadLetterStatusTone(status: DeadLetterJobStatus): DeadLetter
 
 export function formatDeadLetterDate(isoDate: string | null) {
   return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }

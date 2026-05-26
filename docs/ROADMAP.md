@@ -183,11 +183,16 @@ Phase 11 starting status:
 - `CDX-133`: Trusted external IdP claim headers map into the same typed API auth context as mock auth, preserving tenant and role checks without live IdP calls in tests.
 - `CDX-134`: Operations plan APIs generate deterministic backup restore drill plans, secret rotation plans, and blocked dead-letter replay workflows without exposing secrets or auto-requeueing jobs.
 - `CDX-135`: Runtime operations executors wire HTTP observability drains/alerts from env, HS256 bearer-token IdP verification, restore drill and secret rotation dispatch routes, and queue-specific idempotent dead-letter replay actions.
+- `CDX-136`: The dashboard, fallback copy, status labels, empty states, and seed demo data are localized to Korean while internal API fields and rule IDs remain English.
+- `CDX-137`: Web metadata, root HTML language, not-found UI, and progress artifacts are aligned with Korean deployment surfaces.
+- `CDX-138`: Web runtime API base URL handling normalizes `SEARCHOPS_API_BASE_URL` values with or without `https://` before server-side fetches.
+- `CDX-139`: Railway API/worker smoke checks and Redis/BullMQ `noeviction` requirements are documented for production operations.
+- `CDX-140`: API bearer-token auth supports RS256/JWKS verification through explicit deployment JWKS env, alongside the existing HS256 verifier.
 
 Phase 11 remaining limitations:
 
 - API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
 - Metrics export can feed injected log drain and alert router adapters, including HTTP SaaS/webhook endpoints configured by env; provider account provisioning remains deployment scope.
 - Dead-letter queues capture failed job metadata and expose operator cleanup views, and supported queues can be replayed with operator-supplied source-of-truth payloads and deterministic replay job IDs.
-- HS256 bearer verification is available at the API runtime boundary; RS256/JWKS IdP verification can be added as a provider-specific hardening follow-up.
+- HS256 and RS256/JWKS bearer verification are available at the API runtime boundary; provider account provisioning and JWKS rotation policy remain deployment follow-up work.
 - Restore drill and secret rotation dispatch routes call configured HTTP executors; the external scheduler/secret manager account and credential provisioning remain deployment scope.

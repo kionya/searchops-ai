@@ -4,9 +4,9 @@ Updated: 2026-05-26
 
 ## Current State
 
-The repository is on `codex/cdx-135-runtime-ops-executors`, branched from the latest merged `main`.
+The repository is on `main` and deployed through the connected GitHub -> Vercel production flow.
 
-Recent merged PRs:
+Recent completed work:
 
 - PR #65: Dead-letter operations dashboard
 - PR #66: Distributed rate-limit adapter
@@ -16,11 +16,18 @@ Recent merged PRs:
 - PR #70: Observability ingestion adapters and dashboard
 - PR #71: External IdP claim mapping
 - PR #72: Operations hardening plans
+- `CDX-135`: Runtime operations executors
+- `CDX-136`: Korean dashboard localization
+- `CDX-137`: Korean metadata, document progress, and not-found surface cleanup
+- `CDX-138`: Web API base URL normalization for deployed runtime fetches
+- `CDX-139`: Railway API/worker smoke checks and Redis/BullMQ operations notes
+- `CDX-140`: RS256/JWKS IdP bearer-token verifier
 
 Latest full verification:
 
-- Focused local verification for CDX-135 has passed so far: `corepack pnpm --filter @searchops/types test`, `corepack pnpm --filter @searchops/types build`, `corepack pnpm --filter @searchops/api typecheck`, and `corepack pnpm --filter @searchops/api test`.
+- Focused local verification for CDX-136 passed: `corepack pnpm --filter @searchops/web typecheck`, `corepack pnpm --filter @searchops/web lint`, and `corepack pnpm --filter @searchops/web test`.
 - GitHub Actions `verify` passed for PR #65 through PR #72 before merge.
+- Vercel production deployment for commit `0568059` reached `READY` and `/sites` returned `200 OK`.
 
 ## Phase Progress
 
@@ -168,14 +175,19 @@ Remaining:
 
 Recommended order:
 
-1. Finalize CDX-135
-   - Run full `corepack pnpm verify`.
-   - Self-review the diff against `AGENTS.md` and `docs/CODE_REVIEW.md`.
-   - Commit, push, open PR, wait for CI, and merge.
+1. Finish CDX-137/CDX-138
+   - Keep web metadata and not-found UI Korean.
+   - Normalize `SEARCHOPS_API_BASE_URL` values with or without `https://`.
+   - Run focused web typecheck, lint, and tests.
 
-2. Deployment follow-up
-   - Provision provider accounts and secret refs for observability, restore scheduler, secret manager, and IdP.
-   - Add RS256/JWKS verification if the selected IdP cannot issue HS256 deployment tokens.
+2. CDX-139 Railway API/Worker operations check
+   - Verify API `/health`.
+   - Verify worker startup and queue names.
+   - Document Redis/BullMQ eviction-policy expectations.
+
+3. Deployment follow-up
+   - Provision provider accounts and secret refs for observability, restore scheduler, secret manager, connector credentials, and IdP.
+   - Configure `SEARCHOPS_IDP_JWKS_JSON` when the selected IdP only issues RS256/JWKS tokens.
 
 ## Guardrails
 

@@ -10,6 +10,7 @@ import {
   type KeywordDiscoveryCandidateRecord
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
@@ -345,13 +346,4 @@ function mapRecordToReadinessReport(record: AeoReadinessReportRecord): AeoReadin
     score: record.score,
     status: record.status
   });
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }

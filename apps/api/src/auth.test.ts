@@ -1,7 +1,12 @@
-import { createHmac } from "node:crypto";
+import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { AuthVerificationError, createHmacJwtIdpTokenVerifier } from "./auth.js";
+import {
+  AuthVerificationError,
+  createHmacJwtIdpTokenVerifier,
+  createJwksRs256IdpTokenVerifier,
+  parseJwksJson,
+} from "./auth.js";
 
 const secret = "idp_secret";
 
@@ -55,6 +60,45 @@ describe("IdP token verification", () => {
     expect(() => verifier.verify(expiredToken)).toThrow(AuthVerificationError);
     expect(() => verifier.verify(tamperedToken)).toThrow(AuthVerificationError);
   });
+
+  it("verifies RS256 JWTs with JWKS keys and maps deployment IdP claims", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const jwk = {
+      ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>),
+      alg: "RS256",
+      kid: "searchops-key-1",
+      use: "sig",
+    };
+    const verifier = createJwksRs256IdpTokenVerifier({
+      audience: "searchops-api",
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      issuer: "https://idp.example.com/",
+      jwks: parseJwksJson(JSON.stringify({ keys: [jwk] })),
+      organizationIdClaim: "org_id",
+      provider: "auth0",
+    });
+    const token = signRs256Jwt(
+      {
+        aud: "searchops-api",
+        email: "owner@example.com",
+        exp: 1_779_756_000,
+        iss: "https://idp.example.com/",
+        org_id: "org_demo",
+        role: "owner",
+        sub: "idp_owner_1",
+      },
+      privateKey,
+      "searchops-key-1",
+    );
+
+    expect(verifier.verify(token)).toEqual({
+      email: "owner@example.com",
+      organizationId: "org_demo",
+      provider: "auth0",
+      role: "owner",
+      subject: "idp_owner_1",
+    });
+  });
 });
 
 function signJwt(payload: Record<string, unknown>) {
@@ -63,6 +107,19 @@ function signJwt(payload: Record<string, unknown>) {
   const signature = createHmac("sha256", secret)
     .update(`${header}.${body}`)
     .digest("base64url");
+  return `${header}.${body}.${signature}`;
+}
+
+function signRs256Jwt(
+  payload: Record<string, unknown>,
+  privateKey: KeyObject,
+  keyId: string,
+) {
+  const header = encodeJwtSegment({ alg: "RS256", kid: keyId, typ: "JWT" });
+  const body = encodeJwtSegment(payload);
+  const signature = createSign("RSA-SHA256")
+    .update(`${header}.${body}`)
+    .sign(privateKey, "base64url");
   return `${header}.${body}.${signature}`;
 }
 

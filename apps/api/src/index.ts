@@ -9,7 +9,9 @@ import {
 } from "./bullmq-queue.js";
 import {
   createHmacJwtIdpTokenVerifier,
-  createRequestAuthContextResolver
+  createJwksRs256IdpTokenVerifier,
+  createRequestAuthContextResolver,
+  parseJwksJson
 } from "./auth.js";
 import { createBullMqDeadLetterJobStore } from "./dead-letter-store.js";
 import {
@@ -33,18 +35,29 @@ const schemaRichResultValidationQueue = createBullMqSchemaRichResultValidationQu
 });
 const deadLetterJobStore = createBullMqDeadLetterJobStore({ redisUrl: env.REDIS_URL });
 const rateLimitEnabled = env.SEARCHOPS_RATE_LIMIT_ENABLED ?? (env.NODE_ENV === "production");
-const authContextResolver =
-  env.SEARCHOPS_IDP_JWT_HS256_SECRET === undefined
-    ? undefined
-    : createRequestAuthContextResolver({
-        allowMockFallback: env.NODE_ENV !== "production",
-        allowTrustedHeaders: env.NODE_ENV !== "production",
-        tokenVerifier: createHmacJwtIdpTokenVerifier({
+const deploymentTokenVerifier =
+  env.SEARCHOPS_IDP_JWKS_JSON === undefined
+    ? env.SEARCHOPS_IDP_JWT_HS256_SECRET === undefined
+      ? undefined
+      : createHmacJwtIdpTokenVerifier({
           audience: env.SEARCHOPS_IDP_AUDIENCE,
           issuer: env.SEARCHOPS_IDP_ISSUER,
           provider: "deployment_idp",
           secret: env.SEARCHOPS_IDP_JWT_HS256_SECRET
         })
+    : createJwksRs256IdpTokenVerifier({
+        audience: env.SEARCHOPS_IDP_AUDIENCE,
+        issuer: env.SEARCHOPS_IDP_ISSUER,
+        jwks: parseJwksJson(env.SEARCHOPS_IDP_JWKS_JSON),
+        provider: "deployment_idp"
+      });
+const authContextResolver =
+  deploymentTokenVerifier === undefined
+    ? undefined
+    : createRequestAuthContextResolver({
+        allowMockFallback: env.NODE_ENV !== "production",
+        allowTrustedHeaders: env.NODE_ENV !== "production",
+        tokenVerifier: deploymentTokenVerifier
       });
 const operationalLogDrain =
   env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL === undefined

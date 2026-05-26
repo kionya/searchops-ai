@@ -4,6 +4,8 @@ import {
   type OperationalMetricsExportResponse,
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
+
 export type ObservabilityDashboardSource = "api" | "fixture";
 export type ObservabilityAlertTone = "critical" | "info" | "warning";
 
@@ -160,13 +162,4 @@ function countStatuses(byStatus: Record<string, number>, minStatus: number, maxS
 
     return numericStatus >= minStatus && numericStatus <= maxStatus ? total + count : total;
   }, 0);
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }

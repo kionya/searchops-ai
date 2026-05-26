@@ -13,6 +13,7 @@ import {
   getSiteDashboardPath,
   siteRouteItems
 } from "./dashboard-shell";
+import { getApiBaseUrl } from "./api-base-url";
 import {
   createDemoConnectorSyncHistory,
   formatSyncDuration,
@@ -141,6 +142,17 @@ describe("web foundation", () => {
 
   it("can validate the dashboard site fixture shape", () => {
     expect(SiteSchema.parse(demoSite)).toMatchObject({ domain: "example-clinic.com" });
+  });
+
+  it("normalizes API base URLs for deployed web runtime fetches", () => {
+    expect(getApiBaseUrl("searchops-api-production.up.railway.app")).toBe(
+      "https://searchops-api-production.up.railway.app",
+    );
+    expect(getApiBaseUrl("https://searchops-api-production.up.railway.app/")).toBe(
+      "https://searchops-api-production.up.railway.app",
+    );
+    expect(getApiBaseUrl("ftp://searchops-api.example")).toBeNull();
+    expect(getApiBaseUrl("")).toBeNull();
   });
 
   it("can validate the work board fixtures", () => {

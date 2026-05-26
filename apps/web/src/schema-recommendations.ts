@@ -11,6 +11,7 @@ import {
   type SchemaRecommendationStatus
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
@@ -530,13 +531,4 @@ function createDemoSchemaRecommendation(input: {
     type: input.type,
     updatedAt: fixtureCreatedAt
   });
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }

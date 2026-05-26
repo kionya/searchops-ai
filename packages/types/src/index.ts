@@ -272,6 +272,7 @@ export const SearchOpsEnvSchema = z.object({
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
   SEARCHOPS_IDP_JWT_HS256_SECRET: z.string().min(1).optional(),
+  SEARCHOPS_IDP_JWKS_JSON: JsonObjectStringSchema.optional(),
   SEARCHOPS_IDP_ISSUER: z.string().min(1).optional(),
   SEARCHOPS_IDP_AUDIENCE: z.string().min(1).optional(),
   SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN: z.string().min(1).optional(),

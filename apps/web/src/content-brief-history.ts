@@ -8,6 +8,7 @@ import {
   type KeywordIntent
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { formatGenerationModeLabel, formatIntentLabel, formatPublishPolicyLabel, formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
@@ -294,14 +295,6 @@ export function formatContentBriefDate(isoDate: string | null) {
   return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "시간 정보 없음";
 }
 
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
-}
 
 function getRequiredFormText(formData: FormData, key: string) {
   const value = getOptionalFormText(formData, key);

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SearchOps AI Progress</title>
+    <title>SearchOps AI 진행 현황</title>
     <style>
       :root {
         color-scheme: light;
@@ -36,10 +36,6 @@
         width: min(1180px, calc(100% - 32px));
         margin: 0 auto;
         padding: 36px 0 56px;
-      }
-
-      header {
-        margin-bottom: 28px;
       }
 
       h1,
@@ -78,16 +74,34 @@
         margin: 5px 0;
       }
 
-      .meta {
+      code {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #f1f4f8;
+        padding: 1px 5px;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .meta,
+      .small {
         color: var(--muted);
         font-size: 14px;
       }
 
-      .summary {
+      .summary,
+      .grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
-        margin-top: 22px;
+        margin-top: 18px;
+      }
+
+      .summary {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .stat,
@@ -108,17 +122,6 @@
       .stat span {
         color: var(--muted);
         font-size: 13px;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        margin-top: 14px;
-      }
-
-      .phase {
-        min-height: 220px;
       }
 
       .status {
@@ -160,26 +163,9 @@
         font-weight: 800;
       }
 
-      .small {
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      code {
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: #f1f4f8;
-        padding: 1px 5px;
-        font-family: "SFMono-Regular", Consolas, monospace;
-        font-size: 0.92em;
-      }
-
       @media (max-width: 900px) {
         .summary,
-        .grid {
-          grid-template-columns: 1fr;
-        }
-
+        .grid,
         .plan {
           grid-template-columns: 1fr;
         }
@@ -189,24 +175,24 @@
   <body>
     <main>
       <header>
-        <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-135-runtime-ops-executors</code></p>
+        <h1>SearchOps AI 진행 현황</h1>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>main</code></p>
         <div class="summary">
           <div class="stat">
-            <strong>8</strong>
-            <span>Recent PRs merged through #72</span>
+            <strong>CDX-140</strong>
+            <span>RS256/JWKS IdP verifier 추가</span>
           </div>
           <div class="stat">
             <strong>Passed</strong>
-            <span>Latest local <code>corepack pnpm verify</code></span>
+            <span>최근 웹 typecheck, lint, test 통과</span>
           </div>
           <div class="stat">
-            <strong>Passed</strong>
-            <span>GitHub Actions verify on recent PRs</span>
+            <strong>READY</strong>
+            <span>Vercel production 배포 확인</span>
           </div>
           <div class="stat">
             <strong>Draft-only</strong>
-            <span>No CMS auto-publish or LLM truth source</span>
+            <span>CMS 자동 게시와 LLM truth source 없음</span>
           </div>
         </div>
       </header>
@@ -215,74 +201,45 @@
         <h2>Phase Progress</h2>
         <div class="grid">
           <article class="phase">
-            <span class="status done">Completed foundation</span>
+            <span class="status done">기반 완료</span>
             <h3>Phase 0-5</h3>
-            <p>Monorepo, core SaaS shell, crawler, SEO issue engine, work orders, and dashboard route foundations are in place.</p>
-            <ul>
-              <li>Runtime crawl queue and persistence are wired.</li>
-              <li>Deterministic SEO issue rules and work order mapping are implemented.</li>
-              <li>Dashboard shells and core routes are available.</li>
-            </ul>
+            <p>모노레포, 핵심 SaaS 셸, 크롤러, SEO 이슈 엔진, 작업 지시서, 대시보드 라우트 기반이 준비되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status done">Foundation complete</span>
-            <h3>Phase 6 Connectors</h3>
-            <p>Connector contracts, fixture adapters, sync jobs, persistence, history API, dashboard history, and trigger UI are connected.</p>
-            <ul>
-              <li>Live external provider calls are still deferred.</li>
-              <li>Connector-derived keyword discovery is deterministic.</li>
-            </ul>
+            <span class="status done">기반 완료</span>
+            <h3>Phase 6 커넥터</h3>
+            <p>커넥터 계약, fixture adapter, 동기화 작업, 저장, 이력 API, 대시보드 이력, 트리거 UI가 연결되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status partial">MVP complete</span>
-            <h3>Phase 7 Keyword/AEO</h3>
-            <p>Contracts, deterministic readiness rules, ContentBrief drafts, FAQ gap generation, keyword discovery persistence, API history, and dashboard surfaces are connected.</p>
-            <ul>
-              <li>Keyword discovery remains advisory and deterministic.</li>
-              <li>ContentBriefs remain draft-only.</li>
-            </ul>
+            <span class="status partial">MVP 완료</span>
+            <h3>Phase 7 키워드/AEO</h3>
+            <p>결정론적 준비도 규칙, 콘텐츠 브리프 초안, FAQ gap 생성, 키워드 발견 저장, API 이력, 대시보드가 연결되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status partial">MVP plus runtime</span>
-            <h3>Phase 8 Schema</h3>
-            <p>JSON-LD recommendations, schema work orders, recheck crawl handoff, offline validation, live validator adapter ports, and validation job handoff are in place.</p>
-            <ul>
-              <li>Worker jobs persist rich-result validation evidence through deterministic defaults or explicit connector injection.</li>
-              <li>Live validator credentials and dashboard trigger UI remain future scoped.</li>
-            </ul>
+            <span class="status partial">MVP + 런타임</span>
+            <h3>Phase 8 스키마(JSON-LD)</h3>
+            <p>JSON-LD 추천, 스키마 작업 지시서, 재검수 크롤링 handoff, 오프라인 검증, rich result 검증 job이 준비되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status partial">MVP plus adapters</span>
+            <span class="status partial">MVP + adapter</span>
             <h3>Phase 9 GEO</h3>
-            <p>GEO visibility scoring, report history, dashboard, work order conversion, fixture answer monitors, live adapter ports, and runtime job handoff are connected.</p>
-            <ul>
-              <li>Worker jobs evaluate connector observations through deterministic <code>geo-core</code> and persist report history.</li>
-              <li>Live provider credentials and dashboard collection remain future scoped.</li>
-            </ul>
+            <p>GEO 노출 점수, 리포트 이력, 대시보드, 작업 지시서 변환, answer monitor adapter, runtime job handoff가 연결되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status partial">Closed-loop MVP</span>
-            <h3>Phase 10 Compliance</h3>
-            <p>Compliance flags, rule packs, Korean medical refinements, CMS webhook recheck, signature verification, and audit logging are in place.</p>
-            <ul>
-              <li>Native provider signature schemes are future hardening.</li>
-              <li>Live CMS management APIs remain out of scope.</li>
-            </ul>
+            <span class="status partial">폐쇄 루프 MVP</span>
+            <h3>Phase 10 컴플라이언스</h3>
+            <p>컴플라이언스 flag, rule pack, 한국 의료광고 refinement, CMS webhook 재검수, 서명 검증, audit log가 준비되었습니다.</p>
           </article>
 
           <article class="phase">
-            <span class="status partial">Started</span>
-            <h3>Phase 11 Hardening</h3>
-            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock/external auth context mapping, tenant-scoped API guards, metrics export ingestion, HTTP observability adapters, HS256 bearer-token verification, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, observability dashboard, operations plan APIs, runtime operation dispatchers, and deployment runbooks are in place.</p>
-            <ul>
-              <li>Deployment-specific Redis client wiring or edge-backed rate limiting is pending.</li>
-              <li>Provider account provisioning and optional RS256/JWKS IdP verification remain deployment follow-up items.</li>
-            </ul>
+            <span class="status partial">진행 중</span>
+            <h3>Phase 11 운영 안정화</h3>
+            <p>CI, rate limit, auth context mapping, metrics export, observability adapter, dead-letter dashboard, runtime operation dispatcher, runbook이 준비되었습니다.</p>
           </article>
         </div>
       </section>
@@ -291,17 +248,31 @@
         <h2>Next Implementation Plan</h2>
         <div class="plan-list">
           <article class="plan">
-            <div class="ticket">Follow-up</div>
+            <div class="ticket">CDX-137</div>
             <div>
-              <h3>Finalize CDX-135</h3>
-              <p class="small">Run full verification, self-review, commit, push, open PR, wait for CI, and merge.</p>
+              <h3>한국어 metadata/not-found 마무리</h3>
+              <p class="small">웹 HTML 언어, metadata, 404 화면, progress 문서를 한국어 기준으로 유지합니다.</p>
             </div>
           </article>
           <article class="plan">
-            <div class="ticket">Follow-up</div>
+            <div class="ticket">CDX-138</div>
             <div>
-              <h3>Deployment provisioning</h3>
-              <p class="small">Provision provider accounts and secret refs for observability, restore scheduler, secret manager, and IdP.</p>
+              <h3>Web/API env 연결 안정화</h3>
+              <p class="small"><code>SEARCHOPS_API_BASE_URL</code>에 <code>https://</code>가 없어도 런타임 fetch URL을 안전하게 정규화합니다.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-139</div>
+            <div>
+              <h3>Railway API/worker 운영 점검</h3>
+              <p class="small">API health, worker queue, Redis/BullMQ 운영 조건을 확인하고 문서화합니다.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">CDX-140</div>
+            <div>
+              <h3>RS256/JWKS IdP 검증</h3>
+              <p class="small">IdP가 HS256 대신 RS256/JWKS만 제공해도 API bearer token을 검증할 수 있게 합니다.</p>
             </div>
           </article>
         </div>
@@ -310,11 +281,11 @@
       <section class="guardrails">
         <h2>Guardrails</h2>
         <ul>
-          <li>No LLM usage for SEO/AEO/GEO/compliance detection truth.</li>
-          <li>No live external API calls in tests.</li>
-          <li>No CMS auto-publish.</li>
-          <li>Medical content remains draft-only.</li>
-          <li>Live provider clients must be explicit runtime wiring, not default package behavior.</li>
+          <li>SEO/AEO/GEO/컴플라이언스 판정의 truth source로 LLM을 사용하지 않습니다.</li>
+          <li>테스트에서 live external API를 호출하지 않습니다.</li>
+          <li>CMS 자동 게시를 하지 않습니다.</li>
+          <li>의료 콘텐츠는 draft-only로 유지합니다.</li>
+          <li>live provider client는 기본 동작이 아니라 명시적 runtime wiring으로만 연결합니다.</li>
         </ul>
       </section>
     </main>

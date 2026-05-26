@@ -1,4 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  createHmac,
+  createPublicKey,
+  timingSafeEqual,
+  verify as verifyAsymmetricSignature,
+  type JsonWebKey,
+} from "node:crypto";
 import type { FastifyRequest } from "fastify";
 
 import { phaseOneSeedIds } from "@searchops/db";
@@ -32,6 +38,16 @@ export interface CreateHmacJwtIdpTokenVerifierOptions {
   readonly provider?: string;
   readonly roleClaim?: string;
   readonly secret: string;
+}
+
+export interface CreateJwksRs256IdpTokenVerifierOptions {
+  readonly audience?: string | undefined;
+  readonly currentTime?: () => Date;
+  readonly issuer?: string | undefined;
+  readonly jwks: readonly Record<string, unknown>[];
+  readonly organizationIdClaim?: string;
+  readonly provider?: string;
+  readonly roleClaim?: string;
 }
 
 export class AuthVerificationError extends Error {
@@ -130,18 +146,71 @@ export function createHmacJwtIdpTokenVerifier({
       validateJwtTemporalClaims(payload, currentTime());
       validateJwtIssuerAndAudience({ audience, issuer, payload });
 
-      return IdpClaimMappingInputSchema.parse({
-        email: typeof payload.email === "string" ? payload.email : null,
-        organizationId: readStringClaim(payload, organizationIdClaim),
-        provider:
-          typeof payload.provider === "string" && payload.provider.length > 0
-            ? payload.provider
-            : provider,
-        role: readStringClaim(payload, roleClaim),
-        subject: readStringClaim(payload, "sub"),
-      });
+      return mapJwtPayloadToIdpClaims({ organizationIdClaim, payload, provider, roleClaim });
     },
   };
+}
+
+export function createJwksRs256IdpTokenVerifier({
+  audience,
+  currentTime = () => new Date(),
+  issuer,
+  jwks,
+  organizationIdClaim = "organization_id",
+  provider = "idp",
+  roleClaim = "role",
+}: CreateJwksRs256IdpTokenVerifierOptions): IdpTokenVerifier {
+  const publicKeys = jwks.map(createJwksPublicKey);
+
+  return {
+    verify(token) {
+      const tokenSegments = token.split(".");
+      if (tokenSegments.length !== 3) {
+        throw new AuthVerificationError("Bearer token must be a compact JWT.");
+      }
+      const encodedHeader = tokenSegments[0]!;
+      const encodedPayload = tokenSegments[1]!;
+      const signature = tokenSegments[2]!;
+
+      const header = parseJwtSegment(encodedHeader);
+      if (header.alg !== "RS256") {
+        throw new AuthVerificationError("Only RS256 IdP tokens are supported by this verifier.");
+      }
+
+      verifyRs256Signature({
+        encodedHeader,
+        encodedPayload,
+        keyId: typeof header.kid === "string" ? header.kid : undefined,
+        publicKeys,
+        signature,
+      });
+
+      const payload = parseJwtSegment(encodedPayload);
+      validateJwtTemporalClaims(payload, currentTime());
+      validateJwtIssuerAndAudience({ audience, issuer, payload });
+
+      return mapJwtPayloadToIdpClaims({ organizationIdClaim, payload, provider, roleClaim });
+    },
+  };
+}
+
+export function parseJwksJson(value: string): readonly Record<string, unknown>[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new AuthVerificationError("SEARCHOPS_IDP_JWKS_JSON must be valid JSON.");
+  }
+
+  if (Array.isArray(parsed)) {
+    return parsed.map(parseJwksKey);
+  }
+
+  if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { keys?: unknown }).keys)) {
+    return (parsed as { keys: unknown[] }).keys.map(parseJwksKey);
+  }
+
+  throw new AuthVerificationError("SEARCHOPS_IDP_JWKS_JSON must be a JWKS object with keys.");
 }
 
 function readBearerToken(request: FastifyRequest) {
@@ -162,6 +231,14 @@ function readBearerToken(request: FastifyRequest) {
   }
 
   return token;
+}
+
+function parseJwksKey(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new AuthVerificationError("JWKS keys must be JSON objects.");
+  }
+
+  return value as Record<string, unknown>;
 }
 
 function parseJwtSegment(segment: string): Record<string, unknown> {
@@ -199,6 +276,37 @@ function verifyHs256Signature({
     expectedBuffer.length !== actualBuffer.length ||
     !timingSafeEqual(expectedBuffer, actualBuffer)
   ) {
+    throw new AuthVerificationError("Bearer token signature verification failed.");
+  }
+}
+
+function verifyRs256Signature({
+  encodedHeader,
+  encodedPayload,
+  keyId,
+  publicKeys,
+  signature,
+}: {
+  readonly encodedHeader: string;
+  readonly encodedPayload: string;
+  readonly keyId: string | undefined;
+  readonly publicKeys: readonly JwksPublicKey[];
+  readonly signature: string;
+}) {
+  const candidates =
+    keyId === undefined ? publicKeys : publicKeys.filter((publicKey) => publicKey.keyId === keyId);
+
+  if (candidates.length === 0) {
+    throw new AuthVerificationError("Bearer token key id is not trusted.");
+  }
+
+  const signedInput = Buffer.from(`${encodedHeader}.${encodedPayload}`);
+  const signatureBuffer = Buffer.from(signature, "base64url");
+  const verified = candidates.some((candidate) =>
+    verifyAsymmetricSignature("RSA-SHA256", signedInput, candidate.publicKey, signatureBuffer),
+  );
+
+  if (!verified) {
     throw new AuthVerificationError("Bearer token signature verification failed.");
   }
 }
@@ -247,6 +355,49 @@ function readStringClaim(payload: Record<string, unknown>, claimName: string) {
     throw new AuthVerificationError(`Bearer token is missing ${claimName}.`);
   }
   return value;
+}
+
+interface JwksPublicKey {
+  readonly keyId: string | undefined;
+  readonly publicKey: ReturnType<typeof createPublicKey>;
+}
+
+function createJwksPublicKey(jwk: Record<string, unknown>): JwksPublicKey {
+  if (jwk.kty !== "RSA") {
+    throw new AuthVerificationError("JWKS key must be an RSA key.");
+  }
+
+  try {
+    return {
+      keyId: typeof jwk.kid === "string" ? jwk.kid : undefined,
+      publicKey: createPublicKey({ format: "jwk", key: jwk as JsonWebKey }),
+    };
+  } catch {
+    throw new AuthVerificationError("JWKS RSA key could not be imported.");
+  }
+}
+
+function mapJwtPayloadToIdpClaims({
+  organizationIdClaim,
+  payload,
+  provider,
+  roleClaim,
+}: {
+  readonly organizationIdClaim: string;
+  readonly payload: Record<string, unknown>;
+  readonly provider: string;
+  readonly roleClaim: string;
+}) {
+  return IdpClaimMappingInputSchema.parse({
+    email: typeof payload.email === "string" ? payload.email : null,
+    organizationId: readStringClaim(payload, organizationIdClaim),
+    provider:
+      typeof payload.provider === "string" && payload.provider.length > 0
+        ? payload.provider
+        : provider,
+    role: readStringClaim(payload, roleClaim),
+    subject: readStringClaim(payload, "sub"),
+  });
 }
 
 function readIdpClaimsFromHeaders(request: FastifyRequest) {

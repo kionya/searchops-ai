@@ -9,6 +9,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
@@ -544,13 +545,4 @@ export function formatComplianceRisk(riskLevel: string) {
 
 export function formatComplianceStatus(status: string) {
   return formatStatusLabel(status);
-}
-
-function getApiBaseUrl() {
-  const value = process.env.SEARCHOPS_API_BASE_URL?.trim();
-  if (!value) {
-    return null;
-  }
-
-  return value.replace(/\/+$/, "");
 }
