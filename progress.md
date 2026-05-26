@@ -4,18 +4,19 @@ Updated: 2026-05-26
 
 ## Current State
 
-The repository is on `codex/cdx-130-observability-export`, branched from the latest merged `main`.
+The repository is on `codex/cdx-131-runbooks`, branched from the latest merged `main`.
 
 Recent merged PRs:
 
 - PR #65: Dead-letter operations dashboard
 - PR #66: Distributed rate-limit adapter
 - PR #67: Tenant-scoped mock auth roles
+- PR #68: Operational metrics export
 
 Latest full verification:
 
-- `corepack pnpm verify` passed locally for CDX-130 observability export.
-- GitHub Actions `verify` passed for PR #65, PR #66, and PR #67 before merge.
+- `corepack pnpm verify` passed locally for CDX-131 runbooks.
+- GitHub Actions `verify` passed for PR #65, PR #66, PR #67, and PR #68 before merge.
 
 ## Phase Progress
 
@@ -144,6 +145,7 @@ Implemented:
 - Injectable API rate-limit store with a Redis-like distributed adapter boundary.
 - Mock auth roles enforced for tenant-scoped API access and viewer write denial.
 - Operational metrics export for API request counters, worker dead-letter summaries, and deterministic alert signals.
+- Backup/restore, migration verification, deployment check, and secret rotation runbooks.
 
 Remaining:
 
@@ -151,25 +153,25 @@ Remaining:
 - Deployment-specific observability ingestion, log drains, and alert routing.
 - Dead-letter replay workflow.
 - External identity-provider integration and deployment auth middleware.
-- Backup, migration, and deployment secret rotation runbooks.
+- Backup restore drills and deployment-specific secret automation.
 
 ## Next Implementation Plan
 
 Recommended order:
 
-1. CDX-131: Backup, migration, and deployment runbooks
-   - Document database backup/restore.
-   - Add migration verification workflow.
-   - Document secret rotation and deployment environment checks.
-
-2. Follow-up observability hardening
+1. Follow-up observability hardening
    - Wire the metrics export into deployment log drains or dashboard ingestion.
    - Add alert routing outside the local API process.
 
-3. Follow-up auth hardening
+2. Follow-up auth hardening
    - Wire a deployment identity provider or middleware.
    - Map provider claims into the existing API auth context.
    - Keep cross-tenant negative tests as the contract.
+
+3. Follow-up operations hardening
+   - Run scheduled backup restore drills.
+   - Add deployment-specific secret rotation automation.
+   - Define dead-letter replay workflows per queue.
 
 ## Guardrails
 

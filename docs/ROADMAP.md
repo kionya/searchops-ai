@@ -178,10 +178,11 @@ Phase 11 starting status:
 - `CDX-128`: API rate limiting now uses an injectable store boundary with in-memory defaults and a Redis-like distributed counter adapter for multi-instance deployments.
 - `CDX-129`: Mock auth context now carries roles and is enforced for tenant-scoped API reads/writes. Cross-tenant organization/site access is denied and viewer writes are blocked.
 - `CDX-130`: Operations metrics export combines API request counters, worker dead-letter summaries, and deterministic alert signals behind the ops API boundary.
+- `CDX-131`: Backup, restore, migration verification, deployment environment, and secret rotation runbooks are documented with Corepack-backed migration status/deploy scripts.
 
 Phase 11 remaining limitations:
 
 - API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
 - Metrics export is available through the ops API, but deployment-specific log drains, dashboard ingestion, and alert routing remain future scope.
 - Dead-letter queues capture failed job metadata and expose operator cleanup views, but replay workflows are still future scope.
-- External identity-provider integration, deployment auth middleware, backup/migration runbooks, and deployment secret rotation still need dedicated PRs.
+- External identity-provider integration, deployment auth middleware, deployment-specific secret automation, and backup restore drills still need dedicated PRs.
