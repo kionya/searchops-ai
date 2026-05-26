@@ -161,3 +161,5 @@ Closed-loop audit logging is owned by the API and DB layers. The deterministic c
 Production hardening starts at runtime boundaries before deeper platform policy work. `apps/api` owns HTTP rate limiting and request metrics because those controls depend on request identity and deployment topology. The first implementation is in-memory and deterministic for local/test environments; distributed rate limiting can replace the same boundary later.
 
 `apps/worker` owns BullMQ worker failure handling. Queue producers define retry/backoff defaults, while worker runtimes write failed jobs to a dead-letter queue after BullMQ exhausts retries. Dead-letter payloads intentionally store queue/job metadata and failure reason, not secrets or raw external credentials.
+
+`apps/api` owns the operations boundary for dead-letter inspection. It can list and clear dead-letter queue entries through BullMQ-backed adapters, while local tests use an in-memory store. Replay is intentionally not automatic until a safe, queue-specific retry policy is defined.

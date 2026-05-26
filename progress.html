@@ -190,11 +190,11 @@
     <main>
       <header>
         <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-125-geo-runtime-job</code></p>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-127-dead-letter-dashboard</code></p>
         <div class="summary">
           <div class="stat">
-            <strong>3</strong>
-            <span>Recent PRs merged: #59, #60, #62</span>
+            <strong>2</strong>
+            <span>Recent PRs merged: #63, #64</span>
           </div>
           <div class="stat">
             <strong>Passed</strong>
@@ -278,10 +278,10 @@
           <article class="phase">
             <span class="status partial">Started</span>
             <h3>Phase 11 Hardening</h3>
-            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, metrics foundation, retry/backoff checks, and dead-letter payloads are in place.</p>
+            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, metrics foundation, retry/backoff checks, dead-letter payloads, and the dead-letter operations dashboard are in place.</p>
             <ul>
               <li>Distributed rate limiting is pending.</li>
-              <li>Auth/RBAC, tenant isolation, observability export, and runbooks remain.</li>
+              <li>Dead-letter replay, Auth/RBAC, tenant isolation, observability export, and runbooks remain.</li>
             </ul>
           </article>
         </div>
@@ -290,13 +290,6 @@
       <section>
         <h2>Next Implementation Plan</h2>
         <div class="plan-list">
-          <article class="plan">
-            <div class="ticket">CDX-127</div>
-            <div>
-              <h3>Dead-letter operations dashboard</h3>
-              <p class="small">Expose failed job metadata, detail views, and replay-safe operator workflows without storing secrets.</p>
-            </div>
-          </article>
           <article class="plan">
             <div class="ticket">CDX-128</div>
             <div>

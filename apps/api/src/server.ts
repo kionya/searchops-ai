@@ -56,6 +56,8 @@ import {
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
+  DeadLetterJobListResponseSchema,
+  DeleteDeadLetterJobResponseSchema,
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   KeywordDiscoveryListResponseSchema,
@@ -101,6 +103,11 @@ import {
   createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
 import {
+  type DeadLetterJobStore,
+  createMemoryDeadLetterJobStore,
+  summarizeDeadLetterJobs,
+} from "./dead-letter-store.js";
+import {
   type CreateClosedLoopAuditEventInput,
   type SearchOpsRepository,
   createMemoryRepository,
@@ -124,6 +131,7 @@ export interface BuildApiServerOptions {
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
   readonly schemaRichResultValidationQueue?: SchemaRichResultValidationQueue;
+  readonly deadLetterJobStore?: DeadLetterJobStore;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
   readonly currentTime?: () => Date;
   readonly rateLimit?: ApiRateLimitOptions;
@@ -202,6 +210,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.geoAnswerMonitorQueue ?? createMemoryGeoAnswerMonitorQueue();
   const schemaRichResultValidationQueue =
     options.schemaRichResultValidationQueue ?? createMemorySchemaRichResultValidationQueue();
+  const deadLetterJobStore = options.deadLetterJobStore ?? createMemoryDeadLetterJobStore();
   const cmsWebhookSecrets =
     options.cmsWebhookSecrets ?? parseCmsWebhookSecrets(process.env.SEARCHOPS_CMS_WEBHOOK_SECRETS);
   const requireCmsWebhookSignature =
@@ -497,6 +506,38 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       },
     }),
   );
+
+  server.get("/ops/dead-letter-jobs", async (request) => {
+    const query = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      })
+      .parse(request.query);
+    const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({
+      limit: query.limit,
+    });
+
+    return DeadLetterJobListResponseSchema.parse({
+      deadLetterJobs,
+      summary: summarizeDeadLetterJobs(deadLetterJobs),
+    });
+  });
+
+  server.delete("/ops/dead-letter-jobs/:id", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const removed = await deadLetterJobStore.removeDeadLetterJob(id);
+    if (!removed) {
+      reply.status(404).send(notFound("Dead-letter job not found"));
+      return;
+    }
+
+    reply.send(
+      DeleteDeadLetterJobResponseSchema.parse({
+        deadLetterJobId: id,
+        removed,
+      }),
+    );
+  });
 
   server.get("/auth/context", async (request) => resolveMockUserContext(request));
 

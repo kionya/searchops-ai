@@ -76,6 +76,51 @@ export const DeadLetterJobPayloadSchema = z.object({
 
 export type DeadLetterJobPayload = z.infer<typeof DeadLetterJobPayloadSchema>;
 
+export const DeadLetterJobStatusSchema = z.enum([
+  "active",
+  "completed",
+  "delayed",
+  "failed",
+  "paused",
+  "prioritized",
+  "waiting",
+  "waiting-children",
+]);
+
+export type DeadLetterJobStatus = z.infer<typeof DeadLetterJobStatusSchema>;
+
+export const DeadLetterJobRecordSchema = z.object({
+  id: IdSchema,
+  queueName: NonEmptyStringSchema,
+  jobId: z.string().min(1).nullable(),
+  status: DeadLetterJobStatusSchema,
+  enqueuedAt: IsoDateTimeSchema.nullable(),
+  processedAt: IsoDateTimeSchema.nullable(),
+  payload: DeadLetterJobPayloadSchema,
+});
+
+export type DeadLetterJobRecord = z.infer<typeof DeadLetterJobRecordSchema>;
+
+export const DeadLetterJobListResponseSchema = z.object({
+  deadLetterJobs: z.array(DeadLetterJobRecordSchema),
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    byQueue: z.record(z.number().int().nonnegative()),
+    byStatus: z.record(z.number().int().nonnegative()),
+  }),
+});
+
+export type DeadLetterJobListResponse = z.infer<typeof DeadLetterJobListResponseSchema>;
+
+export const DeleteDeadLetterJobResponseSchema = z.object({
+  deadLetterJobId: IdSchema,
+  removed: z.boolean(),
+});
+
+export type DeleteDeadLetterJobResponse = z.infer<
+  typeof DeleteDeadLetterJobResponseSchema
+>;
+
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),

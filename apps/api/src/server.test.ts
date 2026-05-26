@@ -8,6 +8,7 @@ import type {
   ContentBrief,
   CmsContentUpdatedEventRequest,
   CrawlerPageSnapshot,
+  DeadLetterJobRecord,
   GeoVisibilityReportRecord,
   KeywordDiscoveryCandidateRecord,
   Organization,
@@ -25,6 +26,7 @@ import {
   createMemoryGeoAnswerMonitorQueue,
   createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
+import { createMemoryDeadLetterJobStore } from "./dead-letter-store.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import { createCmsWebhookSignature } from "./webhook-security.js";
@@ -410,11 +412,40 @@ const seededSeoIssue: SeoIssue = {
   },
   createdAt,
 };
+const seededDeadLetterJob: DeadLetterJobRecord = {
+  id: "searchops-crawl:dead-letter|42",
+  queueName: "searchops-crawl:dead-letter",
+  jobId: "42",
+  status: "waiting",
+  enqueuedAt: "2026-05-25T00:00:01.000Z",
+  processedAt: null,
+  payload: {
+    originalQueue: "searchops-crawl",
+    originalJobName: "crawl",
+    originalJobId: "job_42",
+    failedReason: "Fetch timed out",
+    attemptsMade: 3,
+    failedAt: "2026-05-25T00:00:00.000Z",
+  },
+};
 
 function buildTestServer() {
   return buildApiServer({
     repository: createMemoryRepository({ organizations: [seededOrganization] }),
   });
+}
+
+function buildDeadLetterOperationsTestContext() {
+  const deadLetterJobStore = createMemoryDeadLetterJobStore([seededDeadLetterJob]);
+  const server = buildApiServer({
+    deadLetterJobStore,
+    repository: createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+    }),
+  });
+
+  return { deadLetterJobStore, server };
 }
 
 function buildCrawlRunTestContext() {
@@ -731,6 +762,66 @@ describe("api foundation", () => {
           "200": 1,
         },
       },
+    });
+  });
+
+  it("lists worker dead-letter jobs for operations", async () => {
+    const { server } = buildDeadLetterOperationsTestContext();
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/dead-letter-jobs?limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      deadLetterJobs: [seededDeadLetterJob],
+      summary: {
+        total: 1,
+        byQueue: {
+          "searchops-crawl": 1,
+        },
+        byStatus: {
+          waiting: 1,
+        },
+      },
+    });
+  });
+
+  it("removes worker dead-letter jobs through the operations API", async () => {
+    const { server } = buildDeadLetterOperationsTestContext();
+    const response = await server.inject({
+      method: "DELETE",
+      url: `/ops/dead-letter-jobs/${encodeURIComponent(seededDeadLetterJob.id)}`,
+    });
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/ops/dead-letter-jobs",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      deadLetterJobId: seededDeadLetterJob.id,
+      removed: true,
+    });
+    expect(listResponse.json()).toMatchObject({
+      deadLetterJobs: [],
+      summary: {
+        total: 0,
+      },
+    });
+  });
+
+  it("returns not found for missing dead-letter jobs", async () => {
+    const { server } = buildDeadLetterOperationsTestContext();
+    const response = await server.inject({
+      method: "DELETE",
+      url: "/ops/dead-letter-jobs/missing",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "not_found",
+      message: "Dead-letter job not found",
     });
   });
 

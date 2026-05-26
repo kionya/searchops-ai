@@ -1,0 +1,23 @@
+"use server";
+
+import { redirect } from "next/navigation";
+
+import { clearDeadLetterJob } from "../../../src/dead-letter-operations";
+
+export async function clearDeadLetterJobAction(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (id.length === 0) {
+    redirect("/ops/dead-letter?clear=failed");
+  }
+
+  const result = await clearDeadLetterJob(id);
+  const searchParams = new URLSearchParams({
+    clear: result.status,
+  });
+
+  if (result.deadLetterJobId) {
+    searchParams.set("jobId", result.deadLetterJobId);
+  }
+
+  redirect(`/ops/dead-letter?${searchParams.toString()}`);
+}
