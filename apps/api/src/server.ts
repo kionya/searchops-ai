@@ -57,7 +57,10 @@ import {
   CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
   DeadLetterJobListResponseSchema,
+  DeadLetterReplayRequestSchema,
   DeleteDeadLetterJobResponseSchema,
+  ExecuteBackupRestoreDrillRequestSchema,
+  ExecuteSecretRotationRequestSchema,
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   KeywordDiscoveryListResponseSchema,
@@ -93,9 +96,11 @@ import {
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 
 import {
+  AuthVerificationError,
   canAccessOrganization,
   canManageOperations,
   canWriteWithRole,
+  type AuthContextResolver,
   resolveAuthenticatedUserContext,
 } from "./auth.js";
 import {
@@ -137,8 +142,15 @@ import {
 import {
   createBackupRestoreDrillPlan,
   createDeadLetterReplayPlan,
+  createNoopBackupRestoreDrillScheduler,
+  createNoopSecretRotationExecutor,
   createSecretRotationPlan,
+  executeBackupRestoreDrill,
+  executeSecretRotation,
+  type BackupRestoreDrillScheduler,
+  type SecretRotationExecutor,
 } from "./operations-hardening.js";
+import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -159,8 +171,11 @@ export interface BuildApiServerOptions {
   readonly rateLimit?: ApiRateLimitOptions;
   readonly rateLimitStore?: ApiRateLimitStore;
   readonly requireCmsWebhookSignature?: boolean;
-  readonly operationalAlertRouter?: OperationalAlertRouter;
-  readonly operationalLogDrain?: OperationalLogDrain;
+  readonly operationalAlertRouter?: OperationalAlertRouter | undefined;
+  readonly operationalLogDrain?: OperationalLogDrain | undefined;
+  readonly authContextResolver?: AuthContextResolver | undefined;
+  readonly backupRestoreDrillScheduler?: BackupRestoreDrillScheduler | undefined;
+  readonly secretRotationExecutor?: SecretRotationExecutor | undefined;
 }
 
 export interface ApiRateLimitOptions {
@@ -224,6 +239,11 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const operationalAlertRouter =
     options.operationalAlertRouter ?? createNoopOperationalAlertRouter();
   const operationalLogDrain = options.operationalLogDrain ?? createNoopOperationalLogDrain();
+  const authContextResolver = options.authContextResolver ?? resolveAuthenticatedUserContext;
+  const backupRestoreDrillScheduler =
+    options.backupRestoreDrillScheduler ?? createNoopBackupRestoreDrillScheduler();
+  const secretRotationExecutor =
+    options.secretRotationExecutor ?? createNoopSecretRotationExecutor();
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -248,6 +268,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.status(403).send(forbidden(message));
   }
 
+  function resolveRequestUserContext(request: FastifyRequest) {
+    return authContextResolver(request);
+  }
+
   function ensureOrganizationAccess({
     organizationId,
     reply,
@@ -257,7 +281,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     readonly reply: FastifyReply;
     readonly request: FastifyRequest;
   }) {
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     if (!canAccessOrganization(userContext, organizationId)) {
       sendForbidden(reply, "User cannot access this organization");
       return false;
@@ -323,7 +347,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     if (routeUrl.startsWith("/ops/")) {
-      const userContext = resolveAuthenticatedUserContext(request);
+      const userContext = resolveRequestUserContext(request);
       if (!canManageOperations(userContext.role)) {
         sendForbidden(reply, "User role cannot manage operations");
         return false;
@@ -657,12 +681,28 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   }
 
   server.setErrorHandler((error: unknown, _request, reply) => {
+    if (error instanceof AuthVerificationError) {
+      reply.status(401).send({
+        error: "unauthorized",
+        message: error.message,
+      });
+      return;
+    }
+
     if (error instanceof ZodError) {
       reply.status(400).send({
         error: "validation_error",
         message: error.issues
           .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
           .join("; "),
+      });
+      return;
+    }
+
+    if (error instanceof DeadLetterReplayError) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: error.message,
       });
       return;
     }
@@ -753,6 +793,22 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }),
   );
 
+  server.post("/ops/backup-restore-drill-runs", async (request) =>
+    executeBackupRestoreDrill({
+      createdAt: currentTime(),
+      request: ExecuteBackupRestoreDrillRequestSchema.parse(request.body ?? {}),
+      scheduler: backupRestoreDrillScheduler,
+    }),
+  );
+
+  server.post("/ops/secret-rotations", async (request) =>
+    executeSecretRotation({
+      createdAt: currentTime(),
+      executor: secretRotationExecutor,
+      request: ExecuteSecretRotationRequestSchema.parse(request.body ?? {}),
+    }),
+  );
+
   server.post("/ops/dead-letter-jobs/:id/replay-plan", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({ limit: 100 });
@@ -768,10 +824,33 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     });
   });
 
-  server.get("/auth/context", async (request) => resolveAuthenticatedUserContext(request));
+  server.post("/ops/dead-letter-jobs/:id/replay", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({ limit: 100 });
+    const deadLetterJob = deadLetterJobs.find((job) => job.id === id);
+    if (deadLetterJob === undefined) {
+      reply.status(404).send(notFound("Dead-letter job not found"));
+      return;
+    }
+
+    return replayDeadLetterJob({
+      createdAt: currentTime(),
+      deadLetterJob,
+      deadLetterJobStore,
+      queues: {
+        connectorSyncQueue,
+        crawlRunQueue,
+        geoAnswerMonitorQueue,
+        schemaRichResultValidationQueue,
+      },
+      request: DeadLetterReplayRequestSchema.parse(request.body ?? {}),
+    });
+  });
+
+  server.get("/auth/context", async (request) => resolveRequestUserContext(request));
 
   server.get("/organizations", async (request) => {
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const organizations = await repository.listOrganizations();
 
     return OrganizationListResponseSchema.parse({
@@ -783,7 +862,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   });
 
   server.post("/organizations", async (request, reply) => {
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     if (!canWriteWithRole(userContext.role)) {
       reply.status(403).send(forbidden("User role cannot create organizations"));
       return;
@@ -1133,7 +1212,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const observedAt = input.observedAt ?? currentTime().toISOString();
     const job = await geoAnswerMonitorQueue.enqueueGeoAnswerMonitor({
       organizationId: site.organizationId,
@@ -1335,7 +1414,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: id,
@@ -1358,7 +1437,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     const input = CreateConnectorSyncRunRequestSchema.parse(request.body ?? {});
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const connectorSyncRun = await repository.createConnectorSyncRun(site.id, {
       providers: input.providers,
       requestedByUserId: userContext.userId,
@@ -1643,7 +1722,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: site.id,
@@ -1690,7 +1769,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       }
 
       const input = QueueSchemaRichResultValidationRequestSchema.parse(request.body ?? {});
-      const userContext = resolveAuthenticatedUserContext(request);
+      const userContext = resolveRequestUserContext(request);
       const job = await schemaRichResultValidationQueue.enqueueSchemaRichResultValidation({
         recommendationId: recommendation.id,
         siteId: site.id,
@@ -1788,7 +1867,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveAuthenticatedUserContext(request);
+    const userContext = resolveRequestUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: site.id,

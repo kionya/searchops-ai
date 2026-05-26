@@ -1,4 +1,5 @@
-﻿import { describe, expect, it } from "vitest";
+﻿import { createHmac } from "node:crypto";
+import { describe, expect, it } from "vitest";
 
 import type {
   AeoReadinessReportRecord,
@@ -32,9 +33,14 @@ import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import { createCmsWebhookSignature } from "./webhook-security.js";
 import {
+  createHmacJwtIdpTokenVerifier,
+  createRequestAuthContextResolver,
+} from "./auth.js";
+import {
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
 } from "./observability.js";
+import { createMemoryOperationsExecutor } from "./operations-hardening.js";
 
 const createdAt = "2026-05-19T00:00:00.000Z";
 const seededOrganization: Organization = {
@@ -631,6 +637,19 @@ function createSignedCmsEventRequest(payload: Record<string, unknown>, secret = 
   };
 }
 
+function createSignedIdpToken(payload: Record<string, unknown>, secret = "idp_secret") {
+  const header = encodeJwtSegment({ alg: "HS256", typ: "JWT" });
+  const body = encodeJwtSegment(payload);
+  const signature = createHmac("sha256", secret)
+    .update(`${header}.${body}`)
+    .digest("base64url");
+  return `${header}.${body}.${signature}`;
+}
+
+function encodeJwtSegment(payload: Record<string, unknown>) {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
 function createSignedCmsProviderWebhookRequest({
   event,
   payload,
@@ -951,6 +970,59 @@ describe("api foundation", () => {
     expect(response.body).not.toContain("secret_value");
   });
 
+  it("dispatches restore drill and secret rotation runs through configured executors", async () => {
+    const operationsExecutor = createMemoryOperationsExecutor(
+      () => new Date("2026-05-26T00:02:00.000Z"),
+    );
+    const { server } = buildDeadLetterOperationsTestContext({
+      backupRestoreDrillScheduler: operationsExecutor,
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      secretRotationExecutor: operationsExecutor,
+    });
+    const restoreResponse = await server.inject({
+      method: "POST",
+      url: "/ops/backup-restore-drill-runs",
+      payload: {
+        environment: "production",
+      },
+    });
+    const rotationResponse = await server.inject({
+      method: "POST",
+      url: "/ops/secret-rotations",
+      payload: {
+        dryRun: true,
+        provider: "wordpress",
+        oldSecretRef: "cms/wordpress/old",
+        newSecretRef: "cms/wordpress/new",
+      },
+    });
+
+    expect(restoreResponse.statusCode).toBe(200);
+    expect(restoreResponse.json()).toMatchObject({
+      dryRun: false,
+      plan: {
+        id: "restore_drill_production_20260526",
+      },
+      dispatch: {
+        provider: "memory",
+        status: "accepted",
+      },
+    });
+    expect(rotationResponse.statusCode).toBe(200);
+    expect(rotationResponse.json()).toMatchObject({
+      dryRun: true,
+      plan: {
+        id: "secret_rotation_wordpress_20260526",
+      },
+      dispatch: {
+        externalRunId: null,
+        provider: "memory",
+        status: "dry_run",
+      },
+    });
+    expect(operationsExecutor.listDispatches()).toHaveLength(2);
+  });
+
   it("creates dead-letter replay plans without auto-requeue side effects", async () => {
     const { server } = buildDeadLetterOperationsTestContext({
       currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
@@ -967,6 +1039,86 @@ describe("api foundation", () => {
       originalJobName: "crawl",
       status: "blocked",
     });
+  });
+
+  it("replays supported dead-letter jobs with queue-specific idempotent job ids", async () => {
+    const crawlRunQueue = createMemoryCrawlRunQueue();
+    const { server } = buildDeadLetterOperationsTestContext({
+      crawlRunQueue,
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: `/ops/dead-letter-jobs/${encodeURIComponent(seededDeadLetterJob.id)}/replay`,
+      payload: {
+        payload: {
+          crawlRunId: "crawl_replay",
+          maxPages: 1,
+          pages: [],
+          requestedByUserId: "user_ops",
+          siteDomain: "exampleclinic.com",
+          siteId: "site_seed",
+          startUrl: "https://exampleclinic.com/",
+        },
+      },
+    });
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/ops/dead-letter-jobs",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      removedDeadLetterJob: true,
+      replayJob: {
+        id: "replay_searchops-crawl_dead-letter_42",
+        name: "crawl",
+        payload: {
+          crawlRunId: "crawl_replay",
+          siteId: "site_seed",
+        },
+      },
+      status: "replayed",
+    });
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+    expect(listResponse.json()).toMatchObject({
+      deadLetterJobs: [],
+      summary: {
+        total: 0,
+      },
+    });
+  });
+
+  it("keeps repeated dead-letter replay requests idempotent by replay job id", async () => {
+    const crawlRunQueue = createMemoryCrawlRunQueue();
+    const { server } = buildDeadLetterOperationsTestContext({
+      crawlRunQueue,
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const request = {
+      method: "POST" as const,
+      url: `/ops/dead-letter-jobs/${encodeURIComponent(seededDeadLetterJob.id)}/replay`,
+      payload: {
+        removeDeadLetterJob: false,
+        payload: {
+          crawlRunId: "crawl_replay",
+          maxPages: 1,
+          pages: [],
+          requestedByUserId: "user_ops",
+          siteDomain: "exampleclinic.com",
+          siteId: "site_seed",
+          startUrl: "https://exampleclinic.com/",
+        },
+      },
+    };
+
+    const firstResponse = await server.inject(request);
+    const secondResponse = await server.inject(request);
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(firstResponse.json().replayJob.id).toBe(secondResponse.json().replayJob.id);
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
   });
 
   it("rate limits requests when enabled", async () => {
@@ -1141,6 +1293,73 @@ describe("api foundation", () => {
       error: "forbidden",
       message: "User cannot access this organization",
     });
+  });
+
+  it("uses verified bearer token claims for deployed IdP authorization", async () => {
+    const server = buildApiServer({
+      authContextResolver: createRequestAuthContextResolver({
+        allowMockFallback: false,
+        allowTrustedHeaders: false,
+        tokenVerifier: createHmacJwtIdpTokenVerifier({
+          audience: "searchops-api",
+          currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+          issuer: "https://idp.example.com/",
+          organizationIdClaim: "org_id",
+          provider: "auth0",
+          secret: "idp_secret",
+        }),
+      }),
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const token = createSignedIdpToken({
+      aud: "searchops-api",
+      email: "owner@example.com",
+      exp: 1_779_756_000,
+      iss: "https://idp.example.com/",
+      org_id: "org_demo",
+      role: "owner",
+      sub: "idp_owner_1",
+    });
+
+    const contextResponse = await server.inject({
+      method: "GET",
+      url: "/auth/context",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const sameTenantResponse = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        name: "Verified IdP edit",
+      },
+    });
+    const crossTenantResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_other",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(contextResponse.statusCode).toBe(200);
+    expect(contextResponse.json()).toMatchObject({
+      email: "owner@example.com",
+      organizationId: "org_demo",
+      provider: "auth0",
+      role: "owner",
+      source: "idp",
+      userId: "idp_owner_1",
+    });
+    expect(sameTenantResponse.statusCode).toBe(200);
+    expect(crossTenantResponse.statusCode).toBe(403);
   });
 
   it("rejects incomplete external IdP claim headers before authorization side effects", async () => {

@@ -25,6 +25,7 @@ import {
 import type {
   ConnectorSyncQueue,
   CrawlRunQueue,
+  EnqueueJobOptions,
   GeoAnswerMonitorQueue,
   SchemaRichResultValidationQueue
 } from "./queue.js";
@@ -120,11 +121,20 @@ const defaultJobOptions: JobsOptions = {
   removeOnFail: 1000
 };
 
+function createBullMqJobOptions(options: EnqueueJobOptions | undefined) {
+  return options?.jobId === undefined
+    ? defaultJobOptions
+    : {
+        ...defaultJobOptions,
+        jobId: options.jobId
+      };
+}
+
 export function createBullMqCrawlRunQueueFromQueue(queue: BullMqQueuePort): BullMqCrawlRunQueue {
   return {
-    async enqueueCrawl(input) {
+    async enqueueCrawl(input, options) {
       const payload = CrawlJobPayloadSchema.parse(input);
-      const job = await queue.add("crawl", payload, defaultJobOptions);
+      const job = await queue.add("crawl", payload, createBullMqJobOptions(options));
 
       return QueuedCrawlJobSchema.parse({
         id: String(job.id ?? `${payload.crawlRunId}:crawl`),
@@ -143,9 +153,13 @@ export function createBullMqConnectorSyncQueueFromQueue(
   queue: BullMqConnectorQueuePort,
 ): BullMqConnectorSyncQueue {
   return {
-    async enqueueConnectorSync(input) {
+    async enqueueConnectorSync(input, options) {
       const payload = ConnectorSyncJobPayloadSchema.parse(input);
-      const job = await queue.add(connectorSyncJobName, payload, defaultJobOptions);
+      const job = await queue.add(
+        connectorSyncJobName,
+        payload,
+        createBullMqJobOptions(options),
+      );
 
       return QueuedConnectorSyncJobSchema.parse({
         id: String(job.id ?? `${payload.connectorSyncRunId}:connector-sync`),
@@ -164,9 +178,13 @@ export function createBullMqGeoAnswerMonitorQueueFromQueue(
   queue: BullMqGeoAnswerMonitorQueuePort,
 ): BullMqGeoAnswerMonitorQueue {
   return {
-    async enqueueGeoAnswerMonitor(input) {
+    async enqueueGeoAnswerMonitor(input, options) {
       const payload = GeoAnswerMonitorJobPayloadSchema.parse(input);
-      const job = await queue.add(geoAnswerMonitorJobName, payload, defaultJobOptions);
+      const job = await queue.add(
+        geoAnswerMonitorJobName,
+        payload,
+        createBullMqJobOptions(options),
+      );
 
       return QueuedGeoAnswerMonitorJobSchema.parse({
         id: String(job.id ?? `${payload.siteId}:geo-answer-monitor`),
@@ -185,12 +203,12 @@ export function createBullMqSchemaRichResultValidationQueueFromQueue(
   queue: BullMqSchemaRichResultValidationQueuePort,
 ): BullMqSchemaRichResultValidationQueue {
   return {
-    async enqueueSchemaRichResultValidation(input) {
+    async enqueueSchemaRichResultValidation(input, options) {
       const payload = SchemaRichResultValidationJobPayloadSchema.parse(input);
       const job = await queue.add(
         schemaRichResultValidationJobName,
         payload,
-        defaultJobOptions,
+        createBullMqJobOptions(options),
       );
 
       return QueuedSchemaRichResultValidationJobSchema.parse({

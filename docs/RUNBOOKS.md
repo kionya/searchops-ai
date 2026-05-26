@@ -10,6 +10,7 @@ Purpose:
 
 Automation endpoint:
 - `GET /ops/backup-restore-drill-plan?environment=<name>` returns the deterministic drill checklist and commands for the target environment.
+- `POST /ops/backup-restore-drill-runs` dispatches the drill plan to the configured deployment restore scheduler. It accepts `environment` and `dryRun`.
 
 Required inputs:
 - `DATABASE_URL` for the source database.
@@ -76,8 +77,13 @@ Required environment:
 - `REDIS_URL`
 - `SEARCHOPS_CMS_WEBHOOK_SECRETS` when CMS webhooks are enabled.
 - `SEARCHOPS_RATE_LIMIT_ENABLED`, `SEARCHOPS_RATE_LIMIT_MAX`, and `SEARCHOPS_RATE_LIMIT_WINDOW_MS` when API rate limits are enabled.
+- `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL` and optional token when metrics exports should post to a provider log drain.
+- `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL` and optional token when operational alerts should post to a provider alert route.
+- `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience when the API verifies bearer tokens directly.
+- `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL` and optional token when restore drills are scheduled by an external executor.
+- `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL` and optional token when secret rotations are executed by an external secret manager workflow.
 - Provider credentials only in deployment secret storage, never in fixtures or committed files.
-- External IdP verification must happen before traffic reaches the API. The API only maps trusted `x-searchops-idp-*` claims from deployment middleware into its typed auth context.
+- External IdP verification can happen before traffic reaches the API through trusted `x-searchops-idp-*` claims, or inside the API runtime with the configured HS256 bearer-token verifier.
 
 Pre-deploy checks:
 1. Run `corepack pnpm verify` on the release commit.
@@ -101,6 +107,7 @@ Purpose:
 
 Automation endpoint:
 - `POST /ops/secret-rotation-plan` accepts secret references, not raw secret values, and returns the rotation checklist.
+- `POST /ops/secret-rotations` dispatches the rotation plan to the configured secret manager executor. It accepts secret references and `dryRun`; it never accepts raw secret values.
 
 Rotation sequence:
 1. Add the new secret in the deployment secret manager.
@@ -122,9 +129,11 @@ Purpose:
 
 Automation endpoint:
 - `POST /ops/dead-letter-jobs/:deadLetterJobId/replay-plan` returns the queue/job metadata and a blocked replay checklist.
+- `POST /ops/dead-letter-jobs/:deadLetterJobId/replay` enqueues a queue-specific replay job when the operator provides the reconstructed source-of-truth payload.
 
 Rules:
 - Dead-letter entries intentionally omit raw customer/provider payloads.
 - Replay requires queue-specific payload reconstruction from source-of-truth data.
-- Queue owners must define idempotent replay before any automatic requeue action is allowed.
+- Queue-specific replay uses deterministic replay job IDs, so repeated operator requests target the same replay job identity.
 - Replay planning must not clear the dead-letter entry.
+- Replay execution may clear the dead-letter entry only after enqueue succeeds and `removeDeadLetterJob` is true.

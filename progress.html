@@ -190,11 +190,11 @@
     <main>
       <header>
         <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-134-operations-hardening</code></p>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-135-runtime-ops-executors</code></p>
         <div class="summary">
           <div class="stat">
-            <strong>2</strong>
-            <span>Recent PRs merged: #63, #64</span>
+            <strong>8</strong>
+            <span>Recent PRs merged through #72</span>
           </div>
           <div class="stat">
             <strong>Passed</strong>
@@ -278,10 +278,10 @@
           <article class="phase">
             <span class="status partial">Started</span>
             <h3>Phase 11 Hardening</h3>
-            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock/external auth context mapping, tenant-scoped API guards, metrics export ingestion, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, observability dashboard, operations plan APIs, and deployment runbooks are in place.</p>
+            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock/external auth context mapping, tenant-scoped API guards, metrics export ingestion, HTTP observability adapters, HS256 bearer-token verification, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, observability dashboard, operations plan APIs, runtime operation dispatchers, and deployment runbooks are in place.</p>
             <ul>
               <li>Deployment-specific Redis client wiring or edge-backed rate limiting is pending.</li>
-              <li>Queue-specific replay execution, deployment IdP token verification, provider-specific observability services, and scheduled restore drill execution remain.</li>
+              <li>Provider account provisioning and optional RS256/JWKS IdP verification remain deployment follow-up items.</li>
             </ul>
           </article>
         </div>
@@ -293,15 +293,15 @@
           <article class="plan">
             <div class="ticket">Follow-up</div>
             <div>
-              <h3>Deployment auth</h3>
-              <p class="small">Verify IdP tokens before requests reach the API and forward only trusted <code>x-searchops-idp-*</code> claims.</p>
+              <h3>Finalize CDX-135</h3>
+              <p class="small">Run full verification, self-review, commit, push, open PR, wait for CI, and merge.</p>
             </div>
           </article>
           <article class="plan">
             <div class="ticket">Follow-up</div>
             <div>
-              <h3>Operations hardening</h3>
-              <p class="small">Run scheduled backup restore drills, automate deployment secret rotation, and define dead-letter replay workflows per queue.</p>
+              <h3>Deployment provisioning</h3>
+              <p class="small">Provision provider accounts and secret refs for observability, restore scheduler, secret manager, and IdP.</p>
             </div>
           </article>
         </div>

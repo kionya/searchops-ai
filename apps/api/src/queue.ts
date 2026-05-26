@@ -21,21 +21,32 @@ import {
 } from "@searchops/types";
 
 export interface CrawlRunQueue {
-  enqueueCrawl(payload: CrawlJobPayload): Promise<QueuedCrawlJob>;
+  enqueueCrawl(payload: CrawlJobPayload, options?: EnqueueJobOptions): Promise<QueuedCrawlJob>;
 }
 
 export interface ConnectorSyncQueue {
-  enqueueConnectorSync(payload: ConnectorSyncJobPayload): Promise<QueuedConnectorSyncJob>;
+  enqueueConnectorSync(
+    payload: ConnectorSyncJobPayload,
+    options?: EnqueueJobOptions,
+  ): Promise<QueuedConnectorSyncJob>;
 }
 
 export interface GeoAnswerMonitorQueue {
-  enqueueGeoAnswerMonitor(payload: GeoAnswerMonitorJobPayload): Promise<QueuedGeoAnswerMonitorJob>;
+  enqueueGeoAnswerMonitor(
+    payload: GeoAnswerMonitorJobPayload,
+    options?: EnqueueJobOptions,
+  ): Promise<QueuedGeoAnswerMonitorJob>;
 }
 
 export interface SchemaRichResultValidationQueue {
   enqueueSchemaRichResultValidation(
     payload: SchemaRichResultValidationJobPayload,
+    options?: EnqueueJobOptions,
   ): Promise<QueuedSchemaRichResultValidationJob>;
+}
+
+export interface EnqueueJobOptions {
+  readonly jobId?: string;
 }
 
 export interface MemoryCrawlRunQueue extends CrawlRunQueue {
@@ -59,14 +70,30 @@ function createJobId(index: number) {
   return `job_${index.toString().padStart(4, "0")}`;
 }
 
+function createMemoryJobId(options: EnqueueJobOptions | undefined, index: number) {
+  return options?.jobId ?? createJobId(index);
+}
+
+function findExistingMemoryJob<Job extends { readonly id: string }>(
+  jobs: readonly Job[],
+  options: EnqueueJobOptions | undefined,
+) {
+  return options?.jobId === undefined ? undefined : jobs.find((job) => job.id === options.jobId);
+}
+
 export function createMemoryCrawlRunQueue(): MemoryCrawlRunQueue {
   const jobs: QueuedCrawlJob[] = [];
   let jobCounter = 1;
 
   return {
-    async enqueueCrawl(payload) {
+    async enqueueCrawl(payload, options) {
+      const existingJob = findExistingMemoryJob(jobs, options);
+      if (existingJob !== undefined) {
+        return existingJob;
+      }
+
       const job = QueuedCrawlJobSchema.parse({
-        id: createJobId(jobCounter),
+        id: createMemoryJobId(options, jobCounter),
         name: "crawl",
         payload: CrawlJobPayloadSchema.parse(payload)
       });
@@ -86,9 +113,14 @@ export function createMemoryConnectorSyncQueue(): MemoryConnectorSyncQueue {
   let jobCounter = 1;
 
   return {
-    async enqueueConnectorSync(payload) {
+    async enqueueConnectorSync(payload, options) {
+      const existingJob = findExistingMemoryJob(jobs, options);
+      if (existingJob !== undefined) {
+        return existingJob;
+      }
+
       const job = QueuedConnectorSyncJobSchema.parse({
-        id: createJobId(jobCounter),
+        id: createMemoryJobId(options, jobCounter),
         name: connectorSyncJobName,
         payload: ConnectorSyncJobPayloadSchema.parse(payload)
       });
@@ -108,9 +140,14 @@ export function createMemoryGeoAnswerMonitorQueue(): MemoryGeoAnswerMonitorQueue
   let jobCounter = 1;
 
   return {
-    async enqueueGeoAnswerMonitor(payload) {
+    async enqueueGeoAnswerMonitor(payload, options) {
+      const existingJob = findExistingMemoryJob(jobs, options);
+      if (existingJob !== undefined) {
+        return existingJob;
+      }
+
       const job = QueuedGeoAnswerMonitorJobSchema.parse({
-        id: createJobId(jobCounter),
+        id: createMemoryJobId(options, jobCounter),
         name: geoAnswerMonitorJobName,
         payload: GeoAnswerMonitorJobPayloadSchema.parse(payload)
       });
@@ -130,9 +167,14 @@ export function createMemorySchemaRichResultValidationQueue(): MemorySchemaRichR
   let jobCounter = 1;
 
   return {
-    async enqueueSchemaRichResultValidation(payload) {
+    async enqueueSchemaRichResultValidation(payload, options) {
+      const existingJob = findExistingMemoryJob(jobs, options);
+      if (existingJob !== undefined) {
+        return existingJob;
+      }
+
       const job = QueuedSchemaRichResultValidationJobSchema.parse({
-        id: createJobId(jobCounter),
+        id: createMemoryJobId(options, jobCounter),
         name: schemaRichResultValidationJobName,
         payload: SchemaRichResultValidationJobPayloadSchema.parse(payload)
       });

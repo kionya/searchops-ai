@@ -1,12 +1,20 @@
 import {
   BackupRestoreDrillPlanSchema,
+  BackupRestoreDrillExecutionResponseSchema,
   DeadLetterReplayPlanSchema,
+  OperationalDispatchResultSchema,
+  SecretRotationExecutionResponseSchema,
   SecretRotationPlanSchema,
   type BackupRestoreDrillPlan,
+  type BackupRestoreDrillExecutionResponse,
   type DeadLetterJobRecord,
   type DeadLetterReplayPlan,
+  type OperationalDispatchResult,
+  type SecretRotationExecutionResponse,
   type SecretRotationPlan,
   type SecretRotationPlanRequest,
+  type ExecuteBackupRestoreDrillRequest,
+  type ExecuteSecretRotationRequest,
 } from "@searchops/types";
 
 export interface CreateBackupRestoreDrillPlanInput {
@@ -21,6 +29,33 @@ export interface CreateSecretRotationPlanInput extends SecretRotationPlanRequest
 export interface CreateDeadLetterReplayPlanInput {
   readonly createdAt: Date;
   readonly job: DeadLetterJobRecord;
+}
+
+export interface BackupRestoreDrillScheduler {
+  scheduleRestoreDrill(
+    plan: BackupRestoreDrillPlan,
+    options: { readonly dryRun: boolean },
+  ): Promise<OperationalDispatchResult>;
+}
+
+export interface SecretRotationExecutor {
+  executeSecretRotation(
+    plan: SecretRotationPlan,
+    options: { readonly dryRun: boolean },
+  ): Promise<OperationalDispatchResult>;
+}
+
+export interface CreateHttpOperationsExecutorOptions {
+  readonly endpointUrl: string;
+  readonly bearerToken?: string | undefined;
+  readonly fetchFn?: typeof fetch;
+  readonly provider?: string;
+}
+
+export interface MemoryOperationsExecutor
+  extends BackupRestoreDrillScheduler,
+    SecretRotationExecutor {
+  listDispatches(): readonly OperationalDispatchResult[];
 }
 
 export function createBackupRestoreDrillPlan({
@@ -158,6 +193,235 @@ export function createDeadLetterReplayPlan({
       },
     ],
   });
+}
+
+export async function executeBackupRestoreDrill({
+  createdAt,
+  request,
+  scheduler,
+}: {
+  readonly createdAt: Date;
+  readonly request: ExecuteBackupRestoreDrillRequest;
+  readonly scheduler: BackupRestoreDrillScheduler;
+}): Promise<BackupRestoreDrillExecutionResponse> {
+  const plan = createBackupRestoreDrillPlan({
+    createdAt,
+    environment: request.environment,
+  });
+  const dispatch = await scheduler.scheduleRestoreDrill(plan, { dryRun: request.dryRun });
+
+  return BackupRestoreDrillExecutionResponseSchema.parse({
+    dryRun: request.dryRun,
+    plan,
+    dispatch,
+  });
+}
+
+export async function executeSecretRotation({
+  createdAt,
+  executor,
+  request,
+}: {
+  readonly createdAt: Date;
+  readonly executor: SecretRotationExecutor;
+  readonly request: ExecuteSecretRotationRequest;
+}): Promise<SecretRotationExecutionResponse> {
+  const plan = createSecretRotationPlan({
+    ...request,
+    createdAt,
+  });
+  const dispatch =
+    plan.status === "blocked"
+      ? createBlockedDispatchResult({
+          acceptedAt: createdAt,
+          message: "Secret rotation is blocked because the old and new references are identical.",
+          provider: "blocked",
+        })
+      : await executor.executeSecretRotation(plan, { dryRun: request.dryRun });
+
+  return SecretRotationExecutionResponseSchema.parse({
+    dryRun: request.dryRun,
+    plan,
+    dispatch,
+  });
+}
+
+export function createNoopBackupRestoreDrillScheduler(): BackupRestoreDrillScheduler {
+  return {
+    async scheduleRestoreDrill(plan) {
+      return createBlockedDispatchResult({
+        acceptedAt: new Date(plan.createdAt),
+        message: "No restore drill scheduler is configured for this runtime.",
+        provider: "not_configured",
+      });
+    },
+  };
+}
+
+export function createNoopSecretRotationExecutor(): SecretRotationExecutor {
+  return {
+    async executeSecretRotation(plan) {
+      return createBlockedDispatchResult({
+        acceptedAt: new Date(plan.createdAt),
+        message: "No secret rotation executor is configured for this runtime.",
+        provider: "not_configured",
+      });
+    },
+  };
+}
+
+export function createMemoryOperationsExecutor(
+  currentTime: () => Date = () => new Date(),
+): MemoryOperationsExecutor {
+  const dispatches: OperationalDispatchResult[] = [];
+
+  async function dispatch({
+    dryRun,
+    id,
+    kind,
+  }: {
+    readonly dryRun: boolean;
+    readonly id: string;
+    readonly kind: string;
+  }) {
+    const dispatchResult = OperationalDispatchResultSchema.parse({
+      acceptedAt: currentTime().toISOString(),
+      externalRunId: dryRun ? null : `${kind}_${id}`,
+      message: dryRun
+        ? `Dry-run accepted for ${kind}.`
+        : `Dispatched ${kind} to the configured operations executor.`,
+      provider: "memory",
+      status: dryRun ? "dry_run" : "accepted",
+    });
+    dispatches.push(dispatchResult);
+    return dispatchResult;
+  }
+
+  return {
+    async scheduleRestoreDrill(plan, options) {
+      return dispatch({
+        dryRun: options.dryRun,
+        id: plan.id,
+        kind: "restore_drill",
+      });
+    },
+    async executeSecretRotation(plan, options) {
+      return dispatch({
+        dryRun: options.dryRun,
+        id: plan.id,
+        kind: "secret_rotation",
+      });
+    },
+    listDispatches() {
+      return [...dispatches];
+    },
+  };
+}
+
+export function createHttpBackupRestoreDrillScheduler(
+  options: CreateHttpOperationsExecutorOptions,
+): BackupRestoreDrillScheduler {
+  return {
+    async scheduleRestoreDrill(plan, { dryRun }) {
+      return postOperationsDispatch({
+        body: {
+          dryRun,
+          kind: "backup_restore_drill",
+          plan,
+        },
+        options,
+      });
+    },
+  };
+}
+
+export function createHttpSecretRotationExecutor(
+  options: CreateHttpOperationsExecutorOptions,
+): SecretRotationExecutor {
+  return {
+    async executeSecretRotation(plan, { dryRun }) {
+      return postOperationsDispatch({
+        body: {
+          dryRun,
+          kind: "secret_rotation",
+          plan,
+        },
+        options,
+      });
+    },
+  };
+}
+
+function createBlockedDispatchResult({
+  acceptedAt,
+  message,
+  provider,
+}: {
+  readonly acceptedAt: Date;
+  readonly message: string;
+  readonly provider: string;
+}) {
+  return OperationalDispatchResultSchema.parse({
+    acceptedAt: acceptedAt.toISOString(),
+    externalRunId: null,
+    message,
+    provider,
+    status: "blocked",
+  });
+}
+
+async function postOperationsDispatch({
+  body,
+  options,
+}: {
+  readonly body: Record<string, unknown>;
+  readonly options: CreateHttpOperationsExecutorOptions;
+}) {
+  const fetchFn = options.fetchFn ?? fetch;
+  const response = await fetchFn(options.endpointUrl, {
+    body: JSON.stringify(body),
+    headers: createJsonHeaders(options.bearerToken),
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    return OperationalDispatchResultSchema.parse({
+      acceptedAt: new Date().toISOString(),
+      externalRunId: null,
+      message: `Operations executor returned HTTP ${response.status}.`,
+      provider: options.provider ?? "http",
+      status: "failed",
+    });
+  }
+
+  const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  return OperationalDispatchResultSchema.parse({
+    acceptedAt:
+      typeof responseBody.acceptedAt === "string" ? responseBody.acceptedAt : new Date().toISOString(),
+    externalRunId:
+      typeof responseBody.externalRunId === "string" && responseBody.externalRunId.length > 0
+        ? responseBody.externalRunId
+        : null,
+    message:
+      typeof responseBody.message === "string" && responseBody.message.length > 0
+        ? responseBody.message
+        : "Operations executor accepted the dispatch.",
+    provider:
+      typeof responseBody.provider === "string" && responseBody.provider.length > 0
+        ? responseBody.provider
+        : (options.provider ?? "http"),
+    status: "accepted",
+  });
+}
+
+function createJsonHeaders(bearerToken: string | undefined) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (bearerToken !== undefined) {
+    headers.authorization = `Bearer ${bearerToken}`;
+  }
+  return headers;
 }
 
 function normalizeToken(value: string) {

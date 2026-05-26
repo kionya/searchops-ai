@@ -7,7 +7,19 @@ import {
   createBullMqGeoAnswerMonitorQueue,
   createBullMqSchemaRichResultValidationQueue
 } from "./bullmq-queue.js";
+import {
+  createHmacJwtIdpTokenVerifier,
+  createRequestAuthContextResolver
+} from "./auth.js";
 import { createBullMqDeadLetterJobStore } from "./dead-letter-store.js";
+import {
+  createHttpOperationalAlertRouter,
+  createHttpOperationalLogDrain
+} from "./observability.js";
+import {
+  createHttpBackupRestoreDrillScheduler,
+  createHttpSecretRotationExecutor
+} from "./operations-hardening.js";
 import { createPrismaRepository } from "./prisma-repository.js";
 import { buildApiServer } from "./server.js";
 
@@ -21,20 +33,66 @@ const schemaRichResultValidationQueue = createBullMqSchemaRichResultValidationQu
 });
 const deadLetterJobStore = createBullMqDeadLetterJobStore({ redisUrl: env.REDIS_URL });
 const rateLimitEnabled = env.SEARCHOPS_RATE_LIMIT_ENABLED ?? (env.NODE_ENV === "production");
+const authContextResolver =
+  env.SEARCHOPS_IDP_JWT_HS256_SECRET === undefined
+    ? undefined
+    : createRequestAuthContextResolver({
+        allowMockFallback: env.NODE_ENV !== "production",
+        allowTrustedHeaders: env.NODE_ENV !== "production",
+        tokenVerifier: createHmacJwtIdpTokenVerifier({
+          audience: env.SEARCHOPS_IDP_AUDIENCE,
+          issuer: env.SEARCHOPS_IDP_ISSUER,
+          provider: "deployment_idp",
+          secret: env.SEARCHOPS_IDP_JWT_HS256_SECRET
+        })
+      });
+const operationalLogDrain =
+  env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL === undefined
+    ? undefined
+    : createHttpOperationalLogDrain({
+        bearerToken: env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN,
+        endpointUrl: env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL
+      });
+const operationalAlertRouter =
+  env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL === undefined
+    ? undefined
+    : createHttpOperationalAlertRouter({
+        bearerToken: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN,
+        endpointUrl: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL
+      });
+const backupRestoreDrillScheduler =
+  env.SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL === undefined
+    ? undefined
+    : createHttpBackupRestoreDrillScheduler({
+        bearerToken: env.SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN,
+        endpointUrl: env.SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL
+      });
+const secretRotationExecutor =
+  env.SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL === undefined
+    ? undefined
+    : createHttpSecretRotationExecutor({
+        bearerToken: env.SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN,
+        endpointUrl: env.SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL
+      });
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "127.0.0.1";
 const server = buildApiServer({
+  authContextResolver,
+  backupRestoreDrillScheduler,
   connectorSyncQueue,
   crawlRunQueue,
   deadLetterJobStore,
   geoAnswerMonitorQueue,
+  operationalAlertRouter,
+  operationalLogDrain,
   rateLimit: {
     enabled: rateLimitEnabled,
     maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,
     windowMs: env.SEARCHOPS_RATE_LIMIT_WINDOW_MS ?? 60_000
   },
   schemaRichResultValidationQueue,
+  secretRotationExecutor,
   repository: createPrismaRepository(prisma)
 });
 

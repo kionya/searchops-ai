@@ -48,6 +48,12 @@ export interface OperationalAlertDelivery {
   readonly routeKey: string;
 }
 
+export interface CreateHttpOperationalDeliveryOptions {
+  readonly endpointUrl: string;
+  readonly bearerToken?: string | undefined;
+  readonly fetchFn?: typeof fetch;
+}
+
 export function createOperationalMetricsExport(input: CreateOperationalMetricsExportInput) {
   const uptimeSeconds = Math.max(
     0,
@@ -122,6 +128,37 @@ export function createMemoryOperationalAlertRouter(
   };
 }
 
+export function createHttpOperationalLogDrain(
+  options: CreateHttpOperationalDeliveryOptions,
+): OperationalLogDrain {
+  return {
+    async writeMetricsExport(payload) {
+      await postJson(options, {
+        kind: "searchops.metrics_export",
+        payload: OperationalMetricsExportResponseSchema.parse(payload),
+      });
+    },
+  };
+}
+
+export function createHttpOperationalAlertRouter(
+  options: CreateHttpOperationalDeliveryOptions,
+): OperationalAlertRouter {
+  return {
+    async routeAlerts(alerts, payload) {
+      if (alerts.length === 0) {
+        return;
+      }
+
+      await postJson(options, {
+        alerts,
+        kind: "searchops.operational_alerts",
+        payload: OperationalMetricsExportResponseSchema.parse(payload),
+      });
+    },
+  };
+}
+
 function createOperationalAlerts({
   requestMetrics,
   workerDeadLetterSummary,
@@ -173,4 +210,27 @@ function countStatuses(byStatus: Record<string, number>, minStatus: number, maxS
 
     return numericStatus >= minStatus && numericStatus <= maxStatus ? total + count : total;
   }, 0);
+}
+
+async function postJson(options: CreateHttpOperationalDeliveryOptions, body: unknown) {
+  const fetchFn = options.fetchFn ?? fetch;
+  const response = await fetchFn(options.endpointUrl, {
+    body: JSON.stringify(body),
+    headers: createJsonHeaders(options.bearerToken),
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Operational delivery failed with HTTP ${response.status}`);
+  }
+}
+
+function createJsonHeaders(bearerToken: string | undefined) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (bearerToken !== undefined) {
+    headers.authorization = `Bearer ${bearerToken}`;
+  }
+  return headers;
 }

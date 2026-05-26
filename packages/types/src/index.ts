@@ -211,13 +211,80 @@ export const DeadLetterReplayPlanSchema = z.object({
 
 export type DeadLetterReplayPlan = z.infer<typeof DeadLetterReplayPlanSchema>;
 
+export const OperationalDispatchStatusSchema = z.enum([
+  "accepted",
+  "blocked",
+  "dry_run",
+  "failed",
+]);
+
+export type OperationalDispatchStatus = z.infer<typeof OperationalDispatchStatusSchema>;
+
+export const OperationalDispatchResultSchema = z.object({
+  provider: NonEmptyStringSchema,
+  externalRunId: z.string().min(1).nullable(),
+  acceptedAt: IsoDateTimeSchema,
+  status: OperationalDispatchStatusSchema,
+  message: NonEmptyStringSchema,
+});
+
+export type OperationalDispatchResult = z.infer<typeof OperationalDispatchResultSchema>;
+
+export const ExecuteBackupRestoreDrillRequestSchema = z.object({
+  environment: NonEmptyStringSchema.default("production"),
+  dryRun: z.boolean().default(false),
+});
+
+export type ExecuteBackupRestoreDrillRequest = z.infer<
+  typeof ExecuteBackupRestoreDrillRequestSchema
+>;
+
+export const BackupRestoreDrillExecutionResponseSchema = z.object({
+  dryRun: z.boolean(),
+  plan: BackupRestoreDrillPlanSchema,
+  dispatch: OperationalDispatchResultSchema,
+});
+
+export type BackupRestoreDrillExecutionResponse = z.infer<
+  typeof BackupRestoreDrillExecutionResponseSchema
+>;
+
+export const ExecuteSecretRotationRequestSchema = SecretRotationPlanRequestSchema.extend({
+  dryRun: z.boolean().default(false),
+});
+
+export type ExecuteSecretRotationRequest = z.infer<
+  typeof ExecuteSecretRotationRequestSchema
+>;
+
+export const SecretRotationExecutionResponseSchema = z.object({
+  dryRun: z.boolean(),
+  plan: SecretRotationPlanSchema,
+  dispatch: OperationalDispatchResultSchema,
+});
+
+export type SecretRotationExecutionResponse = z.infer<
+  typeof SecretRotationExecutionResponseSchema
+>;
+
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
+  SEARCHOPS_IDP_JWT_HS256_SECRET: z.string().min(1).optional(),
+  SEARCHOPS_IDP_ISSUER: z.string().min(1).optional(),
+  SEARCHOPS_IDP_AUDIENCE: z.string().min(1).optional(),
+  SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL: HttpUrlSchema.optional(),
+  SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL: HttpUrlSchema.optional(),
   SEARCHOPS_RATE_LIMIT_ENABLED: BooleanStringSchema.optional(),
   SEARCHOPS_RATE_LIMIT_MAX: PositiveIntegerStringSchema.optional(),
   SEARCHOPS_RATE_LIMIT_WINDOW_MS: PositiveIntegerStringSchema.optional(),
+  SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL: HttpUrlSchema.optional(),
+  SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
@@ -2193,6 +2260,42 @@ export const QueuedConnectorSyncJobSchema = z.object({
 });
 
 export type QueuedConnectorSyncJob = z.infer<typeof QueuedConnectorSyncJobSchema>;
+
+export const DeadLetterReplayPayloadSchema = z.union([
+  CrawlJobPayloadSchema,
+  ConnectorSyncJobPayloadSchema,
+  GeoAnswerMonitorJobPayloadSchema,
+  SchemaRichResultValidationJobPayloadSchema,
+]);
+
+export type DeadLetterReplayPayload = z.infer<typeof DeadLetterReplayPayloadSchema>;
+
+export const DeadLetterReplayRequestSchema = z.object({
+  payload: DeadLetterReplayPayloadSchema,
+  removeDeadLetterJob: z.boolean().default(true),
+});
+
+export type DeadLetterReplayRequest = z.infer<typeof DeadLetterReplayRequestSchema>;
+
+export const QueuedDeadLetterReplayJobSchema = z.union([
+  QueuedCrawlJobSchema,
+  QueuedConnectorSyncJobSchema,
+  QueuedGeoAnswerMonitorJobSchema,
+  QueuedSchemaRichResultValidationJobSchema,
+]);
+
+export type QueuedDeadLetterReplayJob = z.infer<typeof QueuedDeadLetterReplayJobSchema>;
+
+export const DeadLetterReplayExecutionResponseSchema = z.object({
+  plan: DeadLetterReplayPlanSchema,
+  replayJob: QueuedDeadLetterReplayJobSchema,
+  removedDeadLetterJob: z.boolean(),
+  status: z.literal("replayed"),
+});
+
+export type DeadLetterReplayExecutionResponse = z.infer<
+  typeof DeadLetterReplayExecutionResponseSchema
+>;
 
 export const CreateConnectorSyncRunRequestSchema = z.object({
   providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
