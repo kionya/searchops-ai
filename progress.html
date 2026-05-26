@@ -190,7 +190,7 @@
     <main>
       <header>
         <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-132-observability-ingestion</code></p>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-133-idp-claim-mapping</code></p>
         <div class="summary">
           <div class="stat">
             <strong>2</strong>
@@ -278,10 +278,10 @@
           <article class="phase">
             <span class="status partial">Started</span>
             <h3>Phase 11 Hardening</h3>
-            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock auth role enforcement, tenant-scoped API guards, metrics export ingestion, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, observability dashboard, and deployment runbooks are in place.</p>
+            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock/external auth context mapping, tenant-scoped API guards, metrics export ingestion, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, observability dashboard, and deployment runbooks are in place.</p>
             <ul>
               <li>Deployment-specific Redis client wiring or edge-backed rate limiting is pending.</li>
-              <li>Dead-letter replay, external IdP wiring, provider-specific observability services, and restore drill automation remain.</li>
+              <li>Dead-letter replay, deployment IdP token verification, provider-specific observability services, and restore drill automation remain.</li>
             </ul>
           </article>
         </div>
@@ -293,8 +293,8 @@
           <article class="plan">
             <div class="ticket">Follow-up</div>
             <div>
-              <h3>Auth hardening</h3>
-              <p class="small">Map external identity-provider claims into the existing API auth context and preserve cross-tenant negative tests.</p>
+              <h3>Operations hardening</h3>
+              <p class="small">Run scheduled backup restore drills, automate deployment secret rotation, and define dead-letter replay workflows per queue.</p>
             </div>
           </article>
           <article class="plan">

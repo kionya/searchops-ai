@@ -80,6 +80,7 @@ import {
   KeywordSchema,
   KeywordTargetSchema,
   LinkSignalSchema,
+  IdpClaimMappingInputSchema,
   MockUserContextSchema,
   NormalizedUrlSchema,
   OperationalMetricsExportResponseSchema,
@@ -272,10 +273,30 @@ describe("types foundation", () => {
     expect(
       MockUserContextSchema.parse({ userId: "usr_1", organizationId: "org_1", source: "mock" }),
     ).toEqual({
+      email: null,
+      provider: null,
       userId: "usr_1",
       organizationId: "org_1",
       role: "admin",
       source: "mock",
+    });
+  });
+
+  it("validates external IdP claim mapping input", () => {
+    expect(
+      IdpClaimMappingInputSchema.parse({
+        provider: "auth0",
+        subject: "idp_user_1",
+        organizationId: "org_1",
+        role: "editor",
+        email: "editor@example.com",
+      }),
+    ).toEqual({
+      provider: "auth0",
+      subject: "idp_user_1",
+      organizationId: "org_1",
+      role: "editor",
+      email: "editor@example.com",
     });
   });
 
