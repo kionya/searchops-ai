@@ -22,9 +22,14 @@ export default function 사이트Page() {
         <p style={{ ...mutedTextStyle, fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>
           대시보드
         </p>
-        <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
-          {productName}
-        </h1>
+        <div style={{ alignItems: "start", display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "space-between" }}>
+          <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
+            {productName}
+          </h1>
+          <Link href="/ops" style={secondaryLinkStyle}>
+            운영 대시보드
+          </Link>
+        </div>
         <p style={{ ...mutedTextStyle, fontFamily: dashboardFontStack }}>
           사이트, 크롤링 상태, SEO 이슈, 작업 지시서, 재검수 진행 상황을 확인합니다.
         </p>
@@ -90,6 +95,20 @@ const openLinkStyle: CSSProperties = {
   background: "#2563eb",
   borderRadius: 6,
   color: "#ffffff",
+  display: "inline-flex",
+  fontSize: 14,
+  fontWeight: 700,
+  minHeight: 36,
+  padding: "8px 12px",
+  textDecoration: "none",
+  whiteSpace: "nowrap"
+};
+
+const secondaryLinkStyle: CSSProperties = {
+  alignItems: "center",
+  border: "1px solid #cbd5e1",
+  borderRadius: 6,
+  color: "#0f172a",
   display: "inline-flex",
   fontSize: 14,
   fontWeight: 700,

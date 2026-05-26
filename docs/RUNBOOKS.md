@@ -124,6 +124,7 @@ Smoke check sequence:
 4. Queue one fixture-safe crawl or connector-sync job from a demo tenant.
 5. Confirm the worker logs a completed job and the API history endpoint shows persisted output.
 6. Confirm dead-letter queues are empty, or inspect `/ops/dead-letter-jobs` if any job failed.
+7. Open `/ops/readiness` and confirm every remaining provider credential, hardening task, and productization follow-up is visible without exposing secret values.
 
 If Redis eviction warnings continue:
 1. Prefer a Redis provider or plan that supports `noeviction`.

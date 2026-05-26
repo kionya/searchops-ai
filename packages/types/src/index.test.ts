@@ -84,6 +84,7 @@ import {
   MockUserContextSchema,
   NormalizedUrlSchema,
   OperationalMetricsExportResponseSchema,
+  OperationalReadinessResponseSchema,
   BackupRestoreDrillExecutionResponseSchema,
   BackupRestoreDrillPlanSchema,
   DeadLetterReplayExecutionResponseSchema,
@@ -476,6 +477,38 @@ describe("types foundation", () => {
         REDIS_URL: "redis://localhost:6379",
       }),
     ).toThrow(/positive integer/);
+  });
+
+  it("validates operational readiness responses", () => {
+    expect(
+      OperationalReadinessResponseSchema.parse({
+        generatedAt: "2026-05-26T00:00:00.000Z",
+        items: [
+          {
+            category: "connectors",
+            envKeys: ["SEARCHOPS_GSC_ACCESS_TOKEN"],
+            id: "live-gsc",
+            nextAction: "Register credentials.",
+            status: "needs_provisioning",
+            summary: "GSC live connector credentials are missing.",
+            title: "GSC credential",
+          },
+        ],
+        summary: {
+          blocked: 0,
+          configured: 0,
+          manualFollowup: 0,
+          needsProvisioning: 1,
+          ready: 0,
+          total: 1,
+        },
+      }),
+    ).toMatchObject({
+      summary: {
+        needsProvisioning: 1,
+        total: 1,
+      },
+    });
   });
 
   it("validates normalized crawler URLs", () => {

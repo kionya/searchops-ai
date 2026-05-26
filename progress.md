@@ -22,6 +22,8 @@ Recent completed work:
 - `CDX-138`: Web API base URL normalization for deployed runtime fetches
 - `CDX-139`: Railway API/worker smoke checks and Redis/BullMQ operations notes
 - `CDX-140`: RS256/JWKS IdP bearer-token verifier
+- `CDX-141`: Launch readiness API and dashboard for remaining Phase 6-11/productization work
+- `CDX-142`: Production launch docs for billing, onboarding, privacy, terms, and security
 
 Latest full verification:
 

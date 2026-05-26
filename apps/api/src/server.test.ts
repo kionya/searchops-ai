@@ -867,6 +867,27 @@ describe("api foundation", () => {
     ]);
   });
 
+  it("reports operational readiness for remaining production wiring", async () => {
+    const server = buildApiServer({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/readiness",
+    });
+    const payload = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(payload.generatedAt).toBe("2026-05-26T00:00:00.000Z");
+    expect(payload.summary.total).toBeGreaterThanOrEqual(20);
+    expect(payload.items.map((item: { id: string }) => item.id)).toContain("live-gsc");
+    expect(payload.items.map((item: { id: string }) => item.id)).toContain("idp-verification");
+  });
+
   it("lists worker dead-letter jobs for operations", async () => {
     const { server } = buildDeadLetterOperationsTestContext();
     const response = await server.inject({

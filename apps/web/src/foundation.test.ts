@@ -69,6 +69,12 @@ import {
   summarizeOperationalMetrics
 } from "./observability-dashboard";
 import {
+  createDemoOperationalReadinessDashboard,
+  formatReadinessStatus,
+  groupReadinessByCategory,
+  loadOperationalReadiness
+} from "./operational-readiness";
+import {
   futureModuleKeys,
   futureModuleSkeletons,
   summarizeFutureModules
@@ -311,6 +317,26 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("api");
     expect(dashboard.errorMessage).toBeNull();
     expect(dashboard.summary.alertCount).toBe(2);
+  });
+
+  it("loads operational readiness through the API response contract", async () => {
+    const fixture = createDemoOperationalReadinessDashboard().readiness;
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/readiness");
+
+        return Response.json(fixture);
+      }),
+    );
+
+    const dashboard = await loadOperationalReadiness();
+    const grouped = groupReadinessByCategory(dashboard.readiness.items);
+
+    expect(dashboard.source).toBe("api");
+    expect(grouped.connectors.length).toBeGreaterThan(0);
+    expect(formatReadinessStatus("needs_provisioning")).toBe("프로비저닝 필요");
   });
 
   it("summarizes deterministic GEO visibility dashboard fixtures", () => {

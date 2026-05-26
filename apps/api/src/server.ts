@@ -151,6 +151,7 @@ import {
   type SecretRotationExecutor,
 } from "./operations-hardening.js";
 import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay.js";
+import { createOperationalReadiness } from "./readiness.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -740,6 +741,13 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     return exportPayload;
   });
+
+  server.get("/ops/readiness", async () =>
+    createOperationalReadiness({
+      env: process.env,
+      generatedAt: currentTime(),
+    }),
+  );
 
   server.get("/ops/dead-letter-jobs", async (request) => {
     const query = z

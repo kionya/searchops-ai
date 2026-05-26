@@ -302,6 +302,67 @@ export function parseSearchOpsEnv(input: NodeJS.ProcessEnv) {
   return parsed.data;
 }
 
+export const OperationalReadinessStatusSchema = z.enum([
+  "ready",
+  "configured",
+  "needs_provisioning",
+  "manual_followup",
+  "blocked",
+]);
+
+export type OperationalReadinessStatus = z.infer<
+  typeof OperationalReadinessStatusSchema
+>;
+
+export const OperationalReadinessCategorySchema = z.enum([
+  "connectors",
+  "keyword_aeo",
+  "schema",
+  "geo",
+  "compliance",
+  "hardening",
+  "productization",
+]);
+
+export type OperationalReadinessCategory = z.infer<
+  typeof OperationalReadinessCategorySchema
+>;
+
+export const OperationalReadinessItemSchema = z.object({
+  id: z.string().min(1),
+  category: OperationalReadinessCategorySchema,
+  title: z.string().min(1),
+  status: OperationalReadinessStatusSchema,
+  summary: z.string().min(1),
+  nextAction: z.string().min(1),
+  envKeys: z.array(z.string().min(1)).default([]),
+});
+
+export type OperationalReadinessItem = z.infer<typeof OperationalReadinessItemSchema>;
+
+export const OperationalReadinessSummarySchema = z.object({
+  ready: z.number().int().nonnegative(),
+  configured: z.number().int().nonnegative(),
+  needsProvisioning: z.number().int().nonnegative(),
+  manualFollowup: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+export type OperationalReadinessSummary = z.infer<
+  typeof OperationalReadinessSummarySchema
+>;
+
+export const OperationalReadinessResponseSchema = z.object({
+  generatedAt: IsoDateTimeSchema,
+  items: z.array(OperationalReadinessItemSchema),
+  summary: OperationalReadinessSummarySchema,
+});
+
+export type OperationalReadinessResponse = z.infer<
+  typeof OperationalReadinessResponseSchema
+>;
+
 export const OrganizationSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),

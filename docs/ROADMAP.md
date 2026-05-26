@@ -188,6 +188,8 @@ Phase 11 starting status:
 - `CDX-138`: Web runtime API base URL handling normalizes `SEARCHOPS_API_BASE_URL` values with or without `https://` before server-side fetches.
 - `CDX-139`: Railway API/worker smoke checks and Redis/BullMQ `noeviction` requirements are documented for production operations.
 - `CDX-140`: API bearer-token auth supports RS256/JWKS verification through explicit deployment JWKS env, alongside the existing HS256 verifier.
+- `CDX-141`: Launch readiness API and dashboard track the remaining Phase 6-11 and productization work as configured, provisioning-needed, or manual-follow-up items without exposing secrets.
+- `CDX-142`: Production launch docs cover billing, onboarding, privacy, terms, security, and deployment provisioning tasks that cannot be completed by code alone.
 
 Phase 11 remaining limitations:
 
