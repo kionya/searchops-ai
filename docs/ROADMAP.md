@@ -182,10 +182,12 @@ Phase 11 starting status:
 - `CDX-132`: `/ops/metrics-export` writes to injected log drain and alert router adapters, and the web dashboard exposes an operations observability view with API data plus deterministic fixture fallback.
 - `CDX-133`: Trusted external IdP claim headers map into the same typed API auth context as mock auth, preserving tenant and role checks without live IdP calls in tests.
 - `CDX-134`: Operations plan APIs generate deterministic backup restore drill plans, secret rotation plans, and blocked dead-letter replay workflows without exposing secrets or auto-requeueing jobs.
+- `CDX-135`: Runtime operations executors wire HTTP observability drains/alerts from env, HS256 bearer-token IdP verification, restore drill and secret rotation dispatch routes, and queue-specific idempotent dead-letter replay actions.
 
 Phase 11 remaining limitations:
 
 - API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
-- Metrics export can feed injected log drain and alert router adapters, but provider-specific observability SaaS wiring remains deployment scope.
-- Dead-letter queues capture failed job metadata and expose operator cleanup views, but replay workflows are still future scope.
-- Deployment-specific auth middleware, scheduled restore drill execution, real secret manager integration, and queue-specific replay implementations still need dedicated PRs.
+- Metrics export can feed injected log drain and alert router adapters, including HTTP SaaS/webhook endpoints configured by env; provider account provisioning remains deployment scope.
+- Dead-letter queues capture failed job metadata and expose operator cleanup views, and supported queues can be replayed with operator-supplied source-of-truth payloads and deterministic replay job IDs.
+- HS256 bearer verification is available at the API runtime boundary; RS256/JWKS IdP verification can be added as a provider-specific hardening follow-up.
+- Restore drill and secret rotation dispatch routes call configured HTTP executors; the external scheduler/secret manager account and credential provisioning remain deployment scope.

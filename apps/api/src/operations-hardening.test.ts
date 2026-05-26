@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { DeadLetterJobRecord } from "@searchops/types";
 
 import {
+  createHttpBackupRestoreDrillScheduler,
+  createMemoryOperationsExecutor,
   createBackupRestoreDrillPlan,
   createDeadLetterReplayPlan,
   createSecretRotationPlan,
+  executeBackupRestoreDrill,
+  executeSecretRotation,
 } from "./operations-hardening.js";
 
 const createdAt = new Date("2026-05-26T00:00:00.000Z");
@@ -121,6 +125,95 @@ describe("operations hardening plans", () => {
           status: "blocked",
         },
       ],
+    });
+  });
+
+  it("executes restore drill and secret rotation dispatches through an executor", async () => {
+    const executor = createMemoryOperationsExecutor(
+      () => new Date("2026-05-26T00:01:00.000Z"),
+    );
+    const restoreRun = await executeBackupRestoreDrill({
+      createdAt,
+      request: {
+        dryRun: false,
+        environment: "production",
+      },
+      scheduler: executor,
+    });
+    const rotationRun = await executeSecretRotation({
+      createdAt,
+      executor,
+      request: {
+        dryRun: true,
+        newSecretRef: "cms/wordpress/new",
+        oldSecretRef: "cms/wordpress/old",
+        provider: "wordpress",
+      },
+    });
+
+    expect(restoreRun).toMatchObject({
+      dryRun: false,
+      dispatch: {
+        externalRunId: "restore_drill_restore_drill_production_20260526",
+        provider: "memory",
+        status: "accepted",
+      },
+    });
+    expect(rotationRun).toMatchObject({
+      dryRun: true,
+      dispatch: {
+        externalRunId: null,
+        provider: "memory",
+        status: "dry_run",
+      },
+    });
+    expect(executor.listDispatches()).toHaveLength(2);
+  });
+
+  it("dispatches restore drills to HTTP operations schedulers", async () => {
+    const requests: Array<{ readonly body: unknown; readonly url: string }> = [];
+    const fetchFn: typeof fetch = async (url, init) => {
+      requests.push({
+        body: JSON.parse(String(init?.body)),
+        url: String(url),
+      });
+      return new Response(
+        JSON.stringify({
+          acceptedAt: "2026-05-26T00:02:00.000Z",
+          externalRunId: "ops_run_1",
+          message: "accepted",
+          provider: "deployment_scheduler",
+        }),
+        { status: 202 },
+      );
+    };
+    const scheduler = createHttpBackupRestoreDrillScheduler({
+      endpointUrl: "https://ops.example.com/restore-drills",
+      fetchFn,
+      provider: "deployment_scheduler",
+    });
+    const run = await executeBackupRestoreDrill({
+      createdAt,
+      request: {
+        dryRun: false,
+        environment: "production",
+      },
+      scheduler,
+    });
+
+    expect(run.dispatch).toEqual({
+      acceptedAt: "2026-05-26T00:02:00.000Z",
+      externalRunId: "ops_run_1",
+      message: "accepted",
+      provider: "deployment_scheduler",
+      status: "accepted",
+    });
+    expect(requests[0]).toMatchObject({
+      url: "https://ops.example.com/restore-drills",
+      body: {
+        dryRun: false,
+        kind: "backup_restore_drill",
+      },
     });
   });
 });

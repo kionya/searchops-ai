@@ -4,7 +4,7 @@ Updated: 2026-05-26
 
 ## Current State
 
-The repository is on `codex/cdx-134-operations-hardening`, branched from the latest merged `main`.
+The repository is on `codex/cdx-135-runtime-ops-executors`, branched from the latest merged `main`.
 
 Recent merged PRs:
 
@@ -15,11 +15,12 @@ Recent merged PRs:
 - PR #69: Production hardening runbooks
 - PR #70: Observability ingestion adapters and dashboard
 - PR #71: External IdP claim mapping
+- PR #72: Operations hardening plans
 
 Latest full verification:
 
-- `corepack pnpm verify` passed locally for CDX-134 operations hardening.
-- GitHub Actions `verify` passed for PR #65, PR #66, PR #67, PR #68, PR #69, PR #70, and PR #71 before merge.
+- Focused local verification for CDX-135 has passed so far: `corepack pnpm --filter @searchops/types test`, `corepack pnpm --filter @searchops/types build`, `corepack pnpm --filter @searchops/api typecheck`, and `corepack pnpm --filter @searchops/api test`.
+- GitHub Actions `verify` passed for PR #65 through PR #72 before merge.
 
 ## Phase Progress
 
@@ -152,31 +153,29 @@ Implemented:
 - Metrics export ingestion adapters for log drains and alert routing, plus an `/ops/observability` dashboard with fixture fallback.
 - External IdP claim headers map into the same typed API auth context as mock auth.
 - Operations plan APIs for backup restore drills, secret rotation, and dead-letter replay workflow planning.
+- Runtime HTTP observability log drain and alert webhook adapters can be wired from validated env.
+- HS256 bearer-token IdP verification can be enabled at the API runtime boundary.
+- Restore drill and secret rotation execution routes dispatch plans to configured deployment executors.
+- Supported dead-letter queues can be replayed with operator-supplied source-of-truth payloads and deterministic replay job IDs.
 
 Remaining:
 
 - Deployment-specific Redis client wiring or edge-backed rate limiting.
-- Provider-specific observability SaaS wiring.
-- Queue-specific dead-letter replay execution.
-- Deployment-specific identity-provider verification middleware.
-- Backup restore drills and deployment-specific secret automation.
+- Provider account provisioning for observability, restore scheduler, secret manager, and IdP remains deployment work.
+- RS256/JWKS IdP verification can be added as a provider-specific hardening follow-up.
 
 ## Next Implementation Plan
 
 Recommended order:
 
-1. Follow-up deployment auth
-   - Verify IdP tokens before requests reach the API.
-   - Forward only trusted `x-searchops-idp-*` claims to the API.
+1. Finalize CDX-135
+   - Run full `corepack pnpm verify`.
+   - Self-review the diff against `AGENTS.md` and `docs/CODE_REVIEW.md`.
+   - Commit, push, open PR, wait for CI, and merge.
 
-2. Follow-up operations execution
-   - Schedule restore drill execution from the plan API.
-   - Integrate a real secret manager using secret references only.
-   - Implement queue-specific idempotent replay actions.
-
-3. Follow-up observability providers
-   - Bind the log drain/alert router adapters to deployment-specific observability services.
-   - Keep raw customer payloads and provider credentials out of exported metrics.
+2. Deployment follow-up
+   - Provision provider accounts and secret refs for observability, restore scheduler, secret manager, and IdP.
+   - Add RS256/JWKS verification if the selected IdP cannot issue HS256 deployment tokens.
 
 ## Guardrails
 

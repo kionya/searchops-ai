@@ -84,8 +84,11 @@ import {
   MockUserContextSchema,
   NormalizedUrlSchema,
   OperationalMetricsExportResponseSchema,
+  BackupRestoreDrillExecutionResponseSchema,
   BackupRestoreDrillPlanSchema,
+  DeadLetterReplayExecutionResponseSchema,
   DeadLetterReplayPlanSchema,
+  DeadLetterReplayRequestSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
   QueueGeoAnswerMonitorRequestSchema,
@@ -111,6 +114,7 @@ import {
   SearchOpsEnvSchema,
   SeoIssueSchema,
   SeoIssueDraftSchema,
+  SecretRotationExecutionResponseSchema,
   SecretRotationPlanRequestSchema,
   SecretRotationPlanSchema,
   WorkOrderDraftSchema,
@@ -310,6 +314,82 @@ describe("types foundation", () => {
         steps: [step],
       }),
     ).toMatchObject({ status: "blocked" });
+    expect(
+      BackupRestoreDrillExecutionResponseSchema.parse({
+        dryRun: false,
+        plan: {
+          id: "restore_drill_production_20260526",
+          environment: "production",
+          createdAt: "2026-05-26T00:00:00.000Z",
+          requiredInputs: ["DATABASE_URL", "RESTORE_DATABASE_URL"],
+          status: "ready",
+          steps: [step],
+        },
+        dispatch: {
+          acceptedAt: "2026-05-26T00:01:00.000Z",
+          externalRunId: "ops_run_1",
+          message: "accepted",
+          provider: "deployment_scheduler",
+          status: "accepted",
+        },
+      }),
+    ).toMatchObject({ dispatch: { status: "accepted" } });
+    expect(
+      SecretRotationExecutionResponseSchema.parse({
+        dryRun: true,
+        plan: {
+          id: "secret_rotation_wordpress_20260526",
+          provider: "wordpress",
+          createdAt: "2026-05-26T00:00:00.000Z",
+          oldSecretRef: "cms/wordpress/old",
+          newSecretRef: "cms/wordpress/new",
+          verificationEvent: "signed webhook fixture",
+          status: "ready",
+          steps: [step],
+        },
+        dispatch: {
+          acceptedAt: "2026-05-26T00:01:00.000Z",
+          externalRunId: null,
+          message: "dry run accepted",
+          provider: "deployment_secret_manager",
+          status: "dry_run",
+        },
+      }),
+    ).toMatchObject({ dryRun: true });
+    const replayRequest = DeadLetterReplayRequestSchema.parse({
+      payload: {
+        crawlRunId: "crawl_1",
+        maxPages: 1,
+        pages: [],
+        requestedByUserId: "user_ops",
+        siteDomain: "example.com",
+        siteId: "site_1",
+        startUrl: "https://example.com/",
+      },
+    });
+    expect(replayRequest.removeDeadLetterJob).toBe(true);
+    expect(
+      DeadLetterReplayExecutionResponseSchema.parse({
+        plan: {
+          id: "dead_letter_replay_job_1",
+          createdAt: "2026-05-26T00:00:00.000Z",
+          deadLetterJobId: "job_1",
+          originalQueue: "searchops-crawl",
+          originalJobName: "crawl",
+          originalJobId: "crawl_1",
+          reason: "Replay requires original payload reconstruction.",
+          status: "blocked",
+          steps: [step],
+        },
+        removedDeadLetterJob: true,
+        replayJob: {
+          id: "replay_job_1",
+          name: "crawl",
+          payload: replayRequest.payload,
+        },
+        status: "replayed",
+      }),
+    ).toMatchObject({ status: "replayed" });
   });
 
   it("validates Phase 1 organization DTOs", () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createHttpOperationalAlertRouter,
+  createHttpOperationalLogDrain,
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
   createOperationalMetricsExport,
@@ -130,6 +132,62 @@ describe("observability export", () => {
         deliveredAt: "2026-05-26T00:01:00.000Z",
         generatedAt: "2026-05-26T00:00:12.000Z",
         routeKey: "api:critical",
+      },
+    ]);
+  });
+
+  it("posts metrics and alerts to configured HTTP drains", async () => {
+    const requests: Array<{ readonly body: unknown; readonly url: string }> = [];
+    const fetchFn: typeof fetch = async (url, init) => {
+      requests.push({
+        body: JSON.parse(String(init?.body)),
+        url: String(url),
+      });
+      return new Response(JSON.stringify({ ok: true }), { status: 202 });
+    };
+    const exportPayload = createOperationalMetricsExport({
+      generatedAt: new Date("2026-05-26T00:00:12.000Z"),
+      metricsStartedAtMs: new Date("2026-05-26T00:00:00.000Z").getTime(),
+      requestMetrics: {
+        total: 1,
+        byStatus: {
+          "500": 1,
+        },
+      },
+      workerDeadLetterSummary: {
+        total: 0,
+        byQueue: {},
+        byStatus: {},
+      },
+    });
+    const logDrain = createHttpOperationalLogDrain({
+      bearerToken: "ops_token",
+      endpointUrl: "https://ops.example.com/log-drain",
+      fetchFn,
+    });
+    const alertRouter = createHttpOperationalAlertRouter({
+      endpointUrl: "https://ops.example.com/alerts",
+      fetchFn,
+    });
+
+    await logDrain.writeMetricsExport(exportPayload);
+    await alertRouter.routeAlerts(exportPayload.alerts, exportPayload);
+
+    expect(requests).toEqual([
+      {
+        url: "https://ops.example.com/log-drain",
+        body: {
+          kind: "searchops.metrics_export",
+          payload: exportPayload,
+        },
+      },
+      {
+        url: "https://ops.example.com/alerts",
+        body: {
+          alerts: exportPayload.alerts,
+          kind: "searchops.operational_alerts",
+          payload: exportPayload,
+        },
       },
     ]);
   });
