@@ -3,22 +3,23 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { Site } from "@searchops/types";
 
+import { formatIndustryLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export const dashboardFontStack =
   "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
 
 export const siteRouteItems = [
-  { segment: "", label: "Overview", summary: "Site status summary" },
-  { segment: "crawls", label: "Crawls", summary: "Crawl run history" },
-  { segment: "urls", label: "URLs", summary: "URL inventory" },
-  { segment: "issues", label: "Issues", summary: "SEO issue list" },
-  { segment: "schema", label: "Schema", summary: "JSON-LD recommendations" },
-  { segment: "workorders", label: "Work orders", summary: "Execution board" },
-  { segment: "connectors", label: "Connectors", summary: "Sync history" },
-  { segment: "content", label: "Content", summary: "Content briefs" },
-  { segment: "geo", label: "GEO", summary: "AI visibility report" },
-  { segment: "compliance", label: "Compliance", summary: "Medical ad risk flags" }
+  { segment: "", label: "개요", summary: "사이트 상태 요약" },
+  { segment: "crawls", label: "크롤링", summary: "크롤링 실행 이력" },
+  { segment: "urls", label: "URL", summary: "URL 인벤토리" },
+  { segment: "issues", label: "SEO 이슈", summary: "SEO 이슈 목록" },
+  { segment: "schema", label: "스키마", summary: "JSON-LD 추천" },
+  { segment: "workorders", label: "작업 지시서", summary: "실행 보드" },
+  { segment: "connectors", label: "커넥터", summary: "동기화 이력" },
+  { segment: "content", label: "콘텐츠", summary: "콘텐츠 브리프" },
+  { segment: "geo", label: "GEO", summary: "AI 검색 노출 리포트" },
+  { segment: "compliance", label: "컴플라이언스", summary: "의료광고 리스크 플래그" }
 ] as const;
 
 export type SiteRouteSegment = (typeof siteRouteItems)[number]["segment"];
@@ -41,48 +42,48 @@ export const dashboardPlaceholders: Record<
   PlaceholderPageContent
 > = {
   crawls: {
-    eyebrow: "Crawl Runs",
-    title: "Crawl history",
-    description: "Run status, page counts, failures, and recheck timing.",
+    eyebrow: "크롤링 실행",
+    title: "크롤링 이력",
+    description: "실행 상태, 페이지 수, 실패 사유, 재검수 시점을 확인합니다.",
     metrics: [
-      { label: "Latest run", value: "Queued" },
-      { label: "Success rate", value: "0%" },
-      { label: "Pages crawled", value: "0" }
+      { label: "최근 실행", value: "대기 중" },
+      { label: "성공률", value: "0%" },
+      { label: "크롤링 페이지", value: "0" }
     ],
-    emptyTitle: "No crawl rows"
+    emptyTitle: "크롤링 행이 없습니다"
   },
   urls: {
-    eyebrow: "URL Inventory",
-    title: "URL inventory",
-    description: "Crawled URLs, indexability, canonical state, and content signals.",
+    eyebrow: "URL 인벤토리",
+    title: "URL 인벤토리",
+    description: "크롤링된 URL, 색인 가능성, 캐노니컬 상태, 콘텐츠 신호를 확인합니다.",
     metrics: [
-      { label: "Known URLs", value: "0" },
-      { label: "Indexable", value: "0%" },
-      { label: "Canonical issues", value: "0" }
+      { label: "확인된 URL", value: "0" },
+      { label: "색인 가능", value: "0%" },
+      { label: "캐노니컬 이슈", value: "0" }
     ],
-    emptyTitle: "No URL rows"
+    emptyTitle: "URL 행이 없습니다"
   },
   issues: {
-    eyebrow: "SEO Issues",
-    title: "SEO issue list",
-    description: "Rule-based issues grouped by severity, category, and status.",
+    eyebrow: "SEO 이슈",
+    title: "SEO 이슈 목록",
+    description: "규칙 기반 이슈를 심각도, 카테고리, 상태별로 확인합니다.",
     metrics: [
-      { label: "Critical", value: "0" },
-      { label: "Open", value: "0" },
-      { label: "Resolved", value: "0" }
+      { label: "긴급", value: "0" },
+      { label: "열림", value: "0" },
+      { label: "해결됨", value: "0" }
     ],
-    emptyTitle: "No issue rows"
+    emptyTitle: "이슈 행이 없습니다"
   },
   compliance: {
-    eyebrow: "Compliance",
-    title: "Medical ad risk flags",
-    description: "Medical advertising risk flags by URL, claim, and status.",
+    eyebrow: "컴플라이언스",
+    title: "의료광고 리스크 플래그",
+    description: "URL, 표현, 상태별 의료광고 리스크 플래그를 확인합니다.",
     metrics: [
-      { label: "Open flags", value: "0" },
-      { label: "Legal review", value: "0" },
-      { label: "Cleared", value: "0" }
+      { label: "열린 플래그", value: "0" },
+      { label: "법무 검토", value: "0" },
+      { label: "정리됨", value: "0" }
     ],
-    emptyTitle: "No compliance flags"
+    emptyTitle: "컴플라이언스 플래그가 없습니다"
   }
 };
 
@@ -104,24 +105,24 @@ export function SiteDashboardFrame({
   return (
     <main style={pageStyle}>
       <Link href="/sites" style={backLinkStyle}>
-        Back to sites
+        사이트 목록으로
       </Link>
       <header style={siteHeaderStyle}>
         <div>
-          <p style={eyebrowStyle}>Site dashboard</p>
+          <p style={eyebrowStyle}>사이트 대시보드</p>
           <h1 style={pageTitleStyle}>{site.name}</h1>
           <p style={mutedTextStyle}>
-            {site.domain} - {site.language}-{site.country} - {site.industry}
+            {site.domain} - {site.language}-{site.country} - {formatIndustryLabel(site.industry)}
           </p>
         </div>
-        <div aria-label="Site locale" style={headerMetaStyle}>
-          <span style={metaLabelStyle}>Locale</span>
+        <div aria-label="사이트 로캘" style={headerMetaStyle}>
+          <span style={metaLabelStyle}>로캘</span>
           <strong>
             {site.language}-{site.country}
           </strong>
         </div>
       </header>
-      <nav aria-label="Site sections" style={siteNavStyle}>
+      <nav aria-label="사이트 섹션" style={siteNavStyle}>
         {siteRouteItems.map((item) => (
           <Link key={item.segment} href={getSiteDashboardPath(site.id, item.segment)} style={navLinkStyle}>
             <span style={{ fontWeight: 700 }}>{item.label}</span>
@@ -180,7 +181,7 @@ export function PlaceholderPage({ content }: { readonly content: PlaceholderPage
         <h3 id={`${content.title.toLowerCase().replaceAll(" ", "-")}-heading`} style={{ margin: 0 }}>
           {content.emptyTitle}
         </h3>
-        <p style={{ ...mutedTextStyle, marginTop: 8 }}>Awaiting deterministic pipeline data.</p>
+        <p style={{ ...mutedTextStyle, marginTop: 8 }}>결정론적 파이프라인 데이터가 들어오면 여기에 표시됩니다.</p>
       </section>
     </section>
   );

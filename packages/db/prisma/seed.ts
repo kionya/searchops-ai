@@ -3,20 +3,20 @@ import { PrismaClient } from "../src/generated/prisma/index.js";
 export const seedFixture = {
   organization: {
     id: "org_demo",
-    name: "Demo Clinic Group"
+    name: "데모 클리닉 그룹"
   },
   user: {
     id: "user_demo_owner",
     organizationId: "org_demo",
     email: "owner@example.com",
-    name: "Demo Owner",
+    name: "데모 운영자",
     role: "owner"
   },
   site: {
     id: "site_demo_rejuel",
     organizationId: "org_demo",
     domain: "example-clinic.com",
-    name: "Example Clinic",
+    name: "예시 클리닉",
     industry: "medical",
     language: "ko",
     country: "KR"
@@ -39,7 +39,7 @@ export const seedFixture = {
   keyword: {
     id: "keyword_demo_aeo",
     siteId: "site_demo_rejuel",
-    phrase: "answer engine optimization clinic",
+    phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     intent: "commercial"
   },
@@ -47,7 +47,7 @@ export const seedFixture = {
     id: "keyword_discovery_demo_aeo",
     siteId: "site_demo_rejuel",
     keywordId: "keyword_demo_aeo",
-    phrase: "answer engine optimization clinic",
+    phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     language: "ko",
     country: "KR",
@@ -70,25 +70,25 @@ export const seedFixture = {
     id: "brief_demo_aeo",
     siteId: "site_demo_rejuel",
     keywordId: "keyword_demo_aeo",
-    primaryKeyword: "answer engine optimization clinic",
+    primaryKeyword: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     intent: "commercial",
-    title: "Answer Engine Optimization Clinic content brief",
+    title: "답변엔진 최적화 클리닉 콘텐츠 브리프",
     status: "draft",
     summary:
-      "Demo deterministic draft-only content brief for the Phase 7 Keyword/AEO workflow.",
+      "Phase 7 키워드/AEO 흐름을 위한 결정론적 초안 전용 콘텐츠 브리프입니다.",
     outline: [
       {
-        heading: "Direct answer",
-        purpose: "Answer the primary AEO query clearly.",
-        targetQuestions: ["What does answer engine optimization clinic include?"],
-        acceptanceCriteria: ["Includes one concise answer block."]
+        heading: "직접 답변",
+        purpose: "핵심 AEO 질의에 명확하게 답합니다.",
+        targetQuestions: ["답변엔진 최적화 클리닉에는 무엇이 포함되나요?"],
+        acceptanceCriteria: ["간결한 답변 블록을 1개 포함합니다."]
       }
     ],
-    faqQuestions: ["What does answer engine optimization clinic include?"],
+    faqQuestions: ["답변엔진 최적화 클리닉에는 무엇이 포함되나요?"],
     acceptanceCriteria: [
-      "Keep the content brief in draft status until human review is complete.",
-      "Do not auto-publish the brief to any CMS or external channel."
+      "사람 검토가 완료될 때까지 콘텐츠 브리프를 초안 상태로 유지합니다.",
+      "브리프를 CMS나 외부 채널에 자동 게시하지 않습니다."
     ],
     generationMode: "deterministic",
     publishPolicy: "draft_only"
@@ -97,7 +97,7 @@ export const seedFixture = {
     id: "aeo_report_demo_initial",
     siteId: "site_demo_rejuel",
     keywordId: "keyword_demo_aeo",
-    phrase: "answer engine optimization clinic",
+    phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     intent: "commercial",
     pageUrl: "https://example-clinic.com/services/aeo",
@@ -126,7 +126,7 @@ export const seedFixture = {
     type: "Service",
     priority: "p1",
     status: "open",
-    reason: "The service page has no Service JSON-LD block.",
+    reason: "서비스 페이지에 Service JSON-LD 블록이 없습니다.",
     evidence: {
       url: "https://example-clinic.com/services/aeo",
       observedTypes: ["WebPage"],
@@ -136,16 +136,16 @@ export const seedFixture = {
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "Service",
-      name: "Answer Engine Optimization Clinic",
+      name: "답변엔진 최적화 클리닉",
       provider: {
         "@type": "MedicalClinic",
-        name: "Example Clinic"
+        name: "예시 클리닉"
       },
       url: "https://example-clinic.com/services/aeo"
     },
     instructions: [
-      "Add Service JSON-LD to the service detail page.",
-      "Keep service names factual and avoid unsupported claims."
+      "서비스 상세 페이지에 Service JSON-LD를 추가합니다.",
+      "서비스명은 사실 기반으로 유지하고 근거 없는 주장을 피합니다."
     ],
     requiredFields: ["@context", "@type", "name", "provider", "url"],
     recommendedFields: ["description", "serviceType"],
@@ -154,7 +154,7 @@ export const seedFixture = {
   geoVisibilityReport: {
     id: "geo_report_demo_initial",
     siteId: "site_demo_rejuel",
-    brandName: "Example Clinic",
+    brandName: "예시 클리닉",
     domain: "example-clinic.com",
     locale: "ko-KR",
     market: "KR",
@@ -168,27 +168,27 @@ export const seedFixture = {
     observations: [
       {
         provider: "chatgpt",
-        query: "answer engine optimization clinic",
+        query: "답변엔진 최적화 클리닉",
         locale: "ko-KR",
-        answerText: "Example Clinic is mentioned as an answer-engine optimization clinic.",
+        answerText: "예시 클리닉이 답변엔진 최적화 클리닉으로 언급되었습니다.",
         citedUrls: ["https://example-clinic.com/services/aeo"],
         observedAt: "2026-05-24T00:00:00.000Z",
         source: "fixture"
       },
       {
         provider: "perplexity",
-        query: "medical seo checklist",
+        query: "의료 SEO 체크리스트",
         locale: "ko-KR",
-        answerText: "Example Clinic appears with a medical SEO checklist reference.",
+        answerText: "예시 클리닉이 의료 SEO 체크리스트 인용과 함께 노출되었습니다.",
         citedUrls: ["https://example-clinic.com/blog/medical-seo-checklist"],
         observedAt: "2026-05-24T00:00:00.000Z",
         source: "fixture"
       },
       {
         provider: "perplexity",
-        query: "seo clinic near gangnam",
+        query: "강남 SEO 클리닉",
         locale: "ko-KR",
-        answerText: "A competitor is cited for this local query.",
+        answerText: "이 지역 질의에서는 경쟁사가 인용되었습니다.",
         citedUrls: ["https://competitor.example/seo"],
         observedAt: "2026-05-24T00:00:00.000Z",
         source: "fixture"
@@ -230,7 +230,7 @@ export const seedFixture = {
 
 async function main() {
   if (!process.env.DATABASE_URL) {
-    console.log("SearchOps AI seed fixture ready. Set DATABASE_URL to insert it into PostgreSQL.");
+    console.log("SearchOps AI seed fixture가 준비되었습니다. PostgreSQL에 넣으려면 DATABASE_URL을 설정하세요.");
     console.log(JSON.stringify(seedFixture, null, 2));
     return;
   }

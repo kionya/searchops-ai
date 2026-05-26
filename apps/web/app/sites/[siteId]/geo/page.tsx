@@ -59,33 +59,33 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   return (
     <section aria-labelledby="geo-visibility-heading">
       <SectionHeader
-        description="Deterministic AI visibility monitoring from stored answer observations, brand mentions, and owned URL citations."
-        eyebrow="GEO Monitor"
-        title="AI visibility report"
+        description="저장된 답변 관측, 브랜드 언급, 소유 URL 인용을 기준으로 AI 검색 노출(GEO)을 결정론적으로 모니터링합니다."
+        eyebrow="GEO 모니터"
+        title="AI 검색 노출 리포트"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Reports" value={String(summary.total)} />
-        <MetricCard label="Mention rate" value={summary.averageMentionRate} />
-        <MetricCard label="Citation rate" value={summary.averageCitationRate} />
-        <MetricCard label="Weak or missing" value={String(summary.weakOrMissing)} />
+        <MetricCard label="리포트" value={String(summary.total)} />
+        <MetricCard label="언급률" value={summary.averageMentionRate} />
+        <MetricCard label="인용률" value={summary.averageCitationRate} />
+        <MetricCard label="약함/미노출" value={String(summary.weakOrMissing)} />
       </div>
       <GeoCreatePanel
         siteId={siteId}
         createFeedback={createFeedback}
         workOrderFeedback={workOrderFeedback}
       />
-      <section aria-label="GEO visibility reports" style={tableSectionStyle}>
+      <section aria-label="GEO 노출 리포트" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="geo-visibility-heading" style={{ fontSize: 18, margin: 0 }}>
-              Visibility history
+              노출 이력
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              Latest status: {formatGeoStatus(summary.latestStatus)}. {summary.strong} reports are strong.
+              최근 상태: {formatGeoStatus(summary.latestStatus)}. 강한 리포트 {summary.strong}개.
             </p>
             {dashboard.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                API fallback: {dashboard.errorMessage}
+                API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
           </div>
@@ -96,28 +96,28 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
               color: dashboard.source === "api" ? "#047857" : "#3730a3"
             }}
           >
-            {dashboard.source === "api" ? "API data" : "Fixture data"}
+            {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div style={tableScrollStyle}>
           <table style={{ ...tableStyle, minWidth: 980 }}>
             <thead>
               <tr>
-                <th style={thStyle}>Report</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Mention</th>
-                <th style={thStyle}>Citation</th>
-                <th style={thStyle}>Queries</th>
-                <th style={thStyle}>Providers</th>
-                <th style={thStyle}>Competitor risk</th>
-                <th style={thStyle}>Work order</th>
+                <th style={thStyle}>리포트</th>
+                <th style={thStyle}>상태</th>
+                <th style={thStyle}>언급</th>
+                <th style={thStyle}>인용</th>
+                <th style={thStyle}>질의</th>
+                <th style={thStyle}>Provider</th>
+                <th style={thStyle}>경쟁사 리스크</th>
+                <th style={thStyle}>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ ...tdStyle, color: "#64748b" }}>
-                    No GEO visibility reports yet.
+                    아직 GEO 노출 리포트가 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -146,7 +146,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                       <td style={tdStyle}>
                         <form action={workOrderAction}>
                           <button style={secondaryButtonStyle} type="submit">
-                            Create task
+                            작업 생성
                           </button>
                         </form>
                       </td>
@@ -158,12 +158,12 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
           </table>
         </div>
       </section>
-      <section aria-label="GEO observation detail" style={tableSectionStyle}>
+      <section aria-label="GEO 관측 상세" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
-            <h3 style={{ fontSize: 18, margin: 0 }}>Observation detail</h3>
+            <h3 style={{ fontSize: 18, margin: 0 }}>관측 상세</h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              Provider, query, answer evidence, and cited URL ownership for the latest report.
+              최근 리포트의 provider, 질의, 답변 근거, 인용 URL 소유 여부를 확인합니다.
             </p>
           </div>
         </header>
@@ -172,9 +172,9 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
             <thead>
               <tr>
                 <th style={thStyle}>Provider</th>
-                <th style={thStyle}>Query</th>
-                <th style={thStyle}>Answer evidence</th>
-                <th style={thStyle}>Cited URLs</th>
+                <th style={thStyle}>질의</th>
+                <th style={thStyle}>답변 근거</th>
+                <th style={thStyle}>인용 URL</th>
               </tr>
             </thead>
             <tbody>
@@ -182,10 +182,10 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                 <tr key={`${observation.provider}-${observation.query}`}>
                   <td style={tdStyle}>{formatGeoProvider(observation.provider)}</td>
                   <td style={tdStyle}>{observation.query}</td>
-                  <td style={{ ...tdStyle, maxWidth: 340 }}>{observation.answerText || "No answer text"}</td>
+                  <td style={{ ...tdStyle, maxWidth: 340 }}>{observation.answerText || "답변 텍스트 없음"}</td>
                   <td style={{ ...tdStyle, ...codeTextStyle, maxWidth: 320 }}>
                     {observation.citedUrls.length === 0
-                      ? "No citations"
+                      ? "인용 없음"
                       : observation.citedUrls.join(", ")}
                   </td>
                 </tr>
@@ -210,11 +210,11 @@ function GeoCreatePanel({
   const action = createGeoVisibilityReportAction.bind(null, siteId);
 
   return (
-    <section aria-label="Create GEO visibility report" style={createPanelStyle}>
+    <section aria-label="GEO 노출 리포트 생성" style={createPanelStyle}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Run GEO monitor</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>GEO 모니터 실행</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          Store a deterministic visibility report from fixture answer observations.
+          데모 답변 관측으로 결정론적 노출 리포트를 저장합니다.
         </p>
         {createFeedback ? (
           <p style={{ ...feedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>
@@ -229,7 +229,7 @@ function GeoCreatePanel({
       </div>
       <form action={action}>
         <button style={createButtonStyle} type="submit">
-          Run monitor
+          모니터 실행
         </button>
       </form>
     </section>

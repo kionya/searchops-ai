@@ -10,6 +10,7 @@ import {
   type KeywordDiscoveryCandidateRecord
 } from "@searchops/types";
 
+import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type KeywordAeoDashboardSource = "api" | "fixture";
@@ -32,13 +33,13 @@ export interface KeywordAeoDashboardSummary {
 }
 
 const expectedEvidenceByCheck = {
-  ANSWER_SUMMARY_PRESENT: "Concise answer block near the top of the page",
-  CITABLE_SOURCE_PRESENT: "At least one citable source or service proof point",
-  CONTENT_DEPTH: "Sufficient supporting copy for the query intent",
-  FAQ_SCHEMA_PRESENT: "FAQ schema when FAQ-style questions are present",
-  KEYWORD_INTENT_DEFINED: "Non-null deterministic keyword intent",
-  QUESTION_COVERAGE: "Questions matching the query intent are covered",
-  STRUCTURED_HEADINGS: "Structured H1/H2 hierarchy"
+  ANSWER_SUMMARY_PRESENT: "페이지 상단 근처의 간결한 답변 블록",
+  CITABLE_SOURCE_PRESENT: "인용 가능한 출처 또는 서비스 근거 최소 1개",
+  CONTENT_DEPTH: "검색 의도에 맞는 충분한 보조 본문",
+  FAQ_SCHEMA_PRESENT: "FAQ형 질문이 있을 때 FAQ 스키마",
+  KEYWORD_INTENT_DEFINED: "비어 있지 않은 결정론적 키워드 의도",
+  QUESTION_COVERAGE: "검색 의도와 맞는 질문을 다룸",
+  STRUCTURED_HEADINGS: "구조화된 H1/H2 계층"
 } as const satisfies Record<AeoReadinessCheck["checkId"], string>;
 
 const sourceFieldByCheck = {
@@ -55,11 +56,11 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
   {
     checks: [
       createCheck("KEYWORD_INTENT_DEFINED", "pass", 100, "commercial"),
-      createCheck("ANSWER_SUMMARY_PRESENT", "pass", 92, "answer block present"),
-      createCheck("QUESTION_COVERAGE", "pass", 86, ["pricing", "comparison"]),
+      createCheck("ANSWER_SUMMARY_PRESENT", "pass", 92, "답변 블록 있음"),
+      createCheck("QUESTION_COVERAGE", "pass", 86, ["가격", "비교"]),
       createCheck("FAQ_SCHEMA_PRESENT", "warning", 68, []),
       createCheck("STRUCTURED_HEADINGS", "pass", 88, ["H1", "H2"]),
-      createCheck("CITABLE_SOURCE_PRESENT", "pass", 82, "service page"),
+      createCheck("CITABLE_SOURCE_PRESENT", "pass", 82, "서비스 페이지"),
       createCheck("CONTENT_DEPTH", "pass", 84, 720)
     ],
     evaluatedAt: "2026-05-23T00:00:00.000Z",
@@ -69,7 +70,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       intent: "commercial",
       language: "ko",
       locale: "ko-KR",
-      phrase: "answer engine optimization clinic",
+      phrase: "답변엔진 최적화 클리닉",
       siteId: demoSite.id,
       source: "fixture"
     },
@@ -81,10 +82,10 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
     checks: [
       createCheck("KEYWORD_INTENT_DEFINED", "pass", 100, "informational"),
       createCheck("ANSWER_SUMMARY_PRESENT", "warning", 62, null),
-      createCheck("QUESTION_COVERAGE", "pass", 78, ["checklist", "review"]),
+      createCheck("QUESTION_COVERAGE", "pass", 78, ["체크리스트", "검토"]),
       createCheck("FAQ_SCHEMA_PRESENT", "fail", 0, []),
       createCheck("STRUCTURED_HEADINGS", "pass", 72, ["H1", "H2"]),
-      createCheck("CITABLE_SOURCE_PRESENT", "warning", 58, "thin source list"),
+      createCheck("CITABLE_SOURCE_PRESENT", "warning", 58, "출처 목록 부족"),
       createCheck("CONTENT_DEPTH", "pass", 70, 480)
     ],
     evaluatedAt: "2026-05-23T00:00:00.000Z",
@@ -94,7 +95,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       intent: "informational",
       language: "ko",
       locale: "ko-KR",
-      phrase: "medical seo checklist",
+      phrase: "의료 SEO 체크리스트",
       siteId: demoSite.id,
       source: "fixture"
     },
@@ -108,7 +109,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       createCheck("ANSWER_SUMMARY_PRESENT", "fail", 0, null),
       createCheck("QUESTION_COVERAGE", "fail", 20, []),
       createCheck("FAQ_SCHEMA_PRESENT", "fail", 0, []),
-      createCheck("STRUCTURED_HEADINGS", "warning", 45, ["H1 only"]),
+      createCheck("STRUCTURED_HEADINGS", "warning", 45, ["H1만 있음"]),
       createCheck("CITABLE_SOURCE_PRESENT", "fail", 0, null),
       createCheck("CONTENT_DEPTH", "warning", 40, 180)
     ],
@@ -119,7 +120,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       intent: "local",
       language: "ko",
       locale: "ko-KR",
-      phrase: "seo clinic near gangnam",
+      phrase: "강남 SEO 클리닉",
       siteId: demoSite.id,
       source: "fixture"
     },
@@ -134,7 +135,7 @@ export const demoKeywordDiscoveryCandidates: KeywordDiscoveryCandidateRecord[] =
     id: "keyword_discovery_fixture_1",
     siteId: demoSite.id,
     keywordId: "keyword_fixture_1",
-    phrase: "answer engine optimization clinic",
+    phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     language: "ko",
     country: "KR",
@@ -159,7 +160,7 @@ export const demoKeywordDiscoveryCandidates: KeywordDiscoveryCandidateRecord[] =
     id: "keyword_discovery_fixture_2",
     siteId: demoSite.id,
     keywordId: "keyword_fixture_2",
-    phrase: "medical seo checklist",
+    phrase: "의료 SEO 체크리스트",
     locale: "ko-KR",
     language: "ko",
     country: "KR",
@@ -171,7 +172,7 @@ export const demoKeywordDiscoveryCandidates: KeywordDiscoveryCandidateRecord[] =
       provider: "cms",
       pageUrl: "https://example-clinic.com/blog/medical-seo-checklist",
       sourceField: "title",
-      title: "medical seo checklist"
+      title: "의료 SEO 체크리스트"
     },
     generatedBy: "deterministic",
     discoveredAt: "2026-05-25T00:00:00.000Z",
@@ -218,10 +219,10 @@ export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAe
       })
     ]);
     if (!readinessResponse.ok) {
-      throw new Error(`Keyword/AEO readiness request failed with ${readinessResponse.status}`);
+      throw new Error(`키워드/AEO 준비도 요청 실패: ${readinessResponse.status}`);
     }
     if (!discoveryResponse.ok) {
-      throw new Error(`Keyword discovery request failed with ${discoveryResponse.status}`);
+      throw new Error(`키워드 발견 요청 실패: ${discoveryResponse.status}`);
     }
 
     const list = AeoReadinessReportListResponseSchema.parse(await readinessResponse.json());
@@ -237,7 +238,7 @@ export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAe
     return {
       ...fallback,
       errorMessage:
-        error instanceof Error ? error.message : "Keyword/AEO readiness request failed"
+        error instanceof Error ? error.message : "키워드/AEO 준비도 요청에 실패했습니다"
     };
   }
 }
@@ -292,14 +293,21 @@ export function getAeoCheckTone(status: AeoReadinessCheckStatus): AeoReadinessTo
 }
 
 export function formatAeoReadinessStatus(status: AeoReadinessStatus) {
-  return status.replace("_", " ");
+  return formatStatusLabel(status);
 }
 
 export function formatAeoCheckId(checkId: AeoReadinessCheck["checkId"]) {
-  return checkId
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/^\w/, (letter) => letter.toUpperCase());
+  const labels = {
+    ANSWER_SUMMARY_PRESENT: "답변 요약",
+    CITABLE_SOURCE_PRESENT: "인용 근거",
+    CONTENT_DEPTH: "콘텐츠 깊이",
+    FAQ_SCHEMA_PRESENT: "FAQ 스키마",
+    KEYWORD_INTENT_DEFINED: "키워드 의도",
+    QUESTION_COVERAGE: "질문 커버리지",
+    STRUCTURED_HEADINGS: "헤딩 구조"
+  } as const satisfies Record<AeoReadinessCheck["checkId"], string>;
+
+  return labels[checkId];
 }
 
 function createCheck(

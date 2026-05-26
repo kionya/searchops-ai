@@ -257,11 +257,11 @@ describe("web foundation", () => {
 
   it("formats dead-letter clear feedback", () => {
     expect(getDeadLetterClearFeedback("cleared", "job_1")).toEqual({
-      message: "Dead-letter entry cleared: job_1",
+      message: "실패 작업 항목을 정리했습니다: job_1",
       tone: "success"
     });
     expect(getDeadLetterClearFeedback("failed", undefined)).toEqual({
-      message: "Dead-letter clear request failed. Check the API server and retry.",
+      message: "실패 작업 정리 요청에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     });
   });
@@ -280,7 +280,7 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("fixture");
     expect(getObservabilityAlertTone(demoOperationalMetricsExport.alerts[0]!)).toBe("critical");
     expect(formatOperationalDate("2026-05-26T00:00:00.000Z")).toBe("2026-05-26 00:00");
-    expect(formatUptime(125)).toBe("2m 5s");
+    expect(formatUptime(125)).toBe("2분 5초");
   });
 
   it("loads observability dashboard metrics through the API response contract", async () => {
@@ -315,7 +315,7 @@ describe("web foundation", () => {
       weakOrMissing: 0
     });
     expect(getGeoVisibilityStatusTone("not_visible")).toBe("risk");
-    expect(formatGeoStatus("not_visible")).toBe("not visible");
+    expect(formatGeoStatus("not_visible")).toBe("미노출");
     expect(formatGeoProvider("chatgpt")).toBe("ChatGPT");
     expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 00:00");
   });
@@ -706,7 +706,7 @@ describe("web foundation", () => {
 
     expect(getWeakAeoChecks(readyReport)).toHaveLength(1);
     expect(getAeoReadinessTone("not_ready")).toBe("risk");
-    expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("Faq schema present");
+    expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("FAQ 스키마");
   });
 
   it("loads keyword AEO readiness through the API response contract", async () => {
@@ -858,7 +858,7 @@ describe("web foundation", () => {
     });
     expect(getSchemaRecommendationStatusTone("open")).toBe("risk");
     expect(getSchemaRecommendationStatusTone("resolved")).toBe("good");
-    expect(formatSchemaJsonLdType("MedicalClinic")).toBe("Medical Clinic");
+    expect(formatSchemaJsonLdType("MedicalClinic")).toBe("의료 클리닉(MedicalClinic)");
   });
 
   it("loads schema recommendations through the API response contract", async () => {
@@ -1162,7 +1162,7 @@ describe("web foundation", () => {
     });
     expect(getComplianceRiskTone("high")).toBe("risk");
     expect(getComplianceRiskTone("medium")).toBe("neutral");
-    expect(formatComplianceRisk("critical")).toBe("critical");
+    expect(formatComplianceRisk("critical")).toBe("긴급");
   });
 
   it("loads compliance flags through the API response contract", async () => {
@@ -1495,6 +1495,6 @@ describe("web foundation", () => {
       placeholderMetrics: 3,
       emptyStates: 1
     });
-    expect(futureModuleSkeletons.compliance.dependsOn).toContain("Medical ad rules");
+    expect(futureModuleSkeletons.compliance.dependsOn).toContain("의료광고 규칙");
   });
 });

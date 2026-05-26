@@ -9,23 +9,24 @@ import {
   mutedTextStyle,
   pageStyle
 } from "../../src/dashboard-shell";
+import { formatIndustryLabel } from "../../src/korean-labels";
 import { demoSite, demoWorkOrders, summarizeWorkOrders } from "../../src/work-order-board";
 
-const mockSites = [demoSite];
+const mock사이트 = [demoSite];
 const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
 
-export default function SitesPage() {
+export default function 사이트Page() {
   return (
     <main style={pageStyle}>
       <header style={{ borderBottom: "1px solid #e5e7eb", marginBottom: 28, paddingBottom: 20 }}>
         <p style={{ ...mutedTextStyle, fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>
-          Dashboard
+          대시보드
         </p>
         <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
           {productName}
         </h1>
         <p style={{ ...mutedTextStyle, fontFamily: dashboardFontStack }}>
-          Sites, crawl status, SEO issues, work orders, and recheck progress.
+          사이트, 크롤링 상태, SEO 이슈, 작업 지시서, 재검수 진행 상황을 확인합니다.
         </p>
       </header>
 
@@ -33,14 +34,14 @@ export default function SitesPage() {
         <div style={{ alignItems: "center", display: "flex", gap: 16, justifyContent: "space-between" }}>
           <div>
             <h2 id="sites-heading" style={{ fontSize: 24, margin: 0 }}>
-              Sites
+              사이트
             </h2>
-            <p style={{ ...mutedTextStyle, marginTop: 4 }}>{mockSites.length} configured</p>
+            <p style={{ ...mutedTextStyle, marginTop: 4 }}>{mock사이트.length}개 설정됨</p>
           </div>
         </div>
 
         <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-          {mockSites.map((site) => (
+          {mock사이트.map((site) => (
             <article
               key={site.id}
               style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 16 }}
@@ -58,14 +59,14 @@ export default function SitesPage() {
                   <p style={{ color: "#475569", margin: 0 }}>{site.domain}</p>
                 </div>
                 <Link href={`/sites/${site.id}`} style={openLinkStyle}>
-                  Open dashboard
+                  대시보드 열기
                 </Link>
               </div>
               <dl style={{ ...metricGridStyle, margin: "16px 0 0" }}>
-                <SiteFact label="Industry" value={site.industry ?? "Unknown"} />
-                <SiteFact label="Locale" value={`${site.language}-${site.country}`} />
-                <SiteFact label="Open work" value={String(workOrderSummary.active)} />
-                <SiteFact label="Blocked" value={String(workOrderSummary.blocked)} />
+                <SiteFact label="업종" value={formatIndustryLabel(site.industry)} />
+                <SiteFact label="로캘" value={`${site.language}-${site.country}`} />
+                <SiteFact label="열린 작업" value={String(workOrderSummary.active)} />
+                <SiteFact label="차단됨" value={String(workOrderSummary.blocked)} />
               </dl>
             </article>
           ))}

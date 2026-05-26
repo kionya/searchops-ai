@@ -9,6 +9,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type GeoVisibilityDashboardSource = "api" | "fixture";
@@ -62,7 +63,7 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
   {
     id: "geo_report_demo_strong",
     siteId: demoSite.id,
-    brandName: demoSite.name ?? "Example Clinic",
+    brandName: demoSite.name ?? "예시 클리닉",
     domain: demoSite.domain,
     locale: "ko-KR",
     market: "KR",
@@ -105,7 +106,7 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
   {
     id: "geo_report_demo_visible",
     siteId: demoSite.id,
-    brandName: demoSite.name ?? "Example Clinic",
+    brandName: demoSite.name ?? "예시 클리닉",
     domain: demoSite.domain,
     locale: "ko-KR",
     market: "KR",
@@ -120,7 +121,7 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
       index === 2
         ? {
             ...observation,
-            answerText: "A competitor is cited for this local query.",
+            answerText: "이 지역 질의에서는 경쟁사가 인용되었습니다.",
             citedUrls: ["https://competitor.example/seo"]
           }
         : observation,
@@ -171,7 +172,7 @@ export async function loadGeoVisibilityDashboard(
       },
     );
     if (!response.ok) {
-      throw new Error(`GEO visibility request failed with ${response.status}`);
+      throw new Error(`GEO 노출 요청 실패: ${response.status}`);
     }
 
     const list = GeoVisibilityReportListResponseSchema.parse(await response.json());
@@ -184,7 +185,7 @@ export async function loadGeoVisibilityDashboard(
     const fallback = createDemoGeoVisibilityDashboard(site);
     return {
       ...fallback,
-      errorMessage: error instanceof Error ? error.message : "GEO visibility request failed"
+      errorMessage: error instanceof Error ? error.message : "GEO 노출 요청에 실패했습니다"
     };
   }
 }
@@ -219,7 +220,7 @@ export async function createGeoVisibilityReportFromFixture(
       },
     );
     if (!response.ok) {
-      throw new Error(`GEO visibility create request failed with ${response.status}`);
+      throw new Error(`GEO 노출 리포트 생성 요청 실패: ${response.status}`);
     }
 
     const output = CreateGeoVisibilityReportResponseSchema.parse(await response.json());
@@ -232,7 +233,7 @@ export async function createGeoVisibilityReportFromFixture(
   } catch (error) {
     return {
       errorMessage:
-        error instanceof Error ? error.message : "GEO visibility create request failed",
+        error instanceof Error ? error.message : "GEO 노출 리포트 생성 요청에 실패했습니다",
       reportId: null,
       source: "api",
       status: "failed"
@@ -263,7 +264,7 @@ export async function convertGeoVisibilityReportToWorkOrder(
       },
     );
     if (!response.ok) {
-      throw new Error(`GEO work order request failed with ${response.status}`);
+      throw new Error(`GEO 작업 지시서 요청 실패: ${response.status}`);
     }
 
     const output = CreateGeoVisibilityReportWorkOrderResponseSchema.parse(await response.json());
@@ -276,7 +277,7 @@ export async function convertGeoVisibilityReportToWorkOrder(
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "GEO work order request failed",
+      errorMessage: error instanceof Error ? error.message : "GEO 작업 지시서 요청에 실패했습니다",
       reportId,
       source: "api",
       status: "failed",
@@ -340,21 +341,21 @@ export function getGeoVisibilityCreateFeedback(
 ): GeoVisibilityCreateFeedback | null {
   if (status === "created") {
     return {
-      message: reportId ? `GEO visibility report created: ${reportId}` : "GEO visibility report created.",
+      message: reportId ? `GEO 노출 리포트가 생성되었습니다: ${reportId}` : "GEO 노출 리포트가 생성되었습니다.",
       tone: "success"
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: set SEARCHOPS_API_BASE_URL to persist GEO visibility reports.",
+      message: "데모 데이터 모드: GEO 노출 리포트를 저장하려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "GEO visibility report creation failed. Check the API server and retry.",
+      message: "GEO 노출 리포트 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -369,7 +370,7 @@ export function getGeoVisibilityWorkOrderFeedback(
 ): GeoVisibilityWorkOrderFeedback | null {
   if (status === "converted") {
     return {
-      message: workOrderId ? `GEO work order created: ${workOrderId}` : "GEO work order created.",
+      message: workOrderId ? `GEO 작업 지시서가 생성되었습니다: ${workOrderId}` : "GEO 작업 지시서가 생성되었습니다.",
       tone: "success"
     };
   }
@@ -377,15 +378,15 @@ export function getGeoVisibilityWorkOrderFeedback(
   if (status === "fixture") {
     return {
       message: reportId
-        ? `Fixture mode: ${reportId} was selected, but no API request was sent.`
-        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted GEO work orders.",
+        ? `데모 데이터 모드: ${reportId}가 선택되었지만 API 요청은 보내지 않았습니다.`
+        : "데모 데이터 모드: 저장되는 GEO 작업 지시서를 만들려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "GEO work order creation failed. Check the API server and retry.",
+      message: "GEO 작업 지시서 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -394,7 +395,7 @@ export function getGeoVisibilityWorkOrderFeedback(
 }
 
 export function formatGeoStatus(status: GeoVisibilityStatus | "none") {
-  return status.replaceAll("_", " ");
+  return formatStatusLabel(status);
 }
 
 export function formatGeoProvider(provider: GeoProvider) {
@@ -403,7 +404,7 @@ export function formatGeoProvider(provider: GeoProvider) {
     claude: "Claude",
     copilot: "Copilot",
     gemini: "Gemini",
-    manual: "Manual",
+    manual: "수동",
     perplexity: "Perplexity"
   } as const satisfies Record<GeoProvider, string>;
 
@@ -421,27 +422,27 @@ export function createDemoGeoObservations(site: Site): GeoAnswerObservation[] {
   return [
     {
       provider: "chatgpt",
-      query: "answer engine optimization clinic",
+      query: "답변엔진 최적화 클리닉",
       locale,
-      answerText: `${brandName} is mentioned as an answer-engine optimization clinic.`,
+      answerText: `${brandName}이 답변엔진 최적화 클리닉으로 언급되었습니다.`,
       citedUrls: [`https://${site.domain}/services/aeo`],
       observedAt: fixtureEvaluatedAt,
       source: "fixture"
     },
     {
       provider: "perplexity",
-      query: "medical seo checklist",
+      query: "의료 SEO 체크리스트",
       locale,
-      answerText: `${brandName} appears with a medical SEO checklist reference.`,
+      answerText: `${brandName}이 의료 SEO 체크리스트 인용과 함께 노출되었습니다.`,
       citedUrls: [`https://${site.domain}/blog/medical-seo-checklist`],
       observedAt: fixtureEvaluatedAt,
       source: "fixture"
     },
     {
       provider: "gemini",
-      query: "seo clinic near gangnam",
+      query: "강남 SEO 클리닉",
       locale,
-      answerText: `${brandName} is visible for local SEO clinic research.`,
+      answerText: `${brandName}이 지역 SEO 클리닉 조사 질의에서 노출되었습니다.`,
       citedUrls: [`https://${site.domain}/locations/gangnam`],
       observedAt: fixtureEvaluatedAt,
       source: "fixture"

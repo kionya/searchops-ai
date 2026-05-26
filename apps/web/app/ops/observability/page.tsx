@@ -19,6 +19,8 @@ import {
 } from "../../../src/dashboard-table-styles";
 import {
   formatOperationalDate,
+  formatOperationalSeverity,
+  formatOperationalSource,
   formatUptime,
   getObservabilityAlertTone,
   loadObservabilityDashboard,
@@ -31,34 +33,33 @@ export default async function ObservabilityPage() {
   return (
     <main style={pageStyle}>
       <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        Back to sites
+        사이트 목록으로
       </Link>
       <section aria-labelledby="observability-heading" style={{ marginTop: 18 }}>
         <SectionHeader
-          description="Operations metrics export, worker failure summary, and deterministic alert routing signals."
-          eyebrow="Operations"
-          title="Observability"
+          description="운영 지표 export, 워커 실패 요약, 결정론적 알림 라우팅 신호를 확인합니다."
+          eyebrow="운영"
+          title="운영 지표"
         />
         <div style={metricGridStyle}>
-          <MetricCard label="Requests" value={String(dashboard.summary.requestTotal)} />
-          <MetricCard label="5xx responses" value={String(dashboard.summary.serverErrorCount)} />
-          <MetricCard label="Dead-letter jobs" value={String(dashboard.summary.deadLetterTotal)} />
-          <MetricCard label="Critical alerts" value={String(dashboard.summary.criticalAlertCount)} />
+          <MetricCard label="요청" value={String(dashboard.summary.requestTotal)} />
+          <MetricCard label="5xx 응답" value={String(dashboard.summary.serverErrorCount)} />
+          <MetricCard label="실패 작업" value={String(dashboard.summary.deadLetterTotal)} />
+          <MetricCard label="긴급 알림" value={String(dashboard.summary.criticalAlertCount)} />
         </div>
 
-        <section aria-label="Operational metrics export" style={tableSectionStyle}>
+        <section aria-label="운영 지표 export" style={tableSectionStyle}>
           <header style={tableHeaderStyle}>
             <div>
               <h3 id="observability-heading" style={{ fontSize: 18, margin: 0 }}>
-                Metrics export
+                지표 export
               </h3>
               <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-                Generated {formatOperationalDate(dashboard.metrics.generatedAt)} after{" "}
-                {formatUptime(dashboard.summary.uptimeSeconds)} uptime.
+                {formatOperationalDate(dashboard.metrics.generatedAt)}에 생성됨. 업타임 {formatUptime(dashboard.summary.uptimeSeconds)} 기준입니다.
               </p>
               {dashboard.errorMessage ? (
                 <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                  API fallback: {dashboard.errorMessage}
+                  API 연결 실패: {dashboard.errorMessage}
                 </p>
               ) : null}
             </div>
@@ -69,7 +70,7 @@ export default async function ObservabilityPage() {
                 color: dashboard.source === "api" ? "#047857" : "#3730a3",
               }}
             >
-              {dashboard.source === "api" ? "API data" : "Fixture data"}
+              {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
             </span>
           </header>
 
@@ -77,9 +78,9 @@ export default async function ObservabilityPage() {
             <table style={{ ...tableStyle, minWidth: 760 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>Metric</th>
-                  <th style={thStyle}>Value</th>
-                  <th style={thStyle}>Source</th>
+                  <th style={thStyle}>지표</th>
+                  <th style={thStyle}>값</th>
+                  <th style={thStyle}>출처</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +88,7 @@ export default async function ObservabilityPage() {
                   <tr key={status}>
                     <td style={{ ...tdStyle, ...codeTextStyle }}>http.status.{status}</td>
                     <td style={tdStyle}>{count}</td>
-                    <td style={tdStyle}>api</td>
+                    <td style={tdStyle}>API</td>
                   </tr>
                 ))}
                 {Object.entries(dashboard.metrics.workers.deadLetterJobs.byQueue).map(
@@ -97,7 +98,7 @@ export default async function ObservabilityPage() {
                         worker.dead_letter.{queue}
                       </td>
                       <td style={tdStyle}>{count}</td>
-                      <td style={tdStyle}>worker</td>
+                      <td style={tdStyle}>워커</td>
                     </tr>
                   ),
                 )}
@@ -106,33 +107,33 @@ export default async function ObservabilityPage() {
           </div>
         </section>
 
-        <section aria-label="Operational alerts" style={tableSectionStyle}>
+        <section aria-label="운영 알림" style={tableSectionStyle}>
           <header style={tableHeaderStyle}>
             <div>
-              <h3 style={{ fontSize: 18, margin: 0 }}>Alert routing</h3>
+              <h3 style={{ fontSize: 18, margin: 0 }}>알림 라우팅</h3>
               <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-                Alerts are derived from the exported metrics payload and routed by severity/source.
+                알림은 export된 지표 payload에서 파생되며 심각도/출처에 따라 라우팅됩니다.
               </p>
             </div>
             <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
-              {dashboard.summary.alertCount} alerts
+              알림 {dashboard.summary.alertCount}개
             </span>
           </header>
           <div style={tableScrollStyle}>
             <table style={{ ...tableStyle, minWidth: 860 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>Alert</th>
-                  <th style={thStyle}>Severity</th>
-                  <th style={thStyle}>Source</th>
-                  <th style={thStyle}>Message</th>
+                  <th style={thStyle}>알림</th>
+                  <th style={thStyle}>심각도</th>
+                  <th style={thStyle}>출처</th>
+                  <th style={thStyle}>메시지</th>
                 </tr>
               </thead>
               <tbody>
                 {dashboard.metrics.alerts.length === 0 ? (
                   <tr>
                     <td colSpan={4} style={tdStyle}>
-                      No alert signals in this export.
+                      이번 export에는 알림 신호가 없습니다.
                     </td>
                   </tr>
                 ) : (
@@ -141,11 +142,11 @@ export default async function ObservabilityPage() {
                       <td style={{ ...tdStyle, ...codeTextStyle }}>{alert.id}</td>
                       <td style={tdStyle}>
                         <AlertTonePill
-                          label={alert.severity}
+                          label={formatOperationalSeverity(alert.severity)}
                           tone={getObservabilityAlertTone(alert)}
                         />
                       </td>
-                      <td style={tdStyle}>{alert.source}</td>
+                      <td style={tdStyle}>{formatOperationalSource(alert.source)}</td>
                       <td style={tdStyle}>{alert.message}</td>
                     </tr>
                   ))

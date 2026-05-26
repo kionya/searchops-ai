@@ -11,6 +11,7 @@ import {
   type SchemaRecommendationStatus
 } from "@searchops/types";
 
+import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type SchemaRecommendationDashboardSource = "api" | "fixture";
@@ -71,22 +72,22 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
     type: "Service",
     priority: "p1",
     status: "open",
-    reason: "The service page does not expose deterministic Service JSON-LD.",
+    reason: "서비스 페이지에 결정론적 Service JSON-LD가 없습니다.",
     observedTypes: ["WebPage"],
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "Service",
-      name: "SEO clinic service",
+      name: "SEO 클리닉 서비스",
       provider: {
         "@type": "MedicalClinic",
         name: demoSite.name
       },
-      serviceType: "SEO diagnosis"
+      serviceType: "SEO 진단"
     },
     instructions: [
-      "Add one Service JSON-LD block to the service page.",
-      "Keep the provider value aligned with the site organization.",
-      "Validate the final JSON-LD before marking the work order complete."
+      "서비스 페이지에 Service JSON-LD 블록을 1개 추가합니다.",
+      "provider 값이 사이트 조직 정보와 일치하도록 유지합니다.",
+      "작업 지시서를 완료 처리하기 전에 최종 JSON-LD를 검증합니다."
     ],
     requiredFields: ["@context", "@type", "name", "serviceType", "provider"],
     recommendedFields: ["areaServed", "offers"]
@@ -97,7 +98,7 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
     type: "MedicalClinic",
     priority: "p1",
     status: "converted",
-    reason: "The homepage should identify the clinic entity for local and AI answer visibility.",
+    reason: "홈페이지는 지역 검색과 AI 답변 노출을 위해 클리닉 엔티티를 식별해야 합니다.",
     observedTypes: ["WebSite", "WebPage"],
     jsonLd: {
       "@context": "https://schema.org",
@@ -106,9 +107,9 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
       url: "https://example-clinic.com/"
     },
     instructions: [
-      "Add MedicalClinic JSON-LD to the homepage.",
-      "Confirm clinic name and URL match the public site.",
-      "Route any medical claims through compliance review before publishing."
+      "홈페이지에 MedicalClinic JSON-LD를 추가합니다.",
+      "클리닉 이름과 URL이 공개 사이트와 일치하는지 확인합니다.",
+      "의료 주장 표현은 게시 전 컴플라이언스 검토를 거칩니다."
     ],
     requiredFields: ["@context", "@type", "name", "url"],
     recommendedFields: ["address", "telephone", "medicalSpecialty"]
@@ -119,7 +120,7 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
     type: "BreadcrumbList",
     priority: "p2",
     status: "open",
-    reason: "The article URL has no BreadcrumbList JSON-LD for hierarchy context.",
+    reason: "해당 글 URL에 계층 문맥을 위한 BreadcrumbList JSON-LD가 없습니다.",
     observedTypes: ["Article"],
     jsonLd: {
       "@context": "https://schema.org",
@@ -128,21 +129,21 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
         {
           "@type": "ListItem",
           item: "https://example-clinic.com/",
-          name: "Home",
+          name: "홈",
           position: 1
         },
         {
           "@type": "ListItem",
           item: "https://example-clinic.com/blog/medical-seo-checklist",
-          name: "Medical SEO checklist",
+          name: "의료 SEO 체크리스트",
           position: 2
         }
       ]
     },
     instructions: [
-      "Add BreadcrumbList JSON-LD to the article template.",
-      "Keep breadcrumb positions sequential and stable.",
-      "Match breadcrumb names to visible navigation labels."
+      "글 템플릿에 BreadcrumbList JSON-LD를 추가합니다.",
+      "breadcrumb position을 순차적이고 안정적으로 유지합니다.",
+      "breadcrumb 이름을 화면 내 내비게이션 라벨과 일치시킵니다."
     ],
     requiredFields: ["@context", "@type", "itemListElement"],
     recommendedFields: ["ListItem.item", "ListItem.name", "ListItem.position"]
@@ -165,7 +166,7 @@ export async function loadSchemaRecommendationDashboard(
       },
     );
     if (!response.ok) {
-      throw new Error(`Schema recommendation request failed with ${response.status}`);
+      throw new Error(`스키마 추천 요청 실패: ${response.status}`);
     }
 
     const list = SchemaRecommendationListResponseSchema.parse(await response.json());
@@ -179,7 +180,7 @@ export async function loadSchemaRecommendationDashboard(
     return {
       ...fallback,
       errorMessage:
-        error instanceof Error ? error.message : "Schema recommendation request failed"
+        error instanceof Error ? error.message : "스키마 추천 요청에 실패했습니다"
     };
   }
 }
@@ -207,7 +208,7 @@ export async function convertSchemaRecommendationToWorkOrder(
       },
     );
     if (!response.ok) {
-      throw new Error(`Schema work order request failed with ${response.status}`);
+      throw new Error(`스키마 작업 지시서 요청 실패: ${response.status}`);
     }
 
     const output = CreateSchemaRecommendationWorkOrderResponseSchema.parse(await response.json());
@@ -220,7 +221,7 @@ export async function convertSchemaRecommendationToWorkOrder(
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "Schema work order request failed",
+      errorMessage: error instanceof Error ? error.message : "스키마 작업 지시서 요청에 실패했습니다",
       recommendationId,
       source: "api",
       status: "failed",
@@ -259,7 +260,7 @@ export async function recheckSchemaRecommendationWithDraft(
       },
     );
     if (!response.ok) {
-      throw new Error(`Schema recheck request failed with ${response.status}`);
+      throw new Error(`스키마 재검수 요청 실패: ${response.status}`);
     }
 
     const output = RecheckSchemaRecommendationResponseSchema.parse(await response.json());
@@ -274,7 +275,7 @@ export async function recheckSchemaRecommendationWithDraft(
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "Schema recheck request failed",
+      errorMessage: error instanceof Error ? error.message : "스키마 재검수 요청에 실패했습니다",
       expectedType: recommendation.type,
       observedTypes: [],
       recommendationId: recommendation.id,
@@ -355,8 +356,8 @@ export function getSchemaWorkOrderCreateFeedback(
   if (status === "converted") {
     return {
       message: workOrderId
-        ? `Schema work order created: ${workOrderId}`
-        : "Schema work order created.",
+        ? `스키마(JSON-LD) 작업 지시서가 생성되었습니다: ${workOrderId}`
+        : "스키마(JSON-LD) 작업 지시서가 생성되었습니다.",
       tone: "success"
     };
   }
@@ -364,15 +365,15 @@ export function getSchemaWorkOrderCreateFeedback(
   if (status === "fixture") {
     return {
       message: recommendationId
-        ? `Fixture mode: ${recommendationId} was selected, but no API request was sent.`
-        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted schema work orders.",
+        ? `데모 데이터 모드: ${recommendationId}가 선택되었지만 API 요청은 보내지 않았습니다.`
+        : "데모 데이터 모드: 저장되는 스키마 작업 지시서를 만들려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Schema work order creation failed. Check the API server and retry.",
+      message: "스키마 작업 지시서 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -388,15 +389,15 @@ export function getSchemaRecheckFeedback(
   if (status === "resolved") {
     return {
       message: workOrderId
-        ? `Schema recommendation resolved and work order closed: ${workOrderId}`
-        : "Schema recommendation resolved.",
+        ? `스키마 추천이 해결되고 작업 지시서가 닫혔습니다: ${workOrderId}`
+        : "스키마 추천이 해결되었습니다.",
       tone: "success"
     };
   }
 
   if (status === "not_resolved") {
     return {
-      message: "Schema recheck did not find the expected JSON-LD type yet.",
+      message: "스키마 재검수에서 아직 기대한 JSON-LD 유형을 찾지 못했습니다.",
       tone: "warning"
     };
   }
@@ -404,15 +405,15 @@ export function getSchemaRecheckFeedback(
   if (status === "fixture") {
     return {
       message: recommendationId
-        ? `Fixture mode: ${recommendationId} was rechecked with a deterministic draft snapshot.`
-        : "Fixture mode: set SEARCHOPS_API_BASE_URL to persist schema rechecks.",
+        ? `데모 데이터 모드: ${recommendationId}를 결정론적 초안 스냅샷으로 재검수했습니다.`
+        : "데모 데이터 모드: 스키마 재검수를 저장하려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Schema recheck failed. Check the API server and retry.",
+      message: "스키마 재검수에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -421,11 +422,30 @@ export function getSchemaRecheckFeedback(
 }
 
 export function formatSchemaJsonLdType(type: SchemaJsonLdType) {
+  const labels: Record<SchemaJsonLdType, string> = {
+    Article: "아티클(Article)",
+    BreadcrumbList: "탐색 경로(BreadcrumbList)",
+    FAQPage: "FAQ 페이지(FAQPage)",
+    LocalBusiness: "지역 비즈니스(LocalBusiness)",
+    MedicalClinic: "의료 클리닉(MedicalClinic)",
+    Service: "서비스(Service)",
+    WebPage: "웹페이지(WebPage)",
+    WebSite: "웹사이트(WebSite)"
+  };
+
+  if (type in labels) {
+    return labels[type];
+  }
+
   return type.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
 export function formatSchemaPriority(priority: SchemaRecommendationPriority) {
   return priority.toUpperCase();
+}
+
+export function formatSchemaRecommendationStatus(status: SchemaRecommendationStatus) {
+  return formatStatusLabel(status);
 }
 
 export function formatSchemaRecommendationDate(isoDate: string) {
@@ -448,7 +468,7 @@ export function createResolvedSchemaSnapshot(
     h1Count: 1,
     h2Count: 0,
     headings: {
-      h1: [`${formatSchemaJsonLdType(recommendation.type)} page`],
+      h1: [`${formatSchemaJsonLdType(recommendation.type)} 페이지`],
       h2: []
     },
     images: [],
@@ -470,7 +490,7 @@ export function createResolvedSchemaSnapshot(
     },
     metaDescription: recommendation.reason,
     robotsMeta: "index,follow",
-    title: `${formatSchemaJsonLdType(recommendation.type)} schema recheck`,
+    title: `${formatSchemaJsonLdType(recommendation.type)} 스키마 재검수`,
     url: recommendation.pageUrl
   });
 }

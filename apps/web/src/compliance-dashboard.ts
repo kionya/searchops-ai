@@ -9,6 +9,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type ComplianceDashboardSource = "api" | "fixture";
@@ -81,18 +82,18 @@ export const demoComplianceFlags: ComplianceFlag[] = [
     url: `https://${demoSite.domain}/services/botox`,
     riskLevel: "high",
     status: "open",
-    title: "Absolute safety claim",
-    message: "The content uses absolute safety language.",
+    title: "절대적 안전성 표현",
+    message: "콘텐츠에 절대적 안전성 표현이 포함되어 있습니다.",
     evidence: {
       url: `https://${demoSite.domain}/services/botox`,
-      excerpt: "This clinic treatment is completely safe.",
+      excerpt: "이 클리닉 치료는 완전히 안전합니다.",
       observedValue: "completely safe",
-      expectedValue: "Medical content should avoid absolute safety claims.",
+      expectedValue: "의료 콘텐츠는 절대적 안전성 표현을 피해야 합니다.",
       sourceField: "text",
       match: "completely safe"
     },
-    recommendation: "Replace absolute safety language with balanced wording.",
-    replacementSuggestion: "Explain that risks vary by individual.",
+    recommendation: "절대적 안전성 표현을 균형 잡힌 문구로 교체하세요.",
+    replacementSuggestion: "위험은 개인별로 다를 수 있음을 설명하세요.",
     generatedBy: "deterministic",
     createdAt: fixtureCreatedAt,
     updatedAt: fixtureCreatedAt
@@ -108,8 +109,8 @@ export const demoComplianceFlags: ComplianceFlag[] = [
     url: `https://${demoSite.domain}/blog/medical-seo-checklist`,
     riskLevel: "critical",
     status: "in_review",
-    title: "Medical content is not draft-only",
-    message: "Medical content is scheduled or published without an explicit compliance pass.",
+    title: "의료 콘텐츠가 초안 전용이 아닙니다",
+    message: "명시적인 컴플라이언스 통과 없이 의료 콘텐츠가 예약 또는 게시되었습니다.",
     evidence: {
       url: `https://${demoSite.domain}/blog/medical-seo-checklist`,
       excerpt: "scheduled",
@@ -119,8 +120,8 @@ export const demoComplianceFlags: ComplianceFlag[] = [
       match: "scheduled"
     },
     recommendation:
-      "Move the content back to draft or keep it unpublished until legal review approves it.",
-    replacementSuggestion: "Keep medical content in draft_only workflow until review is complete.",
+      "법무 검토가 승인할 때까지 콘텐츠를 초안으로 되돌리거나 게시하지 않은 상태로 유지하세요.",
+    replacementSuggestion: "검토가 완료될 때까지 의료 콘텐츠를 draft_only 흐름에 유지하세요.",
     generatedBy: "deterministic",
     createdAt: "2026-05-23T00:00:00.000Z",
     updatedAt: "2026-05-23T00:00:00.000Z"
@@ -141,7 +142,7 @@ export async function loadComplianceDashboard(site: Site): Promise<ComplianceDas
       },
     );
     if (!response.ok) {
-      throw new Error(`Compliance flags request failed with ${response.status}`);
+      throw new Error(`컴플라이언스 플래그 요청 실패: ${response.status}`);
     }
 
     const list = ComplianceFlagListResponseSchema.parse(await response.json());
@@ -154,7 +155,7 @@ export async function loadComplianceDashboard(site: Site): Promise<ComplianceDas
     const fallback = createDemoComplianceDashboard(site);
     return {
       ...fallback,
-      errorMessage: error instanceof Error ? error.message : "Compliance flags request failed"
+      errorMessage: error instanceof Error ? error.message : "컴플라이언스 플래그 요청에 실패했습니다"
     };
   }
 }
@@ -184,8 +185,8 @@ export async function createComplianceReviewFromFixture(
           source: "fixture",
           subjectId: "fixture-medical-page",
           subjectType: "page_copy",
-          text: "Our medical clinic offers guaranteed treatment outcomes and is completely safe.",
-          title: "Fixture medical service draft",
+          text: "우리 의료 클리닉은 보장된 치료 결과를 제공하며 완전히 안전합니다.",
+          title: "데모 의료 서비스 초안",
           url: `https://${site.domain}/services/botox`
         }),
         cache: "no-store",
@@ -196,7 +197,7 @@ export async function createComplianceReviewFromFixture(
       },
     );
     if (!response.ok) {
-      throw new Error(`Compliance review create request failed with ${response.status}`);
+      throw new Error(`컴플라이언스 검토 생성 요청 실패: ${response.status}`);
     }
 
     const output = CreateComplianceReviewResponseSchema.parse(await response.json());
@@ -209,7 +210,7 @@ export async function createComplianceReviewFromFixture(
   } catch (error) {
     return {
       errorMessage:
-        error instanceof Error ? error.message : "Compliance review create request failed",
+        error instanceof Error ? error.message : "컴플라이언스 검토 생성 요청에 실패했습니다",
       flagCount: 0,
       source: "api",
       status: "failed"
@@ -240,7 +241,7 @@ export async function convertComplianceFlagToWorkOrder(
       },
     );
     if (!response.ok) {
-      throw new Error(`Compliance work order request failed with ${response.status}`);
+      throw new Error(`컴플라이언스 작업 지시서 요청 실패: ${response.status}`);
     }
 
     const output = CreateComplianceFlagWorkOrderResponseSchema.parse(await response.json());
@@ -253,7 +254,7 @@ export async function convertComplianceFlagToWorkOrder(
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "Compliance work order request failed",
+      errorMessage: error instanceof Error ? error.message : "컴플라이언스 작업 지시서 요청에 실패했습니다",
       flagId,
       source: "api",
       status: "failed",
@@ -286,7 +287,7 @@ export async function updateComplianceFlagStatus(
       method: "PATCH"
     });
     if (!response.ok) {
-      throw new Error(`Compliance status update request failed with ${response.status}`);
+      throw new Error(`컴플라이언스 상태 업데이트 요청 실패: ${response.status}`);
     }
 
     const output = ComplianceFlagSchema.parse(await response.json());
@@ -299,7 +300,7 @@ export async function updateComplianceFlagStatus(
   } catch (error) {
     return {
       errorMessage:
-        error instanceof Error ? error.message : "Compliance status update request failed",
+        error instanceof Error ? error.message : "컴플라이언스 상태 업데이트 요청에 실패했습니다",
       flagId,
       source: "api",
       status: "failed"
@@ -330,7 +331,7 @@ export async function recheckComplianceFlagWithFixtureRevision(
           evaluatedAt: new Date().toISOString(),
           source: "work_order",
           text:
-            "This clinic explains consultation steps, possible discomfort, and individual variation without promising outcomes."
+            "이 클리닉은 결과를 약속하지 않고 상담 절차, 가능한 불편감, 개인차를 설명합니다."
         }),
         cache: "no-store",
         headers: {
@@ -340,7 +341,7 @@ export async function recheckComplianceFlagWithFixtureRevision(
       },
     );
     if (!response.ok) {
-      throw new Error(`Compliance recheck request failed with ${response.status}`);
+      throw new Error(`컴플라이언스 재검수 요청 실패: ${response.status}`);
     }
 
     const output = RecheckComplianceFlagResponseSchema.parse(await response.json());
@@ -354,7 +355,7 @@ export async function recheckComplianceFlagWithFixtureRevision(
     };
   } catch (error) {
     return {
-      errorMessage: error instanceof Error ? error.message : "Compliance recheck request failed",
+      errorMessage: error instanceof Error ? error.message : "컴플라이언스 재검수 요청에 실패했습니다",
       flagId,
       resolved: false,
       source: "api",
@@ -415,21 +416,21 @@ export function getComplianceReviewCreateFeedback(
 ): ComplianceFeedback | null {
   if (status === "created") {
     return {
-      message: `Compliance review created ${flagCount ?? "0"} flags.`,
+      message: `컴플라이언스 검토가 생성되었습니다 ${flagCount ?? "0"} flags.`,
       tone: "success"
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: set SEARCHOPS_API_BASE_URL to persist compliance reviews.",
+      message: "데모 데이터 모드: 컴플라이언스 검토를 저장하려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Compliance review failed. Check the API server and retry.",
+      message: "컴플라이언스 검토에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -445,8 +446,8 @@ export function getComplianceWorkOrderFeedback(
   if (status === "converted") {
     return {
       message: workOrderId
-        ? `Compliance work order created: ${workOrderId}`
-        : "Compliance work order created.",
+        ? `컴플라이언스 작업 지시서가 생성되었습니다: ${workOrderId}`
+        : "컴플라이언스 작업 지시서가 생성되었습니다.",
       tone: "success"
     };
   }
@@ -454,15 +455,15 @@ export function getComplianceWorkOrderFeedback(
   if (status === "fixture") {
     return {
       message: flagId
-        ? `Fixture mode: ${flagId} was selected, but no API request was sent.`
-        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted compliance work orders.",
+        ? `데모 데이터 모드: ${flagId}가 선택되었지만 API 요청은 보내지 않았습니다.`
+        : "데모 데이터 모드: 저장되는 컴플라이언스 작업 지시서를 만들려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Compliance work order creation failed. Check the API server and retry.",
+      message: "컴플라이언스 작업 지시서 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -476,21 +477,21 @@ export function getComplianceStatusUpdateFeedback(
 ): ComplianceFeedback | null {
   if (status === "updated") {
     return {
-      message: flagId ? `Compliance flag updated: ${flagId}` : "Compliance flag updated.",
+      message: flagId ? `컴플라이언스 플래그가 업데이트되었습니다: ${flagId}` : "컴플라이언스 플래그가 업데이트되었습니다.",
       tone: "success"
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: status changes are not persisted without an API server.",
+      message: "데모 데이터 모드: API 서버 없이는 상태 변경이 저장되지 않습니다.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Compliance flag update failed. Check the API server and retry.",
+      message: "컴플라이언스 플래그 업데이트에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -504,28 +505,28 @@ export function getComplianceRecheckFeedback(
 ): ComplianceFeedback | null {
   if (status === "resolved") {
     return {
-      message: flagId ? `Compliance recheck resolved: ${flagId}` : "Compliance recheck resolved.",
+      message: flagId ? `컴플라이언스 재검수에서 해결됨을 확인했습니다: ${flagId}` : "컴플라이언스 재검수에서 해결됨을 확인했습니다.",
       tone: "success"
     };
   }
 
   if (status === "still_open") {
     return {
-      message: "Compliance recheck still found the same rule. Keep the work order open.",
+      message: "컴플라이언스 재검수에서 같은 규칙이 여전히 감지되었습니다. 작업 지시서를 열린 상태로 유지하세요.",
       tone: "warning"
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: recheck is simulated until SEARCHOPS_API_BASE_URL is configured.",
+      message: "데모 데이터 모드: SEARCHOPS_API_BASE_URL이 설정될 때까지 재검수는 시뮬레이션됩니다.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Compliance recheck failed. Check the API server and retry.",
+      message: "컴플라이언스 재검수에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -538,7 +539,11 @@ export function formatComplianceDate(isoDate: string) {
 }
 
 export function formatComplianceRisk(riskLevel: string) {
-  return riskLevel.replaceAll("_", " ");
+  return formatStatusLabel(riskLevel);
+}
+
+export function formatComplianceStatus(status: string) {
+  return formatStatusLabel(status);
 }
 
 function getApiBaseUrl() {

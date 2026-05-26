@@ -8,6 +8,7 @@ import {
   type KeywordIntent
 } from "@searchops/types";
 
+import { formatGenerationModeLabel, formatIntentLabel, formatPublishPolicyLabel, formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type ContentBriefHistorySource = "api" | "fixture";
@@ -46,24 +47,24 @@ export const demoContentBriefs: ContentBrief[] = [
     id: "brief_demo_aeo",
     siteId: demoSite.id,
     keywordId: "keyword_demo_aeo",
-    primaryKeyword: "answer engine optimization clinic",
+    primaryKeyword: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     intent: "commercial",
-    title: "Answer Engine Optimization Clinic content brief",
+    title: "답변엔진 최적화 클리닉 콘텐츠 브리프",
     status: "draft",
-    summary: "Demo deterministic draft-only content brief for the Phase 7 Keyword/AEO workflow.",
+    summary: "Phase 7 키워드/AEO 흐름을 위한 결정론적 초안 전용 콘텐츠 브리프입니다.",
     outline: [
       {
-        heading: "Direct answer",
-        purpose: "Answer the primary AEO query clearly.",
-        targetQuestions: ["What does answer engine optimization clinic include?"],
-        acceptanceCriteria: ["Includes one concise answer block."]
+        heading: "직접 답변",
+        purpose: "핵심 AEO 질의에 명확하게 답합니다.",
+        targetQuestions: ["답변엔진 최적화 클리닉에는 무엇이 포함되나요?"],
+        acceptanceCriteria: ["간결한 답변 블록을 1개 포함합니다."]
       }
     ],
-    faqQuestions: ["What does answer engine optimization clinic include?"],
+    faqQuestions: ["답변엔진 최적화 클리닉에는 무엇이 포함되나요?"],
     acceptanceCriteria: [
-      "Keep the content brief in draft status until human review is complete.",
-      "Do not auto-publish the brief to any CMS or external channel."
+      "사람 검토가 완료될 때까지 콘텐츠 브리프를 초안 상태로 유지합니다.",
+      "브리프를 CMS나 외부 채널에 자동 게시하지 않습니다."
     ],
     generationMode: "deterministic",
     publishPolicy: "draft_only",
@@ -73,33 +74,33 @@ export const demoContentBriefs: ContentBrief[] = [
     id: "brief_demo_local_seo",
     siteId: demoSite.id,
     keywordId: "keyword_demo_local",
-    primaryKeyword: "medical seo checklist",
+    primaryKeyword: "의료 SEO 체크리스트",
     locale: "ko-KR",
     intent: "informational",
-    title: "Medical SEO Checklist content brief",
+    title: "의료 SEO 체크리스트 콘텐츠 브리프",
     status: "draft",
-    summary: "Draft-only checklist brief for deterministic content planning review.",
+    summary: "결정론적 콘텐츠 기획 검토를 위한 초안 전용 체크리스트 브리프입니다.",
     outline: [
       {
-        heading: "Checklist overview",
-        purpose: "Summarize required SEO and compliance review steps.",
-        targetQuestions: ["What should a medical SEO checklist include?"],
-        acceptanceCriteria: ["Separates technical SEO tasks from compliance review tasks."]
+        heading: "체크리스트 개요",
+        purpose: "필수 SEO 및 컴플라이언스 검토 단계를 요약합니다.",
+        targetQuestions: ["의료 SEO 체크리스트에는 무엇이 포함되어야 하나요?"],
+        acceptanceCriteria: ["기술 SEO 작업과 컴플라이언스 검토 작업을 구분합니다."]
       },
       {
-        heading: "Review workflow",
-        purpose: "Define the human review path before publishing.",
-        targetQuestions: ["Who should approve medical content before publishing?"],
-        acceptanceCriteria: ["States that medical content remains a draft until reviewed."]
+        heading: "검토 흐름",
+        purpose: "게시 전 사람 검토 경로를 정의합니다.",
+        targetQuestions: ["의료 콘텐츠는 게시 전에 누가 승인해야 하나요?"],
+        acceptanceCriteria: ["검토 전까지 의료 콘텐츠가 초안으로 유지된다는 점을 명시합니다."]
       }
     ],
     faqQuestions: [
-      "What should a medical SEO checklist include?",
-      "Who should approve medical content before publishing?"
+      "의료 SEO 체크리스트에는 무엇이 포함되어야 하나요?",
+      "의료 콘텐츠는 게시 전에 누가 승인해야 하나요?"
     ],
     acceptanceCriteria: [
-      "Content remains draft-only.",
-      "Compliance review is required before publishing."
+      "콘텐츠는 초안 전용으로 유지됩니다.",
+      "게시 전 컴플라이언스 검토가 필요합니다."
     ],
     generationMode: "deterministic",
     publishPolicy: "draft_only",
@@ -118,7 +119,7 @@ export async function loadContentBriefHistory(siteId: string): Promise<ContentBr
       cache: "no-store"
     });
     if (!response.ok) {
-      throw new Error(`Content brief history request failed with ${response.status}`);
+      throw new Error(`콘텐츠 브리프 이력 요청 실패: ${response.status}`);
     }
 
     const list = ContentBriefListResponseSchema.parse(await response.json());
@@ -131,7 +132,7 @@ export async function loadContentBriefHistory(siteId: string): Promise<ContentBr
     const fallback = createDemoContentBriefHistory(siteId);
     return {
       ...fallback,
-      errorMessage: error instanceof Error ? error.message : "Content brief history request failed"
+      errorMessage: error instanceof Error ? error.message : "콘텐츠 브리프 이력 요청에 실패했습니다"
     };
   }
 }
@@ -162,7 +163,7 @@ export async function createContentBriefFromForm(
       method: "POST"
     });
     if (!response.ok) {
-      throw new Error(`Content brief create request failed with ${response.status}`);
+      throw new Error(`콘텐츠 브리프 생성 요청 실패: ${response.status}`);
     }
 
     const output = CreateContentBriefDraftResponseSchema.parse(await response.json());
@@ -176,7 +177,7 @@ export async function createContentBriefFromForm(
   } catch (error) {
     return {
       contentBriefId: null,
-      errorMessage: error instanceof Error ? error.message : "Content brief create request failed",
+      errorMessage: error instanceof Error ? error.message : "콘텐츠 브리프 생성 요청에 실패했습니다",
       primaryKeyword: input.keyword.phrase,
       source: "api",
       status: "failed"
@@ -245,7 +246,7 @@ export function getContentBriefCreateFeedback(
 ): ContentBriefCreateFeedback | null {
   if (status === "created") {
     return {
-      message: briefId ? `Content brief created: ${briefId}` : "Content brief created.",
+      message: briefId ? `콘텐츠 브리프가 생성되었습니다: ${briefId}` : "콘텐츠 브리프가 생성되었습니다.",
       tone: "success"
     };
   }
@@ -253,15 +254,15 @@ export function getContentBriefCreateFeedback(
   if (status === "fixture") {
     return {
       message: keyword
-        ? `Fixture mode: ${keyword} was parsed, but no API request was sent.`
-        : "Fixture mode: set SEARCHOPS_API_BASE_URL to create persisted briefs.",
+        ? `데모 데이터 모드: ${keyword}를 파싱했지만 API 요청은 보내지 않았습니다.`
+        : "데모 데이터 모드: 저장되는 브리프를 만들려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Content brief creation failed. Check the API server and retry.",
+      message: "콘텐츠 브리프 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -273,12 +274,24 @@ export function getContentBriefStatusTone(status: ContentBriefStatus): ContentBr
   return status === "archived" ? "archived" : "draft";
 }
 
-export function formatContentBriefIntent(intent: KeywordIntent) {
-  return intent.replaceAll("_", " ");
+export function formatContentBriefIntent(intent: KeywordIntent | string | null | undefined) {
+  return formatIntentLabel(intent);
+}
+
+export function formatContentBriefStatus(status: ContentBriefStatus) {
+  return formatStatusLabel(status);
+}
+
+export function formatContentBriefGenerationMode(mode: string | null | undefined) {
+  return formatGenerationModeLabel(mode);
+}
+
+export function formatContentBriefPublishPolicy(policy: string | null | undefined) {
+  return formatPublishPolicyLabel(policy);
 }
 
 export function formatContentBriefDate(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "No timestamp";
+  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "시간 정보 없음";
 }
 
 function getApiBaseUrl() {
@@ -293,7 +306,7 @@ function getApiBaseUrl() {
 function getRequiredFormText(formData: FormData, key: string) {
   const value = getOptionalFormText(formData, key);
   if (!value) {
-    throw new Error(`${key} is required`);
+    throw new Error(`${key} 필드는 필수입니다`);
   }
 
   return value;

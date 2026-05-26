@@ -7,6 +7,7 @@ import {
   metricGridStyle,
   SectionHeader
 } from "../../../../src/dashboard-shell";
+import { formatOwnerLabel } from "../../../../src/korean-labels";
 import {
   canRecheckWorkOrder,
   demoWorkOrders,
@@ -56,11 +57,11 @@ const priorityBadgeStyles: Record<WorkOrderPriority, CSSProperties> = {
 };
 
 const statusLabels: Record<WorkOrderStatus, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  in_review: "In review",
-  done: "Done",
-  blocked: "Blocked"
+  open: "열림",
+  in_progress: "진행 중",
+  in_review: "검수 중",
+  done: "완료",
+  blocked: "차단됨"
 };
 
 export default function WorkOrdersPage() {
@@ -71,29 +72,29 @@ export default function WorkOrdersPage() {
   return (
     <>
       <SectionHeader
-        description="Kanban and list views for generated SEO work orders, owner handoff, due dates, and recheck actions."
-        eyebrow="Work Orders"
-        title="Work order board"
+        description="생성된 SEO 작업 지시서의 칸반/목록, 담당 인계, 마감일, 재검수 액션을 관리합니다."
+        eyebrow="작업 지시서"
+        title="작업 지시서 보드"
       />
       <section
-        aria-label="Work order metrics"
+        aria-label="작업 지시서 지표"
         style={metricGridStyle}
       >
-        <MetricCard label="Total" value={String(summary.total)} />
-        <MetricCard label="Urgent" value={String(summary.urgent)} />
-        <MetricCard label="In review" value={String(summary.inReview)} />
-        <MetricCard label="Blocked" value={String(summary.blocked)} />
+        <MetricCard label="전체" value={String(summary.total)} />
+        <MetricCard label="긴급" value={String(summary.urgent)} />
+        <MetricCard label="검수 중" value={String(summary.inReview)} />
+        <MetricCard label="차단됨" value={String(summary.blocked)} />
       </section>
 
       <section aria-labelledby="board-heading" style={{ marginTop: 28 }}>
         <div style={sectionHeaderStyle}>
           <div>
             <h2 id="board-heading" style={{ fontSize: 22, margin: 0 }}>
-              Kanban board
+              칸반 보드
             </h2>
-            <p style={{ ...mutedText, marginTop: 4 }}>{summary.active} active work orders</p>
+            <p style={{ ...mutedText, marginTop: 4 }}>진행 대상 작업 지시서 {summary.active}개</p>
           </div>
-          <span style={{ color: "#475569", fontSize: 14 }}>{summary.inProgress} in progress</span>
+          <span style={{ color: "#475569", fontSize: 14 }}>진행 중 {summary.inProgress}개</span>
         </div>
 
         <div
@@ -107,7 +108,7 @@ export default function WorkOrdersPage() {
         >
           {workOrderColumns.map((column) => (
             <section
-              aria-label={`${column.label} work orders`}
+              aria-label={`${column.label} 작업 지시서`}
               key={column.status}
               style={{
                 background: "#f8fafc",
@@ -145,9 +146,9 @@ export default function WorkOrdersPage() {
         <div style={sectionHeaderStyle}>
           <div>
             <h2 id="list-heading" style={{ fontSize: 22, margin: 0 }}>
-              List
+              목록
             </h2>
-            <p style={{ ...mutedText, marginTop: 4 }}>{summary.total} total work orders</p>
+            <p style={{ ...mutedText, marginTop: 4 }}>총 작업 지시서 {summary.total}개</p>
           </div>
         </div>
 
@@ -155,7 +156,7 @@ export default function WorkOrdersPage() {
           <table style={{ borderCollapse: "collapse", minWidth: 900, width: "100%" }}>
             <thead style={{ background: "#f8fafc" }}>
               <tr>
-                {["Work order", "Status", "Owner", "Due", "Evidence", "Verification"].map(
+                {["작업 지시서", "상태", "담당", "마감", "근거", "검수 방법"].map(
                   (heading) => (
                     <th
                       key={heading}
@@ -188,10 +189,10 @@ export default function WorkOrdersPage() {
                       {statusLabels[workOrder.status]}
                     </Badge>
                   </td>
-                  <td style={tableCellStyle}>{workOrder.ownerType}</td>
+                  <td style={tableCellStyle}>{formatOwnerLabel(workOrder.ownerType)}</td>
                   <td style={tableCellStyle}>{formatDate(workOrder.dueDate)}</td>
                   <td style={{ ...tableCellStyle, maxWidth: 230 }}>
-                    {workOrder.evidence?.url ?? "No URL evidence"}
+                    {workOrder.evidence?.url ?? "URL 근거 없음"}
                   </td>
                   <td style={{ ...tableCellStyle, maxWidth: 260 }}>
                     {workOrder.verificationMethod}
@@ -221,7 +222,7 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
         <Badge style={priorityBadgeStyles[workOrder.priority]}>
           {formatPriority(workOrder.priority)}
         </Badge>
-        <span style={{ color: "#64748b", fontSize: 12 }}>{workOrder.ownerType}</span>
+        <span style={{ color: "#64748b", fontSize: 12 }}>{formatOwnerLabel(workOrder.ownerType)}</span>
       </div>
       <h4 style={{ fontSize: 15, lineHeight: 1.35, margin: "0 0 8px" }}>{workOrder.title}</h4>
       <p style={{ color: "#475569", fontSize: 13, lineHeight: 1.45, margin: "0 0 10px" }}>
@@ -229,7 +230,7 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
       </p>
       <dl style={{ display: "grid", gap: 8, margin: 0 }}>
         <div>
-          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>Due</dt>
+          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>마감</dt>
           <dd style={{ fontSize: 13, margin: 0 }}>{formatDate(workOrder.dueDate)}</dd>
         </div>
         <div>
@@ -242,12 +243,12 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
               overflowWrap: "anywhere"
             }}
           >
-            {workOrder.evidence?.url ?? "No URL evidence"}
+            {workOrder.evidence?.url ?? "URL 근거 없음"}
           </dd>
         </div>
       </dl>
       <button
-        aria-label={`Recheck ${workOrder.title}`}
+        aria-label={`${workOrder.title} 재검수`}
         disabled={!canRecheckWorkOrder(workOrder)}
         style={{
           background: canRecheckWorkOrder(workOrder) ? "#2563eb" : "#e2e8f0",
@@ -264,7 +265,7 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
         }}
         type="button"
       >
-        {workOrder.status === "done" ? "Resolved" : "Recheck"}
+        {workOrder.status === "done" ? "해결됨" : "재검수"}
       </button>
     </article>
   );

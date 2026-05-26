@@ -36,18 +36,18 @@ export const futureModuleKeys = ["compliance"] as const satisfies readonly Futur
 export const futureModuleSkeletons: Record<FutureModuleKey, FutureModuleSkeleton> = {
   compliance: {
     key: "compliance",
-    eyebrow: "Compliance",
-    title: "Medical ad risk flags",
-    description: "Medical advertising risk review surface for future compliance checks.",
+    eyebrow: "컴플라이언스",
+    title: "의료광고 리스크 플래그",
+    description: "향후 컴플라이언스 검사를 위한 의료광고 리스크 검토 화면입니다.",
     status: "planned",
     metrics: [
-      { label: "Open flags", value: "0" },
-      { label: "Legal review", value: "0" },
-      { label: "Cleared", value: "0" }
+      { label: "열린 플래그", value: "0" },
+      { label: "법무 검토", value: "0" },
+      { label: "정리됨", value: "0" }
     ],
-    emptyTitle: "No compliance flags",
-    emptyDescription: "Compliance flags will appear after claim checks and medical ad rule filters are wired.",
-    dependsOn: ["Claim extraction", "Medical ad rules", "Draft-only publishing guard"],
+    emptyTitle: "컴플라이언스 플래그가 없습니다",
+    emptyDescription: "표현 검사와 의료광고 규칙 필터가 연결되면 컴플라이언스 플래그가 표시됩니다.",
+    dependsOn: ["표현 추출", "의료광고 규칙", "초안 전용 게시 보호"],
     nextMilestones: ["CDX-100 Compliance engine", "CDX-110 Production hardening"]
   }
 };
@@ -89,7 +89,7 @@ export function FutureModulePage({ moduleKey }: { readonly moduleKey: FutureModu
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>{content.emptyDescription}</p>
           </div>
           <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
-            {content.status}
+            {content.status === "planned" ? "계획됨" : content.status}
           </span>
         </header>
         <div
@@ -100,8 +100,8 @@ export function FutureModulePage({ moduleKey }: { readonly moduleKey: FutureModu
             padding: 16
           }}
         >
-          <DefinitionList title="Depends on" values={content.dependsOn} />
-          <DefinitionList title="Next milestones" values={content.nextMilestones} />
+          <DefinitionList title="의존 항목" values={content.dependsOn} />
+          <DefinitionList title="다음 마일스톤" values={content.nextMilestones} />
         </div>
       </section>
     </section>

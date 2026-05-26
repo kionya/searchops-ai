@@ -25,27 +25,27 @@ export default function UrlsPage() {
   return (
     <section aria-labelledby="url-inventory-heading">
       <SectionHeader
-        description="Crawled URL inventory with indexability, metadata presence, and linked issue counts."
-        eyebrow="URL Inventory"
-        title="URL inventory"
+        description="크롤링된 URL 인벤토리와 색인 가능성, 메타데이터 존재 여부, 연결된 이슈 수를 확인합니다."
+        eyebrow="URL 인벤토리"
+        title="URL 인벤토리"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Known URLs" value={String(summary.total)} />
-        <MetricCard label="Indexable" value={String(summary.indexable)} />
-        <MetricCard label="Non-indexable" value={String(summary.nonIndexable)} />
-        <MetricCard label="URLs with issues" value={String(summary.withIssues)} />
+        <MetricCard label="확인된 URL" value={String(summary.total)} />
+        <MetricCard label="색인 가능" value={String(summary.indexable)} />
+        <MetricCard label="색인 제외" value={String(summary.nonIndexable)} />
+        <MetricCard label="이슈 있는 URL" value={String(summary.withIssues)} />
       </div>
-      <section aria-label="Crawled URLs" style={tableSectionStyle}>
+      <section aria-label="크롤링된 URL" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="url-inventory-heading" style={{ fontSize: 18, margin: 0 }}>
-              Crawled URLs
+              크롤링된 URL
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              {summary.healthy} indexable URLs currently have no open URL-level issues.
+              현재 색인 가능한 URL 중 {summary.healthy}개는 열린 URL 단위 이슈가 없습니다.
             </p>
           </div>
-          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>Fixture data</span>
+          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>데모 데이터</span>
         </header>
         <div style={tableScrollStyle}>
           <table style={tableStyle}>
@@ -53,11 +53,11 @@ export default function UrlsPage() {
               <tr>
                 <th style={thStyle}>URL</th>
                 <th style={thStyle}>HTTP</th>
-                <th style={thStyle}>Indexability</th>
-                <th style={thStyle}>Title</th>
-                <th style={thStyle}>Meta description</th>
-                <th style={thStyle}>Issues</th>
-                <th style={thStyle}>Primary signal</th>
+                <th style={thStyle}>색인 상태</th>
+                <th style={thStyle}>title</th>
+                <th style={thStyle}>meta description</th>
+                <th style={thStyle}>이슈</th>
+                <th style={thStyle}>주요 신호</th>
               </tr>
             </thead>
             <tbody>
@@ -77,10 +77,10 @@ export default function UrlsPage() {
                     </span>
                   </td>
                   <td style={{ ...tdStyle, color: urlRecord.title ? "#172033" : "#b91c1c" }}>
-                    {urlRecord.title ?? "Missing"}
+                    {urlRecord.title ?? "누락"}
                   </td>
                   <td style={{ ...tdStyle, color: urlRecord.metaDescription ? "#172033" : "#b91c1c" }}>
-                    {urlRecord.metaDescription ?? "Missing"}
+                    {urlRecord.metaDescription ?? "누락"}
                   </td>
                   <td style={tdStyle}>{urlRecord.issueCount}</td>
                   <td style={tdStyle}>{urlRecord.primarySignal}</td>
@@ -103,7 +103,7 @@ function IndexabilityPill({ indexable }: { readonly indexable: boolean }) {
         color: indexable ? "#047857" : "#c2410c"
       }}
     >
-      {indexable ? "Indexable" : "Noindex"}
+      {indexable ? "색인 가능" : "noindex"}
     </span>
   );
 }

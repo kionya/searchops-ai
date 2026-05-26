@@ -17,6 +17,7 @@ import {
 import {
   formatSchemaJsonLdType,
   formatSchemaPriority,
+  formatSchemaRecommendationStatus,
   formatSchemaRecommendationDate,
   getSchemaRecommendationPriorityTone,
   getSchemaRecommendationStatusTone,
@@ -62,29 +63,29 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
   return (
     <section aria-labelledby="schema-recommendation-heading">
       <SectionHeader
-        description="Deterministic JSON-LD recommendations generated from crawled page snapshots and converted into executable work orders."
-        eyebrow="Schema"
-        title="JSON-LD recommendations"
+        description="크롤링된 페이지 스냅샷에서 생성한 결정론적 JSON-LD 추천을 실행 가능한 작업 지시서로 전환합니다."
+        eyebrow="스키마"
+        title="JSON-LD 추천"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Recommendations" value={String(summary.total)} />
-        <MetricCard label="Open" value={String(summary.open)} />
-        <MetricCard label="Converted" value={String(summary.converted)} />
-        <MetricCard label="Resolved" value={String(summary.resolved)} />
+        <MetricCard label="추천" value={String(summary.total)} />
+        <MetricCard label="열림" value={String(summary.open)} />
+        <MetricCard label="전환됨" value={String(summary.converted)} />
+        <MetricCard label="해결됨" value={String(summary.resolved)} />
       </div>
       <SchemaWorkOrderPanel createFeedback={createFeedback} recheckFeedback={recheckFeedback} />
-      <section aria-label="Schema recommendations" style={tableSectionStyle}>
+      <section aria-label="스키마 추천" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="schema-recommendation-heading" style={{ fontSize: 18, margin: 0 }}>
-              Recommendation queue
+              추천 대기열
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              {summary.totalRequiredFields} required JSON-LD fields are tracked; {summary.highPriority} recommendations are high priority.
+              필수 JSON-LD 필드 {summary.totalRequiredFields}개를 추적 중이며, 높은 우선순위 추천은 {summary.highPriority}개입니다.
             </p>
             {dashboard.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                API fallback: {dashboard.errorMessage}
+                API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
           </div>
@@ -95,7 +96,7 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
               color: dashboard.source === "api" ? "#047857" : "#3730a3"
             }}
           >
-            {dashboard.source === "api" ? "API data" : "Fixture data"}
+            {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div style={tableScrollStyle}>
@@ -103,19 +104,19 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
             <thead>
               <tr>
                 <th style={thStyle}>URL</th>
-                <th style={thStyle}>Type</th>
-                <th style={thStyle}>Priority</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Required fields</th>
-                <th style={thStyle}>Evidence</th>
-                <th style={thStyle}>Work order</th>
+                <th style={thStyle}>유형</th>
+                <th style={thStyle}>우선순위</th>
+                <th style={thStyle}>상태</th>
+                <th style={thStyle}>필수 필드</th>
+                <th style={thStyle}>근거</th>
+                <th style={thStyle}>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.recommendations.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ ...tdStyle, color: "#64748b" }}>
-                    No schema recommendations yet.
+                    아직 스키마 추천이 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -145,7 +146,7 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
                       </td>
                       <td style={tdStyle}>
                         <TonePill
-                          label={recommendation.status}
+                          label={formatSchemaRecommendationStatus(recommendation.status)}
                           tone={getSchemaRecommendationStatusTone(recommendation.status)}
                         />
                       </td>
@@ -155,26 +156,26 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
                       <td style={tdStyle}>
                         <span>{recommendation.reason}</span>
                         <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 5 }}>
-                          Observed: {recommendation.evidence.observedTypes.join(", ") || "none"}
+                          감지됨: {recommendation.evidence.observedTypes.join(", ") || "없음"}
                         </span>
                       </td>
                       <td style={tdStyle}>
                         {recommendation.status === "resolved" || recommendation.status === "dismissed" ? (
                           <span style={{ color: "#64748b" }}>
-                            {recommendation.status === "resolved" ? "Resolved" : "No action"}
+                            {recommendation.status === "resolved" ? "해결됨" : "조치 없음"}
                           </span>
                         ) : (
                           <span style={actionStackStyle}>
                             {recommendation.status === "open" ? (
                               <form action={createAction}>
                                 <button style={createButtonStyle} type="submit">
-                                  Create work order
+                                  작업 지시서 생성
                                 </button>
                               </form>
                             ) : null}
                             <form action={recheckAction}>
                               <button style={secondaryButtonStyle} type="submit">
-                                Recheck
+                                재검수
                               </button>
                             </form>
                           </span>
@@ -188,12 +189,12 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
           </table>
         </div>
       </section>
-      <section aria-label="JSON-LD draft preview" style={tableSectionStyle}>
+      <section aria-label="JSON-LD 초안 미리보기" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
-            <h3 style={{ fontSize: 18, margin: 0 }}>JSON-LD draft preview</h3>
+            <h3 style={{ fontSize: 18, margin: 0 }}>JSON-LD 초안 미리보기</h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              Deterministic drafts are preserved as implementation references for developers and content reviewers.
+              결정론적 초안은 개발자와 콘텐츠 검토자가 참고할 구현 자료로 보관됩니다.
             </p>
           </div>
         </header>
@@ -226,11 +227,11 @@ function SchemaWorkOrderPanel({
   readonly recheckFeedback: ReturnType<typeof getSchemaRecheckFeedback>;
 }) {
   return (
-    <section aria-label="Schema work order conversion" style={conversionPanelStyle}>
+    <section aria-label="스키마 작업 지시서 전환" style={conversionPanelStyle}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Convert to work order</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>작업 지시서로 전환</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          Open schema recommendations can be converted into deterministic implementation tasks.
+          열린 스키마 추천은 결정론적 구현 작업으로 전환할 수 있습니다.
         </p>
         {createFeedback ? (
           <p style={{ ...feedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>

@@ -32,9 +32,9 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
   return (
     <section aria-labelledby="site-overview-heading">
       <SectionHeader
-        description="Decision summary for crawl health, indexability, open issues, work orders, rechecks, and AI visibility placeholders."
-        eyebrow="Overview"
-        title="Site status summary"
+        description="크롤링 상태, 색인 가능성, 열린 이슈, 작업 지시서, 재검수, AI 검색 노출(GEO) 지표를 한눈에 확인합니다."
+        eyebrow="개요"
+        title="사이트 상태 요약"
       />
       <div style={metricGridStyle}>
         {kpiCards(kpis).map((card) => (
@@ -49,11 +49,10 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
       </div>
       <section style={{ border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 16, padding: 18 }}>
         <h3 id="site-overview-heading" style={{ fontSize: 18, margin: "0 0 8px" }}>
-          Next actions
+          다음 작업
         </h3>
         <p style={{ color: "#64748b", margin: "0 0 14px" }}>
-          {summary.activeWorkOrders} active work orders, {summary.openIssues} open issues, and{" "}
-          {summary.rechecksInReview} recheck in review.
+          열린 작업 지시서 {summary.activeWorkOrders}개, 열린 이슈 {summary.openIssues}개, 검수 중인 재검수 {summary.rechecksInReview}개가 있습니다.
         </p>
         <div
           style={{
@@ -62,15 +61,15 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
             gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))"
           }}
         >
-          <ActionLink href={getSiteDashboardPath(siteId, "issues")} label="Review SEO issues" />
-          <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="Open work board" />
-          <ActionLink href={getSiteDashboardPath(siteId, "crawls")} label="Check crawl history" />
-          <ActionLink href={getSiteDashboardPath(siteId, "connectors")} label="View connector syncs" />
+          <ActionLink href={getSiteDashboardPath(siteId, "issues")} label="SEO 이슈 검토" />
+          <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="작업 보드 열기" />
+          <ActionLink href={getSiteDashboardPath(siteId, "crawls")} label="크롤링 이력 확인" />
+          <ActionLink href={getSiteDashboardPath(siteId, "connectors")} label="커넥터 동기화 보기" />
         </div>
       </section>
       <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
       <p style={{ color: "#64748b", fontSize: 13, marginTop: 14 }}>
-        KPI values use deterministic dashboard fixtures until live API fetching is wired.
+        실시간 API 조회가 연결되기 전까지 KPI 값은 결정론적 데모 데이터를 사용합니다.
       </p>
     </section>
   );
@@ -84,10 +83,10 @@ function WorkOrderSummaryBand({
   readonly summary: ReturnType<typeof summarizeWorkOrders>;
 }) {
   const stats = [
-    { label: "Active", value: summary.active },
-    { label: "Urgent", value: summary.urgent },
-    { label: "In review", value: summary.inReview },
-    { label: "Blocked", value: summary.blocked }
+    { label: "진행 대상", value: summary.active },
+    { label: "긴급", value: summary.urgent },
+    { label: "검수 중", value: summary.inReview },
+    { label: "차단됨", value: summary.blocked }
   ] as const;
 
   return (
@@ -105,13 +104,13 @@ function WorkOrderSummaryBand({
       >
         <div>
           <h3 id="work-order-summary-heading" style={{ fontSize: 18, margin: "0 0 6px" }}>
-            Work order summary
+            작업 지시서 요약
           </h3>
           <p style={{ color: "#64748b", margin: 0 }}>
-            Overview stays decision-only; the full Kanban and list views live on the work board.
+            개요 화면은 판단에 필요한 요약만 보여주며, 전체 칸반과 목록은 작업 보드에서 관리합니다.
           </p>
         </div>
-        <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="Open work board" />
+        <ActionLink href={getSiteDashboardPath(siteId, "workorders")} label="작업 보드 열기" />
       </div>
       <dl
         style={{
@@ -135,51 +134,51 @@ function WorkOrderSummaryBand({
 function kpiCards(kpis: SiteOverviewKpis) {
   return [
     {
-      label: "Crawl success rate",
+      label: "크롤링 성공률",
       value: kpis.crawlSuccessRate,
-      detail: "Completed crawl runs across recent attempts.",
+      detail: "최근 시도 중 완료된 크롤링 실행 비율입니다.",
       tone: "positive"
     },
     {
-      label: "Indexable URL ratio",
+      label: "색인 가능 URL 비율",
       value: kpis.indexableUrlRatio,
-      detail: "URLs currently eligible for indexing.",
+      detail: "현재 색인 대상이 될 수 있는 URL 비율입니다.",
       tone: "positive"
     },
     {
-      label: "Critical issue count",
+      label: "긴급 이슈 수",
       value: kpis.criticalIssueCount,
-      detail: "Open P0/P1 issues that need attention.",
+      detail: "우선 확인이 필요한 열린 P0/P1 이슈 수입니다.",
       tone: "risk"
     },
     {
-      label: "Work order completion",
+      label: "작업 지시서 완료율",
       value: kpis.workOrderCompletionRate,
-      detail: "Closed work orders out of all generated tasks.",
+      detail: "생성된 작업 지시서 중 완료된 비율입니다.",
       tone: "neutral"
     },
     {
-      label: "Resolved issue rate",
+      label: "해결 이슈 비율",
       value: kpis.resolvedIssueRate,
-      detail: "Issues verified as resolved after recheck.",
+      detail: "재검수 후 해결됨으로 확인된 이슈 비율입니다.",
       tone: "neutral"
     },
     {
-      label: "Non-brand query coverage",
+      label: "비브랜드 쿼리 커버리지",
       value: kpis.nonBrandQueryCoverage,
-      detail: "Placeholder until AEO/GEO query coverage lands.",
+      detail: "AEO/GEO 쿼리 커버리지 연결 전까지의 자리표시자입니다.",
       tone: "placeholder"
     },
     {
-      label: "AI mention rate",
+      label: "AI 언급률",
       value: kpis.aiMentionRate,
-      detail: "Placeholder for AI answer brand mentions.",
+      detail: "AI 답변 내 브랜드 언급률 자리표시자입니다.",
       tone: "placeholder"
     },
     {
-      label: "AI citation rate",
+      label: "AI 인용률",
       value: kpis.aiCitationRate,
-      detail: "Placeholder for AI answer URL citations.",
+      detail: "AI 답변 내 URL 인용률 자리표시자입니다.",
       tone: "placeholder"
     }
   ] as const;

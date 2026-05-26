@@ -36,19 +36,19 @@ export const demoCrawlRunRows: CrawlRunRow[] = [
     status: "failed",
     startedAt: "2026-05-20T09:00:00.000Z",
     endedAt: "2026-05-20T09:00:34.000Z",
-    label: "Manual recheck",
+    label: "수동 재검수",
     pagesCrawled: 1,
     urlsDiscovered: 1,
     issuesFound: 0,
     durationSeconds: 34,
-    failureReason: "Start URL returned 503"
+    failureReason: "시작 URL이 503을 반환했습니다"
   }),
   createCrawlRunRow({
     id: "crawl_demo_004",
     status: "completed",
     startedAt: "2026-05-19T09:00:00.000Z",
     endedAt: "2026-05-19T09:04:12.000Z",
-    label: "Scheduled crawl",
+    label: "예약 크롤링",
     pagesCrawled: 8,
     urlsDiscovered: 8,
     issuesFound: 5,
@@ -60,7 +60,7 @@ export const demoCrawlRunRows: CrawlRunRow[] = [
     status: "completed",
     startedAt: "2026-05-18T09:00:00.000Z",
     endedAt: "2026-05-18T09:03:50.000Z",
-    label: "Scheduled crawl",
+    label: "예약 크롤링",
     pagesCrawled: 8,
     urlsDiscovered: 8,
     issuesFound: 6,
@@ -72,7 +72,7 @@ export const demoCrawlRunRows: CrawlRunRow[] = [
     status: "completed",
     startedAt: "2026-05-17T09:00:00.000Z",
     endedAt: "2026-05-17T09:03:44.000Z",
-    label: "Scheduled crawl",
+    label: "예약 크롤링",
     pagesCrawled: 7,
     urlsDiscovered: 8,
     issuesFound: 7,
@@ -84,7 +84,7 @@ export const demoCrawlRunRows: CrawlRunRow[] = [
     status: "completed",
     startedAt: "2026-05-16T09:00:00.000Z",
     endedAt: "2026-05-16T09:03:31.000Z",
-    label: "Initial crawl",
+    label: "초기 크롤링",
     pagesCrawled: 7,
     urlsDiscovered: 7,
     issuesFound: 8,
@@ -97,74 +97,74 @@ export const demoUrlInventoryRows: UrlInventoryRow[] = [
   createUrlInventoryRow({
     id: "url_demo_home",
     path: "/",
-    title: "Example Clinic",
+    title: "예시 클리닉",
     metaDescription: null,
     indexable: true,
     issueCount: 1,
-    primarySignal: "Missing meta description"
+    primarySignal: "meta description 누락"
   }),
   createUrlInventoryRow({
     id: "url_demo_service",
     path: "/service/seo",
     title: null,
-    metaDescription: "SEO service overview",
+    metaDescription: "SEO 서비스 개요",
     indexable: true,
     issueCount: 2,
-    primarySignal: "Missing title and H1"
+    primarySignal: "title 및 H1 누락"
   }),
   createUrlInventoryRow({
     id: "url_demo_about",
     path: "/about",
-    title: "About Example Clinic",
-    metaDescription: "Clinic team profile",
+    title: "예시 클리닉 소개",
+    metaDescription: "클리닉 팀 소개",
     indexable: true,
     issueCount: 1,
-    primarySignal: "Images missing alt text"
+    primarySignal: "이미지 alt 텍스트 누락"
   }),
   createUrlInventoryRow({
     id: "url_demo_blog",
     path: "/blog/seo-basics",
-    title: "SEO basics",
-    metaDescription: "Introductory SEO article",
+    title: "SEO 기본 가이드",
+    metaDescription: "SEO 입문 글",
     indexable: true,
     issueCount: 1,
-    primarySignal: "Canonical fixed"
+    primarySignal: "캐노니컬 수정됨"
   }),
   createUrlInventoryRow({
     id: "url_demo_team",
     path: "/team",
-    title: "Medical team",
-    metaDescription: "Team listing",
+    title: "의료진",
+    metaDescription: "팀 목록",
     indexable: true,
     issueCount: 0,
-    primarySignal: "Clean"
+    primarySignal: "정상"
   }),
   createUrlInventoryRow({
     id: "url_demo_contact",
     path: "/contact",
-    title: "Contact",
-    metaDescription: "Contact information",
+    title: "문의",
+    metaDescription: "문의 정보",
     indexable: true,
     issueCount: 0,
-    primarySignal: "Clean"
+    primarySignal: "정상"
   }),
   createUrlInventoryRow({
     id: "url_demo_draft",
     path: "/draft",
-    title: "Draft landing page",
+    title: "초안 랜딩 페이지",
     metaDescription: null,
     indexable: false,
     issueCount: 0,
-    primarySignal: "Noindex draft"
+    primarySignal: "noindex 초안"
   }),
   createUrlInventoryRow({
     id: "url_demo_thanks",
     path: "/thanks",
-    title: "Thank you",
+    title: "감사 페이지",
     metaDescription: null,
     indexable: false,
     issueCount: 0,
-    primarySignal: "Noindex utility page"
+    primarySignal: "noindex 유틸리티 페이지"
   })
 ];
 
@@ -174,7 +174,7 @@ export const demoIssueListRows: IssueListRow[] = [
     ruleId: "TITLE_MISSING",
     severity: "high",
     status: "open",
-    title: "Missing title tag",
+    title: "title 태그 누락",
     url: "https://example-clinic.com/service/seo",
     category: "metadata",
     priority: "p0",
@@ -185,7 +185,7 @@ export const demoIssueListRows: IssueListRow[] = [
     ruleId: "H1_MISSING",
     severity: "high",
     status: "open",
-    title: "Missing H1",
+    title: "H1 누락",
     url: "https://example-clinic.com/service/seo",
     category: "headings",
     priority: "p1",
@@ -196,7 +196,7 @@ export const demoIssueListRows: IssueListRow[] = [
     ruleId: "META_DESC_MISSING",
     severity: "medium",
     status: "in_review",
-    title: "Missing meta description",
+    title: "meta description 누락",
     url: "https://example-clinic.com/",
     category: "metadata",
     priority: "p2",
@@ -207,7 +207,7 @@ export const demoIssueListRows: IssueListRow[] = [
     ruleId: "IMAGE_ALT_MISSING",
     severity: "low",
     status: "open",
-    title: "Images missing alt text",
+    title: "이미지 alt 텍스트 누락",
     url: "https://example-clinic.com/about",
     category: "images",
     priority: "p3",
@@ -218,7 +218,7 @@ export const demoIssueListRows: IssueListRow[] = [
     ruleId: "CANONICAL_MISSING",
     severity: "medium",
     status: "resolved",
-    title: "Canonical URL added",
+    title: "canonical URL 추가됨",
     url: "https://example-clinic.com/blog/seo-basics",
     category: "canonical",
     priority: "p2",
@@ -258,7 +258,7 @@ export function summarizeIssues(issues: readonly IssueListRow[]) {
 
 export function formatDuration(seconds: number | null) {
   if (seconds === null) {
-    return "Pending";
+    return "대기 중";
   }
 
   const minutes = Math.floor(seconds / 60);
@@ -272,7 +272,7 @@ export function formatDuration(seconds: number | null) {
 }
 
 export function formatDateTime(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "Pending";
+  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
 }
 
 export function getCrawlRunTone(status: string): CrawlRunTone {
@@ -319,7 +319,7 @@ function createUrlInventoryRow(
     statusCode: 200,
     createdAt: "2026-05-19T09:04:12.000Z",
     indexability: input.indexable ? "indexable" : "not_indexable",
-    indexabilityReason: input.indexable ? "Allowed for indexing" : "Excluded by noindex policy"
+    indexabilityReason: input.indexable ? "색인 허용" : "noindex 정책으로 제외"
   };
 }
 

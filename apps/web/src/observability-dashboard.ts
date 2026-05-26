@@ -51,13 +51,13 @@ export const demoOperationalMetricsExport = OperationalMetricsExportResponseSche
   alerts: [
     {
       id: "api_5xx_responses",
-      message: "API returned 4 5xx responses during this process lifetime",
+      message: "현재 프로세스 실행 중 API 5xx 응답이 4건 발생했습니다",
       severity: "critical",
       source: "api",
     },
     {
       id: "worker_dead_letter_jobs",
-      message: "Worker dead-letter queues contain 2 jobs",
+      message: "워커 실패 작업 큐에 작업 2건이 있습니다",
       severity: "warning",
       source: "worker",
     },
@@ -75,7 +75,7 @@ export async function loadObservabilityDashboard(): Promise<ObservabilityDashboa
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(`Observability metrics request failed with ${response.status}`);
+      throw new Error(`운영 지표 요청 실패: ${response.status}`);
     }
 
     const metrics = OperationalMetricsExportResponseSchema.parse(await response.json());
@@ -90,7 +90,7 @@ export async function loadObservabilityDashboard(): Promise<ObservabilityDashboa
     return {
       ...fallback,
       errorMessage:
-        error instanceof Error ? error.message : "Observability metrics request failed",
+        error instanceof Error ? error.message : "운영 지표 요청에 실패했습니다",
     };
   }
 }
@@ -125,11 +125,30 @@ export function formatOperationalDate(isoDate: string) {
   return isoDate.replace("T", " ").slice(0, 16);
 }
 
+export function formatOperationalSeverity(severity: string) {
+  const labels: Record<string, string> = {
+    critical: "긴급",
+    info: "정보",
+    warning: "주의"
+  };
+
+  return labels[severity] ?? severity;
+}
+
+export function formatOperationalSource(source: string) {
+  const labels: Record<string, string> = {
+    api: "API",
+    worker: "워커"
+  };
+
+  return labels[source] ?? source;
+}
+
 export function formatUptime(seconds: number) {
   const roundedSeconds = Math.round(seconds);
   const minutes = Math.floor(roundedSeconds / 60);
   const remainingSeconds = roundedSeconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
+  return `${minutes}분 ${remainingSeconds}초`;
 }
 
 function countStatuses(byStatus: Record<string, number>, minStatus: number, maxStatus: number) {

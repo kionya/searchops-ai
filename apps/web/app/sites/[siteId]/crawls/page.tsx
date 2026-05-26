@@ -14,6 +14,7 @@ import {
   tdStyle,
   thStyle
 } from "../../../../src/dashboard-table-styles";
+import { formatStatusLabel } from "../../../../src/korean-labels";
 import {
   demoCrawlRunRows,
   formatDateTime,
@@ -28,40 +29,40 @@ export default function CrawlsPage() {
   return (
     <section aria-labelledby="crawl-history-heading">
       <SectionHeader
-        description="Run status, page counts, failure reason, and the latest deterministic recheck attempt."
-        eyebrow="Crawl Runs"
-        title="Crawl history"
+        description="실행 상태, 페이지 수, 실패 사유, 최근 결정론적 재검수 시도를 확인합니다."
+        eyebrow="크롤링 실행"
+        title="크롤링 이력"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Total runs" value={String(summary.total)} />
-        <MetricCard label="Completed" value={String(summary.completed)} />
-        <MetricCard label="Failed" value={String(summary.failed)} />
-        <MetricCard label="Pages crawled" value={String(summary.pagesCrawled)} />
+        <MetricCard label="총 실행" value={String(summary.total)} />
+        <MetricCard label="완료" value={String(summary.completed)} />
+        <MetricCard label="실패" value={String(summary.failed)} />
+        <MetricCard label="크롤링 페이지" value={String(summary.pagesCrawled)} />
       </div>
-      <section aria-label="Recent crawl runs" style={tableSectionStyle}>
+      <section aria-label="최근 크롤링 실행" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="crawl-history-heading" style={{ fontSize: 18, margin: 0 }}>
-              Recent crawl runs
+              최근 크롤링 실행
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              Latest status: {summary.latestStatus}
+              최근 상태: {formatStatusLabel(summary.latestStatus)}
             </p>
           </div>
-          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>Fixture data</span>
+          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>데모 데이터</span>
         </header>
         <div style={tableScrollStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={thStyle}>Run</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Started</th>
-                <th style={thStyle}>Duration</th>
-                <th style={thStyle}>Pages</th>
+                <th style={thStyle}>실행</th>
+                <th style={thStyle}>상태</th>
+                <th style={thStyle}>시작</th>
+                <th style={thStyle}>소요 시간</th>
+                <th style={thStyle}>페이지</th>
                 <th style={thStyle}>URLs</th>
-                <th style={thStyle}>Issues</th>
-                <th style={thStyle}>Failure</th>
+                <th style={thStyle}>이슈</th>
+                <th style={thStyle}>실패 사유</th>
               </tr>
             </thead>
             <tbody>
@@ -74,7 +75,7 @@ export default function CrawlsPage() {
                     </span>
                   </td>
                   <td style={tdStyle}>
-                    <StatusPill label={crawlRun.status} tone={getCrawlRunTone(crawlRun.status)} />
+                    <StatusPill label={formatStatusLabel(crawlRun.status)} tone={getCrawlRunTone(crawlRun.status)} />
                   </td>
                   <td style={tdStyle}>{formatDateTime(crawlRun.startedAt)}</td>
                   <td style={tdStyle}>{formatDuration(crawlRun.durationSeconds)}</td>
@@ -82,7 +83,7 @@ export default function CrawlsPage() {
                   <td style={tdStyle}>{crawlRun.urlsDiscovered}</td>
                   <td style={tdStyle}>{crawlRun.issuesFound}</td>
                   <td style={{ ...tdStyle, color: crawlRun.failureReason ? "#b91c1c" : "#64748b" }}>
-                    {crawlRun.failureReason ?? "None"}
+                    {crawlRun.failureReason ?? "없음"}
                   </td>
                 </tr>
               ))}

@@ -17,6 +17,7 @@ import {
   tdStyle,
   thStyle,
 } from "../../../src/dashboard-table-styles";
+import { formatStatusLabel } from "../../../src/korean-labels";
 import {
   formatDeadLetterDate,
   getDeadLetterClearFeedback,
@@ -43,32 +44,32 @@ export default async function DeadLetterOperationsPage({
   return (
     <main style={pageStyle}>
       <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        Back to sites
+        사이트 목록으로
       </Link>
-      <section aria-labelledby="dead-letter-heading" style={{ marginTop: 18 }}>
+      <section aria-labelledby="실패 작업-heading" style={{ marginTop: 18 }}>
         <SectionHeader
-          description="Failed worker job metadata across crawl, connector, GEO, and schema validation queues."
-          eyebrow="Operations"
-          title="Dead-letter jobs"
+          description="크롤링, 커넥터, GEO, 스키마 검증 큐에서 실패한 워커 작업 메타데이터를 확인합니다."
+          eyebrow="운영"
+          title="실패 작업 관리"
         />
         <div style={metricGridStyle}>
-          <MetricCard label="Dead-letter entries" value={String(operations.summary.total)} />
-          <MetricCard label="Queues affected" value={String(operations.summary.queueCount)} />
-          <MetricCard label="Waiting" value={String(operations.summary.waiting)} />
-          <MetricCard label="Failed entries" value={String(operations.summary.failed)} />
+          <MetricCard label="실패 작업 항목" value={String(operations.summary.total)} />
+          <MetricCard label="영향받은 큐" value={String(operations.summary.queueCount)} />
+          <MetricCard label="대기 중" value={String(operations.summary.waiting)} />
+          <MetricCard label="실패 항목" value={String(operations.summary.failed)} />
         </div>
-        <section aria-label="Dead-letter status" style={tableSectionStyle}>
+        <section aria-label="실패 작업 상태" style={tableSectionStyle}>
           <header style={tableHeaderStyle}>
             <div>
-              <h3 id="dead-letter-heading" style={{ fontSize: 18, margin: 0 }}>
-                Worker failure queue
+              <h3 id="실패 작업-heading" style={{ fontSize: 18, margin: 0 }}>
+                워커 실패 큐
               </h3>
               <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-                Latest failure: {formatDeadLetterDate(operations.summary.latestFailure)}
+                최근 실패: {formatDeadLetterDate(operations.summary.latestFailure)}
               </p>
               {operations.errorMessage ? (
                 <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                  API fallback: {operations.errorMessage}
+                  API 연결 실패: {operations.errorMessage}
                 </p>
               ) : null}
               {feedback ? (
@@ -84,20 +85,20 @@ export default async function DeadLetterOperationsPage({
                 color: operations.source === "api" ? "#047857" : "#3730a3",
               }}
             >
-              {operations.source === "api" ? "API data" : "Fixture data"}
+              {operations.source === "api" ? "API 데이터" : "데모 데이터"}
             </span>
           </header>
           <div style={tableScrollStyle}>
             <table style={{ ...tableStyle, minWidth: 1040 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>Original job</th>
-                  <th style={thStyle}>Status</th>
-                  <th style={thStyle}>Original queue</th>
-                  <th style={thStyle}>Attempts</th>
-                  <th style={thStyle}>Failed at</th>
-                  <th style={thStyle}>Reason</th>
-                  <th style={thStyle}>Operation</th>
+                  <th style={thStyle}>원본 작업</th>
+                  <th style={thStyle}>상태</th>
+                  <th style={thStyle}>원본 큐</th>
+                  <th style={thStyle}>시도 횟수</th>
+                  <th style={thStyle}>실패 시각</th>
+                  <th style={thStyle}>사유</th>
+                  <th style={thStyle}>작업</th>
                 </tr>
               </thead>
               <tbody>
@@ -106,15 +107,15 @@ export default async function DeadLetterOperationsPage({
                     <td style={tdStyle}>
                       <strong>{job.payload.originalJobName}</strong>
                       <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
-                        {job.payload.originalJobId ?? "unknown original id"}
+                        {job.payload.originalJobId ?? "알 수 없는 원본 ID"}
                       </span>
                       <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
-                        dead-letter {job.jobId ?? "unknown"}
+                        실패 작업 {job.jobId ?? "알 수 없음"}
                       </span>
                     </td>
                     <td style={tdStyle}>
                       <DeadLetterStatusPill
-                        label={job.status}
+                        label={formatStatusLabel(job.status)}
                         tone={getDeadLetterStatusTone(job.status)}
                       />
                     </td>
@@ -126,7 +127,7 @@ export default async function DeadLetterOperationsPage({
                       <form action={clearDeadLetterJobAction}>
                         <input name="id" type="hidden" value={job.id} />
                         <button style={clearButtonStyle} type="submit">
-                          Clear
+                          정리
                         </button>
                       </form>
                     </td>

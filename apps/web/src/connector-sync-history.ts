@@ -144,7 +144,7 @@ export const demoConnectorSyncResults: ConnectorSyncResult[] = [
       {
         provider: "gsc",
         siteUrl: "https://example-clinic.com/",
-        query: "seo clinic",
+        query: "SEO 클리닉",
         page: "https://example-clinic.com/service/seo",
         country: "KR",
         device: "mobile",
@@ -219,7 +219,7 @@ export const demoConnectorSyncResults: ConnectorSyncResult[] = [
         cmsType: "headless",
         externalId: "page_service_seo",
         url: "https://example-clinic.com/service/seo",
-        title: "SEO service page",
+        title: "SEO 서비스 페이지",
         status: "published",
         updatedAt: "2026-05-20T06:30:00.000Z"
       }
@@ -285,7 +285,7 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
       cache: "no-store"
     });
     if (!listResponse.ok) {
-      throw new Error(`Connector sync history request failed with ${listResponse.status}`);
+      throw new Error(`커넥터 동기화 이력 요청 실패: ${listResponse.status}`);
     }
 
     const list = ConnectorSyncRunListResponseSchema.parse(await listResponse.json());
@@ -295,7 +295,7 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
           cache: "no-store"
         });
         if (!detailResponse.ok) {
-          throw new Error(`Connector sync detail request failed with ${detailResponse.status}`);
+          throw new Error(`커넥터 동기화 상세 요청 실패: ${detailResponse.status}`);
         }
 
         return ConnectorSyncRunDetailResponseSchema.parse(await detailResponse.json());
@@ -312,7 +312,7 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
     const fallback = createDemoConnectorSyncHistory(siteId);
     return {
       ...fallback,
-      errorMessage: error instanceof Error ? error.message : "Connector sync history request failed"
+      errorMessage: error instanceof Error ? error.message : "커넥터 동기화 이력 요청에 실패했습니다"
     };
   }
 }
@@ -344,7 +344,7 @@ export async function triggerConnectorSync(
       method: "POST"
     });
     if (!response.ok) {
-      throw new Error(`Connector sync trigger failed with ${response.status}`);
+      throw new Error(`커넥터 동기화 실행 요청 실패: ${response.status}`);
     }
 
     const output = CreateConnectorSyncRunResponseSchema.parse(await response.json());
@@ -359,7 +359,7 @@ export async function triggerConnectorSync(
   } catch (error) {
     return {
       connectorSyncRunId: null,
-      errorMessage: error instanceof Error ? error.message : "Connector sync trigger failed",
+      errorMessage: error instanceof Error ? error.message : "커넥터 동기화 실행 요청에 실패했습니다",
       jobId: null,
       providers: input.providers,
       source: "api",
@@ -387,21 +387,21 @@ export function getConnectorSyncTriggerFeedback(
 ): ConnectorSyncTriggerFeedback | null {
   if (status === "queued") {
     return {
-      message: runId ? `Connector sync queued: ${runId}` : "Connector sync queued.",
+      message: runId ? `커넥터 동기화가 대기열에 등록되었습니다: ${runId}` : "커넥터 동기화가 대기열에 등록되었습니다.",
       tone: "success"
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: set SEARCHOPS_API_BASE_URL to queue a real connector sync job.",
+      message: "데모 데이터 모드: 실제 커넥터 동기화 작업을 대기열에 넣으려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info"
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Connector sync request failed. Check the API server and retry.",
+      message: "커넥터 동기화 요청에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning"
     };
   }
@@ -481,7 +481,7 @@ export function formatConnectorProviders(providers: readonly ConnectorProvider[]
 
 export function formatSyncDuration(startedAt: string, endedAt: string | null) {
   if (endedAt === null) {
-    return "Pending";
+    return "대기 중";
   }
 
   const seconds = Math.max(0, Math.round((Date.parse(endedAt) - Date.parse(startedAt)) / 1000));

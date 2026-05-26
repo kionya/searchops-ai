@@ -20,6 +20,7 @@ import {
 import {
   formatComplianceDate,
   formatComplianceRisk,
+  formatComplianceStatus,
   getComplianceReviewCreateFeedback,
   getComplianceRiskTone,
   getComplianceRecheckFeedback,
@@ -78,15 +79,15 @@ export default async function CompliancePage({ params, searchParams }: Complianc
   return (
     <section aria-labelledby="compliance-heading">
       <SectionHeader
-        description="Deterministic medical advertising risk flags with draft-only publishing safeguards and legal review workflow."
-        eyebrow="Compliance"
-        title="Medical ad risk flags"
+        description="의료광고 리스크 플래그를 결정론적으로 감지하고 초안 전용 게시 보호와 법무 검토 흐름을 제공합니다."
+        eyebrow="컴플라이언스"
+        title="의료광고 리스크 플래그"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Flags" value={String(summary.total)} />
-        <MetricCard label="Open" value={String(summary.open)} />
-        <MetricCard label="Blocked risk" value={String(summary.blocked)} />
-        <MetricCard label="Approved" value={String(summary.approved)} />
+        <MetricCard label="플래그" value={String(summary.total)} />
+        <MetricCard label="열림" value={String(summary.open)} />
+        <MetricCard label="차단 리스크" value={String(summary.blocked)} />
+        <MetricCard label="승인됨" value={String(summary.approved)} />
       </div>
       <ComplianceCreatePanel
         createFeedback={createFeedback}
@@ -95,18 +96,18 @@ export default async function CompliancePage({ params, searchParams }: Complianc
         statusFeedback={statusFeedback}
         workOrderFeedback={workOrderFeedback}
       />
-      <section aria-label="Compliance flags" style={tableSectionStyle}>
+      <section aria-label="컴플라이언스 플래그" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="compliance-heading" style={{ fontSize: 18, margin: 0 }}>
-              Flag history
+              플래그 이력
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              {summary.open} open flags need legal review before medical content can publish.
+              열린 플래그 {summary.open}개는 의료 콘텐츠 게시 전 법무 검토가 필요합니다.
             </p>
             {dashboard.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                API fallback: {dashboard.errorMessage}
+                API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
           </div>
@@ -117,27 +118,27 @@ export default async function CompliancePage({ params, searchParams }: Complianc
               color: dashboard.source === "api" ? "#047857" : "#3730a3"
             }}
           >
-            {dashboard.source === "api" ? "API data" : "Fixture data"}
+            {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div style={tableScrollStyle}>
           <table style={{ ...tableStyle, minWidth: 1120 }}>
             <thead>
               <tr>
-                <th style={thStyle}>Flag</th>
-                <th style={thStyle}>Risk</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Evidence</th>
-                <th style={thStyle}>Recommendation</th>
-                <th style={thStyle}>Review</th>
-                <th style={thStyle}>Work order</th>
+                <th style={thStyle}>플래그</th>
+                <th style={thStyle}>리스크</th>
+                <th style={thStyle}>상태</th>
+                <th style={thStyle}>근거</th>
+                <th style={thStyle}>권장 조치</th>
+                <th style={thStyle}>검토</th>
+                <th style={thStyle}>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.flags.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ ...tdStyle, color: "#64748b" }}>
-                    No compliance flags yet.
+                    아직 컴플라이언스 플래그가 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -164,7 +165,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                   return (
                     <tr key={flag.id}>
                       <td style={tdStyle}>
-                        <strong>{flag.title ?? flag.ruleId ?? "Compliance flag"}</strong>
+                        <strong>{flag.title ?? flag.ruleId ?? "컴플라이언스 플래그"}</strong>
                         <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
                           {flag.id} - {formatComplianceDate(flag.createdAt)}
                         </span>
@@ -180,28 +181,28 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                           tone={getComplianceRiskTone(flag.riskLevel)}
                         />
                       </td>
-                      <td style={tdStyle}>{flag.status}</td>
+                      <td style={tdStyle}>{formatComplianceStatus(flag.status)}</td>
                       <td style={{ ...tdStyle, maxWidth: 260 }}>
                         {flag.evidence?.excerpt ?? flag.message}
                       </td>
                       <td style={{ ...tdStyle, maxWidth: 280 }}>
-                        {flag.recommendation ?? "Route to legal review."}
+                        {flag.recommendation ?? "법무 검토로 전달하세요."}
                       </td>
                       <td style={tdStyle}>
                         <div style={buttonRowStyle}>
                           <form action={approveAction}>
                             <button style={secondaryButtonStyle} type="submit">
-                              Approve
+                              승인
                             </button>
                           </form>
                           <form action={dismissAction}>
                             <button style={secondaryButtonStyle} type="submit">
-                              Dismiss
+                              기각
                             </button>
                           </form>
                           <form action={recheckAction}>
                             <button style={secondaryButtonStyle} type="submit">
-                              Recheck
+                              재검수
                             </button>
                           </form>
                         </div>
@@ -214,7 +215,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                         ) : (
                           <form action={workOrderAction}>
                             <button style={secondaryButtonStyle} type="submit">
-                              Create task
+                              작업 생성
                             </button>
                           </form>
                         )}
@@ -247,11 +248,11 @@ function ComplianceCreatePanel({
   const action = createComplianceReviewAction.bind(null, siteId);
 
   return (
-    <section aria-label="Create compliance review" style={createPanelStyle}>
+    <section aria-label="컴플라이언스 검토 생성" style={createPanelStyle}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Run compliance review</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>컴플라이언스 검토 실행</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          Store deterministic medical ad flags from fixture review copy.
+          데모 검토 문구에서 결정론적 의료광고 플래그를 저장합니다.
         </p>
         {[createFeedback, workOrderFeedback, statusFeedback, recheckFeedback].map((feedback) =>
           feedback ? (
@@ -263,7 +264,7 @@ function ComplianceCreatePanel({
       </div>
       <form action={action}>
         <button style={createButtonStyle} type="submit">
-          Run review
+          검토 실행
         </button>
       </form>
     </section>

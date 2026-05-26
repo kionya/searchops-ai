@@ -16,7 +16,10 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import {
   formatContentBriefDate,
+  formatContentBriefGenerationMode,
   formatContentBriefIntent,
+  formatContentBriefPublishPolicy,
+  formatContentBriefStatus,
   getContentBriefCreateFeedback,
   getContentBriefStatusTone,
   loadContentBriefHistory,
@@ -65,33 +68,33 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
   return (
     <section aria-labelledby="content-brief-history-heading">
       <SectionHeader
-        description="Deterministic draft-only content briefs generated from Keyword/AEO signals and persisted for human review."
-        eyebrow="Content Briefs"
-        title="Content brief history"
+        description="키워드/AEO 신호로 생성되고 사람 검토를 위해 저장되는 결정론적 초안 전용 콘텐츠 브리프입니다."
+        eyebrow="콘텐츠 브리프"
+        title="콘텐츠 브리프 이력"
       />
       <div style={metricGridStyle}>
-        <MetricCard label="Briefs" value={String(summary.total)} />
-        <MetricCard label="Drafts" value={String(summary.draft)} />
-        <MetricCard label="FAQ questions" value={String(summary.totalFaqQuestions)} />
-        <MetricCard label="Archived" value={String(summary.archived)} />
+        <MetricCard label="브리프" value={String(summary.total)} />
+        <MetricCard label="초안" value={String(summary.draft)} />
+        <MetricCard label="FAQ 질문" value={String(summary.totalFaqQuestions)} />
+        <MetricCard label="보관됨" value={String(summary.archived)} />
       </div>
       <KeywordAeoReadinessPanel
         dashboard={keywordAeoDashboard}
         summary={keywordAeoSummary}
       />
       <ContentBriefCreatePanel siteId={siteId} createFeedback={createFeedback} />
-      <section aria-label="Content brief records" style={tableSectionStyle}>
+      <section aria-label="콘텐츠 브리프 기록" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
             <h3 id="content-brief-history-heading" style={{ fontSize: 18, margin: 0 }}>
-              Recent content briefs
+              최근 콘텐츠 브리프
             </h3>
             <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-              Latest created: {formatContentBriefDate(summary.latestCreatedAt)}. All generated briefs stay draft-only.
+              최근 생성: {formatContentBriefDate(summary.latestCreatedAt)}. 생성된 모든 브리프는 초안 전용으로 유지됩니다.
             </p>
             {history.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                API fallback: {history.errorMessage}
+                API 연결 실패: {history.errorMessage}
               </p>
             ) : null}
           </div>
@@ -102,26 +105,26 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
               color: history.source === "api" ? "#047857" : "#3730a3"
             }}
           >
-            {history.source === "api" ? "API data" : "Fixture data"}
+            {history.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div style={tableScrollStyle}>
           <table style={{ ...tableStyle, minWidth: 940 }}>
             <thead>
               <tr>
-                <th style={thStyle}>Brief</th>
-                <th style={thStyle}>Keyword</th>
-                <th style={thStyle}>Intent</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Created</th>
-                <th style={thStyle}>Output</th>
+                <th style={thStyle}>브리프</th>
+                <th style={thStyle}>키워드</th>
+                <th style={thStyle}>의도</th>
+                <th style={thStyle}>상태</th>
+                <th style={thStyle}>생성일</th>
+                <th style={thStyle}>산출물</th>
               </tr>
             </thead>
             <tbody>
               {history.briefs.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
-                    No content briefs yet.
+                    아직 콘텐츠 브리프가 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -141,13 +144,13 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
                     </td>
                     <td style={tdStyle}>{formatContentBriefIntent(brief.intent)}</td>
                     <td style={tdStyle}>
-                      <StatusPill label={brief.status} tone={getContentBriefStatusTone(brief.status)} />
+                      <StatusPill label={formatContentBriefStatus(brief.status)} tone={getContentBriefStatusTone(brief.status)} />
                     </td>
                     <td style={tdStyle}>{formatContentBriefDate(brief.createdAt)}</td>
                     <td style={tdStyle}>
-                      {brief.outline?.length ?? 0} sections, {brief.faqQuestions.length} FAQs
+                      섹션 {brief.outline?.length ?? 0}개, FAQ {brief.faqQuestions.length}개
                       <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                        {brief.generationMode}; {brief.publishPolicy}
+                        {formatContentBriefGenerationMode(brief.generationMode)}; {formatContentBriefPublishPolicy(brief.publishPolicy)}
                       </span>
                     </td>
                   </tr>
@@ -169,16 +172,16 @@ function KeywordAeoReadinessPanel({
   readonly summary: ReturnType<typeof summarizeKeywordAeoDashboard>;
 }) {
   return (
-    <section aria-label="Keyword AEO readiness" style={tableSectionStyle}>
+    <section aria-label="키워드/AEO 준비도" style={tableSectionStyle}>
       <header style={tableHeaderStyle}>
         <div>
-          <h3 style={{ fontSize: 18, margin: 0 }}>Keyword/AEO readiness</h3>
+          <h3 style={{ fontSize: 18, margin: 0 }}>키워드/AEO 준비도</h3>
           <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-            Deterministic readiness snapshot for target keywords, answer blocks, FAQ schema, citations, and content depth.
+            타깃 키워드, 답변 블록, FAQ 스키마, 인용, 콘텐츠 깊이를 기준으로 한 결정론적 준비도 진단입니다.
           </p>
           {dashboard.errorMessage ? (
             <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-              API fallback: {dashboard.errorMessage}
+              API 연결 실패: {dashboard.errorMessage}
             </p>
           ) : null}
         </div>
@@ -189,32 +192,32 @@ function KeywordAeoReadinessPanel({
             color: dashboard.source === "api" ? "#047857" : "#3730a3"
           }}
         >
-          {dashboard.source === "api" ? "API data" : "Fixture data"}
+          {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
         </span>
       </header>
       <div style={keywordAeoMetricStyle}>
-        <MetricCard label="Keywords" value={String(summary.total)} />
-        <MetricCard label="Ready" value={String(summary.ready)} />
-        <MetricCard label="Needs work" value={String(summary.needsWork + summary.notReady)} />
-        <MetricCard label="Avg score" value={summary.averageScore} />
-        <MetricCard label="Discovered" value={String(dashboard.keywordDiscoveries.length)} />
+        <MetricCard label="키워드" value={String(summary.total)} />
+        <MetricCard label="준비 완료" value={String(summary.ready)} />
+        <MetricCard label="개선 필요" value={String(summary.needsWork + summary.notReady)} />
+        <MetricCard label="평균 점수" value={summary.averageScore} />
+        <MetricCard label="발견됨" value={String(dashboard.keywordDiscoveries.length)} />
       </div>
       <div style={tableScrollStyle}>
         <table style={{ ...tableStyle, minWidth: 980 }}>
           <thead>
             <tr>
-              <th style={thStyle}>Keyword</th>
-              <th style={thStyle}>Status</th>
-              <th style={thStyle}>Score</th>
-              <th style={thStyle}>Candidate page</th>
-              <th style={thStyle}>Weak checks</th>
+              <th style={thStyle}>키워드</th>
+              <th style={thStyle}>상태</th>
+              <th style={thStyle}>점수</th>
+              <th style={thStyle}>후보 페이지</th>
+              <th style={thStyle}>약한 검사</th>
             </tr>
           </thead>
           <tbody>
             {dashboard.reports.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
-                  No Keyword/AEO readiness reports yet.
+                  아직 키워드/AEO 준비도 리포트가 없습니다.
                 </td>
               </tr>
             ) : (
@@ -226,7 +229,7 @@ function KeywordAeoReadinessPanel({
                     <td style={tdStyle}>
                       <strong>{report.keyword.phrase}</strong>
                       <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                        {report.keyword.locale}; {report.keyword.intent}
+                        {report.keyword.locale}; {formatContentBriefIntent(report.keyword.intent)}
                       </span>
                     </td>
                     <td style={tdStyle}>
@@ -242,11 +245,11 @@ function KeywordAeoReadinessPanel({
                       </span>
                     </td>
                     <td style={{ ...tdStyle, ...codeTextStyle }}>
-                      {report.pageUrl ?? "No candidate page"}
+                      {report.pageUrl ?? "후보 페이지 없음"}
                     </td>
                     <td style={tdStyle}>
                       {weakChecks.length === 0 ? (
-                        <TonePill label="No weak checks" tone="good" />
+                        <TonePill label="약한 검사 없음" tone="good" />
                       ) : (
                         <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {weakChecks.slice(0, 3).map((check) => (
@@ -270,18 +273,18 @@ function KeywordAeoReadinessPanel({
         <table style={{ ...tableStyle, minWidth: 940 }}>
           <thead>
             <tr>
-              <th style={thStyle}>Discovered keyword</th>
-              <th style={thStyle}>Source</th>
-              <th style={thStyle}>Score</th>
-              <th style={thStyle}>Candidate page</th>
-              <th style={thStyle}>Evidence</th>
+              <th style={thStyle}>발견 키워드</th>
+              <th style={thStyle}>출처</th>
+              <th style={thStyle}>점수</th>
+              <th style={thStyle}>후보 페이지</th>
+              <th style={thStyle}>근거</th>
             </tr>
           </thead>
           <tbody>
             {dashboard.keywordDiscoveries.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
-                  No keyword discovery candidates yet.
+                  아직 키워드 발견 후보가 없습니다.
                 </td>
               </tr>
             ) : (
@@ -290,7 +293,7 @@ function KeywordAeoReadinessPanel({
                   <td style={tdStyle}>
                     <strong>{candidate.phrase}</strong>
                     <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                      {candidate.locale}; {candidate.intent ?? "unclassified"}
+                      {candidate.locale}; {formatContentBriefIntent(candidate.intent)}
                     </span>
                   </td>
                   <td style={tdStyle}>
@@ -301,15 +304,15 @@ function KeywordAeoReadinessPanel({
                   <td style={tdStyle}>
                     <strong>{candidate.score}</strong>
                     <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
-                      {candidate.generatedBy}
+                      {formatContentBriefGenerationMode(candidate.generatedBy)}
                     </span>
                   </td>
                   <td style={{ ...tdStyle, ...codeTextStyle }}>
-                    {candidate.pageUrl ?? "No candidate page"}
+                    {candidate.pageUrl ?? "후보 페이지 없음"}
                   </td>
                   <td style={tdStyle}>
                     <span style={{ color: "#64748b", display: "block", fontSize: 13 }}>
-                      {candidate.evidence.sourceField}; {candidate.evidence.impressions ?? candidate.evidence.title ?? "record"}
+                      {candidate.evidence.sourceField}; {candidate.evidence.impressions ?? candidate.evidence.title ?? "기록"}
                     </span>
                   </td>
                 </tr>
@@ -332,11 +335,11 @@ function ContentBriefCreatePanel({
   const action = createContentBriefAction.bind(null, siteId);
 
   return (
-    <section aria-label="Create content brief" style={createPanelStyle}>
+    <section aria-label="콘텐츠 브리프 생성" style={createPanelStyle}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Create draft brief</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>초안 브리프 생성</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          Submit keyword and optional page signals to create a deterministic draft-only brief.
+          키워드와 선택 페이지 신호를 입력해 결정론적 초안 전용 브리프를 생성합니다.
         </p>
         {createFeedback ? (
           <p style={{ ...createFeedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>
@@ -346,28 +349,28 @@ function ContentBriefCreatePanel({
       </div>
       <form action={action} style={createFormStyle}>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Primary keyword</span>
+          <span style={labelStyle}>주요 키워드</span>
           <input
             name="phrase"
-            placeholder="seo clinic price comparison"
+            placeholder="SEO 클리닉 가격 비교"
             required
             style={inputStyle}
             type="text"
           />
         </label>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Intent</span>
+          <span style={labelStyle}>의도</span>
           <select defaultValue="commercial" name="intent" style={inputStyle}>
-            <option value="informational">Informational</option>
-            <option value="commercial">Commercial</option>
-            <option value="transactional">Transactional</option>
-            <option value="navigational">Navigational</option>
-            <option value="local">Local</option>
-            <option value="mixed">Mixed</option>
+            <option value="informational">정보 탐색</option>
+            <option value="commercial">비교/검토</option>
+            <option value="transactional">전환</option>
+            <option value="navigational">탐색</option>
+            <option value="local">지역</option>
+            <option value="mixed">복합</option>
           </select>
         </label>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Candidate URL</span>
+          <span style={labelStyle}>후보 URL</span>
           <input
             name="candidateUrl"
             placeholder="https://example-clinic.com/service/seo"
@@ -376,54 +379,54 @@ function ContentBriefCreatePanel({
           />
         </label>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Page title</span>
-          <input name="pageTitle" placeholder="SEO clinic service" style={inputStyle} type="text" />
+          <span style={labelStyle}>페이지 title</span>
+          <input name="pageTitle" placeholder="SEO 클리닉 서비스" style={inputStyle} type="text" />
         </label>
         <label style={wideFieldStyle}>
-          <span style={labelStyle}>Page summary</span>
+          <span style={labelStyle}>페이지 요약</span>
           <textarea
             name="metaDescription"
-            placeholder="Short page description used as an AEO signal."
+            placeholder="AEO 신호로 쓰는 짧은 페이지 설명입니다."
             rows={2}
             style={textareaStyle}
           />
         </label>
         <label style={fieldStyle}>
           <span style={labelStyle}>H1</span>
-          <input name="h1" placeholder="SEO clinic" style={inputStyle} type="text" />
+          <input name="h1" placeholder="SEO 클리닉" style={inputStyle} type="text" />
         </label>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Word count</span>
+          <span style={labelStyle}>단어 수</span>
           <input min={0} name="wordCount" placeholder="320" style={inputStyle} type="number" />
         </label>
         <label style={fieldStyle}>
-          <span style={labelStyle}>Schema types</span>
+          <span style={labelStyle}>스키마 유형</span>
           <input name="schemaTypes" placeholder="FAQPage, LocalBusiness" style={inputStyle} type="text" />
         </label>
         <label style={wideFieldStyle}>
-          <span style={labelStyle}>Question headings</span>
+          <span style={labelStyle}>질문형 헤딩</span>
           <textarea
             name="questionHeadings"
-            placeholder={"What does SEO clinic include?\nHow much does SEO clinic cost?"}
+            placeholder={"SEO 클리닉에는 무엇이 포함되나요?\nSEO 클리닉 비용은 얼마인가요?"}
             rows={3}
             style={textareaStyle}
           />
         </label>
         <label style={wideFieldStyle}>
-          <span style={labelStyle}>H2 headings</span>
+          <span style={labelStyle}>H2 헤딩</span>
           <textarea
             name="h2"
-            placeholder={"What does SEO clinic include?\nPricing and review workflow"}
+            placeholder={"SEO 클리닉에는 무엇이 포함되나요?\n가격과 검토 흐름"}
             rows={3}
             style={textareaStyle}
           />
         </label>
         <div style={submitRowStyle}>
           <span style={{ ...mutedTextStyle, fontSize: 12 }}>
-            Generated briefs stay draft-only until human review.
+            생성된 브리프는 사람 검토 전까지 초안 전용으로 유지됩니다.
           </span>
           <button style={submitButtonStyle} type="submit">
-            Create draft
+            초안 생성
           </button>
         </div>
       </form>

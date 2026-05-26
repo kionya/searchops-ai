@@ -49,7 +49,7 @@ export const demoDeadLetterJobs: DeadLetterJobRecord[] = [
       originalQueue: "searchops-crawl",
       originalJobName: "crawl",
       originalJobId: "job_42",
-      failedReason: "Fetch timed out",
+      failedReason: "fetch 시간이 초과되었습니다",
       attemptsMade: 3,
       failedAt: "2026-05-25T00:00:00.000Z",
     },
@@ -65,7 +65,7 @@ export const demoDeadLetterJobs: DeadLetterJobRecord[] = [
       originalQueue: "searchops-connectors",
       originalJobName: "connector-sync",
       originalJobId: "sync_job_43",
-      failedReason: "Provider fixture batch failed",
+      failedReason: "provider 데모 배치가 실패했습니다",
       attemptsMade: 3,
       failedAt: "2026-05-24T09:10:00.000Z",
     },
@@ -83,7 +83,7 @@ export async function loadDeadLetterOperations(): Promise<DeadLetterOperationsDa
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(`Dead-letter operations request failed with ${response.status}`);
+      throw new Error(`실패 작업 조회 요청 실패: ${response.status}`);
     }
 
     const output = DeadLetterJobListResponseSchema.parse(await response.json());
@@ -98,7 +98,7 @@ export async function loadDeadLetterOperations(): Promise<DeadLetterOperationsDa
     return {
       ...fallback,
       errorMessage:
-        error instanceof Error ? error.message : "Dead-letter operations request failed",
+        error instanceof Error ? error.message : "실패 작업 조회 요청에 실패했습니다",
     };
   }
 }
@@ -123,7 +123,7 @@ export async function clearDeadLetterJob(id: string): Promise<DeadLetterClearRes
       },
     );
     if (!response.ok) {
-      throw new Error(`Dead-letter clear request failed with ${response.status}`);
+      throw new Error(`실패 작업 정리 요청 실패: ${response.status}`);
     }
 
     const output = DeleteDeadLetterJobResponseSchema.parse(await response.json());
@@ -136,7 +136,7 @@ export async function clearDeadLetterJob(id: string): Promise<DeadLetterClearRes
   } catch (error) {
     return {
       deadLetterJobId: id,
-      errorMessage: error instanceof Error ? error.message : "Dead-letter clear request failed",
+      errorMessage: error instanceof Error ? error.message : "실패 작업 정리 요청에 실패했습니다",
       source: "api",
       status: "failed",
     };
@@ -171,21 +171,21 @@ export function getDeadLetterClearFeedback(
 ): DeadLetterClearFeedback | null {
   if (status === "cleared") {
     return {
-      message: jobId ? `Dead-letter entry cleared: ${jobId}` : "Dead-letter entry cleared.",
+      message: jobId ? `실패 작업 항목을 정리했습니다: ${jobId}` : "실패 작업 항목을 정리했습니다.",
       tone: "success",
     };
   }
 
   if (status === "fixture") {
     return {
-      message: "Fixture mode: set SEARCHOPS_API_BASE_URL to clear real dead-letter entries.",
+      message: "데모 데이터 모드: 실제 실패 작업을 정리하려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
       tone: "info",
     };
   }
 
   if (status === "failed") {
     return {
-      message: "Dead-letter clear request failed. Check the API server and retry.",
+      message: "실패 작업 정리 요청에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
       tone: "warning",
     };
   }
@@ -210,7 +210,7 @@ export function getDeadLetterStatusTone(status: DeadLetterJobStatus): DeadLetter
 }
 
 export function formatDeadLetterDate(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "Pending";
+  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
 }
 
 function getApiBaseUrl() {
