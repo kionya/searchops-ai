@@ -8,6 +8,9 @@ Purpose:
 - Protect PostgreSQL data before migrations, deploys, and incident response work.
 - Prove backups are restorable before treating them as safe.
 
+Automation endpoint:
+- `GET /ops/backup-restore-drill-plan?environment=<name>` returns the deterministic drill checklist and commands for the target environment.
+
 Required inputs:
 - `DATABASE_URL` for the source database.
 - A scratch restore database URL that is not connected to production traffic.
@@ -96,6 +99,9 @@ Post-deploy checks:
 Purpose:
 - Rotate secrets without losing deterministic auditability or leaking customer data.
 
+Automation endpoint:
+- `POST /ops/secret-rotation-plan` accepts secret references, not raw secret values, and returns the rotation checklist.
+
 Rotation sequence:
 1. Add the new secret in the deployment secret manager.
 2. Deploy code/config that accepts the new secret.
@@ -108,3 +114,17 @@ Rules:
 - Do not paste secrets into GitHub PRs, issue comments, logs, or screenshots.
 - Provider-specific webhook secrets must stay scoped by provider key.
 - If a secret exposure is suspected, rotate first, investigate second.
+
+## Dead-Letter Replay
+
+Purpose:
+- Give operators a safe replay workflow without requeueing incomplete or unsafe payloads.
+
+Automation endpoint:
+- `POST /ops/dead-letter-jobs/:deadLetterJobId/replay-plan` returns the queue/job metadata and a blocked replay checklist.
+
+Rules:
+- Dead-letter entries intentionally omit raw customer/provider payloads.
+- Replay requires queue-specific payload reconstruction from source-of-truth data.
+- Queue owners must define idempotent replay before any automatic requeue action is allowed.
+- Replay planning must not clear the dead-letter entry.
