@@ -50,6 +50,15 @@ import {
   summarizeContentBriefHistory
 } from "./content-brief-history";
 import {
+  createDemoDeadLetterOperations,
+  demoDeadLetterJobs,
+  formatDeadLetterDate,
+  getDeadLetterClearFeedback,
+  getDeadLetterStatusTone,
+  loadDeadLetterOperations,
+  summarizeDeadLetterOperations
+} from "./dead-letter-operations";
+import {
   futureModuleKeys,
   futureModuleSkeletons,
   summarizeFutureModules
@@ -184,6 +193,68 @@ describe("web foundation", () => {
       "issues",
       "urls"
     ]);
+  });
+
+  it("summarizes dead-letter operations fixtures", () => {
+    const operations = createDemoDeadLetterOperations();
+
+    expect(operations.deadLetterJobs).toHaveLength(2);
+    expect(summarizeDeadLetterOperations(demoDeadLetterJobs)).toEqual({
+      active: 0,
+      failed: 1,
+      latestFailure: "2026-05-25T00:00:00.000Z",
+      queueCount: 2,
+      total: 2,
+      waiting: 1
+    });
+    expect(getDeadLetterStatusTone("active")).toBe("running");
+    expect(getDeadLetterStatusTone("completed")).toBe("done");
+    expect(formatDeadLetterDate("2026-05-25T00:00:00.000Z")).toBe("2026-05-25 00:00");
+  });
+
+  it("loads dead-letter operations through the API response contract", async () => {
+    const deadLetterJob = demoDeadLetterJobs[0];
+    if (!deadLetterJob) {
+      throw new Error("Dead-letter fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/dead-letter-jobs");
+
+        return Response.json({
+          deadLetterJobs: [deadLetterJob],
+          summary: {
+            total: 1,
+            byQueue: {
+              "searchops-crawl": 1
+            },
+            byStatus: {
+              waiting: 1
+            }
+          }
+        });
+      }),
+    );
+
+    const operations = await loadDeadLetterOperations();
+
+    expect(operations.source).toBe("api");
+    expect(operations.errorMessage).toBeNull();
+    expect(operations.summary.total).toBe(1);
+  });
+
+  it("formats dead-letter clear feedback", () => {
+    expect(getDeadLetterClearFeedback("cleared", "job_1")).toEqual({
+      message: "Dead-letter entry cleared: job_1",
+      tone: "success"
+    });
+    expect(getDeadLetterClearFeedback("failed", undefined)).toEqual({
+      message: "Dead-letter clear request failed. Check the API server and retry.",
+      tone: "warning"
+    });
   });
 
   it("summarizes deterministic GEO visibility dashboard fixtures", () => {

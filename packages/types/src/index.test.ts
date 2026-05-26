@@ -57,6 +57,8 @@ import {
   CreateSchemaRecommendationsResponseSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   DeadLetterJobPayloadSchema,
+  DeadLetterJobListResponseSchema,
+  DeadLetterJobRecordSchema,
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   GeoVisibilityReportRecordSchema,
@@ -160,6 +162,51 @@ describe("types foundation", () => {
     ).toMatchObject({
       originalJobName: "crawl",
       attemptsMade: 3,
+    });
+  });
+
+  it("validates dead-letter operations response contracts", () => {
+    const deadLetterJob = DeadLetterJobRecordSchema.parse({
+      id: "searchops-crawl:dead-letter|42",
+      queueName: "searchops-crawl:dead-letter",
+      jobId: "42",
+      status: "waiting",
+      enqueuedAt: "2026-05-25T00:00:01.000Z",
+      processedAt: null,
+      payload: {
+        originalQueue: "searchops-crawl",
+        originalJobName: "crawl",
+        originalJobId: "job_42",
+        failedReason: "Fetch timed out",
+        attemptsMade: 3,
+        failedAt: "2026-05-25T00:00:00.000Z",
+      },
+    });
+
+    expect(
+      DeadLetterJobListResponseSchema.parse({
+        deadLetterJobs: [deadLetterJob],
+        summary: {
+          total: 1,
+          byQueue: {
+            "searchops-crawl": 1,
+          },
+          byStatus: {
+            waiting: 1,
+          },
+        },
+      }),
+    ).toMatchObject({
+      deadLetterJobs: [
+        {
+          payload: {
+            originalJobName: "crawl",
+          },
+        },
+      ],
+      summary: {
+        total: 1,
+      },
     });
   });
 

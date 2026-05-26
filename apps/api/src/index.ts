@@ -7,6 +7,7 @@ import {
   createBullMqGeoAnswerMonitorQueue,
   createBullMqSchemaRichResultValidationQueue
 } from "./bullmq-queue.js";
+import { createBullMqDeadLetterJobStore } from "./dead-letter-store.js";
 import { createPrismaRepository } from "./prisma-repository.js";
 import { buildApiServer } from "./server.js";
 
@@ -18,6 +19,7 @@ const geoAnswerMonitorQueue = createBullMqGeoAnswerMonitorQueue({ redisUrl: env.
 const schemaRichResultValidationQueue = createBullMqSchemaRichResultValidationQueue({
   redisUrl: env.REDIS_URL
 });
+const deadLetterJobStore = createBullMqDeadLetterJobStore({ redisUrl: env.REDIS_URL });
 const rateLimitEnabled = env.SEARCHOPS_RATE_LIMIT_ENABLED ?? (env.NODE_ENV === "production");
 
 const port = Number(process.env.PORT ?? 4000);
@@ -25,6 +27,7 @@ const host = process.env.HOST ?? "127.0.0.1";
 const server = buildApiServer({
   connectorSyncQueue,
   crawlRunQueue,
+  deadLetterJobStore,
   geoAnswerMonitorQueue,
   rateLimit: {
     enabled: rateLimitEnabled,
@@ -38,6 +41,7 @@ const server = buildApiServer({
 server.addHook("onClose", async () => {
   await connectorSyncQueue.close();
   await crawlRunQueue.close();
+  await deadLetterJobStore.close();
   await geoAnswerMonitorQueue.close();
   await schemaRichResultValidationQueue.close();
   await prisma.$disconnect();

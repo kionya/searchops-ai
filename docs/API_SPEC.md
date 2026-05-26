@@ -36,12 +36,14 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 
 ## Phase 11 API
 
-The API exposes process-local operational metrics and can enforce request rate limits from validated environment settings. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
+The API exposes process-local operational metrics, can enforce request rate limits from validated environment settings, and exposes worker dead-letter metadata for operator cleanup. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
 
 ## Routes
 
 - `GET /health`
 - `GET /metrics`
+- `GET /ops/dead-letter-jobs`
+- `DELETE /ops/dead-letter-jobs/:deadLetterJobId`
 - `GET /auth/context`
 - `GET /organizations`
 - `POST /organizations`

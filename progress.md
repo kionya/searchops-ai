@@ -140,12 +140,13 @@ Implemented:
 - Request metrics foundation.
 - BullMQ retry/backoff assertions.
 - Worker dead-letter queue payloads.
+- Dead-letter operations API and dashboard.
 
 Remaining:
 
 - Redis-backed or edge-backed distributed rate limiting.
 - Central observability export for metrics/logs.
-- Dead-letter dashboard and replay workflow.
+- Dead-letter replay workflow.
 - Real auth/RBAC and tenant isolation hardening.
 - Backup, migration, and deployment secret rotation runbooks.
 
@@ -153,27 +154,22 @@ Remaining:
 
 Recommended order:
 
-1. CDX-127: Dead-letter operations dashboard
-   - Persist or expose dead-letter job metadata.
-   - Add operator list/detail/replay-safe design.
-   - Avoid storing secrets or raw credentials.
-
-2. CDX-128: Distributed rate limit adapter
+1. CDX-128: Distributed rate limit adapter
    - Keep current process-local limiter as default.
    - Add Redis/edge adapter boundary.
    - Add deterministic tests using fake storage.
 
-3. CDX-129: Auth/RBAC and tenant isolation hardening
+2. CDX-129: Auth/RBAC and tenant isolation hardening
    - Replace mock auth context with real auth boundary.
    - Add organization/user/site scoping tests.
    - Add negative tests for cross-tenant access.
 
-4. CDX-130: Observability export
+3. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-5. CDX-131: Backup, migration, and deployment runbooks
+4. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.
