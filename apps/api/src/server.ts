@@ -76,6 +76,7 @@ import {
   ResolveWorkOrderIssueResponseSchema,
   SchemaRecommendationDetailResponseSchema,
   SchemaRecommendationListResponseSchema,
+  SecretRotationPlanRequestSchema,
   SiteListResponseSchema,
   SiteSchema,
   UpdateComplianceFlagRequestSchema,
@@ -133,6 +134,11 @@ import {
   type OperationalAlertRouter,
   type OperationalLogDrain,
 } from "./observability.js";
+import {
+  createBackupRestoreDrillPlan,
+  createDeadLetterReplayPlan,
+  createSecretRotationPlan,
+} from "./operations-hardening.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -725,6 +731,41 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         removed,
       }),
     );
+  });
+
+  server.get("/ops/backup-restore-drill-plan", async (request) => {
+    const query = z
+      .object({
+        environment: z.string().trim().min(1).default("production"),
+      })
+      .parse(request.query);
+
+    return createBackupRestoreDrillPlan({
+      createdAt: currentTime(),
+      environment: query.environment,
+    });
+  });
+
+  server.post("/ops/secret-rotation-plan", async (request) =>
+    createSecretRotationPlan({
+      ...SecretRotationPlanRequestSchema.parse(request.body),
+      createdAt: currentTime(),
+    }),
+  );
+
+  server.post("/ops/dead-letter-jobs/:id/replay-plan", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({ limit: 100 });
+    const deadLetterJob = deadLetterJobs.find((job) => job.id === id);
+    if (deadLetterJob === undefined) {
+      reply.status(404).send(notFound("Dead-letter job not found"));
+      return;
+    }
+
+    return createDeadLetterReplayPlan({
+      createdAt: currentTime(),
+      job: deadLetterJob,
+    });
   });
 
   server.get("/auth/context", async (request) => resolveAuthenticatedUserContext(request));

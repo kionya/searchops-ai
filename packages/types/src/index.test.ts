@@ -84,6 +84,8 @@ import {
   MockUserContextSchema,
   NormalizedUrlSchema,
   OperationalMetricsExportResponseSchema,
+  BackupRestoreDrillPlanSchema,
+  DeadLetterReplayPlanSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
   QueueGeoAnswerMonitorRequestSchema,
@@ -109,6 +111,8 @@ import {
   SearchOpsEnvSchema,
   SeoIssueSchema,
   SeoIssueDraftSchema,
+  SecretRotationPlanRequestSchema,
+  SecretRotationPlanSchema,
   WorkOrderDraftSchema,
   WorkOrderListResponseSchema,
   WorkOrderOwnerTypeSchema,
@@ -253,6 +257,59 @@ describe("types foundation", () => {
         total: 1,
       },
     });
+  });
+
+  it("validates operations hardening runbook contracts", () => {
+    const step = {
+      id: "backup",
+      title: "Create backup",
+      description: "Create a database backup before migration.",
+      command: "pg_dump --format=custom",
+      status: "ready" as const,
+    };
+
+    expect(
+      BackupRestoreDrillPlanSchema.parse({
+        id: "restore_drill_production_20260526",
+        environment: "production",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        requiredInputs: ["DATABASE_URL", "RESTORE_DATABASE_URL"],
+        status: "ready",
+        steps: [step],
+      }),
+    ).toMatchObject({ status: "ready" });
+    expect(
+      SecretRotationPlanRequestSchema.parse({
+        provider: "wordpress",
+        oldSecretRef: "cms/wordpress/old",
+        newSecretRef: "cms/wordpress/new",
+      }),
+    ).toMatchObject({ provider: "wordpress" });
+    expect(
+      SecretRotationPlanSchema.parse({
+        id: "secret_rotation_wordpress_20260526",
+        provider: "wordpress",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        oldSecretRef: "cms/wordpress/old",
+        newSecretRef: "cms/wordpress/new",
+        verificationEvent: "signed webhook fixture",
+        status: "ready",
+        steps: [step],
+      }),
+    ).toMatchObject({ verificationEvent: "signed webhook fixture" });
+    expect(
+      DeadLetterReplayPlanSchema.parse({
+        id: "dead_letter_replay_job_1",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        deadLetterJobId: "job_1",
+        originalQueue: "searchops-crawl",
+        originalJobName: "crawl",
+        originalJobId: "crawl_1",
+        reason: "Replay requires original payload reconstruction.",
+        status: "blocked",
+        steps: [step],
+      }),
+    ).toMatchObject({ status: "blocked" });
   });
 
   it("validates Phase 1 organization DTOs", () => {

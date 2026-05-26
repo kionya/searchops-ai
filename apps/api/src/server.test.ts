@@ -908,6 +908,67 @@ describe("api foundation", () => {
     });
   });
 
+  it("creates backup restore drill plans for operations", async () => {
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/backup-restore-drill-plan?environment=staging",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: "restore_drill_staging_20260526",
+      environment: "staging",
+      status: "ready",
+      requiredInputs: ["DATABASE_URL", "RESTORE_DATABASE_URL", "private backup destination"],
+    });
+  });
+
+  it("creates secret rotation plans without raw secret values", async () => {
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: "/ops/secret-rotation-plan",
+      payload: {
+        provider: "wordpress",
+        oldSecretRef: "cms/wordpress/old",
+        newSecretRef: "cms/wordpress/new",
+        verificationEvent: "signed WordPress webhook fixture",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: "secret_rotation_wordpress_20260526",
+      provider: "wordpress",
+      status: "ready",
+      verificationEvent: "signed WordPress webhook fixture",
+    });
+    expect(response.body).not.toContain("secret_value");
+  });
+
+  it("creates dead-letter replay plans without auto-requeue side effects", async () => {
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: `/ops/dead-letter-jobs/${encodeURIComponent(seededDeadLetterJob.id)}/replay-plan`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      deadLetterJobId: seededDeadLetterJob.id,
+      originalQueue: "searchops-crawl",
+      originalJobName: "crawl",
+      status: "blocked",
+    });
+  });
+
   it("rate limits requests when enabled", async () => {
     const server = buildApiServer({
       rateLimit: {

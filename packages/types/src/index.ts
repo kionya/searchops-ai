@@ -154,6 +154,63 @@ export type DeleteDeadLetterJobResponse = z.infer<
   typeof DeleteDeadLetterJobResponseSchema
 >;
 
+export const OperationalRunbookStepSchema = z.object({
+  id: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  description: NonEmptyStringSchema,
+  command: z.string().min(1).nullable(),
+  status: z.enum(["blocked", "pending", "ready"]),
+});
+
+export type OperationalRunbookStep = z.infer<typeof OperationalRunbookStepSchema>;
+
+export const BackupRestoreDrillPlanSchema = z.object({
+  id: NonEmptyStringSchema,
+  environment: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+  requiredInputs: z.array(NonEmptyStringSchema),
+  status: z.enum(["blocked", "ready"]),
+  steps: z.array(OperationalRunbookStepSchema),
+});
+
+export type BackupRestoreDrillPlan = z.infer<typeof BackupRestoreDrillPlanSchema>;
+
+export const SecretRotationPlanRequestSchema = z.object({
+  provider: NonEmptyStringSchema,
+  oldSecretRef: NonEmptyStringSchema,
+  newSecretRef: NonEmptyStringSchema,
+  verificationEvent: NonEmptyStringSchema.optional(),
+});
+
+export type SecretRotationPlanRequest = z.infer<typeof SecretRotationPlanRequestSchema>;
+
+export const SecretRotationPlanSchema = z.object({
+  id: NonEmptyStringSchema,
+  provider: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+  oldSecretRef: NonEmptyStringSchema,
+  newSecretRef: NonEmptyStringSchema,
+  verificationEvent: NonEmptyStringSchema,
+  status: z.enum(["blocked", "ready"]),
+  steps: z.array(OperationalRunbookStepSchema),
+});
+
+export type SecretRotationPlan = z.infer<typeof SecretRotationPlanSchema>;
+
+export const DeadLetterReplayPlanSchema = z.object({
+  id: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+  deadLetterJobId: IdSchema,
+  originalQueue: NonEmptyStringSchema,
+  originalJobName: NonEmptyStringSchema,
+  originalJobId: z.string().min(1).nullable(),
+  reason: NonEmptyStringSchema,
+  status: z.enum(["blocked", "ready"]),
+  steps: z.array(OperationalRunbookStepSchema),
+});
+
+export type DeadLetterReplayPlan = z.infer<typeof DeadLetterReplayPlanSchema>;
+
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
