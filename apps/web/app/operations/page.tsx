@@ -24,7 +24,7 @@ const opsLinks = [
   },
 ];
 
-export default function OpsPage() {
+export default function OperationsPage() {
   return (
     <main style={pageStyle}>
       <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
