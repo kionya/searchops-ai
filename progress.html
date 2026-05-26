@@ -190,7 +190,7 @@
     <main>
       <header>
         <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-130-observability-export</code></p>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-131-runbooks</code></p>
         <div class="summary">
           <div class="stat">
             <strong>2</strong>
@@ -278,10 +278,10 @@
           <article class="phase">
             <span class="status partial">Started</span>
             <h3>Phase 11 Hardening</h3>
-            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock auth role enforcement, tenant-scoped API guards, metrics export, retry/backoff checks, dead-letter payloads, and the dead-letter operations dashboard are in place.</p>
+            <p>Corepack verification, GitHub Actions CI, rate-limit foundation, distributed rate-limit adapter boundary, mock auth role enforcement, tenant-scoped API guards, metrics export, retry/backoff checks, dead-letter payloads, the dead-letter operations dashboard, and deployment runbooks are in place.</p>
             <ul>
               <li>Deployment-specific Redis client wiring or edge-backed rate limiting is pending.</li>
-              <li>Dead-letter replay, external IdP wiring, observability ingestion, and runbooks remain.</li>
+              <li>Dead-letter replay, external IdP wiring, observability ingestion, and restore drill automation remain.</li>
             </ul>
           </article>
         </div>
@@ -291,10 +291,17 @@
         <h2>Next Implementation Plan</h2>
         <div class="plan-list">
           <article class="plan">
-            <div class="ticket">CDX-131</div>
+            <div class="ticket">Follow-up</div>
             <div>
-              <h3>Backup, migration, and deployment runbooks</h3>
-              <p class="small">Document backup/restore, migration verification, secret rotation, and deployment environment checks.</p>
+              <h3>Observability ingestion</h3>
+              <p class="small">Wire metrics export into deployment log drains or dashboard ingestion and add alert routing outside the local API process.</p>
+            </div>
+          </article>
+          <article class="plan">
+            <div class="ticket">Follow-up</div>
+            <div>
+              <h3>Operations hardening</h3>
+              <p class="small">Run scheduled backup restore drills, automate deployment secret rotation, and define dead-letter replay workflows per queue.</p>
             </div>
           </article>
         </div>

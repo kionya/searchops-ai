@@ -17,8 +17,10 @@
     "test:runtime-smoke": "tsx scripts/test/runtime-smoke.ts",
     "verify": "corepack pnpm lint && corepack pnpm build && corepack pnpm -r typecheck && corepack pnpm -r test",
     "format": "prettier --check .",
-    "db:migrate": "pnpm --filter @searchops/db db:migrate",
-    "db:seed": "pnpm --filter @searchops/db db:seed"
+    "db:migrate": "corepack pnpm --filter @searchops/db db:migrate",
+    "db:migrate:deploy": "corepack pnpm --filter @searchops/db db:migrate:deploy",
+    "db:migrate:status": "corepack pnpm --filter @searchops/db db:migrate:status",
+    "db:seed": "corepack pnpm --filter @searchops/db db:seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",
