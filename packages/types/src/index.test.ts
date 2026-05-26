@@ -220,8 +220,8 @@ describe("types foundation", () => {
 
   it("validates dead-letter operations response contracts", () => {
     const deadLetterJob = DeadLetterJobRecordSchema.parse({
-      id: "searchops-crawl:dead-letter|42",
-      queueName: "searchops-crawl:dead-letter",
+      id: "searchops-crawl-dead-letter|42",
+      queueName: "searchops-crawl-dead-letter",
       jobId: "42",
       status: "waiting",
       enqueuedAt: "2026-05-25T00:00:01.000Z",

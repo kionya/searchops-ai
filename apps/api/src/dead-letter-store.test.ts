@@ -13,8 +13,8 @@ import {
 } from "./dead-letter-store.js";
 
 const deadLetterJob: DeadLetterJobRecord = {
-  id: "searchops-crawl:dead-letter|42",
-  queueName: "searchops-crawl:dead-letter",
+  id: "searchops-crawl-dead-letter|42",
+  queueName: "searchops-crawl-dead-letter",
   jobId: "42",
   status: "waiting",
   enqueuedAt: "2026-05-25T00:00:01.000Z",
@@ -31,12 +31,12 @@ const deadLetterJob: DeadLetterJobRecord = {
 
 describe("dead-letter job store", () => {
   it("encodes and decodes queue-scoped dead-letter job ids", () => {
-    const id = encodeDeadLetterJobId("searchops-crawl:dead-letter", "42");
+    const id = encodeDeadLetterJobId("searchops-crawl-dead-letter", "42");
 
-    expect(id).toBe("searchops-crawl:dead-letter|42");
+    expect(id).toBe("searchops-crawl-dead-letter|42");
     expect(decodeDeadLetterJobId(id)).toEqual({
       jobId: "42",
-      queueName: "searchops-crawl:dead-letter",
+      queueName: "searchops-crawl-dead-letter",
     });
     expect(decodeDeadLetterJobId("invalid")).toBeNull();
   });
@@ -63,17 +63,17 @@ describe("dead-letter job store", () => {
 
   it("creates default dead-letter queue names for all runtime queues", () => {
     expect(getDefaultDeadLetterQueueNames()).toEqual([
-      "searchops-crawl:dead-letter",
-      "searchops-connectors:dead-letter",
-      "searchops-geo-answer-monitor:dead-letter",
-      "searchops-schema-rich-result-validation:dead-letter",
+      "searchops-crawl-dead-letter",
+      "searchops-connectors-dead-letter",
+      "searchops-geo-answer-monitor-dead-letter",
+      "searchops-schema-rich-result-validation-dead-letter",
     ]);
   });
 
   it("adapts BullMQ dead-letter queues without leaking raw job data", async () => {
     let removed = false;
     const queue: BullMqDeadLetterQueuePort = {
-      name: "searchops-crawl:dead-letter",
+      name: "searchops-crawl-dead-letter",
       async getJobs(types) {
         if (types[0] !== "waiting") {
           return [];
@@ -108,10 +108,10 @@ describe("dead-letter job store", () => {
     await expect(store.listDeadLetterJobs()).resolves.toEqual([
       {
         ...deadLetterJob,
-        id: "searchops-crawl:dead-letter|42",
+        id: "searchops-crawl-dead-letter|42",
       },
     ]);
-    await expect(store.removeDeadLetterJob("searchops-crawl:dead-letter|42")).resolves.toBe(true);
+    await expect(store.removeDeadLetterJob("searchops-crawl-dead-letter|42")).resolves.toBe(true);
     expect(removed).toBe(true);
   });
 });

@@ -15,8 +15,8 @@ import {
 const createdAt = new Date("2026-05-26T00:00:00.000Z");
 
 const deadLetterJob: DeadLetterJobRecord = {
-  id: "searchops-crawl:dead-letter|42",
-  queueName: "searchops-crawl:dead-letter",
+  id: "searchops-crawl-dead-letter|42",
+  queueName: "searchops-crawl-dead-letter",
   jobId: "42",
   status: "waiting",
   enqueuedAt: "2026-05-25T00:00:01.000Z",

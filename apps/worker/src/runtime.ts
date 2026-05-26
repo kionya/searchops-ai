@@ -100,7 +100,7 @@ function createDeadLetterQueue(
   redisUrl: string,
   deadLetterQueueName?: string,
 ) {
-  return new Queue<DeadLetterJobPayload>(deadLetterQueueName ?? `${queueName}:dead-letter`, {
+  return new Queue<DeadLetterJobPayload>(deadLetterQueueName ?? `${queueName}-dead-letter`, {
     connection: {
       url: redisUrl
     }

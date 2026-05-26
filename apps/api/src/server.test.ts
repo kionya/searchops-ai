@@ -1,4 +1,4 @@
-﻿import { createHmac } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -439,8 +439,8 @@ const seededSeoIssue: SeoIssue = {
   createdAt,
 };
 const seededDeadLetterJob: DeadLetterJobRecord = {
-  id: "searchops-crawl:dead-letter|42",
-  queueName: "searchops-crawl:dead-letter",
+  id: "searchops-crawl-dead-letter|42",
+  queueName: "searchops-crawl-dead-letter",
   jobId: "42",
   status: "waiting",
   enqueuedAt: "2026-05-25T00:00:01.000Z",
@@ -1071,7 +1071,7 @@ describe("api foundation", () => {
     expect(response.json()).toMatchObject({
       removedDeadLetterJob: true,
       replayJob: {
-        id: "replay_searchops-crawl_dead-letter_42",
+        id: "replay_searchops-crawl-dead-letter_42",
         name: "crawl",
         payload: {
           crawlRunId: "crawl_replay",

@@ -68,7 +68,7 @@ export function getDefaultDeadLetterQueueNames() {
     connectorQueueName,
     geoAnswerMonitorQueueName,
     schemaRichResultValidationQueueName,
-  ].map((queueName) => `${queueName}:dead-letter`);
+  ].map((queueName) => `${queueName}-dead-letter`);
 }
 
 export function encodeDeadLetterJobId(queueName: string, jobId: string) {

@@ -39,8 +39,8 @@ export interface DeadLetterClearFeedback {
 
 export const demoDeadLetterJobs: DeadLetterJobRecord[] = [
   {
-    id: "searchops-crawl:dead-letter|42",
-    queueName: "searchops-crawl:dead-letter",
+    id: "searchops-crawl-dead-letter|42",
+    queueName: "searchops-crawl-dead-letter",
     jobId: "42",
     status: "waiting",
     enqueuedAt: "2026-05-25T00:00:01.000Z",
@@ -55,8 +55,8 @@ export const demoDeadLetterJobs: DeadLetterJobRecord[] = [
     },
   },
   {
-    id: "searchops-connectors:dead-letter|43",
-    queueName: "searchops-connectors:dead-letter",
+    id: "searchops-connectors-dead-letter|43",
+    queueName: "searchops-connectors-dead-letter",
     jobId: "43",
     status: "failed",
     enqueuedAt: "2026-05-24T09:10:01.000Z",
