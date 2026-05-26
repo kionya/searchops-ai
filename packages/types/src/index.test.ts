@@ -82,6 +82,7 @@ import {
   LinkSignalSchema,
   MockUserContextSchema,
   NormalizedUrlSchema,
+  OperationalMetricsExportResponseSchema,
   OrganizationSchema,
   ParsedSitemapSchema,
   QueueGeoAnswerMonitorRequestSchema,
@@ -145,6 +146,49 @@ describe("types foundation", () => {
     ).toMatchObject({
       requests: {
         total: 3,
+      },
+    });
+  });
+
+  it("validates operational metrics export responses", () => {
+    expect(
+      OperationalMetricsExportResponseSchema.parse({
+        service: "api",
+        generatedAt: "2026-05-26T00:00:00.000Z",
+        uptimeSeconds: 12,
+        requests: {
+          total: 4,
+          byStatus: {
+            "200": 3,
+            "500": 1,
+          },
+        },
+        workers: {
+          deadLetterJobs: {
+            total: 1,
+            byQueue: {
+              "searchops-crawl": 1,
+            },
+            byStatus: {
+              waiting: 1,
+            },
+          },
+        },
+        alerts: [
+          {
+            id: "api_5xx_responses",
+            message: "API returned 1 5xx responses during this process lifetime",
+            severity: "critical",
+            source: "api",
+          },
+        ],
+      }),
+    ).toMatchObject({
+      service: "api",
+      workers: {
+        deadLetterJobs: {
+          total: 1,
+        },
       },
     });
   });

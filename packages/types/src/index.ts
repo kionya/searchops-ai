@@ -65,6 +65,39 @@ export const ApiMetricsResponseSchema = z.object({
 
 export type ApiMetricsResponse = z.infer<typeof ApiMetricsResponseSchema>;
 
+const OperationalCounterMapSchema = z.record(z.number().int().nonnegative());
+
+export const OperationalAlertSchema = z.object({
+  id: NonEmptyStringSchema,
+  message: NonEmptyStringSchema,
+  severity: z.enum(["info", "warning", "critical"]),
+  source: z.enum(["api", "worker"]),
+});
+
+export type OperationalAlert = z.infer<typeof OperationalAlertSchema>;
+
+export const OperationalMetricsExportResponseSchema = z.object({
+  service: z.literal("api"),
+  generatedAt: IsoDateTimeSchema,
+  uptimeSeconds: z.number().nonnegative(),
+  requests: z.object({
+    total: z.number().int().nonnegative(),
+    byStatus: OperationalCounterMapSchema,
+  }),
+  workers: z.object({
+    deadLetterJobs: z.object({
+      total: z.number().int().nonnegative(),
+      byQueue: OperationalCounterMapSchema,
+      byStatus: OperationalCounterMapSchema,
+    }),
+  }),
+  alerts: z.array(OperationalAlertSchema),
+});
+
+export type OperationalMetricsExportResponse = z.infer<
+  typeof OperationalMetricsExportResponseSchema
+>;
+
 export const DeadLetterJobPayloadSchema = z.object({
   originalQueue: NonEmptyStringSchema,
   originalJobName: NonEmptyStringSchema,

@@ -4,18 +4,18 @@ Updated: 2026-05-26
 
 ## Current State
 
-The repository is on `main` and aligned with `origin/main`.
+The repository is on `codex/cdx-130-observability-export`, branched from the latest merged `main`.
 
 Recent merged PRs:
 
-- PR #59: GEO answer live adapter port
-- PR #60: Rich result validator adapter port
-- PR #62: Keyword discovery persistence and dashboard workflow
+- PR #65: Dead-letter operations dashboard
+- PR #66: Distributed rate-limit adapter
+- PR #67: Tenant-scoped mock auth roles
 
 Latest full verification:
 
-- `corepack pnpm verify` passed locally for the latest work.
-- GitHub Actions `verify` passed for PR #59, PR #60, and PR #62 before merge.
+- `corepack pnpm verify` passed locally for CDX-130 observability export.
+- GitHub Actions `verify` passed for PR #65, PR #66, and PR #67 before merge.
 
 ## Phase Progress
 
@@ -143,11 +143,12 @@ Implemented:
 - Dead-letter operations API and dashboard.
 - Injectable API rate-limit store with a Redis-like distributed adapter boundary.
 - Mock auth roles enforced for tenant-scoped API access and viewer write denial.
+- Operational metrics export for API request counters, worker dead-letter summaries, and deterministic alert signals.
 
 Remaining:
 
 - Deployment-specific Redis client wiring or edge-backed rate limiting.
-- Central observability export for metrics/logs.
+- Deployment-specific observability ingestion, log drains, and alert routing.
 - Dead-letter replay workflow.
 - External identity-provider integration and deployment auth middleware.
 - Backup, migration, and deployment secret rotation runbooks.
@@ -156,15 +157,14 @@ Remaining:
 
 Recommended order:
 
-1. CDX-130: Observability export
-   - Export request metrics and worker failure metrics.
-   - Add structured logging conventions.
-   - Document operational dashboards and alerts.
-
-2. CDX-131: Backup, migration, and deployment runbooks
+1. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.
+
+2. Follow-up observability hardening
+   - Wire the metrics export into deployment log drains or dashboard ingestion.
+   - Add alert routing outside the local API process.
 
 3. Follow-up auth hardening
    - Wire a deployment identity provider or middleware.

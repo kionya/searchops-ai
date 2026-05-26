@@ -126,6 +126,7 @@ import {
   verifyCmsWebhookRequest,
   type CmsWebhookSecretMap,
 } from "./webhook-security.js";
+import { createOperationalMetricsExport } from "./observability.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -212,6 +213,15 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     total: 0,
   };
   const server = Fastify({ logger: false });
+
+  function getRequestMetricsSnapshot() {
+    return {
+      total: requestMetrics.total,
+      byStatus: Object.fromEntries(
+        [...requestMetrics.byStatus.entries()].map(([status, count]) => [String(status), count]),
+      ),
+    };
+  }
 
   function isWriteRequest(request: FastifyRequest) {
     return request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS";
@@ -655,14 +665,20 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     ApiMetricsResponseSchema.parse({
       service: "api",
       uptimeSeconds: Math.max(0, (currentTime().getTime() - metricsStartedAtMs) / 1000),
-      requests: {
-        total: requestMetrics.total,
-        byStatus: Object.fromEntries(
-          [...requestMetrics.byStatus.entries()].map(([status, count]) => [String(status), count]),
-        ),
-      },
+      requests: getRequestMetricsSnapshot(),
     }),
   );
+
+  server.get("/ops/metrics-export", async () => {
+    const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({ limit: 100 });
+
+    return createOperationalMetricsExport({
+      generatedAt: currentTime(),
+      metricsStartedAtMs,
+      requestMetrics: getRequestMetricsSnapshot(),
+      workerDeadLetterSummary: summarizeDeadLetterJobs(deadLetterJobs),
+    });
+  });
 
   server.get("/ops/dead-letter-jobs", async (request) => {
     const query = z
