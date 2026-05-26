@@ -141,10 +141,11 @@ Implemented:
 - BullMQ retry/backoff assertions.
 - Worker dead-letter queue payloads.
 - Dead-letter operations API and dashboard.
+- Injectable API rate-limit store with a Redis-like distributed adapter boundary.
 
 Remaining:
 
-- Redis-backed or edge-backed distributed rate limiting.
+- Deployment-specific Redis client wiring or edge-backed rate limiting.
 - Central observability export for metrics/logs.
 - Dead-letter replay workflow.
 - Real auth/RBAC and tenant isolation hardening.
@@ -154,22 +155,17 @@ Remaining:
 
 Recommended order:
 
-1. CDX-128: Distributed rate limit adapter
-   - Keep current process-local limiter as default.
-   - Add Redis/edge adapter boundary.
-   - Add deterministic tests using fake storage.
-
-2. CDX-129: Auth/RBAC and tenant isolation hardening
+1. CDX-129: Auth/RBAC and tenant isolation hardening
    - Replace mock auth context with real auth boundary.
    - Add organization/user/site scoping tests.
    - Add negative tests for cross-tenant access.
 
-3. CDX-130: Observability export
+2. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-4. CDX-131: Backup, migration, and deployment runbooks
+3. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.
