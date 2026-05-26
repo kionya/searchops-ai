@@ -451,9 +451,10 @@ function buildTestServer() {
   });
 }
 
-function buildDeadLetterOperationsTestContext() {
+function buildDeadLetterOperationsTestContext(options: { readonly currentTime?: () => Date } = {}) {
   const deadLetterJobStore = createMemoryDeadLetterJobStore([seededDeadLetterJob]);
   const server = buildApiServer({
+    ...(options.currentTime === undefined ? {} : { currentTime: options.currentTime }),
     deadLetterJobStore,
     repository: createMemoryRepository({
       organizations: [seededOrganization],
@@ -778,6 +779,53 @@ describe("api foundation", () => {
           "200": 1,
         },
       },
+    });
+  });
+
+  it("exports operational metrics with worker failure summary", async () => {
+    let now = new Date("2026-05-26T00:00:00.000Z");
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => now,
+    });
+
+    const healthResponse = await server.inject({ method: "GET", url: "/health" });
+    now = new Date("2026-05-26T00:00:12.000Z");
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/metrics-export",
+    });
+
+    expect(healthResponse.statusCode).toBe(200);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      service: "api",
+      generatedAt: "2026-05-26T00:00:12.000Z",
+      uptimeSeconds: 12,
+      requests: {
+        total: 1,
+        byStatus: {
+          "200": 1,
+        },
+      },
+      workers: {
+        deadLetterJobs: {
+          total: 1,
+          byQueue: {
+            "searchops-crawl": 1,
+          },
+          byStatus: {
+            waiting: 1,
+          },
+        },
+      },
+      alerts: [
+        {
+          id: "worker_dead_letter_jobs",
+          message: "Worker dead-letter queues contain 1 job",
+          severity: "warning",
+          source: "worker",
+        },
+      ],
     });
   });
 
