@@ -59,6 +59,15 @@ import {
   summarizeDeadLetterOperations
 } from "./dead-letter-operations";
 import {
+  createDemoObservabilityDashboard,
+  demoOperationalMetricsExport,
+  formatOperationalDate,
+  formatUptime,
+  getObservabilityAlertTone,
+  loadObservabilityDashboard,
+  summarizeOperationalMetrics
+} from "./observability-dashboard";
+import {
   futureModuleKeys,
   futureModuleSkeletons,
   summarizeFutureModules
@@ -255,6 +264,41 @@ describe("web foundation", () => {
       message: "Dead-letter clear request failed. Check the API server and retry.",
       tone: "warning"
     });
+  });
+
+  it("summarizes observability dashboard fixtures", () => {
+    const dashboard = createDemoObservabilityDashboard();
+
+    expect(summarizeOperationalMetrics(demoOperationalMetricsExport)).toEqual({
+      alertCount: 2,
+      criticalAlertCount: 1,
+      deadLetterTotal: 2,
+      requestTotal: 128,
+      serverErrorCount: 4,
+      uptimeSeconds: 360
+    });
+    expect(dashboard.source).toBe("fixture");
+    expect(getObservabilityAlertTone(demoOperationalMetricsExport.alerts[0]!)).toBe("critical");
+    expect(formatOperationalDate("2026-05-26T00:00:00.000Z")).toBe("2026-05-26 00:00");
+    expect(formatUptime(125)).toBe("2m 5s");
+  });
+
+  it("loads observability dashboard metrics through the API response contract", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/metrics-export");
+
+        return Response.json(demoOperationalMetricsExport);
+      }),
+    );
+
+    const dashboard = await loadObservabilityDashboard();
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(dashboard.summary.alertCount).toBe(2);
   });
 
   it("summarizes deterministic GEO visibility dashboard fixtures", () => {

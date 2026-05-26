@@ -126,7 +126,13 @@ import {
   verifyCmsWebhookRequest,
   type CmsWebhookSecretMap,
 } from "./webhook-security.js";
-import { createOperationalMetricsExport } from "./observability.js";
+import {
+  createNoopOperationalAlertRouter,
+  createNoopOperationalLogDrain,
+  createOperationalMetricsExport,
+  type OperationalAlertRouter,
+  type OperationalLogDrain,
+} from "./observability.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
@@ -147,6 +153,8 @@ export interface BuildApiServerOptions {
   readonly rateLimit?: ApiRateLimitOptions;
   readonly rateLimitStore?: ApiRateLimitStore;
   readonly requireCmsWebhookSignature?: boolean;
+  readonly operationalAlertRouter?: OperationalAlertRouter;
+  readonly operationalLogDrain?: OperationalLogDrain;
 }
 
 export interface ApiRateLimitOptions {
@@ -207,6 +215,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     windowMs: 60_000,
   };
   const rateLimitStore = options.rateLimitStore ?? createMemoryApiRateLimitStore();
+  const operationalAlertRouter =
+    options.operationalAlertRouter ?? createNoopOperationalAlertRouter();
+  const operationalLogDrain = options.operationalLogDrain ?? createNoopOperationalLogDrain();
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -671,13 +682,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
   server.get("/ops/metrics-export", async () => {
     const deadLetterJobs = await deadLetterJobStore.listDeadLetterJobs({ limit: 100 });
-
-    return createOperationalMetricsExport({
+    const exportPayload = createOperationalMetricsExport({
       generatedAt: currentTime(),
       metricsStartedAtMs,
       requestMetrics: getRequestMetricsSnapshot(),
       workerDeadLetterSummary: summarizeDeadLetterJobs(deadLetterJobs),
     });
+
+    await operationalLogDrain.writeMetricsExport(exportPayload);
+    await operationalAlertRouter.routeAlerts(exportPayload.alerts, exportPayload);
+
+    return exportPayload;
   });
 
   server.get("/ops/dead-letter-jobs", async (request) => {
