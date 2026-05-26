@@ -85,6 +85,8 @@ import {
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
+  QueueSchemaRichResultValidationRequestSchema,
+  QueueSchemaRichResultValidationResponseSchema,
   RecheckSchemaRecommendationRequestSchema,
   RecheckSchemaRecommendationResponseSchema,
   RecheckComplianceFlagRequestSchema,
@@ -97,6 +99,8 @@ import {
   SchemaRecommendationListResponseSchema,
   SchemaRecommendationRecordSchema,
   SchemaJsonLdTypeSchema,
+  SchemaRichResultValidationJobPayloadSchema,
+  SchemaRichResultValidationJobResultSchema,
   SchemaRichResultValidationResultSchema,
   SearchOpsEnvSchema,
   SeoIssueSchema,
@@ -377,6 +381,87 @@ describe("types foundation", () => {
       liveExternalApis: "enabled",
       status: "eligible",
     });
+  });
+
+  it("validates schema rich result validation runtime job contracts", () => {
+    const payload = SchemaRichResultValidationJobPayloadSchema.parse({
+      recommendationId: "schema_rec_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_schema",
+      requestedAt: "2026-05-26T00:00:00.000Z",
+      url: "https://example.com/services/seo",
+      type: "Service",
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: "SEO service",
+        provider: {
+          "@type": "Organization",
+          name: "Example",
+        },
+        url: "https://example.com/services/seo",
+      },
+      requiredFields: ["@context", "@type", "name", "provider", "url"],
+    });
+    const validationResult = SchemaRichResultValidationResultSchema.parse({
+      type: "Service",
+      url: "https://example.com/services/seo",
+      status: "eligible",
+      eligible: true,
+      requiredFields: payload.requiredFields,
+      missingRequiredFields: [],
+      recommendedFields: [],
+      missingRecommendedFields: [],
+      issues: [],
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+    });
+
+    expect(
+      SchemaRichResultValidationJobResultSchema.parse({
+        recommendationId: payload.recommendationId,
+        siteId: payload.siteId,
+        siteDomain: payload.siteDomain,
+        requestedByUserId: payload.requestedByUserId,
+        requestedAt: payload.requestedAt,
+        validationResult,
+      }).validationResult.generatedBy,
+    ).toBe("connector");
+    expect(
+      QueueSchemaRichResultValidationRequestSchema.parse({}).requestedAt,
+    ).toBeUndefined();
+    expect(
+      QueueSchemaRichResultValidationResponseSchema.parse({
+        recommendation: {
+          id: "schema_rec_1",
+          siteId: "site_1",
+          pageUrl: "https://example.com/services/seo",
+          type: "Service",
+          priority: "p1",
+          status: "open",
+          reason: "The service page has no Service JSON-LD block.",
+          evidence: {
+            url: "https://example.com/services/seo",
+            observedTypes: [],
+            expectedType: "Service",
+            sourceField: "jsonLd",
+          },
+          jsonLd: payload.jsonLd,
+          instructions: ["Add Service JSON-LD to the service detail page."],
+          requiredFields: payload.requiredFields,
+          recommendedFields: [],
+          generatedBy: "deterministic",
+          createdAt: "2026-05-24T00:00:00.000Z",
+          updatedAt: "2026-05-24T00:00:00.000Z",
+        },
+        job: {
+          id: "job_1",
+          name: "schema-rich-result-validation",
+          payload,
+        },
+      }).job.name,
+    ).toBe("schema-rich-result-validation");
   });
 
   it("validates persisted schema recommendation API contracts", () => {

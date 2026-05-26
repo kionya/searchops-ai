@@ -5,10 +5,12 @@ import {
   createPrismaCrawlPersistenceClient,
   createPrismaGeoVisibilityPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
+  createPrismaSchemaRichResultValidationPersistenceClient,
   createSearchOpsPrismaClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
+  type SchemaRichResultValidationPersistenceClient,
   type SearchOpsPrismaClient
 } from "@searchops/db";
 import {
@@ -19,16 +21,22 @@ import {
   crawlQueueName,
   GeoAnswerMonitorJobPayloadSchema,
   GeoAnswerMonitorJobResultSchema,
+  SchemaRichResultValidationJobPayloadSchema,
+  SchemaRichResultValidationJobResultSchema,
   geoAnswerMonitorQueueName,
+  schemaRichResultValidationQueueName,
   type connectorSyncJobName,
   type geoAnswerMonitorJobName,
+  type schemaRichResultValidationJobName,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
   type CrawlJobPayload,
   type CrawlJobResult,
   type DeadLetterJobPayload,
   type GeoAnswerMonitorJobPayload,
-  type GeoAnswerMonitorJobResult
+  type GeoAnswerMonitorJobResult,
+  type SchemaRichResultValidationJobPayload,
+  type SchemaRichResultValidationJobResult
 } from "@searchops/types";
 
 import { buildDeadLetterJobPayload, deadLetterJobName } from "./dead-letter.js";
@@ -36,9 +44,11 @@ import {
   processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
   processAndPersistGeoAnswerMonitorJob,
+  processAndPersistSchemaRichResultValidationJob,
   type ProcessAndPersistCrawlJobOptions,
   type ProcessConnectorSyncJobOptions,
-  type ProcessGeoAnswerMonitorJobOptions
+  type ProcessGeoAnswerMonitorJobOptions,
+  type ProcessSchemaRichResultValidationJobOptions
 } from "./processor.js";
 
 export interface CreateCrawlWorkerOptions {
@@ -71,6 +81,17 @@ export interface CreateGeoAnswerMonitorWorkerOptions {
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
   readonly processorOptions?: ProcessGeoAnswerMonitorJobOptions;
+  readonly queueName?: string;
+}
+
+export interface CreateSchemaRichResultValidationWorkerOptions {
+  readonly redisUrl: string;
+  readonly prisma?: SearchOpsPrismaClient;
+  readonly concurrency?: number;
+  readonly deadLetterQueueName?: string;
+  readonly enableDeadLetterQueue?: boolean;
+  readonly failedAt?: () => Date;
+  readonly processorOptions?: ProcessSchemaRichResultValidationJobOptions;
   readonly queueName?: string;
 }
 
@@ -159,6 +180,30 @@ export function createGeoAnswerMonitorJobProcessor(
   };
 }
 
+export function createSchemaRichResultValidationJobProcessor(
+  persistenceClient: SchemaRichResultValidationPersistenceClient,
+  options: ProcessSchemaRichResultValidationJobOptions = {},
+) {
+  return async (
+    job: Pick<
+      Job<
+        SchemaRichResultValidationJobPayload,
+        SchemaRichResultValidationJobResult,
+        typeof schemaRichResultValidationJobName
+      >,
+      "data"
+    >,
+  ) => {
+    const payload = SchemaRichResultValidationJobPayloadSchema.parse(job.data);
+    const result = await processAndPersistSchemaRichResultValidationJob(
+      payload,
+      persistenceClient,
+      options,
+    );
+    return SchemaRichResultValidationJobResultSchema.parse(result);
+  };
+}
+
 export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
@@ -244,6 +289,47 @@ export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWork
   >(
     queueName,
     createGeoAnswerMonitorJobProcessor(persistenceClient, options.processorOptions),
+    {
+      concurrency: options.concurrency ?? 2,
+      connection: {
+        url: options.redisUrl
+      }
+    },
+  );
+  const deadLetterQueue =
+    options.enableDeadLetterQueue === false
+      ? null
+      : createDeadLetterQueue(queueName, options.redisUrl, options.deadLetterQueueName);
+  registerDeadLetterHandler(worker, queueName, deadLetterQueue, options.failedAt ?? (() => new Date()));
+
+  return {
+    worker,
+    async close() {
+      await worker.close();
+      await deadLetterQueue?.close();
+      if (options.prisma === undefined) {
+        await prisma.$disconnect();
+      }
+    }
+  };
+}
+
+export function createSchemaRichResultValidationWorker(
+  options: CreateSchemaRichResultValidationWorkerOptions,
+) {
+  const prisma = options.prisma ?? createSearchOpsPrismaClient();
+  const persistenceClient = createPrismaSchemaRichResultValidationPersistenceClient(prisma);
+  const queueName = options.queueName ?? schemaRichResultValidationQueueName;
+  const worker = new Worker<
+    SchemaRichResultValidationJobPayload,
+    SchemaRichResultValidationJobResult,
+    typeof schemaRichResultValidationJobName
+  >(
+    queueName,
+    createSchemaRichResultValidationJobProcessor(
+      persistenceClient,
+      options.processorOptions,
+    ),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

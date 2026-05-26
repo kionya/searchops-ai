@@ -24,7 +24,7 @@ The AEO readiness API computes deterministic readiness reports from keyword and 
 
 ## Phase 8 API
 
-The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, and can queue a one-page crawl for a recommendation's page URL. It does not call LLM providers, live rich-result validators, or CMS publish adapters. Optional live rich-result validation belongs behind `packages/connectors` adapter ports and is not invoked by API handlers by default.
+The Schema Recommendation API creates deterministic JSON-LD recommendations from crawler snapshots, persists recommendation history, converts recommendations to WorkOrders, accepts snapshot-based rechecks, can queue a one-page crawl for a recommendation's page URL, and can enqueue rich-result validation jobs for worker processing. It does not call LLM providers, live rich-result validators, or CMS publish adapters inside API handlers. Optional live rich-result validation belongs behind `packages/connectors` adapter ports and worker-injected clients.
 
 ## Phase 9 API
 
@@ -70,6 +70,7 @@ The API exposes process-local operational metrics and can enforce request rate l
 - `POST /schema-recommendations/:schemaRecommendationId/work-order`
 - `POST /schema-recommendations/:schemaRecommendationId/recheck`
 - `POST /schema-recommendations/:schemaRecommendationId/recheck-crawl`
+- `POST /schema-recommendations/:schemaRecommendationId/rich-result-validation-jobs`
 - `POST /sites/:siteId/geo-visibility-reports`
 - `GET /sites/:siteId/geo-visibility-reports`
 - `POST /sites/:siteId/geo-answer-monitor-jobs`
@@ -196,6 +197,8 @@ Content brief creation is draft-only. The API persists `status = draft`, `genera
 `POST /schema-recommendations/:schemaRecommendationId/recheck` accepts a caller-provided crawler snapshot for the same page URL, detects JSON-LD types deterministically, updates recommendation status/evidence, and closes the linked WorkOrder when the expected schema type is present.
 
 `POST /schema-recommendations/:schemaRecommendationId/recheck-crawl` creates a `queued` CrawlRun with `maxPages = 1` and enqueues a crawl job for the recommendation's `pageUrl`. The page URL must stay within the registered site domain or its subdomains. The queued payload carries `schemaRecommendationId` so the worker can convert the completed crawler snapshot into a deterministic schema recommendation recheck and close the linked work order when the expected JSON-LD type is present.
+
+`POST /schema-recommendations/:schemaRecommendationId/rich-result-validation-jobs` enqueues a typed validation job with the recommendation JSON-LD draft, required fields, recommended fields, and request metadata. The API validates site/page scope but does not call live validator APIs. The worker runs deterministic offline validation by default or an explicitly injected connector validator, then persists the validation result into the recommendation evidence.
 
 ## GEO Visibility Reports
 

@@ -4,6 +4,7 @@ import type {
   ConnectorSyncPersistenceClient,
   CrawlPersistenceClient,
   GeoVisibilityPersistenceClient,
+  SchemaRichResultValidationPersistenceClient,
   SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 
@@ -11,9 +12,11 @@ import {
   processAndPersistConnectorSyncJob,
   processAndPersistCrawlJob,
   processAndPersistGeoAnswerMonitorJob,
+  processAndPersistSchemaRichResultValidationJob,
   processConnectorSyncJob,
   processCrawlJob,
-  processGeoAnswerMonitorJob
+  processGeoAnswerMonitorJob,
+  processSchemaRichResultValidationJob
 } from "./processor.js";
 
 const normalHtml = `
@@ -735,6 +738,133 @@ describe("processCrawlJob", () => {
         generatedBy: "deterministic",
         siteId: "site_geo",
         status: "strong"
+      }
+    });
+  });
+
+  it("processes schema rich-result validation jobs through an injected validator", async () => {
+    const result = await processSchemaRichResultValidationJob(
+      {
+        recommendationId: "schema_rec_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_schema",
+        requestedAt: "2026-05-26T00:00:00.000Z",
+        url: "https://example.com/services/seo",
+        type: "Service",
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          provider: {
+            "@type": "Organization",
+            name: "Example"
+          },
+          url: "https://example.com/services/seo"
+        },
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        recommendedFields: ["description"]
+      },
+      {
+        async validateRichResult(input) {
+          expect(input).toMatchObject({
+            type: "Service",
+            url: "https://example.com/services/seo"
+          });
+
+          return {
+            type: "Service",
+            url: "https://example.com/services/seo",
+            status: "eligible",
+            eligible: true,
+            requiredFields: ["@context", "@type", "name", "provider", "url"],
+            missingRequiredFields: [],
+            recommendedFields: ["description"],
+            missingRecommendedFields: [],
+            issues: [],
+            generatedBy: "connector",
+            liveExternalApis: "enabled"
+          };
+        }
+      },
+    );
+
+    expect(result).toMatchObject({
+      recommendationId: "schema_rec_1",
+      requestedAt: "2026-05-26T00:00:00.000Z",
+      validationResult: {
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        status: "eligible"
+      }
+    });
+  });
+
+  it("persists schema rich-result validation results through the DB boundary", async () => {
+    const updates: unknown[] = [];
+    const persistenceClient: SchemaRichResultValidationPersistenceClient = {
+      schemaRecommendation: {
+        async findUnique(args) {
+          expect(args.where.id).toBe("schema_rec_2");
+          return {
+            evidence: {
+              expectedType: "Service",
+              observedTypes: []
+            },
+            id: "schema_rec_2"
+          };
+        },
+        async update(args) {
+          updates.push(args);
+          return {
+            evidence: {
+              persisted: true
+            },
+            id: args.where.id
+          };
+        }
+      }
+    };
+
+    const result = await processAndPersistSchemaRichResultValidationJob(
+      {
+        recommendationId: "schema_rec_2",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_schema",
+        requestedAt: "2026-05-26T00:00:00.000Z",
+        url: "https://example.com/services/seo",
+        type: "Service",
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          provider: {
+            "@type": "Organization",
+            name: "Example"
+          },
+          url: "https://example.com/services/seo"
+        },
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        recommendedFields: []
+      },
+      persistenceClient,
+    );
+
+    expect(result.validationResult.generatedBy).toBe("deterministic");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      data: {
+        evidence: {
+          richResultValidation: {
+            result: {
+              status: "eligible"
+            }
+          }
+        }
+      },
+      where: {
+        id: "schema_rec_2"
       }
     });
   });

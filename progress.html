@@ -246,12 +246,12 @@
           </article>
 
           <article class="phase">
-            <span class="status partial">MVP plus adapters</span>
+            <span class="status partial">MVP plus runtime</span>
             <h3>Phase 8 Schema</h3>
-            <p>JSON-LD recommendations, schema work orders, recheck crawl handoff, offline validation, and live validator adapter ports are in place.</p>
+            <p>JSON-LD recommendations, schema work orders, recheck crawl handoff, offline validation, live validator adapter ports, and validation job handoff are in place.</p>
             <ul>
-              <li>Runtime live validator wiring is still pending.</li>
-              <li>JSON-LD remains recommendation draft output only.</li>
+              <li>Worker jobs persist rich-result validation evidence through deterministic defaults or explicit connector injection.</li>
+              <li>Live validator credentials and dashboard trigger UI remain future scoped.</li>
             </ul>
           </article>
 
@@ -290,13 +290,6 @@
       <section>
         <h2>Next Implementation Plan</h2>
         <div class="plan-list">
-          <article class="plan">
-            <div class="ticket">CDX-126</div>
-            <div>
-              <h3>Rich-result validator runtime wiring</h3>
-              <p class="small">Add optional orchestration for explicit validator clients and attach validation results to schema recommendation history.</p>
-            </div>
-          </article>
           <article class="plan">
             <div class="ticket">CDX-127</div>
             <div>

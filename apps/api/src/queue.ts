@@ -2,17 +2,22 @@ import {
   ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
   GeoAnswerMonitorJobPayloadSchema,
+  SchemaRichResultValidationJobPayloadSchema,
   QueuedConnectorSyncJobSchema,
   QueuedCrawlJobSchema,
   QueuedGeoAnswerMonitorJobSchema,
+  QueuedSchemaRichResultValidationJobSchema,
   connectorSyncJobName,
   geoAnswerMonitorJobName,
+  schemaRichResultValidationJobName,
   type ConnectorSyncJobPayload,
   type CrawlJobPayload,
   type GeoAnswerMonitorJobPayload,
+  type SchemaRichResultValidationJobPayload,
   type QueuedConnectorSyncJob,
   type QueuedCrawlJob,
-  type QueuedGeoAnswerMonitorJob
+  type QueuedGeoAnswerMonitorJob,
+  type QueuedSchemaRichResultValidationJob
 } from "@searchops/types";
 
 export interface CrawlRunQueue {
@@ -27,6 +32,12 @@ export interface GeoAnswerMonitorQueue {
   enqueueGeoAnswerMonitor(payload: GeoAnswerMonitorJobPayload): Promise<QueuedGeoAnswerMonitorJob>;
 }
 
+export interface SchemaRichResultValidationQueue {
+  enqueueSchemaRichResultValidation(
+    payload: SchemaRichResultValidationJobPayload,
+  ): Promise<QueuedSchemaRichResultValidationJob>;
+}
+
 export interface MemoryCrawlRunQueue extends CrawlRunQueue {
   listQueuedCrawlJobs(): readonly QueuedCrawlJob[];
 }
@@ -37,6 +48,11 @@ export interface MemoryConnectorSyncQueue extends ConnectorSyncQueue {
 
 export interface MemoryGeoAnswerMonitorQueue extends GeoAnswerMonitorQueue {
   listQueuedGeoAnswerMonitorJobs(): readonly QueuedGeoAnswerMonitorJob[];
+}
+
+export interface MemorySchemaRichResultValidationQueue
+  extends SchemaRichResultValidationQueue {
+  listQueuedSchemaRichResultValidationJobs(): readonly QueuedSchemaRichResultValidationJob[];
 }
 
 function createJobId(index: number) {
@@ -104,6 +120,28 @@ export function createMemoryGeoAnswerMonitorQueue(): MemoryGeoAnswerMonitorQueue
     },
 
     listQueuedGeoAnswerMonitorJobs() {
+      return jobs;
+    }
+  };
+}
+
+export function createMemorySchemaRichResultValidationQueue(): MemorySchemaRichResultValidationQueue {
+  const jobs: QueuedSchemaRichResultValidationJob[] = [];
+  let jobCounter = 1;
+
+  return {
+    async enqueueSchemaRichResultValidation(payload) {
+      const job = QueuedSchemaRichResultValidationJobSchema.parse({
+        id: createJobId(jobCounter),
+        name: schemaRichResultValidationJobName,
+        payload: SchemaRichResultValidationJobPayloadSchema.parse(payload)
+      });
+      jobCounter += 1;
+      jobs.push(job);
+      return job;
+    },
+
+    listQueuedSchemaRichResultValidationJobs() {
       return jobs;
     }
   };

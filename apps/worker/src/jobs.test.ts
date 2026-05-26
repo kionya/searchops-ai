@@ -8,6 +8,7 @@ describe("worker foundation", () => {
       "crawl",
       "connector-sync",
       "geo-answer-monitor",
+      "schema-rich-result-validation",
       "analyze",
       "generate",
       "recheck"
@@ -54,6 +55,27 @@ describe("worker foundation", () => {
         },
         queries: [{ query: "best seo clinic", locale: "ko-KR" }]
       },
+      "schema-rich-result-validation": {
+        recommendationId: "schema_rec_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        requestedAt: "2026-05-26T00:00:00.000Z",
+        url: "https://example.com/services/seo",
+        type: "Service",
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          provider: {
+            "@type": "Organization",
+            name: "Example"
+          },
+          url: "https://example.com/services/seo"
+        },
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        recommendedFields: ["description"]
+      },
       analyze: { crawlRunId: "crawl_1" },
       generate: { workOrderId: "wo_1" },
       recheck: { workOrderId: "wo_1", siteId: "site_1" }
@@ -62,5 +84,6 @@ describe("worker foundation", () => {
     expect(payloads.crawl.siteId).toBe("site_1");
     expect(payloads["connector-sync"].providers).toEqual(["gsc", "ga4"]);
     expect(payloads["geo-answer-monitor"].providers).toEqual(["chatgpt"]);
+    expect(payloads["schema-rich-result-validation"].type).toBe("Service");
   });
 });

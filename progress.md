@@ -79,15 +79,16 @@ Implemented:
 - Worker handoff from completed crawl snapshot to schema recommendation status/work order update.
 - Offline rich-result validation.
 - Live rich-result validator adapter port in `packages/connectors`, using explicit injected clients only.
+- Rich-result validation API enqueue, worker processor, deterministic/default validation, and evidence persistence are connected through CDX-126.
 
 Remaining:
 
-- Runtime wiring for live rich-result validator clients.
+- Deployment-specific live validator credentials/client injection and dashboard trigger UI.
 - JSON-LD remains a draft recommendation, not an auto-publish payload.
 
 ### Phase 9: GEO Monitor
 
-Status: Deterministic MVP plus adapter boundaries completed.
+Status: Deterministic MVP plus runtime handoff completed.
 
 Implemented:
 
@@ -152,32 +153,27 @@ Remaining:
 
 Recommended order:
 
-1. CDX-126: Rich-result validator runtime wiring
-   - Add optional worker/API orchestration for explicit validator clients.
-   - Store validation results or attach them to schema recommendation history.
-   - Keep `schema-core` offline and deterministic.
-
-2. CDX-127: Dead-letter operations dashboard
+1. CDX-127: Dead-letter operations dashboard
    - Persist or expose dead-letter job metadata.
    - Add operator list/detail/replay-safe design.
    - Avoid storing secrets or raw credentials.
 
-3. CDX-128: Distributed rate limit adapter
+2. CDX-128: Distributed rate limit adapter
    - Keep current process-local limiter as default.
    - Add Redis/edge adapter boundary.
    - Add deterministic tests using fake storage.
 
-4. CDX-129: Auth/RBAC and tenant isolation hardening
+3. CDX-129: Auth/RBAC and tenant isolation hardening
    - Replace mock auth context with real auth boundary.
    - Add organization/user/site scoping tests.
    - Add negative tests for cross-tenant access.
 
-5. CDX-130: Observability export
+4. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-6. CDX-131: Backup, migration, and deployment runbooks
+5. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.

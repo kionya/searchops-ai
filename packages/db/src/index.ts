@@ -50,6 +50,14 @@ export {
 } from "./schema-recommendation.js";
 
 export {
+  createPrismaSchemaRichResultValidationPersistenceClient,
+  mergeValidationIntoEvidence,
+  persistSchemaRichResultValidationJobResult,
+  type PersistSchemaRichResultValidationOutput,
+  type SchemaRichResultValidationPersistenceClient
+} from "./schema-rich-result-validation.js";
+
+export {
   buildGeoVisibilityReportCreateArgs,
   createPrismaGeoVisibilityPersistenceClient,
   persistGeoAnswerMonitorJobResult,

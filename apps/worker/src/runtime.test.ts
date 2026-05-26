@@ -3,14 +3,16 @@ import { describe, expect, it } from "vitest";
 import type {
   ConnectorSyncPersistenceClient,
   CrawlPersistenceClient,
-  GeoVisibilityPersistenceClient
+  GeoVisibilityPersistenceClient,
+  SchemaRichResultValidationPersistenceClient
 } from "@searchops/db";
 
 import { buildDeadLetterJobPayload } from "./dead-letter.js";
 import {
   createConnectorSyncJobProcessor,
   createCrawlJobProcessor,
-  createGeoAnswerMonitorJobProcessor
+  createGeoAnswerMonitorJobProcessor,
+  createSchemaRichResultValidationJobProcessor
 } from "./runtime.js";
 
 const html = `
@@ -218,6 +220,84 @@ describe("worker runtime", () => {
       }
     });
     expect(creates).toHaveLength(1);
+  });
+
+  it("processes BullMQ schema rich-result validation job data through persistence", async () => {
+    const updates: unknown[] = [];
+    const persistenceClient: SchemaRichResultValidationPersistenceClient = {
+      schemaRecommendation: {
+        async findUnique() {
+          return {
+            evidence: {
+              expectedType: "Service",
+              observedTypes: []
+            },
+            id: "schema_rec_1"
+          };
+        },
+        async update(args) {
+          updates.push(args);
+          return {
+            evidence: {
+              persisted: true
+            },
+            id: args.where.id
+          };
+        }
+      }
+    };
+    const processor = createSchemaRichResultValidationJobProcessor(persistenceClient, {
+      async validateRichResult(input) {
+        expect(input.type).toBe("Service");
+
+        return {
+          type: "Service",
+          url: "https://example.com/services/seo",
+          status: "eligible",
+          eligible: true,
+          requiredFields: ["@context", "@type", "name", "provider", "url"],
+          missingRequiredFields: [],
+          recommendedFields: [],
+          missingRecommendedFields: [],
+          issues: [],
+          generatedBy: "connector",
+          liveExternalApis: "enabled"
+        };
+      }
+    });
+
+    const result = await processor({
+      data: {
+        recommendationId: "schema_rec_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_schema",
+        requestedAt: "2026-05-26T00:00:00.000Z",
+        url: "https://example.com/services/seo",
+        type: "Service",
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          provider: {
+            "@type": "Organization",
+            name: "Example"
+          },
+          url: "https://example.com/services/seo"
+        },
+        requiredFields: ["@context", "@type", "name", "provider", "url"],
+        recommendedFields: []
+      }
+    });
+
+    expect(result).toMatchObject({
+      recommendationId: "schema_rec_1",
+      validationResult: {
+        generatedBy: "connector",
+        status: "eligible"
+      }
+    });
+    expect(updates).toHaveLength(1);
   });
 
   it("builds deterministic dead-letter payloads for failed worker jobs", () => {

@@ -3,16 +3,31 @@ import { Queue, type JobsOptions } from "bullmq";
 import {
   ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
+  GeoAnswerMonitorJobPayloadSchema,
+  SchemaRichResultValidationJobPayloadSchema,
   QueuedConnectorSyncJobSchema,
   QueuedCrawlJobSchema,
+  QueuedGeoAnswerMonitorJobSchema,
+  QueuedSchemaRichResultValidationJobSchema,
   connectorQueueName,
   connectorSyncJobName,
   crawlQueueName,
+  geoAnswerMonitorJobName,
+  geoAnswerMonitorQueueName,
+  schemaRichResultValidationJobName,
+  schemaRichResultValidationQueueName,
   type ConnectorSyncJobPayload,
-  type CrawlJobPayload
+  type CrawlJobPayload,
+  type GeoAnswerMonitorJobPayload,
+  type SchemaRichResultValidationJobPayload
 } from "@searchops/types";
 
-import type { ConnectorSyncQueue, CrawlRunQueue } from "./queue.js";
+import type {
+  ConnectorSyncQueue,
+  CrawlRunQueue,
+  GeoAnswerMonitorQueue,
+  SchemaRichResultValidationQueue
+} from "./queue.js";
 
 export interface BullMqQueuePort {
   add(
@@ -36,11 +51,42 @@ export interface BullMqConnectorQueuePort {
   close(): Promise<void>;
 }
 
+export interface BullMqGeoAnswerMonitorQueuePort {
+  add(
+    name: typeof geoAnswerMonitorJobName,
+    data: GeoAnswerMonitorJobPayload,
+    options: JobsOptions,
+  ): Promise<{
+    id?: string | number;
+  }>;
+  close(): Promise<void>;
+}
+
+export interface BullMqSchemaRichResultValidationQueuePort {
+  add(
+    name: typeof schemaRichResultValidationJobName,
+    data: SchemaRichResultValidationJobPayload,
+    options: JobsOptions,
+  ): Promise<{
+    id?: string | number;
+  }>;
+  close(): Promise<void>;
+}
+
 export interface BullMqCrawlRunQueue extends CrawlRunQueue {
   close(): Promise<void>;
 }
 
 export interface BullMqConnectorSyncQueue extends ConnectorSyncQueue {
+  close(): Promise<void>;
+}
+
+export interface BullMqGeoAnswerMonitorQueue extends GeoAnswerMonitorQueue {
+  close(): Promise<void>;
+}
+
+export interface BullMqSchemaRichResultValidationQueue
+  extends SchemaRichResultValidationQueue {
   close(): Promise<void>;
 }
 
@@ -50,6 +96,16 @@ export interface CreateBullMqCrawlRunQueueOptions {
 }
 
 export interface CreateBullMqConnectorSyncQueueOptions {
+  readonly redisUrl: string;
+  readonly queueName?: string;
+}
+
+export interface CreateBullMqGeoAnswerMonitorQueueOptions {
+  readonly redisUrl: string;
+  readonly queueName?: string;
+}
+
+export interface CreateBullMqSchemaRichResultValidationQueueOptions {
   readonly redisUrl: string;
   readonly queueName?: string;
 }
@@ -104,6 +160,52 @@ export function createBullMqConnectorSyncQueueFromQueue(
   };
 }
 
+export function createBullMqGeoAnswerMonitorQueueFromQueue(
+  queue: BullMqGeoAnswerMonitorQueuePort,
+): BullMqGeoAnswerMonitorQueue {
+  return {
+    async enqueueGeoAnswerMonitor(input) {
+      const payload = GeoAnswerMonitorJobPayloadSchema.parse(input);
+      const job = await queue.add(geoAnswerMonitorJobName, payload, defaultJobOptions);
+
+      return QueuedGeoAnswerMonitorJobSchema.parse({
+        id: String(job.id ?? `${payload.siteId}:geo-answer-monitor`),
+        name: geoAnswerMonitorJobName,
+        payload
+      });
+    },
+
+    async close() {
+      await queue.close();
+    }
+  };
+}
+
+export function createBullMqSchemaRichResultValidationQueueFromQueue(
+  queue: BullMqSchemaRichResultValidationQueuePort,
+): BullMqSchemaRichResultValidationQueue {
+  return {
+    async enqueueSchemaRichResultValidation(input) {
+      const payload = SchemaRichResultValidationJobPayloadSchema.parse(input);
+      const job = await queue.add(
+        schemaRichResultValidationJobName,
+        payload,
+        defaultJobOptions,
+      );
+
+      return QueuedSchemaRichResultValidationJobSchema.parse({
+        id: String(job.id ?? `${payload.recommendationId}:schema-rich-result-validation`),
+        name: schemaRichResultValidationJobName,
+        payload
+      });
+    },
+
+    async close() {
+      await queue.close();
+    }
+  };
+}
+
 export function createBullMqCrawlRunQueue(
   options: CreateBullMqCrawlRunQueueOptions,
 ): BullMqCrawlRunQueue {
@@ -127,5 +229,34 @@ export function createBullMqConnectorSyncQueue(
       },
       defaultJobOptions
     }),
+  );
+}
+
+export function createBullMqGeoAnswerMonitorQueue(
+  options: CreateBullMqGeoAnswerMonitorQueueOptions,
+): BullMqGeoAnswerMonitorQueue {
+  return createBullMqGeoAnswerMonitorQueueFromQueue(
+    new Queue<GeoAnswerMonitorJobPayload>(options.queueName ?? geoAnswerMonitorQueueName, {
+      connection: {
+        url: options.redisUrl
+      },
+      defaultJobOptions
+    }),
+  );
+}
+
+export function createBullMqSchemaRichResultValidationQueue(
+  options: CreateBullMqSchemaRichResultValidationQueueOptions,
+): BullMqSchemaRichResultValidationQueue {
+  return createBullMqSchemaRichResultValidationQueueFromQueue(
+    new Queue<SchemaRichResultValidationJobPayload>(
+      options.queueName ?? schemaRichResultValidationQueueName,
+      {
+        connection: {
+          url: options.redisUrl
+        },
+        defaultJobOptions
+      },
+    ),
   );
 }
