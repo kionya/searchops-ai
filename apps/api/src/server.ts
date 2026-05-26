@@ -108,6 +108,10 @@ import {
   summarizeDeadLetterJobs,
 } from "./dead-letter-store.js";
 import {
+  createMemoryApiRateLimitStore,
+  type ApiRateLimitStore,
+} from "./rate-limit.js";
+import {
   type CreateClosedLoopAuditEventInput,
   type SearchOpsRepository,
   createMemoryRepository,
@@ -135,6 +139,7 @@ export interface BuildApiServerOptions {
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
   readonly currentTime?: () => Date;
   readonly rateLimit?: ApiRateLimitOptions;
+  readonly rateLimitStore?: ApiRateLimitStore;
   readonly requireCmsWebhookSignature?: boolean;
 }
 
@@ -142,11 +147,6 @@ export interface ApiRateLimitOptions {
   readonly enabled: boolean;
   readonly maxRequests: number;
   readonly windowMs: number;
-}
-
-interface RateLimitBucket {
-  count: number;
-  resetAtMs: number;
 }
 
 function notFound(message: string) {
@@ -159,32 +159,6 @@ function getRateLimitKey(request: FastifyRequest) {
   const forwardedIp = firstForwardedFor?.split(",")[0]?.trim();
 
   return forwardedIp && forwardedIp.length > 0 ? forwardedIp : request.ip;
-}
-
-function shouldRateLimitRequest(
-  buckets: Map<string, RateLimitBucket>,
-  key: string,
-  nowMs: number,
-  options: ApiRateLimitOptions,
-) {
-  for (const [bucketKey, bucketValue] of buckets.entries()) {
-    if (nowMs >= bucketValue.resetAtMs) {
-      buckets.delete(bucketKey);
-    }
-  }
-
-  const bucket = buckets.get(key);
-  if (bucket === undefined || nowMs >= bucket.resetAtMs) {
-    buckets.set(key, { count: 1, resetAtMs: nowMs + options.windowMs });
-    return false;
-  }
-
-  if (bucket.count >= options.maxRequests) {
-    return true;
-  }
-
-  bucket.count += 1;
-  return false;
 }
 
 function isActiveComplianceFlag(flag: ComplianceFlag) {
@@ -222,7 +196,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     maxRequests: 120,
     windowMs: 60_000,
   };
-  const rateLimitBuckets = new Map<string, RateLimitBucket>();
+  const rateLimitStore = options.rateLimitStore ?? createMemoryApiRateLimitStore();
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -235,13 +209,13 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const limited = shouldRateLimitRequest(
-      rateLimitBuckets,
-      getRateLimitKey(request),
-      currentTime().getTime(),
-      rateLimit,
-    );
-    if (limited) {
+    const decision = await rateLimitStore.consume({
+      key: getRateLimitKey(request),
+      maxRequests: rateLimit.maxRequests,
+      nowMs: currentTime().getTime(),
+      windowMs: rateLimit.windowMs,
+    });
+    if (decision.limited) {
       return reply.status(429).send({
         error: "rate_limited",
         message: "Too many requests.",

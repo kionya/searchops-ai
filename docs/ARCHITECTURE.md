@@ -158,7 +158,7 @@ Closed-loop audit logging is owned by the API and DB layers. The deterministic c
 
 ## Phase 11 Production Hardening Boundary
 
-Production hardening starts at runtime boundaries before deeper platform policy work. `apps/api` owns HTTP rate limiting and request metrics because those controls depend on request identity and deployment topology. The first implementation is in-memory and deterministic for local/test environments; distributed rate limiting can replace the same boundary later.
+Production hardening starts at runtime boundaries before deeper platform policy work. `apps/api` owns HTTP rate limiting and request metrics because those controls depend on request identity and deployment topology. The default limiter is in-memory and deterministic for local/test environments. Multi-instance deployments can inject the same boundary through a Redis-like distributed counter adapter without changing route handlers.
 
 `apps/worker` owns BullMQ worker failure handling. Queue producers define retry/backoff defaults, while worker runtimes write failed jobs to a dead-letter queue after BullMQ exhausts retries. Dead-letter payloads intentionally store queue/job metadata and failure reason, not secrets or raw external credentials.
 

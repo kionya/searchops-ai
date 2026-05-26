@@ -27,6 +27,7 @@ import {
   createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
 import { createMemoryDeadLetterJobStore } from "./dead-letter-store.js";
+import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import { createCmsWebhookSignature } from "./webhook-security.js";
@@ -874,6 +875,43 @@ describe("api foundation", () => {
     expect(firstResponse.statusCode).toBe(200);
     expect(limitedResponse.statusCode).toBe(429);
     expect(resetResponse.statusCode).toBe(200);
+  });
+
+  it("can use an injected distributed rate-limit store boundary", async () => {
+    const consumedKeys: string[] = [];
+    const rateLimitStore: ApiRateLimitStore = {
+      async consume(input) {
+        consumedKeys.push(input.key);
+        return {
+          limited: true,
+          remaining: 0,
+          resetAtMs: input.nowMs + input.windowMs,
+        };
+      },
+    };
+    const server = buildApiServer({
+      rateLimit: {
+        enabled: true,
+        maxRequests: 1,
+        windowMs: 1000,
+      },
+      rateLimitStore,
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        "x-forwarded-for": "203.0.113.10, 10.0.0.1",
+      },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(consumedKeys).toEqual(["203.0.113.10"]);
   });
 
   it("provides mock auth context without real login", async () => {
