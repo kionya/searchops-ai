@@ -31,6 +31,10 @@ import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import { createCmsWebhookSignature } from "./webhook-security.js";
+import {
+  createMemoryOperationalAlertRouter,
+  createMemoryOperationalLogDrain,
+} from "./observability.js";
 
 const createdAt = "2026-05-19T00:00:00.000Z";
 const seededOrganization: Organization = {
@@ -451,10 +455,12 @@ function buildTestServer() {
   });
 }
 
-function buildDeadLetterOperationsTestContext(options: { readonly currentTime?: () => Date } = {}) {
+function buildDeadLetterOperationsTestContext(
+  options: Parameters<typeof buildApiServer>[0] = {},
+) {
   const deadLetterJobStore = createMemoryDeadLetterJobStore([seededDeadLetterJob]);
   const server = buildApiServer({
-    ...(options.currentTime === undefined ? {} : { currentTime: options.currentTime }),
+    ...options,
     deadLetterJobStore,
     repository: createMemoryRepository({
       organizations: [seededOrganization],
@@ -784,8 +790,12 @@ describe("api foundation", () => {
 
   it("exports operational metrics with worker failure summary", async () => {
     let now = new Date("2026-05-26T00:00:00.000Z");
+    const operationalLogDrain = createMemoryOperationalLogDrain();
+    const operationalAlertRouter = createMemoryOperationalAlertRouter(() => now);
     const { server } = buildDeadLetterOperationsTestContext({
       currentTime: () => now,
+      operationalAlertRouter,
+      operationalLogDrain,
     });
 
     const healthResponse = await server.inject({ method: "GET", url: "/health" });
@@ -827,6 +837,15 @@ describe("api foundation", () => {
         },
       ],
     });
+    expect(operationalLogDrain.listMetricsExports()).toEqual([response.json()]);
+    expect(operationalAlertRouter.listAlertDeliveries()).toEqual([
+      {
+        alert: response.json().alerts[0],
+        deliveredAt: "2026-05-26T00:00:12.000Z",
+        generatedAt: "2026-05-26T00:00:12.000Z",
+        routeKey: "worker:warning",
+      },
+    ]);
   });
 
   it("lists worker dead-letter jobs for operations", async () => {

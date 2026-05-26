@@ -1,4 +1,8 @@
-import { OperationalMetricsExportResponseSchema } from "@searchops/types";
+import {
+  OperationalMetricsExportResponseSchema,
+  type OperationalAlert,
+  type OperationalMetricsExportResponse,
+} from "@searchops/types";
 
 export interface RequestMetricsSnapshot {
   readonly total: number;
@@ -16,6 +20,32 @@ export interface CreateOperationalMetricsExportInput {
   readonly metricsStartedAtMs: number;
   readonly requestMetrics: RequestMetricsSnapshot;
   readonly workerDeadLetterSummary: WorkerDeadLetterSummary;
+}
+
+export interface OperationalLogDrain {
+  writeMetricsExport(payload: OperationalMetricsExportResponse): Promise<void>;
+}
+
+export interface OperationalAlertRouter {
+  routeAlerts(
+    alerts: readonly OperationalAlert[],
+    payload: OperationalMetricsExportResponse,
+  ): Promise<void>;
+}
+
+export interface MemoryOperationalLogDrain extends OperationalLogDrain {
+  listMetricsExports(): readonly OperationalMetricsExportResponse[];
+}
+
+export interface MemoryOperationalAlertRouter extends OperationalAlertRouter {
+  listAlertDeliveries(): readonly OperationalAlertDelivery[];
+}
+
+export interface OperationalAlertDelivery {
+  readonly alert: OperationalAlert;
+  readonly deliveredAt: string;
+  readonly generatedAt: string;
+  readonly routeKey: string;
 }
 
 export function createOperationalMetricsExport(input: CreateOperationalMetricsExportInput) {
@@ -37,6 +67,59 @@ export function createOperationalMetricsExport(input: CreateOperationalMetricsEx
       workerDeadLetterSummary: input.workerDeadLetterSummary,
     }),
   });
+}
+
+export function createNoopOperationalLogDrain(): OperationalLogDrain {
+  return {
+    async writeMetricsExport() {
+      return undefined;
+    },
+  };
+}
+
+export function createNoopOperationalAlertRouter(): OperationalAlertRouter {
+  return {
+    async routeAlerts() {
+      return undefined;
+    },
+  };
+}
+
+export function createMemoryOperationalLogDrain(
+  seed: readonly OperationalMetricsExportResponse[] = [],
+): MemoryOperationalLogDrain {
+  const entries = [...seed];
+
+  return {
+    async writeMetricsExport(payload) {
+      entries.push(OperationalMetricsExportResponseSchema.parse(payload));
+    },
+    listMetricsExports() {
+      return [...entries];
+    },
+  };
+}
+
+export function createMemoryOperationalAlertRouter(
+  currentTime: () => Date = () => new Date(),
+): MemoryOperationalAlertRouter {
+  const deliveries: OperationalAlertDelivery[] = [];
+
+  return {
+    async routeAlerts(alerts, payload) {
+      for (const alert of alerts) {
+        deliveries.push({
+          alert,
+          deliveredAt: currentTime().toISOString(),
+          generatedAt: payload.generatedAt,
+          routeKey: `${alert.source}:${alert.severity}`,
+        });
+      }
+    },
+    listAlertDeliveries() {
+      return [...deliveries];
+    },
+  };
 }
 
 function createOperationalAlerts({

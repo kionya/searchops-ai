@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createOperationalMetricsExport } from "./observability.js";
+import {
+  createMemoryOperationalAlertRouter,
+  createMemoryOperationalLogDrain,
+  createOperationalMetricsExport,
+} from "./observability.js";
 
 describe("observability export", () => {
   it("creates deterministic operational metrics and alerts", () => {
@@ -93,5 +97,40 @@ describe("observability export", () => {
       uptimeSeconds: 0,
       alerts: [],
     });
+  });
+
+  it("stores metrics exports and routes alert deliveries through runtime adapters", async () => {
+    const logDrain = createMemoryOperationalLogDrain();
+    const alertRouter = createMemoryOperationalAlertRouter(
+      () => new Date("2026-05-26T00:01:00.000Z"),
+    );
+    const exportPayload = createOperationalMetricsExport({
+      generatedAt: new Date("2026-05-26T00:00:12.000Z"),
+      metricsStartedAtMs: new Date("2026-05-26T00:00:00.000Z").getTime(),
+      requestMetrics: {
+        total: 1,
+        byStatus: {
+          "500": 1,
+        },
+      },
+      workerDeadLetterSummary: {
+        total: 0,
+        byQueue: {},
+        byStatus: {},
+      },
+    });
+
+    await logDrain.writeMetricsExport(exportPayload);
+    await alertRouter.routeAlerts(exportPayload.alerts, exportPayload);
+
+    expect(logDrain.listMetricsExports()).toEqual([exportPayload]);
+    expect(alertRouter.listAlertDeliveries()).toEqual([
+      {
+        alert: exportPayload.alerts[0],
+        deliveredAt: "2026-05-26T00:01:00.000Z",
+        generatedAt: "2026-05-26T00:00:12.000Z",
+        routeKey: "api:critical",
+      },
+    ]);
   });
 });

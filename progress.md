@@ -4,7 +4,7 @@ Updated: 2026-05-26
 
 ## Current State
 
-The repository is on `codex/cdx-131-runbooks`, branched from the latest merged `main`.
+The repository is on `codex/cdx-132-observability-ingestion`, branched from the latest merged `main`.
 
 Recent merged PRs:
 
@@ -12,11 +12,12 @@ Recent merged PRs:
 - PR #66: Distributed rate-limit adapter
 - PR #67: Tenant-scoped mock auth roles
 - PR #68: Operational metrics export
+- PR #69: Production hardening runbooks
 
 Latest full verification:
 
 - `corepack pnpm verify` passed locally for CDX-131 runbooks.
-- GitHub Actions `verify` passed for PR #65, PR #66, PR #67, and PR #68 before merge.
+- GitHub Actions `verify` passed for PR #65, PR #66, PR #67, PR #68, and PR #69 before merge.
 
 ## Phase Progress
 
@@ -146,11 +147,12 @@ Implemented:
 - Mock auth roles enforced for tenant-scoped API access and viewer write denial.
 - Operational metrics export for API request counters, worker dead-letter summaries, and deterministic alert signals.
 - Backup/restore, migration verification, deployment check, and secret rotation runbooks.
+- Metrics export ingestion adapters for log drains and alert routing, plus an `/ops/observability` dashboard with fixture fallback.
 
 Remaining:
 
 - Deployment-specific Redis client wiring or edge-backed rate limiting.
-- Deployment-specific observability ingestion, log drains, and alert routing.
+- Provider-specific observability SaaS wiring.
 - Dead-letter replay workflow.
 - External identity-provider integration and deployment auth middleware.
 - Backup restore drills and deployment-specific secret automation.
@@ -159,19 +161,19 @@ Remaining:
 
 Recommended order:
 
-1. Follow-up observability hardening
-   - Wire the metrics export into deployment log drains or dashboard ingestion.
-   - Add alert routing outside the local API process.
-
-2. Follow-up auth hardening
+1. Follow-up auth hardening
    - Wire a deployment identity provider or middleware.
    - Map provider claims into the existing API auth context.
    - Keep cross-tenant negative tests as the contract.
 
-3. Follow-up operations hardening
+2. Follow-up operations hardening
    - Run scheduled backup restore drills.
    - Add deployment-specific secret rotation automation.
    - Define dead-letter replay workflows per queue.
+
+3. Follow-up observability providers
+   - Bind the log drain/alert router adapters to deployment-specific observability services.
+   - Keep raw customer payloads and provider credentials out of exported metrics.
 
 ## Guardrails
 
