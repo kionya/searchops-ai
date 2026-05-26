@@ -74,6 +74,7 @@ Required environment:
 - `SEARCHOPS_CMS_WEBHOOK_SECRETS` when CMS webhooks are enabled.
 - `SEARCHOPS_RATE_LIMIT_ENABLED`, `SEARCHOPS_RATE_LIMIT_MAX`, and `SEARCHOPS_RATE_LIMIT_WINDOW_MS` when API rate limits are enabled.
 - Provider credentials only in deployment secret storage, never in fixtures or committed files.
+- External IdP verification must happen before traffic reaches the API. The API only maps trusted `x-searchops-idp-*` claims from deployment middleware into its typed auth context.
 
 Pre-deploy checks:
 1. Run `corepack pnpm verify` on the release commit.
@@ -82,6 +83,7 @@ Pre-deploy checks:
 4. Confirm CMS webhook secrets are provider-scoped and rotated through the deployment secret manager.
 5. Confirm `/health`, `/metrics`, and `/ops/metrics-export` are reachable from the operations network.
 6. Confirm tenant-scoped API calls deny cross-tenant access.
+7. Confirm incomplete `x-searchops-idp-*` claim sets fail before route side effects.
 
 Post-deploy checks:
 1. Trigger a fixture-safe crawl or runtime smoke test in a non-production tenant.

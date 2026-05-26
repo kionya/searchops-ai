@@ -180,10 +180,11 @@ Phase 11 starting status:
 - `CDX-130`: Operations metrics export combines API request counters, worker dead-letter summaries, and deterministic alert signals behind the ops API boundary.
 - `CDX-131`: Backup, restore, migration verification, deployment environment, and secret rotation runbooks are documented with Corepack-backed migration status/deploy scripts.
 - `CDX-132`: `/ops/metrics-export` writes to injected log drain and alert router adapters, and the web dashboard exposes an operations observability view with API data plus deterministic fixture fallback.
+- `CDX-133`: Trusted external IdP claim headers map into the same typed API auth context as mock auth, preserving tenant and role checks without live IdP calls in tests.
 
 Phase 11 remaining limitations:
 
 - API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
 - Metrics export can feed injected log drain and alert router adapters, but provider-specific observability SaaS wiring remains deployment scope.
 - Dead-letter queues capture failed job metadata and expose operator cleanup views, but replay workflows are still future scope.
-- External identity-provider integration, deployment auth middleware, deployment-specific secret automation, and backup restore drills still need dedicated PRs.
+- Deployment-specific auth middleware, secret automation, and backup restore drills still need dedicated PRs.

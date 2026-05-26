@@ -1350,14 +1350,36 @@ export const AuthRoleSchema = z.enum(["admin", "editor", "owner", "system", "vie
 
 export type AuthRole = z.infer<typeof AuthRoleSchema>;
 
-export const MockUserContextSchema = z.object({
+export const AuthContextSourceSchema = z.enum(["idp", "mock"]);
+
+export type AuthContextSource = z.infer<typeof AuthContextSourceSchema>;
+
+export const AuthenticatedUserContextSchema = z.object({
   userId: IdSchema,
   organizationId: IdSchema,
   role: AuthRoleSchema.default("admin"),
+  source: AuthContextSourceSchema,
+  provider: z.string().min(1).nullable().default(null),
+  email: z.string().email().nullable().default(null),
+});
+
+export type AuthenticatedUserContext = z.infer<typeof AuthenticatedUserContextSchema>;
+
+export const MockUserContextSchema = AuthenticatedUserContextSchema.extend({
   source: z.literal("mock"),
 });
 
 export type MockUserContext = z.infer<typeof MockUserContextSchema>;
+
+export const IdpClaimMappingInputSchema = z.object({
+  provider: z.string().min(1),
+  subject: IdSchema,
+  organizationId: IdSchema,
+  role: AuthRoleSchema,
+  email: z.string().email().nullable().default(null),
+});
+
+export type IdpClaimMappingInput = z.infer<typeof IdpClaimMappingInputSchema>;
 
 export const LinkClassificationSchema = z.enum(["internal", "external"]);
 

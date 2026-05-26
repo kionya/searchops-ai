@@ -38,7 +38,7 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 
 The API exposes process-local operational metrics, can export request and worker failure metrics for operations tooling, can send exports into injected log drain and alert router adapters, can enforce request rate limits from validated environment settings, and exposes worker dead-letter metadata for operator cleanup. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
 
-Tenant access is enforced at the API boundary from the authenticated user context. In the current development runtime this context is still provided by mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`), but organization/site routes and site-scoped resource routes use it for cross-tenant denial and write-role checks.
+Tenant access is enforced at the API boundary from the authenticated user context. Local development may provide this context with mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`). Deployment middleware may provide trusted external IdP claims with `x-searchops-idp-provider`, `x-searchops-idp-subject`, `x-searchops-idp-organization-id`, `x-searchops-idp-role`, and optional `x-searchops-idp-email`. Organization/site routes and site-scoped resource routes use the resolved context for cross-tenant denial and write-role checks.
 
 ## Routes
 

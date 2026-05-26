@@ -1009,10 +1009,108 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
+      email: null,
+      provider: null,
       userId: "user_test",
       organizationId: "org_demo",
       role: "admin",
       source: "mock",
+    });
+  });
+
+  it("maps trusted external IdP claims into the API auth context", async () => {
+    const server = buildTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/auth/context",
+      headers: {
+        "x-searchops-idp-email": "editor@example.com",
+        "x-searchops-idp-organization-id": "org_demo",
+        "x-searchops-idp-provider": "auth0",
+        "x-searchops-idp-role": "editor",
+        "x-searchops-idp-subject": "idp_user_1",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      email: "editor@example.com",
+      provider: "auth0",
+      userId: "idp_user_1",
+      organizationId: "org_demo",
+      role: "editor",
+      source: "idp",
+    });
+  });
+
+  it("uses external IdP tenant and role claims for route authorization", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const sameTenantResponse = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers: {
+        "x-searchops-idp-organization-id": "org_demo",
+        "x-searchops-idp-provider": "clerk",
+        "x-searchops-idp-role": "editor",
+        "x-searchops-idp-subject": "idp_editor_1",
+      },
+      payload: {
+        name: "IdP editor edit",
+      },
+    });
+    const crossTenantResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_other",
+      headers: {
+        "x-searchops-idp-organization-id": "org_demo",
+        "x-searchops-idp-provider": "clerk",
+        "x-searchops-idp-role": "editor",
+        "x-searchops-idp-subject": "idp_editor_1",
+      },
+    });
+
+    expect(sameTenantResponse.statusCode).toBe(200);
+    expect(crossTenantResponse.statusCode).toBe(403);
+    expect(crossTenantResponse.json()).toEqual({
+      error: "forbidden",
+      message: "User cannot access this organization",
+    });
+  });
+
+  it("rejects incomplete external IdP claim headers before authorization side effects", async () => {
+    const server = buildTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/auth/context",
+      headers: {
+        "x-searchops-idp-provider": "auth0",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "validation_error",
+    });
+  });
+
+  it("rejects lone external IdP email headers instead of falling back to mock auth", async () => {
+    const server = buildTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/auth/context",
+      headers: {
+        "x-searchops-idp-email": "editor@example.com",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "validation_error",
     });
   });
 

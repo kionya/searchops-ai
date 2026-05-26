@@ -95,7 +95,7 @@ import {
   canAccessOrganization,
   canManageOperations,
   canWriteWithRole,
-  resolveMockUserContext,
+  resolveAuthenticatedUserContext,
 } from "./auth.js";
 import {
   type ConnectorSyncQueue,
@@ -251,7 +251,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     readonly reply: FastifyReply;
     readonly request: FastifyRequest;
   }) {
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     if (!canAccessOrganization(userContext, organizationId)) {
       sendForbidden(reply, "User cannot access this organization");
       return false;
@@ -317,7 +317,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     if (routeUrl.startsWith("/ops/")) {
-      const userContext = resolveMockUserContext(request);
+      const userContext = resolveAuthenticatedUserContext(request);
       if (!canManageOperations(userContext.role)) {
         sendForbidden(reply, "User role cannot manage operations");
         return false;
@@ -727,10 +727,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     );
   });
 
-  server.get("/auth/context", async (request) => resolveMockUserContext(request));
+  server.get("/auth/context", async (request) => resolveAuthenticatedUserContext(request));
 
   server.get("/organizations", async (request) => {
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const organizations = await repository.listOrganizations();
 
     return OrganizationListResponseSchema.parse({
@@ -742,7 +742,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   });
 
   server.post("/organizations", async (request, reply) => {
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     if (!canWriteWithRole(userContext.role)) {
       reply.status(403).send(forbidden("User role cannot create organizations"));
       return;
@@ -1092,7 +1092,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const observedAt = input.observedAt ?? currentTime().toISOString();
     const job = await geoAnswerMonitorQueue.enqueueGeoAnswerMonitor({
       organizationId: site.organizationId,
@@ -1294,7 +1294,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: id,
@@ -1317,7 +1317,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     const input = CreateConnectorSyncRunRequestSchema.parse(request.body ?? {});
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const connectorSyncRun = await repository.createConnectorSyncRun(site.id, {
       providers: input.providers,
       requestedByUserId: userContext.userId,
@@ -1602,7 +1602,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: site.id,
@@ -1649,7 +1649,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       }
 
       const input = QueueSchemaRichResultValidationRequestSchema.parse(request.body ?? {});
-      const userContext = resolveMockUserContext(request);
+      const userContext = resolveAuthenticatedUserContext(request);
       const job = await schemaRichResultValidationQueue.enqueueSchemaRichResultValidation({
         recommendationId: recommendation.id,
         siteId: site.id,
@@ -1747,7 +1747,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const userContext = resolveMockUserContext(request);
+    const userContext = resolveAuthenticatedUserContext(request);
     const job = await crawlRunQueue.enqueueCrawl({
       crawlRunId: crawlRun.id,
       siteId: site.id,
