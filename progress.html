@@ -190,11 +190,11 @@
     <main>
       <header>
         <h1>SearchOps AI Progress</h1>
-        <p class="meta">Updated: 2026-05-25 · Branch: <code>main</code> aligned with <code>origin/main</code></p>
+        <p class="meta">Updated: 2026-05-26 · Branch: <code>codex/cdx-125-geo-runtime-job</code></p>
         <div class="summary">
           <div class="stat">
             <strong>3</strong>
-            <span>Recent PRs merged: #58, #59, #60</span>
+            <span>Recent PRs merged: #59, #60, #62</span>
           </div>
           <div class="stat">
             <strong>Passed</strong>
@@ -258,10 +258,10 @@
           <article class="phase">
             <span class="status partial">MVP plus adapters</span>
             <h3>Phase 9 GEO</h3>
-            <p>GEO visibility scoring, report history, dashboard, work order conversion, fixture answer monitors, and live adapter ports are connected.</p>
+            <p>GEO visibility scoring, report history, dashboard, work order conversion, fixture answer monitors, live adapter ports, and runtime job handoff are connected.</p>
             <ul>
-              <li>Runtime live provider job wiring is still pending.</li>
-              <li>API/dashboard collection remains manual or fixture-driven.</li>
+              <li>Worker jobs evaluate connector observations through deterministic <code>geo-core</code> and persist report history.</li>
+              <li>Live provider credentials and dashboard collection remain future scoped.</li>
             </ul>
           </article>
 
@@ -290,13 +290,6 @@
       <section>
         <h2>Next Implementation Plan</h2>
         <div class="plan-list">
-          <article class="plan">
-            <div class="ticket">CDX-125</div>
-            <div>
-              <h3>GEO live provider runtime job wiring</h3>
-              <p class="small">Add worker job contracts for GEO answer monitoring, use explicit connector clients, and persist resulting visibility reports.</p>
-            </div>
-          </article>
           <article class="plan">
             <div class="ticket">CDX-126</div>
             <div>

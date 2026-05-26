@@ -1,13 +1,18 @@
 import {
   ConnectorSyncJobPayloadSchema,
   CrawlJobPayloadSchema,
+  GeoAnswerMonitorJobPayloadSchema,
   QueuedConnectorSyncJobSchema,
   QueuedCrawlJobSchema,
+  QueuedGeoAnswerMonitorJobSchema,
   connectorSyncJobName,
+  geoAnswerMonitorJobName,
   type ConnectorSyncJobPayload,
   type CrawlJobPayload,
+  type GeoAnswerMonitorJobPayload,
   type QueuedConnectorSyncJob,
-  type QueuedCrawlJob
+  type QueuedCrawlJob,
+  type QueuedGeoAnswerMonitorJob
 } from "@searchops/types";
 
 export interface CrawlRunQueue {
@@ -18,12 +23,20 @@ export interface ConnectorSyncQueue {
   enqueueConnectorSync(payload: ConnectorSyncJobPayload): Promise<QueuedConnectorSyncJob>;
 }
 
+export interface GeoAnswerMonitorQueue {
+  enqueueGeoAnswerMonitor(payload: GeoAnswerMonitorJobPayload): Promise<QueuedGeoAnswerMonitorJob>;
+}
+
 export interface MemoryCrawlRunQueue extends CrawlRunQueue {
   listQueuedCrawlJobs(): readonly QueuedCrawlJob[];
 }
 
 export interface MemoryConnectorSyncQueue extends ConnectorSyncQueue {
   listQueuedConnectorSyncJobs(): readonly QueuedConnectorSyncJob[];
+}
+
+export interface MemoryGeoAnswerMonitorQueue extends GeoAnswerMonitorQueue {
+  listQueuedGeoAnswerMonitorJobs(): readonly QueuedGeoAnswerMonitorJob[];
 }
 
 function createJobId(index: number) {
@@ -69,6 +82,28 @@ export function createMemoryConnectorSyncQueue(): MemoryConnectorSyncQueue {
     },
 
     listQueuedConnectorSyncJobs() {
+      return jobs;
+    }
+  };
+}
+
+export function createMemoryGeoAnswerMonitorQueue(): MemoryGeoAnswerMonitorQueue {
+  const jobs: QueuedGeoAnswerMonitorJob[] = [];
+  let jobCounter = 1;
+
+  return {
+    async enqueueGeoAnswerMonitor(payload) {
+      const job = QueuedGeoAnswerMonitorJobSchema.parse({
+        id: createJobId(jobCounter),
+        name: geoAnswerMonitorJobName,
+        payload: GeoAnswerMonitorJobPayloadSchema.parse(payload)
+      });
+      jobCounter += 1;
+      jobs.push(job);
+      return job;
+    },
+
+    listQueuedGeoAnswerMonitorJobs() {
       return jobs;
     }
   };

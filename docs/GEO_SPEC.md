@@ -51,6 +51,11 @@ Connector boundary:
 - Live answer monitor wrappers require an explicitly injected provider client, return `generatedBy = connector`, `liveExternalApis = enabled`, and normalize responses to `source = connector`.
 - No provider SDK, credential, browser automation, or network call is enabled by default.
 
+Runtime job flow:
+- `POST /sites/:siteId/geo-answer-monitor-jobs` validates target site/domain scope and enqueues a typed `geo-answer-monitor` job.
+- The worker consumes the job, calls a monitor batch adapter through dependency injection, evaluates returned observations through `packages/geo-core`, and persists a new `GeoVisibilityReport`.
+- Fixture monitor adapters are the default runtime path. Live clients can be injected by deployment configuration later without changing deterministic scoring contracts.
+
 Visibility checks:
 - `BRAND_MENTIONED`: answer text mentions the brand name or owned domain.
 - `OWNED_URL_CITED`: cited URLs include the owned domain or subdomain.
@@ -75,5 +80,6 @@ Work order mapping:
 Non-goals for Phase 9:
 - No LLM usage for visibility scoring, provider classification, or citations.
 - No live AI provider scraping or external connector fetch in tests.
+- No default live provider credentials, SDKs, browser automation, or network calls in API handlers.
 - No automatic content publishing or CMS updates.
 - No claim/compliance approval automation.

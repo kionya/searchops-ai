@@ -14,6 +14,7 @@
     "@searchops/connectors": "workspace:*",
     "@searchops/crawler-core": "workspace:*",
     "@searchops/db": "workspace:*",
+    "@searchops/geo-core": "workspace:*",
     "@searchops/schema-core": "workspace:*",
     "@searchops/types": "workspace:*",
     "bullmq": "^5.52.1"

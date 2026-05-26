@@ -1,13 +1,14 @@
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
-import { createConnectorSyncWorker, createCrawlWorker } from "./runtime.js";
+import { createConnectorSyncWorker, createCrawlWorker, createGeoAnswerMonitorWorker } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
 const crawlRuntime = createCrawlWorker({ redisUrl: env.REDIS_URL });
 const connectorSyncRuntime = createConnectorSyncWorker({ redisUrl: env.REDIS_URL });
+const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker({ redisUrl: env.REDIS_URL });
 
-for (const runtime of [crawlRuntime, connectorSyncRuntime]) {
+for (const runtime of [crawlRuntime, connectorSyncRuntime, geoAnswerMonitorRuntime]) {
   runtime.worker.on("completed", (job) => {
     console.log(`SearchOps worker completed ${job.name} job ${job.id}`);
   });
@@ -21,7 +22,11 @@ for (const runtime of [crawlRuntime, connectorSyncRuntime]) {
 }
 
 async function shutdown() {
-  await Promise.all([crawlRuntime.close(), connectorSyncRuntime.close()]);
+  await Promise.all([
+    crawlRuntime.close(),
+    connectorSyncRuntime.close(),
+    geoAnswerMonitorRuntime.close()
+  ]);
 }
 
 process.once("SIGINT", () => {

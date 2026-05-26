@@ -113,6 +113,9 @@ importers:
       '@searchops/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@searchops/geo-core':
+        specifier: workspace:*
+        version: link:../../packages/geo-core
       '@searchops/schema-core':
         specifier: workspace:*
         version: link:../../packages/schema-core

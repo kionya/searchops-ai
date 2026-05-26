@@ -49,6 +49,15 @@ export {
   type SchemaRecommendationWorkOrderUpdateArgs
 } from "./schema-recommendation.js";
 
+export {
+  buildGeoVisibilityReportCreateArgs,
+  createPrismaGeoVisibilityPersistenceClient,
+  persistGeoAnswerMonitorJobResult,
+  type GeoVisibilityPersistenceClient,
+  type GeoVisibilityReportCreateArgs,
+  type PersistGeoAnswerMonitorJobResultOutput
+} from "./geo-visibility.js";
+
 export const phaseOneSeedIds = {
   organizationId: "org_demo",
   userId: "user_demo_owner",

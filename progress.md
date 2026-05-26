@@ -1,6 +1,6 @@
 # SearchOps AI Progress
 
-Updated: 2026-05-25
+Updated: 2026-05-26
 
 ## Current State
 
@@ -8,14 +8,14 @@ The repository is on `main` and aligned with `origin/main`.
 
 Recent merged PRs:
 
-- PR #58: Schema recheck crawl worker handoff
 - PR #59: GEO answer live adapter port
 - PR #60: Rich result validator adapter port
+- PR #62: Keyword discovery persistence and dashboard workflow
 
 Latest full verification:
 
 - `corepack pnpm verify` passed locally for the latest work.
-- GitHub Actions `verify` passed for PR #58, PR #59, and PR #60 before merge.
+- GitHub Actions `verify` passed for PR #59, PR #60, and PR #62 before merge.
 
 ## Phase Progress
 
@@ -69,7 +69,7 @@ Remaining:
 
 ### Phase 8: Schema Engine
 
-Status: Deterministic MVP plus adapter boundaries completed.
+Status: Deterministic MVP plus runtime handoff completed.
 
 Implemented:
 
@@ -96,11 +96,12 @@ Implemented:
 - API creation/history, Prisma persistence, dashboard history, and work order conversion.
 - GEO answer monitor fixture adapters.
 - Live GEO answer monitor adapter port in `packages/connectors`, using explicit injected clients only.
+- `geo-answer-monitor` API enqueue, worker processor, deterministic `geo-core` evaluation, and DB persistence boundary are wired in CDX-125.
 
 Remaining:
 
-- Runtime/job wiring for live provider clients.
-- API/dashboard observation collection is still manual or fixture-driven.
+- Live provider credentials and deployment-specific client injection remain future scope.
+- Dashboard observation collection is still manual or fixture-driven.
 - Automatic bulk work order generation remains future scope.
 
 ### Phase 10: Compliance Engine
@@ -151,38 +152,32 @@ Remaining:
 
 Recommended order:
 
-1. CDX-125: GEO live provider runtime job wiring
-   - Add worker job contract for GEO answer monitoring.
-   - Wire explicit injected clients behind connector ports.
-   - Persist resulting observations as GeoVisibilityReports.
-   - Keep tests fixture/fake-client only.
-
-2. CDX-126: Rich-result validator runtime wiring
+1. CDX-126: Rich-result validator runtime wiring
    - Add optional worker/API orchestration for explicit validator clients.
    - Store validation results or attach them to schema recommendation history.
    - Keep `schema-core` offline and deterministic.
 
-3. CDX-127: Dead-letter operations dashboard
+2. CDX-127: Dead-letter operations dashboard
    - Persist or expose dead-letter job metadata.
    - Add operator list/detail/replay-safe design.
    - Avoid storing secrets or raw credentials.
 
-4. CDX-128: Distributed rate limit adapter
+3. CDX-128: Distributed rate limit adapter
    - Keep current process-local limiter as default.
    - Add Redis/edge adapter boundary.
    - Add deterministic tests using fake storage.
 
-5. CDX-129: Auth/RBAC and tenant isolation hardening
+4. CDX-129: Auth/RBAC and tenant isolation hardening
    - Replace mock auth context with real auth boundary.
    - Add organization/user/site scoping tests.
    - Add negative tests for cross-tenant access.
 
-6. CDX-130: Observability export
+5. CDX-130: Observability export
    - Export request metrics and worker failure metrics.
    - Add structured logging conventions.
    - Document operational dashboards and alerts.
 
-7. CDX-131: Backup, migration, and deployment runbooks
+6. CDX-131: Backup, migration, and deployment runbooks
    - Document database backup/restore.
    - Add migration verification workflow.
    - Document secret rotation and deployment environment checks.

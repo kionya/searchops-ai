@@ -60,6 +60,8 @@ import {
   GeoVisibilityReportListResponseSchema,
   KeywordDiscoveryListResponseSchema,
   OrganizationListResponseSchema,
+  QueueGeoAnswerMonitorRequestSchema,
+  QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
   RecheckComplianceFlagRequestSchema,
   RecheckComplianceFlagResponseSchema,
@@ -89,8 +91,10 @@ import { resolveMockUserContext } from "./auth.js";
 import {
   type ConnectorSyncQueue,
   type CrawlRunQueue,
+  type GeoAnswerMonitorQueue,
   createMemoryConnectorSyncQueue,
   createMemoryCrawlRunQueue,
+  createMemoryGeoAnswerMonitorQueue,
 } from "./queue.js";
 import {
   type CreateClosedLoopAuditEventInput,
@@ -114,6 +118,7 @@ export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
   readonly crawlRunQueue?: CrawlRunQueue;
   readonly connectorSyncQueue?: ConnectorSyncQueue;
+  readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
   readonly currentTime?: () => Date;
   readonly rateLimit?: ApiRateLimitOptions;
@@ -188,6 +193,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
   const connectorSyncQueue = options.connectorSyncQueue ?? createMemoryConnectorSyncQueue();
+  const geoAnswerMonitorQueue =
+    options.geoAnswerMonitorQueue ?? createMemoryGeoAnswerMonitorQueue();
   const cmsWebhookSecrets =
     options.cmsWebhookSecrets ?? parseCmsWebhookSecrets(process.env.SEARCHOPS_CMS_WEBHOOK_SECRETS);
   const requireCmsWebhookSignature =
@@ -808,6 +815,47 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply
       .status(201)
       .send(CreateGeoVisibilityReportResponseSchema.parse({ report, visibilityReport }));
+  });
+
+  server.post("/sites/:id/geo-answer-monitor-jobs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const input = QueueGeoAnswerMonitorRequestSchema.parse(request.body ?? {});
+    if (input.target.siteId !== site.id) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "GEO monitor target siteId must match the route site",
+      });
+      return;
+    }
+
+    if (!isDomainAllowedForSite(input.target.domain, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "GEO monitor target domain must be the site domain or one of its subdomains",
+      });
+      return;
+    }
+
+    const userContext = resolveMockUserContext(request);
+    const observedAt = input.observedAt ?? currentTime().toISOString();
+    const job = await geoAnswerMonitorQueue.enqueueGeoAnswerMonitor({
+      organizationId: site.organizationId,
+      siteId: site.id,
+      siteDomain: site.domain,
+      requestedByUserId: userContext.userId,
+      target: input.target,
+      queries: input.queries,
+      observedAt,
+      providers: input.providers,
+    });
+
+    reply.status(202).send(QueueGeoAnswerMonitorResponseSchema.parse({ job }));
   });
 
   server.post("/sites/:id/compliance-reviews", async (request, reply) => {
