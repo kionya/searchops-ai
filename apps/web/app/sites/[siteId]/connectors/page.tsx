@@ -22,6 +22,7 @@ import {
   formatSyncDuration,
   getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
+  getConnectorSyncRunErrorMessage,
   getConnectorSyncRunTone,
   loadConnectorSyncHistory,
   summarizeConnectorSyncHistory,
@@ -107,6 +108,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
               {history.runs.map((run) => {
                 const results = history.resultsByRunId[run.id] ?? [];
                 const records = results.reduce((total, result) => total + result.recordCount, 0);
+                const errorMessage = getConnectorSyncRunErrorMessage(run);
 
                 return (
                   <tr key={run.id}>
@@ -124,7 +126,9 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                     <td style={tdStyle}>{formatConnectorProviders(run.providers)}</td>
                     <td style={tdStyle}>{records}</td>
                     <td style={tdStyle}>
-                      {results.length === 0 ? (
+                      {errorMessage ? (
+                        <span style={{ color: "#b91c1c" }}>{errorMessage}</span>
+                      ) : results.length === 0 ? (
                         <span style={{ color: "#64748b" }}>대기 중</span>
                       ) : (
                         <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

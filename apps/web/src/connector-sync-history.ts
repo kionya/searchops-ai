@@ -464,6 +464,21 @@ export function getConnectorSyncResultTone(status: string): ConnectorSyncResultT
   return "failed";
 }
 
+export function getConnectorSyncRunErrorMessage(run: ConnectorSyncRun): string | null {
+  if (run.status !== "failed" || run.summary === null) {
+    return null;
+  }
+
+  const summary = run.summary as Record<string, unknown>;
+  const error = summary.error;
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const message = (error as Record<string, unknown>).message;
+    return typeof message === "string" && message.length > 0 ? message : null;
+  }
+
+  return null;
+}
+
 export function formatConnectorProvider(provider: ConnectorProvider) {
   const labels = {
     bing: "Bing",
