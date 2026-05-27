@@ -303,7 +303,7 @@ export const SearchOpsEnvSchema = z.object({
 
 export type SearchOpsEnv = z.infer<typeof SearchOpsEnvSchema>;
 
-export function parseSearchOpsEnv(input: NodeJS.ProcessEnv) {
+export function parseSearchOpsEnv(input: Record<string, string | undefined>) {
   const parsed = SearchOpsEnvSchema.safeParse(input);
   if (!parsed.success) {
     const message = parsed.error.issues
