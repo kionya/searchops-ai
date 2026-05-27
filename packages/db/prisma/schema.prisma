@@ -16,6 +16,7 @@ model Organization {
   sites           Site[]
   workOrders      WorkOrder[]
   connectorSyncRuns ConnectorSyncRun[]
+  connectorOAuthCredentials ConnectorOAuthCredential[]
   aiPrompts       AiPrompt[]
   complianceFlags ComplianceFlag[]
   closedLoopAuditEvents ClosedLoopAuditEvent[]
@@ -49,6 +50,7 @@ model Site {
   urls            UrlRecord[]
   workOrders      WorkOrder[]
   connectorSyncRuns ConnectorSyncRun[]
+  connectorOAuthCredentials ConnectorOAuthCredential[]
   keywords        Keyword[]
   keywordDiscoveries KeywordDiscoveryCandidate[]
   contentBriefs   ContentBrief[]
@@ -94,6 +96,33 @@ model UrlRecord {
 
   @@unique([siteId, url])
   @@index([crawlRunId])
+}
+
+model ConnectorOAuthCredential {
+  id                   String   @id
+  organizationId       String
+  siteId               String
+  provider             String
+  status               String   @default("connected")
+  scopes               Json     @default("[]")
+  accessToken          String
+  refreshToken         String?
+  tokenType            String?
+  tokenExpiresAt       DateTime?
+  externalAccountEmail String?
+  connectedByUserId    String
+  connectedAt          DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, provider])
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([provider])
+  @@index([status])
+  @@index([updatedAt])
 }
 
 model ConnectorSyncRun {

@@ -5,6 +5,8 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 ## Phase 6 Connectors
 
 - GSC, GA4, PageSpeed, Bing, and CMS live credentials must be stored only in deployment secret storage.
+- GSC/GA4 service account user grants can be skipped when Google rejects service account emails; use the Google OAuth flow instead.
+- Google OAuth requires `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`, `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI`, and `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET` in the API runtime.
 - Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default in tests.
 - Connector sync must tolerate partial provider failure and keep provider-level result status for operations review.
 

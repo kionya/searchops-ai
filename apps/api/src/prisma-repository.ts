@@ -1,7 +1,12 @@
 import {
+  randomUUID
+} from "node:crypto";
+
+import {
   AeoReadinessReportRecordSchema,
   ClosedLoopAuditEventSchema,
   ComplianceFlagSchema,
+  ConnectorOAuthCredentialSchema,
   ConnectorSyncResultSchema,
   ConnectorSyncRunSchema,
   ContentBriefSchema,
@@ -18,6 +23,7 @@ import {
   type ClosedLoopAuditEvent,
   type ComplianceFlag,
   type ComplianceReviewReport,
+  type ConnectorOAuthCredential,
   type ContentBrief,
   type ConnectorSyncResult,
   type ConnectorSyncRun,
@@ -50,6 +56,19 @@ type ConnectorSyncRunRecord = Awaited<
 type ConnectorSyncResultRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["connectorSyncResult"]["findFirst"]>
 >;
+interface ConnectorOAuthCredentialRecord {
+  readonly connectedAt: Date;
+  readonly connectedByUserId: string;
+  readonly externalAccountEmail: string | null;
+  readonly id: string;
+  readonly organizationId: string;
+  readonly provider: string;
+  readonly scopes: Prisma.JsonValue;
+  readonly siteId: string;
+  readonly status: string;
+  readonly tokenExpiresAt: Date | null;
+  readonly updatedAt: Date;
+}
 type ClosedLoopAuditEventRecord = Awaited<
   ReturnType<SearchOpsPrismaClient["closedLoopAuditEvent"]["findFirst"]>
 >;
@@ -292,6 +311,115 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         connectorSyncRun: toConnectorSyncRun(connectorSyncRun),
         results: results.map(toConnectorSyncResult)
       };
+    },
+
+    async upsertConnectorOAuthCredentials(siteId, input) {
+      const site = await prisma.site.findUnique({
+        select: { id: true, organizationId: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const credentials: ConnectorOAuthCredential[] = [];
+      for (const credential of input) {
+        const rows = await prisma.$queryRaw<ConnectorOAuthCredentialRecord[]>`
+          INSERT INTO "ConnectorOAuthCredential" (
+            "id",
+            "organizationId",
+            "siteId",
+            "provider",
+            "status",
+            "scopes",
+            "accessToken",
+            "refreshToken",
+            "tokenType",
+            "tokenExpiresAt",
+            "externalAccountEmail",
+            "connectedByUserId",
+            "connectedAt",
+            "updatedAt"
+          )
+          VALUES (
+            ${`oauth_${randomUUID()}`},
+            ${site.organizationId},
+            ${siteId},
+            ${credential.provider},
+            'connected',
+            ${JSON.stringify(credential.scopes)}::jsonb,
+            ${credential.accessToken},
+            ${credential.refreshToken ?? null},
+            ${credential.tokenType ?? null},
+            ${credential.tokenExpiresAt === null || credential.tokenExpiresAt === undefined
+              ? null
+              : new Date(credential.tokenExpiresAt)},
+            ${credential.externalAccountEmail ?? null},
+            ${credential.connectedByUserId},
+            ${new Date(credential.connectedAt)},
+            ${new Date(credential.connectedAt)}
+          )
+          ON CONFLICT ("siteId", "provider") DO UPDATE SET
+            "status" = 'connected',
+            "scopes" = EXCLUDED."scopes",
+            "accessToken" = EXCLUDED."accessToken",
+            "refreshToken" = COALESCE(EXCLUDED."refreshToken", "ConnectorOAuthCredential"."refreshToken"),
+            "tokenType" = EXCLUDED."tokenType",
+            "tokenExpiresAt" = EXCLUDED."tokenExpiresAt",
+            "externalAccountEmail" = EXCLUDED."externalAccountEmail",
+            "connectedByUserId" = EXCLUDED."connectedByUserId",
+            "connectedAt" = EXCLUDED."connectedAt",
+            "updatedAt" = EXCLUDED."updatedAt"
+          RETURNING
+            "id",
+            "organizationId",
+            "siteId",
+            "provider",
+            "status",
+            "scopes",
+            "connectedByUserId",
+            "connectedAt",
+            "tokenExpiresAt",
+            "externalAccountEmail",
+            "updatedAt"
+        `;
+        const row = rows[0];
+        if (row !== undefined) {
+          credentials.push(toConnectorOAuthCredential(row));
+        }
+      }
+
+      return credentials.sort((a, b) => a.provider.localeCompare(b.provider));
+    },
+
+    async listConnectorOAuthCredentials(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const rows = await prisma.$queryRaw<ConnectorOAuthCredentialRecord[]>`
+        SELECT
+          "id",
+          "organizationId",
+          "siteId",
+          "provider",
+          "status",
+          "scopes",
+          "connectedByUserId",
+          "connectedAt",
+          "tokenExpiresAt",
+          "externalAccountEmail",
+          "updatedAt"
+        FROM "ConnectorOAuthCredential"
+        WHERE "siteId" = ${siteId}
+        ORDER BY "provider" ASC
+      `;
+
+      return rows.map(toConnectorOAuthCredential);
     },
 
     async createClosedLoopAuditEvent(input) {
@@ -1379,6 +1507,24 @@ function toConnectorSyncResult(
     recordCount: record.recordCount,
     records: record.records,
     createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toConnectorOAuthCredential(
+  record: ConnectorOAuthCredentialRecord,
+): ConnectorOAuthCredential {
+  return ConnectorOAuthCredentialSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    provider: record.provider,
+    status: record.status,
+    scopes: record.scopes,
+    connectedByUserId: record.connectedByUserId,
+    connectedAt: record.connectedAt.toISOString(),
+    tokenExpiresAt: record.tokenExpiresAt?.toISOString() ?? null,
+    externalAccountEmail: record.externalAccountEmail,
+    updatedAt: record.updatedAt.toISOString()
   });
 }
 

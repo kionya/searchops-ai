@@ -22,10 +22,12 @@ import {
   createHttpBackupRestoreDrillScheduler,
   createHttpSecretRotationExecutor
 } from "./operations-hardening.js";
+import { createGoogleConnectorOAuthClientFromEnv } from "./google-oauth.js";
 import { createPrismaRepository } from "./prisma-repository.js";
 import { buildApiServer } from "./server.js";
 
 const env = parseSearchOpsEnv(process.env);
+const googleOAuthClient = createGoogleConnectorOAuthClientFromEnv(process.env);
 const prisma = createSearchOpsPrismaClient();
 const crawlRunQueue = createBullMqCrawlRunQueue({ redisUrl: env.REDIS_URL });
 const connectorSyncQueue = createBullMqConnectorSyncQueue({ redisUrl: env.REDIS_URL });
@@ -97,6 +99,7 @@ const server = buildApiServer({
   crawlRunQueue,
   deadLetterJobStore,
   geoAnswerMonitorQueue,
+  googleOAuthClient,
   operationalAlertRouter,
   operationalLogDrain,
   rateLimit: {

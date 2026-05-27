@@ -71,6 +71,9 @@ Tenant access is enforced at the API boundary from the authenticated user contex
 - `POST /sites/:siteId/connector-sync-runs`
 - `GET /sites/:siteId/connector-sync-runs`
 - `GET /connector-sync-runs/:connectorSyncRunId`
+- `GET /sites/:siteId/connectors/oauth`
+- `GET /sites/:siteId/connectors/google/oauth/start`
+- `GET /connectors/google/oauth/callback`
 - `POST /sites/:siteId/aeo-readiness-reports`
 - `GET /sites/:siteId/aeo-readiness-reports`
 - `POST /sites/:siteId/content-briefs`
@@ -138,6 +141,18 @@ The response is `202 Accepted` with:
 `GET /connector-sync-runs/:connectorSyncRunId` returns `ConnectorSyncRunDetailResponse` with persisted provider results.
 
 Connector sync APIs use the same mock auth context as the rest of the API. Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default; fixture adapters remain the default test and local-development behavior.
+
+## Connector OAuth
+
+`GET /sites/:siteId/connectors/google/oauth/start` starts Google OAuth for `gsc`, `ga4`, or both providers. Query parameters:
+
+- `providers` optional comma-separated list. Defaults to `gsc,ga4`.
+- `returnTo` optional absolute URL to redirect to after callback success.
+- `format` optional `redirect` or `json`. Defaults to `redirect`; `json` returns `StartConnectorOAuthResponse`.
+
+`GET /connectors/google/oauth/callback` receives Google's `code` and signed `state`, exchanges the code for tokens, persists provider credentials, and returns `CompleteConnectorOAuthResponse` unless `returnTo` was present.
+
+`GET /sites/:siteId/connectors/oauth` returns `ConnectorOAuthCredentialListResponse` with token metadata only. Access and refresh tokens are never returned.
 
 ## AEO Readiness Reports
 

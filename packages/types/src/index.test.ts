@@ -15,6 +15,10 @@ import {
   ClosedLoopAuditEventSchema,
   ClosedLoopAuditEventStatusSchema,
   ClosedLoopAuditEventTypeSchema,
+  CompleteConnectorOAuthResponseSchema,
+  ConnectorOAuthCredentialListResponseSchema,
+  ConnectorOAuthCredentialSchema,
+  ConnectorOAuthProviderListSchema,
   ConnectorProviderListSchema,
   ConnectorSyncJobResultSchema,
   ContentBriefDraftSchema,
@@ -118,6 +122,8 @@ import {
   SecretRotationExecutionResponseSchema,
   SecretRotationPlanRequestSchema,
   SecretRotationPlanSchema,
+  StartConnectorOAuthRequestSchema,
+  StartConnectorOAuthResponseSchema,
   WorkOrderDraftSchema,
   WorkOrderListResponseSchema,
   WorkOrderOwnerTypeSchema,
@@ -1927,6 +1933,46 @@ describe("types foundation", () => {
   it("validates connector provider lists", () => {
     expect(ConnectorProviderListSchema.parse(["ga4", "gsc"])).toEqual(["ga4", "gsc"]);
     expect(() => ConnectorProviderListSchema.parse(["gsc", "gsc"])).toThrow(/unique/);
+  });
+
+  it("validates connector OAuth contracts without exposing tokens", () => {
+    expect(StartConnectorOAuthRequestSchema.parse({}).providers).toEqual(["gsc", "ga4"]);
+    expect(ConnectorOAuthProviderListSchema.parse(["gsc", "ga4"])).toEqual(["gsc", "ga4"]);
+    expect(() => ConnectorOAuthProviderListSchema.parse(["gsc", "gsc"])).toThrow(/unique/);
+
+    const credential = ConnectorOAuthCredentialSchema.parse({
+      id: "oauth_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      provider: "gsc",
+      status: "connected",
+      scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+      connectedByUserId: "user_1",
+      connectedAt: "2026-05-27T00:00:00.000Z",
+      tokenExpiresAt: "2026-05-27T01:00:00.000Z",
+      externalAccountEmail: "owner@example.com",
+      updatedAt: "2026-05-27T00:00:00.000Z",
+    });
+
+    expect(credential).not.toHaveProperty("accessToken");
+    expect(
+      StartConnectorOAuthResponseSchema.parse({
+        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=test",
+        providers: ["gsc"],
+        stateExpiresAt: "2026-05-27T00:10:00.000Z",
+      }).providers,
+    ).toEqual(["gsc"]);
+    expect(
+      CompleteConnectorOAuthResponseSchema.parse({
+        credentials: [credential],
+        status: "connected",
+      }).status,
+    ).toBe("connected");
+    expect(
+      ConnectorOAuthCredentialListResponseSchema.parse({
+        credentials: [credential],
+      }).credentials,
+    ).toHaveLength(1);
   });
 
   it("defaults connector sync job providers", () => {

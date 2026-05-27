@@ -36,6 +36,7 @@ import {
   createHmacJwtIdpTokenVerifier,
   createRequestAuthContextResolver,
 } from "./auth.js";
+import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import {
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
@@ -501,6 +502,63 @@ function buildConnectorSyncTestContext() {
   });
 
   return { server, connectorSyncQueue };
+}
+
+function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
+  return {
+    createAuthorizationUrl(input) {
+      return {
+        authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=fake_state&scope=${input.providers.join("+")}`,
+        providers: input.providers,
+        state: "fake_state",
+        stateExpiresAt: "2026-05-27T00:10:00.000Z",
+      };
+    },
+    async exchangeCodeForTokens(code) {
+      if (code === "bad_code") {
+        throw new Error("bad code");
+      }
+      return {
+        accessToken: "access_token",
+        expiresAt: "2026-05-27T01:00:00.000Z",
+        externalAccountEmail: "owner@example.com",
+        refreshToken: "refresh_token",
+        scopes: [
+          "https://www.googleapis.com/auth/webmasters.readonly",
+          "https://www.googleapis.com/auth/analytics.readonly",
+        ],
+        tokenType: "Bearer",
+      };
+    },
+    verifyState(state) {
+      if (state !== "fake_state") {
+        throw new Error("invalid state");
+      }
+      return {
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "nonce",
+        organizationId: seededSite.organizationId,
+        providers: ["gsc", "ga4"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: seededSite.id,
+      };
+    },
+  };
+}
+
+function buildConnectorOAuthTestContext() {
+  const repository = createMemoryRepository({
+    organizations: [seededOrganization],
+    sites: [seededSite],
+  });
+  const server = buildApiServer({
+    currentTime: () => new Date("2026-05-27T00:00:00.000Z"),
+    googleOAuthClient: createFakeGoogleOAuthClient(),
+    repository,
+  });
+
+  return { repository, server };
 }
 
 function buildGeoAnswerMonitorTestContext() {
@@ -1839,6 +1897,68 @@ describe("api foundation", () => {
       error: "not_found",
       message: "Connector sync run not found",
     });
+  });
+
+  it("starts Google OAuth for GSC and GA4 connectors", async () => {
+    const { server } = buildConnectorOAuthTestContext();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/connectors/google/oauth/start?providers=gsc,ga4&format=json",
+      headers: {
+        "x-mock-user-id": "user_connector",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      authorizationUrl: expect.stringContaining("https://accounts.google.com/o/oauth2/v2/auth"),
+      providers: ["gsc", "ga4"],
+      stateExpiresAt: "2026-05-27T00:10:00.000Z",
+    });
+  });
+
+  it("stores Google OAuth callback credentials without returning tokens", async () => {
+    const { server } = buildConnectorOAuthTestContext();
+    const response = await server.inject({
+      method: "GET",
+      url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: "connected",
+      credentials: [
+        {
+          provider: "ga4",
+          status: "connected",
+          externalAccountEmail: "owner@example.com",
+        },
+        {
+          provider: "gsc",
+          status: "connected",
+          externalAccountEmail: "owner@example.com",
+        },
+      ],
+    });
+    expect(response.json().credentials[0]).not.toHaveProperty("accessToken");
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/connectors/oauth",
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().credentials).toHaveLength(2);
+  });
+
+  it("rejects invalid Google OAuth callback state", async () => {
+    const { server } = buildConnectorOAuthTestContext();
+    const response = await server.inject({
+      method: "GET",
+      url: "/connectors/google/oauth/callback?state=bad_state&code=code_123",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("invalid state");
   });
 
   it("creates deterministic AEO readiness reports and persists them", async () => {

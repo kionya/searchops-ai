@@ -4,6 +4,8 @@ import type {
   ClosedLoopAuditEvent,
   ComplianceFlag,
   ComplianceReviewReport,
+  ConnectorOAuthCredential,
+  ConnectorOAuthProvider,
   ConnectorProviderList,
   ConnectorSyncResult,
   ConnectorSyncRun,
@@ -36,6 +38,18 @@ import type {
 export interface CreateConnectorSyncRunInput {
   providers: ConnectorProviderList;
   requestedByUserId: string;
+}
+
+export interface UpsertConnectorOAuthCredentialInput {
+  readonly accessToken: string;
+  readonly connectedAt: string;
+  readonly connectedByUserId: string;
+  readonly externalAccountEmail?: string | null;
+  readonly provider: ConnectorOAuthProvider;
+  readonly refreshToken?: string | null;
+  readonly scopes: readonly string[];
+  readonly tokenExpiresAt?: string | null;
+  readonly tokenType?: string | null;
 }
 
 export interface ConnectorSyncRunDetail {
@@ -148,6 +162,11 @@ export interface SearchOpsRepository {
   ): Promise<ConnectorSyncRun | null>;
   listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
   getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
+  upsertConnectorOAuthCredentials(
+    siteId: string,
+    input: readonly UpsertConnectorOAuthCredentialInput[],
+  ): Promise<ConnectorOAuthCredential[] | null>;
+  listConnectorOAuthCredentials(siteId: string): Promise<ConnectorOAuthCredential[] | null>;
   createClosedLoopAuditEvent(
     input: CreateClosedLoopAuditEventInput,
   ): Promise<ClosedLoopAuditEvent | null>;
@@ -224,6 +243,7 @@ export interface MemoryRepositorySeed {
   readonly crawlRuns?: readonly CrawlRun[];
   readonly connectorSyncRuns?: readonly ConnectorSyncRun[];
   readonly connectorSyncResults?: readonly ConnectorSyncResult[];
+  readonly connectorOAuthCredentials?: readonly ConnectorOAuthCredential[];
   readonly closedLoopAuditEvents?: readonly ClosedLoopAuditEvent[];
   readonly contentBriefs?: readonly ContentBrief[];
   readonly aeoReadinessReports?: readonly AeoReadinessReportRecord[];
@@ -257,12 +277,17 @@ function createKeywordDiscoveryKey({
   return `${siteId}::${phrase}::${locale}::${source}`;
 }
 
+function createConnectorOAuthKey(siteId: string, provider: string) {
+  return `${siteId}::${provider}`;
+}
+
 export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchOpsRepository {
   const organizations = new Map<string, Organization>();
   const sites = new Map<string, Site>();
   const crawlRuns = new Map<string, CrawlRun>();
   const connectorSyncRuns = new Map<string, ConnectorSyncRun>();
   const connectorSyncResults = new Map<string, ConnectorSyncResult>();
+  const connectorOAuthCredentials = new Map<string, ConnectorOAuthCredential>();
   const closedLoopAuditEvents = new Map<string, ClosedLoopAuditEvent>();
   const contentBriefs = new Map<string, ContentBrief>();
   const aeoReadinessReports = new Map<string, AeoReadinessReportRecord>();
@@ -275,6 +300,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let organizationCounter = 1;
   let siteCounter = 1;
   let crawlRunCounter = 1;
+  let connectorOAuthCredentialCounter = 1;
   let connectorSyncRunCounter = 1;
   let closedLoopAuditEventCounter = 1;
   let contentBriefCounter = 1;
@@ -308,6 +334,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
   for (const connectorSyncResult of seed.connectorSyncResults ?? []) {
     connectorSyncResults.set(connectorSyncResult.id, connectorSyncResult);
+  }
+
+  for (const credential of seed.connectorOAuthCredentials ?? []) {
+    connectorOAuthCredentials.set(createConnectorOAuthKey(credential.siteId, credential.provider), credential);
+    connectorOAuthCredentialCounter += 1;
   }
 
   for (const auditEvent of seed.closedLoopAuditEvents ?? []) {
@@ -510,6 +541,49 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           .filter((result) => result.syncRunId === id)
           .sort((a, b) => a.provider.localeCompare(b.provider))
       };
+    },
+
+    async upsertConnectorOAuthCredentials(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site) {
+        return null;
+      }
+
+      const credentials = input.map((credentialInput) => {
+        const existing = connectorOAuthCredentials.get(
+          createConnectorOAuthKey(siteId, credentialInput.provider),
+        );
+        const credential: ConnectorOAuthCredential = {
+          id: existing?.id ?? createId("oauth", connectorOAuthCredentialCounter),
+          organizationId: site.organizationId,
+          siteId,
+          provider: credentialInput.provider,
+          status: "connected",
+          scopes: [...credentialInput.scopes],
+          connectedByUserId: credentialInput.connectedByUserId,
+          connectedAt: credentialInput.connectedAt,
+          tokenExpiresAt: credentialInput.tokenExpiresAt ?? null,
+          externalAccountEmail: credentialInput.externalAccountEmail ?? null,
+          updatedAt: credentialInput.connectedAt
+        };
+        if (existing === undefined) {
+          connectorOAuthCredentialCounter += 1;
+        }
+        connectorOAuthCredentials.set(createConnectorOAuthKey(siteId, credential.provider), credential);
+        return credential;
+      });
+
+      return credentials.sort((a, b) => a.provider.localeCompare(b.provider));
+    },
+
+    async listConnectorOAuthCredentials(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...connectorOAuthCredentials.values()]
+        .filter((credential) => credential.siteId === siteId)
+        .sort((a, b) => a.provider.localeCompare(b.provider));
     },
 
     async createClosedLoopAuditEvent(input) {

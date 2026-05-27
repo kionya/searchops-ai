@@ -271,6 +271,18 @@ export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
+  SEARCHOPS_GA4_ACCESS_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_GA4_PROPERTY_ID: z.string().min(1).optional(),
+  SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON: JsonObjectStringSchema.optional(),
+  SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI: HttpUrlSchema.optional(),
+  SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET: z.string().min(16).optional(),
+  SEARCHOPS_GSC_ACCESS_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON: JsonObjectStringSchema.optional(),
+  SEARCHOPS_PAGESPEED_API_KEY: z.string().min(1).optional(),
+  SEARCHOPS_BING_API_KEY: z.string().min(1).optional(),
+  SEARCHOPS_CMS_API_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWT_HS256_SECRET: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWKS_JSON: JsonObjectStringSchema.optional(),
   SEARCHOPS_IDP_ISSUER: z.string().min(1).optional(),
@@ -2038,6 +2050,77 @@ export type ConnectorProviderList = z.infer<typeof ConnectorProviderListSchema>;
 export const ConnectorAuthModeSchema = z.enum(["oauth", "api_key", "none"]);
 
 export type ConnectorAuthMode = z.infer<typeof ConnectorAuthModeSchema>;
+
+export const ConnectorOAuthProviderSchema = z.enum(["gsc", "ga4"]);
+
+export type ConnectorOAuthProvider = z.infer<typeof ConnectorOAuthProviderSchema>;
+
+export const ConnectorOAuthProviderListSchema = z
+  .array(ConnectorOAuthProviderSchema)
+  .min(1)
+  .refine((providers) => new Set(providers).size === providers.length, {
+    message: "Connector OAuth providers must be unique",
+  });
+
+export type ConnectorOAuthProviderList = z.infer<typeof ConnectorOAuthProviderListSchema>;
+
+export const ConnectorOAuthCredentialStatusSchema = z.enum([
+  "connected",
+  "expired",
+  "revoked",
+]);
+
+export type ConnectorOAuthCredentialStatus = z.infer<
+  typeof ConnectorOAuthCredentialStatusSchema
+>;
+
+export const ConnectorOAuthCredentialSchema = z.object({
+  id: IdSchema,
+  organizationId: IdSchema,
+  siteId: IdSchema,
+  provider: ConnectorOAuthProviderSchema,
+  status: ConnectorOAuthCredentialStatusSchema,
+  scopes: z.array(NonEmptyStringSchema),
+  connectedByUserId: IdSchema,
+  connectedAt: IsoDateTimeSchema,
+  tokenExpiresAt: IsoDateTimeSchema.nullable(),
+  externalAccountEmail: z.string().email().nullable(),
+  updatedAt: IsoDateTimeSchema,
+});
+
+export type ConnectorOAuthCredential = z.infer<typeof ConnectorOAuthCredentialSchema>;
+
+export const StartConnectorOAuthRequestSchema = z.object({
+  providers: ConnectorOAuthProviderListSchema.default(["gsc", "ga4"]),
+  returnTo: HttpUrlSchema.optional(),
+});
+
+export type StartConnectorOAuthRequest = z.infer<typeof StartConnectorOAuthRequestSchema>;
+
+export const StartConnectorOAuthResponseSchema = z.object({
+  authorizationUrl: HttpUrlSchema,
+  providers: ConnectorOAuthProviderListSchema,
+  stateExpiresAt: IsoDateTimeSchema,
+});
+
+export type StartConnectorOAuthResponse = z.infer<typeof StartConnectorOAuthResponseSchema>;
+
+export const CompleteConnectorOAuthResponseSchema = z.object({
+  credentials: z.array(ConnectorOAuthCredentialSchema),
+  status: z.literal("connected"),
+});
+
+export type CompleteConnectorOAuthResponse = z.infer<
+  typeof CompleteConnectorOAuthResponseSchema
+>;
+
+export const ConnectorOAuthCredentialListResponseSchema = z.object({
+  credentials: z.array(ConnectorOAuthCredentialSchema),
+});
+
+export type ConnectorOAuthCredentialListResponse = z.infer<
+  typeof ConnectorOAuthCredentialListResponseSchema
+>;
 
 export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
 

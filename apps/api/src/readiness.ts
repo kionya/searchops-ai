@@ -50,17 +50,25 @@ const readinessInputs: readonly ReadinessInput[] = [
     id: "live-gsc",
     title: "GSC 실서비스 credential",
     summary: "Google Search Console 기반 검색어/페이지 데이터를 live connector adapter 뒤에서 수집합니다.",
-    nextAction: "배포 secret에 GSC service account 또는 access token을 등록하세요.",
-    requiredAny: ["SEARCHOPS_GSC_ACCESS_TOKEN", "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON"],
+    nextAction: "배포 secret에 Google OAuth client env를 등록하고 사이트 connector OAuth를 완료하세요.",
+    requiredAny: [
+      "SEARCHOPS_GSC_ACCESS_TOKEN",
+      "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
+    ],
   },
   {
     category: "connectors",
     id: "live-ga4",
     title: "GA4 실서비스 credential",
     summary: "GA4 page/session/conversion 데이터를 connector sync에 연결합니다.",
-    nextAction: "GA4 property id와 Google credential secret을 배포 환경에 등록하세요.",
+    nextAction: "GA4 property id와 Google OAuth client env를 배포 환경에 등록하세요.",
     requiredAll: ["SEARCHOPS_GA4_PROPERTY_ID"],
-    requiredAny: ["SEARCHOPS_GA4_ACCESS_TOKEN", "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON"],
+    requiredAny: [
+      "SEARCHOPS_GA4_ACCESS_TOKEN",
+      "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
+    ],
   },
   {
     category: "connectors",
@@ -107,8 +115,12 @@ const readinessInputs: readonly ReadinessInput[] = [
     id: "gsc-keyword-discovery",
     title: "GSC 기반 키워드 발견",
     summary: "persisted GSC connector result를 keyword discovery 후보로 변환합니다.",
-    nextAction: "GSC connector sync가 configured 상태가 되면 keyword discovery를 실행하세요.",
-    requiredAny: ["SEARCHOPS_GSC_ACCESS_TOKEN", "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON"],
+    nextAction: "GSC OAuth 연결이 완료되면 keyword discovery를 실행하세요.",
+    requiredAny: [
+      "SEARCHOPS_GSC_ACCESS_TOKEN",
+      "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
+    ],
   },
   {
     category: "keyword_aeo",

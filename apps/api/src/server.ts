@@ -31,6 +31,8 @@ import {
   CmsContentUpdatedEventResponseSchema,
   ComplianceFlagListResponseSchema,
   ComplianceFlagSchema,
+  CompleteConnectorOAuthResponseSchema,
+  ConnectorOAuthCredentialListResponseSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
   CreateAeoReadinessReportRequestSchema,
@@ -82,6 +84,8 @@ import {
   SecretRotationPlanRequestSchema,
   SiteListResponseSchema,
   SiteSchema,
+  StartConnectorOAuthRequestSchema,
+  StartConnectorOAuthResponseSchema,
   UpdateComplianceFlagRequestSchema,
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
@@ -151,6 +155,7 @@ import {
   type SecretRotationExecutor,
 } from "./operations-hardening.js";
 import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay.js";
+import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import { createOperationalReadiness } from "./readiness.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
@@ -159,12 +164,23 @@ const CmsWebhookParamsSchema = z.object({
   cmsType: CmsWebhookProviderSchema,
   id: z.string().min(1),
 });
+const GoogleOAuthStartQuerySchema = z.object({
+  format: z.enum(["json", "redirect"]).default("redirect"),
+  providers: z.string().optional(),
+  returnTo: z.string().url().optional(),
+});
+const GoogleOAuthCallbackQuerySchema = z.object({
+  code: z.string().min(1).optional(),
+  error: z.string().min(1).optional(),
+  state: z.string().min(1),
+});
 
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
   readonly crawlRunQueue?: CrawlRunQueue;
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
+  readonly googleOAuthClient?: GoogleConnectorOAuthClient | undefined;
   readonly schemaRichResultValidationQueue?: SchemaRichResultValidationQueue;
   readonly deadLetterJobStore?: DeadLetterJobStore;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
@@ -216,6 +232,16 @@ function mapCmsContentStatusToPublishState(status: CmsContentUpdatedEventRequest
   return status === "published" ? "published" : "draft";
 }
 
+function parseOAuthProviders(value: string | undefined) {
+  if (value === undefined || value.trim().length === 0) {
+    return StartConnectorOAuthRequestSchema.parse({}).providers;
+  }
+
+  return StartConnectorOAuthRequestSchema.parse({
+    providers: value.split(",").map((provider) => provider.trim()).filter(Boolean),
+  }).providers;
+}
+
 export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
@@ -224,6 +250,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.geoAnswerMonitorQueue ?? createMemoryGeoAnswerMonitorQueue();
   const schemaRichResultValidationQueue =
     options.schemaRichResultValidationQueue ?? createMemorySchemaRichResultValidationQueue();
+  const googleOAuthClient = options.googleOAuthClient;
   const deadLetterJobStore = options.deadLetterJobStore ?? createMemoryDeadLetterJobStore();
   const cmsWebhookSecrets =
     options.cmsWebhookSecrets ?? parseCmsWebhookSecrets(process.env.SEARCHOPS_CMS_WEBHOOK_SECRETS);
@@ -341,6 +368,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       routeUrl === "/health" ||
       routeUrl === "/metrics" ||
       routeUrl === "/auth/context" ||
+      routeUrl === "/connectors/google/oauth/callback" ||
       routeUrl === "/sites/:id/cms/content-updated-events" ||
       routeUrl === "/sites/:id/cms/webhooks/:cmsType"
     ) {
@@ -1488,6 +1516,145 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(ConnectorSyncRunDetailResponseSchema.parse(result));
+  });
+
+  server.get("/sites/:id/connectors/oauth", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const credentials = await repository.listConnectorOAuthCredentials(id);
+    if (!credentials) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(ConnectorOAuthCredentialListResponseSchema.parse({ credentials }));
+  });
+
+  server.get("/sites/:id/connectors/google/oauth/start", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    if (googleOAuthClient === undefined) {
+      reply.status(503).send({
+        error: "not_configured",
+        message: "Google OAuth client is not configured",
+      });
+      return;
+    }
+
+    const query = GoogleOAuthStartQuerySchema.parse(request.query);
+    const userContext = resolveRequestUserContext(request);
+    const authorization = googleOAuthClient.createAuthorizationUrl({
+      organizationId: site.organizationId,
+      providers: parseOAuthProviders(query.providers),
+      requestedByUserId: userContext.userId,
+      returnTo: query.returnTo,
+      siteId: site.id,
+    });
+
+    if (query.format === "json") {
+      reply.send(
+        StartConnectorOAuthResponseSchema.parse({
+          authorizationUrl: authorization.authorizationUrl,
+          providers: authorization.providers,
+          stateExpiresAt: authorization.stateExpiresAt,
+        }),
+      );
+      return;
+    }
+
+    reply.redirect(authorization.authorizationUrl);
+  });
+
+  server.get("/connectors/google/oauth/callback", async (request, reply) => {
+    if (googleOAuthClient === undefined) {
+      reply.status(503).send({
+        error: "not_configured",
+        message: "Google OAuth client is not configured",
+      });
+      return;
+    }
+
+    const query = GoogleOAuthCallbackQuerySchema.parse(request.query);
+    let state;
+    try {
+      state = googleOAuthClient.verifyState(query.state);
+    } catch (error) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: error instanceof Error ? error.message : "Invalid OAuth state",
+      });
+      return;
+    }
+    const site = await repository.getSite(state.siteId);
+    if (!site || site.organizationId !== state.organizationId) {
+      reply.status(404).send(notFound("OAuth site not found"));
+      return;
+    }
+
+    if (query.error !== undefined) {
+      reply.status(400).send({
+        error: "oauth_error",
+        message: query.error,
+      });
+      return;
+    }
+
+    if (query.code === undefined) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth code is required",
+      });
+      return;
+    }
+
+    let tokenResult;
+    try {
+      tokenResult = await googleOAuthClient.exchangeCodeForTokens(query.code);
+    } catch (error) {
+      reply.status(502).send({
+        error: "oauth_token_exchange_failed",
+        message: error instanceof Error ? error.message : "Google OAuth token exchange failed",
+      });
+      return;
+    }
+    const connectedAt = currentTime().toISOString();
+    const credentials = await repository.upsertConnectorOAuthCredentials(
+      state.siteId,
+      state.providers.map((provider) => ({
+        accessToken: tokenResult.accessToken,
+        connectedAt,
+        connectedByUserId: state.requestedByUserId,
+        externalAccountEmail: tokenResult.externalAccountEmail,
+        provider,
+        refreshToken: tokenResult.refreshToken,
+        scopes: tokenResult.scopes,
+        tokenExpiresAt: tokenResult.expiresAt,
+        tokenType: tokenResult.tokenType,
+      })),
+    );
+    if (!credentials) {
+      reply.status(404).send(notFound("OAuth site not found"));
+      return;
+    }
+
+    const response = CompleteConnectorOAuthResponseSchema.parse({
+      credentials,
+      status: "connected",
+    });
+
+    if (state.returnTo !== null) {
+      const returnTo = new URL(state.returnTo);
+      returnTo.searchParams.set("connectorOAuth", "connected");
+      returnTo.searchParams.set("providers", state.providers.join(","));
+      reply.redirect(returnTo.toString());
+      return;
+    }
+
+    reply.send(response);
   });
 
   server.post("/geo-visibility-reports/:id/work-order", async (request, reply) => {
