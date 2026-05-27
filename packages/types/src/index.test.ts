@@ -2162,6 +2162,52 @@ describe("types foundation", () => {
         summary,
       }),
     ).toMatchObject({ summary: { totalRecords: 1 } });
+    expect(
+      ConnectorRunResultSchema.parse({
+        provider: "gsc",
+        status: "failed",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: false,
+        records: [],
+        error: {
+          message: "GSC OAuth credential is missing for this site.",
+          name: "Error",
+        },
+      }),
+    ).toMatchObject({
+      error: {
+        message: "GSC OAuth credential is missing for this site.",
+      },
+    });
+    expect(
+      ConnectorSyncJobResultSchema.parse({
+        connectorSyncRunId: "sync_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        results: [],
+        summary: {
+          ...summary,
+          failedProviders: 1,
+          okProviders: 0,
+          providerErrors: {
+            gsc: {
+              message: "GSC OAuth credential is missing for this site.",
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      summary: {
+        providerErrors: {
+          gsc: {
+            message: "GSC OAuth credential is missing for this site.",
+          },
+        },
+      },
+    });
   });
 
   it("rejects connector run results with mismatched record providers", () => {

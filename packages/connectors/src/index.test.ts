@@ -814,7 +814,7 @@ describe("connectors foundation", () => {
   it("marks missing live connector credentials as failed without throwing", async () => {
     const result = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
-      providers: ["gsc", "ga4", "pagespeed", "bing"],
+      providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
       siteDomain: "searchops-ai-web.vercel.app"
     });
 
@@ -822,11 +822,22 @@ describe("connectors foundation", () => {
       ["gsc", "failed"],
       ["ga4", "failed"],
       ["pagespeed", "failed"],
-      ["bing", "failed"]
+      ["bing", "failed"],
+      ["cms", "failed"]
     ]);
     expect(result.summary).toMatchObject({
-      failedProviders: 4,
-      totalProviders: 4,
+      failedProviders: 5,
+      providerErrors: {
+        bing: { message: "Bing Webmaster API key is missing in the worker runtime." },
+        cms: {
+          message:
+            "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter."
+        },
+        ga4: { message: "GA4 OAuth credential is missing for this site." },
+        gsc: { message: "GSC OAuth credential is missing for this site." },
+        pagespeed: { message: "PageSpeed API key is missing in the worker runtime." }
+      },
+      totalProviders: 5,
       totalRecords: 0
     });
   });
@@ -848,11 +859,20 @@ describe("connectors foundation", () => {
         fixture: false,
         provider: "gsc",
         records: [],
-        status: "failed"
+        status: "failed",
+        error: {
+          message: "Google Search Console request failed with status 401",
+          name: "Error"
+        }
       }
     ]);
     expect(result.summary).toMatchObject({
       failedProviders: 1,
+      providerErrors: {
+        gsc: {
+          message: "Google Search Console request failed with status 401"
+        }
+      },
       totalProviders: 1,
       totalRecords: 0
     });

@@ -18,6 +18,7 @@ import {
   type ConnectorProvider,
   type ConnectorRecord,
   type ConnectorRunResult,
+  type ConnectorSyncProviderError,
   type Ga4PageMetric,
   type GeoAnswerMonitorProvider,
   type GeoAnswerMonitorRequest,
@@ -599,12 +600,14 @@ export function normalizeGeoAnswerMonitoringFixture(
 }
 
 export function createConnectorRunResult({
+  error,
   fetchedAt,
   fixture = true,
   provider,
   records,
   status = "ok"
 }: {
+  readonly error?: ConnectorSyncProviderError | undefined;
   readonly fetchedAt: string;
   readonly fixture?: boolean;
   readonly provider: ConnectorProvider;
@@ -616,15 +619,18 @@ export function createConnectorRunResult({
     status,
     fetchedAt,
     fixture,
-    records
+    records,
+    ...(error ? { error } : {})
   });
 }
 
 export function createFailedConnectorRunResult(
   provider: ConnectorProvider,
   fetchedAt: string,
+  error?: unknown,
 ): ConnectorRunResult {
   return createConnectorRunResult({
+    ...(error === undefined ? {} : { error: normalizeConnectorSyncError(error) }),
     fetchedAt,
     fixture: false,
     provider,
@@ -1060,12 +1066,21 @@ export async function syncLiveConnectors({
         });
 
         if (adapter === null) {
-          return createFailedConnectorRunResult(provider, fetchedAt);
+          return createFailedConnectorRunResult(
+            provider,
+            fetchedAt,
+            createMissingLiveConnectorError(provider, {
+              bingApiKey,
+              ga4PropertyId,
+              googleOAuthCredentials,
+              pagespeedApiKey
+            }),
+          );
         }
 
         return await adapter.sync({ fetchedAt });
-      } catch {
-        return createFailedConnectorRunResult(provider, fetchedAt);
+      } catch (error) {
+        return createFailedConnectorRunResult(provider, fetchedAt, error);
       }
     }),
   );
@@ -1108,15 +1123,59 @@ export function summarizeConnectorRunResults(
   for (const result of results) {
     recordCountsByProvider[result.provider] += result.records.length;
   }
+  const providerErrors = summarizeConnectorProviderErrors(results);
 
   return {
     failedProviders: results.filter((result) => result.status === "failed").length,
     okProviders: results.filter((result) => result.status === "ok").length,
     partialProviders: results.filter((result) => result.status === "partial").length,
+    ...(providerErrors ? { providerErrors } : {}),
     recordCountsByProvider,
     totalProviders: results.length,
     totalRecords: results.reduce((total, result) => total + result.records.length, 0)
   };
+}
+
+function summarizeConnectorProviderErrors(results: readonly ConnectorRunResult[]) {
+  const providerErrors: Partial<Record<ConnectorProvider, ConnectorSyncProviderError>> = {};
+
+  for (const result of results) {
+    if (result.status === "ok") {
+      continue;
+    }
+
+    providerErrors[result.provider] = result.error ?? {
+      message: `${formatConnectorProviderName(result.provider)} connector failed.`
+    };
+  }
+
+  return Object.keys(providerErrors).length > 0 ? providerErrors : undefined;
+}
+
+function normalizeConnectorSyncError(error: unknown): ConnectorSyncProviderError {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name
+    };
+  }
+
+  return {
+    message: String(error),
+    name: "Error"
+  };
+}
+
+function formatConnectorProviderName(provider: ConnectorProvider) {
+  const labels = {
+    bing: "Bing",
+    cms: "CMS",
+    ga4: "GA4",
+    gsc: "GSC",
+    pagespeed: "PageSpeed"
+  } as const satisfies Record<ConnectorProvider, string>;
+
+  return labels[provider];
 }
 
 export function discoverKeywordTargetsFromConnectorResults(
@@ -1171,7 +1230,7 @@ function createLiveConnectorAdapter(
           })
         : null;
     case "cms":
-      return getFixtureConnectorAdapter("cms");
+      return null;
     case "ga4": {
       const credential = findGoogleCredential("ga4", config.googleOAuthCredentials ?? []);
       if (!credential || !config.ga4PropertyId) {
@@ -1204,6 +1263,33 @@ function createLiveConnectorAdapter(
             siteDomain: config.siteDomain
           })
         : null;
+  }
+}
+
+function createMissingLiveConnectorError(
+  provider: ConnectorProvider,
+  config: Pick<
+    LiveConnectorBatchSyncRequest,
+    "bingApiKey" | "ga4PropertyId" | "googleOAuthCredentials" | "pagespeedApiKey"
+  >,
+) {
+  switch (provider) {
+    case "bing":
+      return "Bing Webmaster API key is missing in the worker runtime.";
+    case "cms":
+      return "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.";
+    case "ga4": {
+      const hasCredential = Boolean(findGoogleCredential("ga4", config.googleOAuthCredentials ?? []));
+      if (!hasCredential) {
+        return "GA4 OAuth credential is missing for this site.";
+      }
+
+      return "GA4 property ID is missing in the worker runtime.";
+    }
+    case "gsc":
+      return "GSC OAuth credential is missing for this site.";
+    case "pagespeed":
+      return "PageSpeed API key is missing in the worker runtime.";
   }
 }
 

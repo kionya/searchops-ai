@@ -2126,6 +2126,25 @@ export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
+export const ConnectorSyncProviderErrorSchema = z.object({
+  message: z.string().min(1),
+  name: z.string().min(1).optional(),
+});
+
+export type ConnectorSyncProviderError = z.infer<typeof ConnectorSyncProviderErrorSchema>;
+
+export const ConnectorSyncProviderErrorMapSchema = z.object({
+  bing: ConnectorSyncProviderErrorSchema.optional(),
+  cms: ConnectorSyncProviderErrorSchema.optional(),
+  ga4: ConnectorSyncProviderErrorSchema.optional(),
+  gsc: ConnectorSyncProviderErrorSchema.optional(),
+  pagespeed: ConnectorSyncProviderErrorSchema.optional(),
+});
+
+export type ConnectorSyncProviderErrorMap = z.infer<
+  typeof ConnectorSyncProviderErrorMapSchema
+>;
+
 export const ConnectorSyncRunStatusSchema = z.enum([
   "queued",
   "running",
@@ -2308,6 +2327,7 @@ export const ConnectorRunResultSchema = z
     fetchedAt: IsoDateTimeSchema,
     fixture: z.boolean(),
     records: z.array(ConnectorRecordSchema),
+    error: ConnectorSyncProviderErrorSchema.optional(),
   })
   .refine((result) => result.records.every((record) => record.provider === result.provider), {
     message: "Connector run provider must match every normalized record provider",
@@ -2330,6 +2350,7 @@ export const ConnectorBatchSyncSummarySchema = z.object({
   failedProviders: NonNegativeIntegerSchema,
   okProviders: NonNegativeIntegerSchema,
   partialProviders: NonNegativeIntegerSchema,
+  providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
   recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
   totalProviders: NonNegativeIntegerSchema,
   totalRecords: NonNegativeIntegerSchema,

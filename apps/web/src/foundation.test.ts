@@ -17,6 +17,8 @@ import { getApiBaseUrl } from "./api-base-url";
 import {
   createDemoConnectorSyncHistory,
   formatSyncDuration,
+  getConnectorSyncProviderErrorMessage,
+  getConnectorSyncRunProviderErrorMessages,
   getConnectorSyncRunTone,
   getConnectorSyncTriggerFeedback,
   loadConnectorSyncHistory,
@@ -1083,6 +1085,38 @@ describe("web foundation", () => {
     expect(getConnectorSyncRunTone("partial")).toBe("partial");
     expect(formatSyncDuration("2026-05-22T09:00:00.000Z", "2026-05-22T09:01:18.000Z")).toBe(
       "1m 18s",
+    );
+    const firstRun = history.runs[0];
+    if (!firstRun) {
+      throw new Error("Connector sync history fixture is missing");
+    }
+    const runWithProviderErrors = {
+      ...firstRun,
+      summary: {
+        failedProviders: 1,
+        okProviders: 0,
+        partialProviders: 0,
+        providerErrors: {
+          gsc: {
+            message: "GSC OAuth credential is missing for this site."
+          }
+        },
+        recordCountsByProvider: {
+          bing: 0,
+          cms: 0,
+          ga4: 0,
+          gsc: 0,
+          pagespeed: 0
+        },
+        totalProviders: 1,
+        totalRecords: 0
+      }
+    };
+    expect(getConnectorSyncRunProviderErrorMessages(runWithProviderErrors)).toEqual([
+      "GSC: GSC OAuth credential is missing for this site."
+    ]);
+    expect(getConnectorSyncProviderErrorMessage(runWithProviderErrors, "gsc")).toBe(
+      "GSC OAuth credential is missing for this site.",
     );
   });
 

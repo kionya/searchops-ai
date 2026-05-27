@@ -465,7 +465,7 @@ export function getConnectorSyncResultTone(status: string): ConnectorSyncResultT
 }
 
 export function getConnectorSyncRunErrorMessage(run: ConnectorSyncRun): string | null {
-  if (run.status !== "failed" || run.summary === null) {
+  if (run.summary === null) {
     return null;
   }
 
@@ -477,6 +477,56 @@ export function getConnectorSyncRunErrorMessage(run: ConnectorSyncRun): string |
   }
 
   return null;
+}
+
+export function getConnectorSyncRunProviderErrorMessages(run: ConnectorSyncRun): string[] {
+  if (run.summary === null) {
+    return [];
+  }
+
+  const summary = run.summary as Record<string, unknown>;
+  const providerErrors = summary.providerErrors;
+  if (!providerErrors || typeof providerErrors !== "object" || Array.isArray(providerErrors)) {
+    return [];
+  }
+
+  return Object.entries(providerErrors)
+    .map(([provider, error]) => {
+      if (!error || typeof error !== "object" || Array.isArray(error)) {
+        return null;
+      }
+
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message !== "string" || message.length === 0) {
+        return null;
+      }
+
+      return `${formatConnectorProvider(provider as ConnectorProvider)}: ${message}`;
+    })
+    .filter((message): message is string => message !== null);
+}
+
+export function getConnectorSyncProviderErrorMessage(
+  run: ConnectorSyncRun | undefined,
+  provider: ConnectorProvider,
+): string | null {
+  if (!run || run.summary === null) {
+    return null;
+  }
+
+  const summary = run.summary as Record<string, unknown>;
+  const providerErrors = summary.providerErrors;
+  if (!providerErrors || typeof providerErrors !== "object" || Array.isArray(providerErrors)) {
+    return null;
+  }
+
+  const error = (providerErrors as Record<string, unknown>)[provider];
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return null;
+  }
+
+  const message = (error as Record<string, unknown>).message;
+  return typeof message === "string" && message.length > 0 ? message : null;
 }
 
 export function formatConnectorProvider(provider: ConnectorProvider) {

@@ -23,7 +23,9 @@ import {
   getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
   getConnectorSyncRunErrorMessage,
+  getConnectorSyncRunProviderErrorMessages,
   getConnectorSyncRunTone,
+  getConnectorSyncProviderErrorMessage,
   loadConnectorSyncHistory,
   summarizeConnectorSyncHistory,
   type ConnectorSyncResultTone,
@@ -47,6 +49,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   const history = await loadConnectorSyncHistory(siteId);
   const summary = summarizeConnectorSyncHistory(history);
   const allResults = Object.values(history.resultsByRunId).flat();
+  const runsById = new Map(history.runs.map((run) => [run.id, run]));
   const triggerFeedback = getConnectorSyncTriggerFeedback(
     triggerSearchParams.sync,
     triggerSearchParams.runId,
@@ -109,6 +112,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                 const results = history.resultsByRunId[run.id] ?? [];
                 const records = results.reduce((total, result) => total + result.recordCount, 0);
                 const errorMessage = getConnectorSyncRunErrorMessage(run);
+                const providerErrorMessages = getConnectorSyncRunProviderErrorMessages(run);
 
                 return (
                   <tr key={run.id}>
@@ -131,15 +135,24 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                       ) : results.length === 0 ? (
                         <span style={{ color: "#64748b" }}>대기 중</span>
                       ) : (
-                        <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {results.map((result) => (
-                            <ResultStatusPill
-                              key={result.id}
-                              label={`${formatConnectorProvider(result.provider)} ${formatStatusLabel(result.status)}`}
-                              tone={getConnectorSyncResultTone(result.status)}
-                            />
-                          ))}
-                        </span>
+                        <div>
+                          <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {results.map((result) => (
+                              <ResultStatusPill
+                                key={result.id}
+                                label={`${formatConnectorProvider(result.provider)} ${formatStatusLabel(result.status)}`}
+                                tone={getConnectorSyncResultTone(result.status)}
+                              />
+                            ))}
+                          </span>
+                          {providerErrorMessages.length > 0 ? (
+                            <ul style={{ color: "#b91c1c", fontSize: 12, margin: "8px 0 0", paddingLeft: 18 }}>
+                              {providerErrorMessages.map((message) => (
+                                <li key={message}>{message}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -171,21 +184,35 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
               </tr>
             </thead>
             <tbody>
-              {allResults.map((result) => (
-                <tr key={result.id}>
-                  <td style={tdStyle}>{formatConnectorProvider(result.provider)}</td>
-                  <td style={tdStyle}>
-                    <ResultStatusPill
-                      label={formatStatusLabel(result.status)}
-                      tone={getConnectorSyncResultTone(result.status)}
-                    />
-                  </td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>{result.syncRunId}</td>
-                  <td style={tdStyle}>{formatDateTime(result.fetchedAt)}</td>
-                  <td style={tdStyle}>{result.recordCount}</td>
-                  <td style={tdStyle}>{formatBooleanLabel(result.fixture)}</td>
-                </tr>
-              ))}
+              {allResults.map((result) => {
+                const providerErrorMessage = getConnectorSyncProviderErrorMessage(
+                  runsById.get(result.syncRunId),
+                  result.provider,
+                );
+
+                return (
+                  <tr key={result.id}>
+                    <td style={tdStyle}>{formatConnectorProvider(result.provider)}</td>
+                    <td style={tdStyle}>
+                      <ResultStatusPill
+                        label={formatStatusLabel(result.status)}
+                        tone={getConnectorSyncResultTone(result.status)}
+                      />
+                    </td>
+                    <td style={{ ...tdStyle, ...codeTextStyle }}>{result.syncRunId}</td>
+                    <td style={tdStyle}>{formatDateTime(result.fetchedAt)}</td>
+                    <td style={tdStyle}>{result.recordCount}</td>
+                    <td style={tdStyle}>
+                      {formatBooleanLabel(result.fixture)}
+                      {providerErrorMessage ? (
+                        <span style={{ color: "#b91c1c", display: "block", fontSize: 12, marginTop: 6 }}>
+                          {providerErrorMessage}
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

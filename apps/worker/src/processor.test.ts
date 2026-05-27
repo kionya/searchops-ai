@@ -882,7 +882,7 @@ describe("processCrawlJob", () => {
         siteDomain: "searchops-ai-web.vercel.app",
         requestedByUserId: "user_live",
         fetchedAt: "2026-05-27T12:10:00.000Z",
-        providers: ["gsc", "cms"]
+        providers: ["gsc", "pagespeed"]
       },
       persistenceClient,
       {
@@ -891,18 +891,39 @@ describe("processCrawlJob", () => {
             return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
           }
 
+          if (String(url).includes("pagespeedonline")) {
+            return new Response(
+              JSON.stringify({
+                lighthouseResult: {
+                  categories: {
+                    accessibility: { score: 1 },
+                    performance: { score: 1 },
+                    seo: { score: 1 }
+                  },
+                  audits: {
+                    "cumulative-layout-shift": { numericValue: 0 },
+                    "interaction-to-next-paint": { numericValue: 100 },
+                    "largest-contentful-paint": { numericValue: 1200 }
+                  }
+                }
+              }),
+              { status: 200 }
+            );
+          }
+
           return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
         }) as typeof fetch,
         googleOAuthClientId: "client_id",
         googleOAuthClientSecret: "client_secret",
         liveExternalApis: "enabled",
-        now: () => new Date("2026-05-27T12:10:00.000Z")
+        now: () => new Date("2026-05-27T12:10:00.000Z"),
+        pagespeedApiKey: "pagespeed_key"
       },
     );
 
     expect(result.results.map((item) => [item.provider, item.status])).toEqual([
       ["gsc", "failed"],
-      ["cms", "ok"]
+      ["pagespeed", "ok"]
     ]);
     expect(result.summary).toMatchObject({
       failedProviders: 1,
