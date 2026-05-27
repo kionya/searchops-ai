@@ -2,6 +2,7 @@ import {
   BingUrlMetricSchema,
   CmsPageRecordSchema,
   ConnectorRunResultSchema,
+  ConnectorOAuthProviderSchema,
   Ga4PageMetricSchema,
   GeoAnswerMonitorRequestSchema,
   GeoAnswerMonitorResultSchema,
@@ -13,6 +14,7 @@ import {
   type BingUrlMetric,
   type CmsPageRecord,
   type ConnectorAuthMode,
+  type ConnectorOAuthProvider,
   type ConnectorProvider,
   type ConnectorRecord,
   type ConnectorRunResult,
@@ -160,7 +162,7 @@ export interface ConnectorSyncRequest {
 
 export interface ConnectorAdapter {
   readonly authMode: ConnectorAuthMode;
-  readonly liveExternalApis: typeof liveExternalApisDefault;
+  readonly liveExternalApis: LiveExternalApiMode;
   readonly provider: ConnectorProvider;
   sync(request: ConnectorSyncRequest): Promise<ConnectorRunResult>;
 }
@@ -171,7 +173,50 @@ export interface FixtureConnectorAdapterConfig {
 }
 
 export interface ConnectorBatchSyncRequest extends ConnectorSyncRequest {
-  readonly providers?: readonly ConnectorProvider[];
+  readonly providers?: readonly ConnectorProvider[] | undefined;
+}
+
+export interface GoogleConnectorOAuthCredential {
+  readonly accessToken: string;
+  readonly provider: ConnectorOAuthProvider;
+  readonly status?: "connected" | "expired" | "revoked";
+  readonly tokenExpiresAt?: string | null;
+}
+
+export interface LiveConnectorBatchSyncRequest extends ConnectorBatchSyncRequest {
+  readonly bingApiKey?: string | undefined;
+  readonly fetch?: typeof fetch | undefined;
+  readonly ga4PropertyId?: string | undefined;
+  readonly googleOAuthCredentials?: readonly GoogleConnectorOAuthCredential[] | undefined;
+  readonly pagespeedApiKey?: string | undefined;
+  readonly siteDomain: string;
+}
+
+export interface LiveGscConnectorAdapterConfig {
+  readonly credential: GoogleConnectorOAuthCredential;
+  readonly fetch?: typeof fetch | undefined;
+  readonly rowLimit?: number | undefined;
+  readonly siteDomain: string;
+}
+
+export interface LiveGa4ConnectorAdapterConfig {
+  readonly credential: GoogleConnectorOAuthCredential;
+  readonly fetch?: typeof fetch | undefined;
+  readonly propertyId: string;
+}
+
+export interface LivePageSpeedConnectorAdapterConfig {
+  readonly apiKey: string;
+  readonly fetch?: typeof fetch | undefined;
+  readonly siteDomain: string;
+  readonly strategy?: "desktop" | "mobile" | undefined;
+}
+
+export interface LiveBingConnectorAdapterConfig {
+  readonly apiKey: string;
+  readonly fetch?: typeof fetch | undefined;
+  readonly siteDomain: string;
+  readonly urls?: readonly string[] | undefined;
 }
 
 export interface ConnectorBatchSyncSummary {
@@ -555,11 +600,13 @@ export function normalizeGeoAnswerMonitoringFixture(
 
 export function createConnectorRunResult({
   fetchedAt,
+  fixture = true,
   provider,
   records,
   status = "ok"
 }: {
   readonly fetchedAt: string;
+  readonly fixture?: boolean;
   readonly provider: ConnectorProvider;
   readonly records: readonly ConnectorRecord[];
   readonly status?: ConnectorRunResult["status"];
@@ -568,8 +615,21 @@ export function createConnectorRunResult({
     provider,
     status,
     fetchedAt,
-    fixture: true,
+    fixture,
     records
+  });
+}
+
+export function createFailedConnectorRunResult(
+  provider: ConnectorProvider,
+  fetchedAt: string,
+): ConnectorRunResult {
+  return createConnectorRunResult({
+    fetchedAt,
+    fixture: false,
+    provider,
+    records: [],
+    status: "failed"
   });
 }
 
@@ -587,6 +647,220 @@ export function createFixtureConnectorAdapter({
       return createConnectorRunResult({
         fetchedAt: request.fetchedAt,
         provider,
+        records
+      });
+    }
+  };
+}
+
+export function createLiveGscConnectorAdapter({
+  credential,
+  fetch: fetchImpl = fetch,
+  rowLimit = 25,
+  siteDomain
+}: LiveGscConnectorAdapterConfig): ConnectorAdapter {
+  assertGoogleCredential("gsc", credential);
+  const siteUrl = normalizeSiteUrl(siteDomain);
+
+  return {
+    authMode: "oauth",
+    liveExternalApis: liveExternalApisEnabled,
+    provider: "gsc",
+    async sync(request) {
+      const dateRange = getConnectorDateRange(request.fetchedAt);
+      const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(
+        siteUrl,
+      )}/searchAnalytics/query`;
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.accessToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          dataState: "final",
+          dimensions: ["query", "page", "country", "device"],
+          rowLimit,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate
+        })
+      });
+
+      assertFetchOk(response, "Google Search Console");
+      const json = (await response.json()) as GscSearchAnalyticsApiResponse;
+      const records = normalizeGscSearchAnalytics({
+        siteUrl,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        rows: (json.rows ?? []).map((row) => ({
+          keys: toGscKeys(row.keys),
+          clicks: toNonNegativeNumber(row.clicks),
+          impressions: toNonNegativeNumber(row.impressions),
+          ctr: toNonNegativeNumber(row.ctr),
+          position: toNonNegativeNumber(row.position)
+        }))
+      });
+
+      return createConnectorRunResult({
+        fetchedAt: request.fetchedAt,
+        fixture: false,
+        provider: "gsc",
+        records
+      });
+    }
+  };
+}
+
+export function createLiveGa4ConnectorAdapter({
+  credential,
+  fetch: fetchImpl = fetch,
+  propertyId
+}: LiveGa4ConnectorAdapterConfig): ConnectorAdapter {
+  assertGoogleCredential("ga4", credential);
+  const normalizedPropertyId = propertyId.startsWith("properties/")
+    ? propertyId
+    : `properties/${propertyId}`;
+
+  return {
+    authMode: "oauth",
+    liveExternalApis: liveExternalApisEnabled,
+    provider: "ga4",
+    async sync(request) {
+      const dateRange = getConnectorDateRange(request.fetchedAt);
+      const response = await fetchImpl(
+        `https://analyticsdata.googleapis.com/v1beta/${normalizedPropertyId}:runReport`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${credential.accessToken}`,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            dateRanges: [{ startDate: dateRange.startDate, endDate: dateRange.endDate }],
+            dimensions: [{ name: "pagePath" }],
+            metrics: [
+              { name: "sessions" },
+              { name: "engagedSessions" },
+              { name: "conversions" },
+              { name: "totalUsers" }
+            ],
+            limit: 25
+          })
+        },
+      );
+
+      assertFetchOk(response, "Google Analytics Data API");
+      const json = (await response.json()) as Ga4RunReportApiResponse;
+      const records = normalizeGa4Report({
+        propertyId: normalizedPropertyId,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        rows: (json.rows ?? []).map((row) => ({
+          dimensionValues: [{ value: row.dimensionValues?.[0]?.value ?? "/" }],
+          metricValues: [
+            { value: row.metricValues?.[0]?.value ?? "0" },
+            { value: row.metricValues?.[1]?.value ?? "0" },
+            { value: row.metricValues?.[2]?.value ?? "0" },
+            { value: row.metricValues?.[3]?.value ?? "0" }
+          ]
+        }))
+      });
+
+      return createConnectorRunResult({
+        fetchedAt: request.fetchedAt,
+        fixture: false,
+        provider: "ga4",
+        records
+      });
+    }
+  };
+}
+
+export function createLivePageSpeedConnectorAdapter({
+  apiKey,
+  fetch: fetchImpl = fetch,
+  siteDomain,
+  strategy = "mobile"
+}: LivePageSpeedConnectorAdapterConfig): ConnectorAdapter {
+  const siteUrl = normalizeSiteUrl(siteDomain);
+
+  return {
+    authMode: "api_key",
+    liveExternalApis: liveExternalApisEnabled,
+    provider: "pagespeed",
+    async sync(request) {
+      const url = new URL("https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed");
+      url.searchParams.set("url", siteUrl);
+      url.searchParams.set("strategy", strategy);
+      url.searchParams.set("key", apiKey);
+
+      const response = await fetchImpl(url);
+      assertFetchOk(response, "PageSpeed Insights");
+      const json = (await response.json()) as PageSpeedFixture;
+      const records = normalizePageSpeed({
+        ...json,
+        fetchedAt: request.fetchedAt,
+        strategy,
+        url: siteUrl
+      });
+
+      return createConnectorRunResult({
+        fetchedAt: request.fetchedAt,
+        fixture: false,
+        provider: "pagespeed",
+        records
+      });
+    }
+  };
+}
+
+export function createLiveBingConnectorAdapter({
+  apiKey,
+  fetch: fetchImpl = fetch,
+  siteDomain,
+  urls
+}: LiveBingConnectorAdapterConfig): ConnectorAdapter {
+  const siteUrl = normalizeSiteUrl(siteDomain);
+  const urlsToInspect = urls ?? [siteUrl];
+
+  return {
+    authMode: "api_key",
+    liveExternalApis: liveExternalApisEnabled,
+    provider: "bing",
+    async sync(request) {
+      const records = await Promise.all(
+        urlsToInspect.map(async (urlToInspect) => {
+          const endpoint = new URL("https://ssl.bing.com/webmaster/api.svc/json/GetUrlInfo");
+          endpoint.searchParams.set("apikey", apiKey);
+          endpoint.searchParams.set("siteUrl", siteUrl);
+          endpoint.searchParams.set("url", urlToInspect);
+
+          const response = await fetchImpl(endpoint);
+          assertFetchOk(response, "Bing Webmaster");
+          const json = (await response.json()) as BingUrlInfoApiResponse;
+          const info = unwrapBingUrlInfo(json);
+
+          return BingUrlMetricSchema.parse({
+            provider: "bing",
+            siteUrl,
+            url: urlToInspect,
+            indexed: Boolean(readFlexibleField(info, ["isIndexed", "IsIndexed", "indexed", "Indexed"])),
+            clicks: toNonNegativeInteger(readFlexibleField(info, ["clicks", "Clicks"])),
+            impressions: toNonNegativeInteger(readFlexibleField(info, ["impressions", "Impressions"])),
+            discoveredAt: toNullableIsoDateTime(
+              readFlexibleField(info, ["discoveredAt", "DiscoveredAt", "firstDiscovered", "FirstDiscovered"]),
+            ),
+            lastCrawledAt: toNullableIsoDateTime(
+              readFlexibleField(info, ["lastCrawledAt", "LastCrawledAt", "lastCrawled", "LastCrawled"]),
+            )
+          });
+        }),
+      );
+
+      return createConnectorRunResult({
+        fetchedAt: request.fetchedAt,
+        fixture: false,
+        provider: "bing",
         records
       });
     }
@@ -762,6 +1036,46 @@ export async function syncFixtureConnectors({
   };
 }
 
+export async function syncLiveConnectors({
+  bingApiKey,
+  fetchedAt,
+  fetch: fetchImpl,
+  ga4PropertyId,
+  googleOAuthCredentials = [],
+  pagespeedApiKey,
+  providers = connectorProviders,
+  siteDomain
+}: LiveConnectorBatchSyncRequest): Promise<ConnectorBatchSyncResult> {
+  const orderedProviders = orderConnectorProviders(providers);
+  const results = await Promise.all(
+    orderedProviders.map(async (provider) => {
+      try {
+        const adapter = createLiveConnectorAdapter(provider, {
+          bingApiKey,
+          fetch: fetchImpl,
+          ga4PropertyId,
+          googleOAuthCredentials,
+          pagespeedApiKey,
+          siteDomain
+        });
+
+        if (adapter === null) {
+          return createFailedConnectorRunResult(provider, fetchedAt);
+        }
+
+        return adapter.sync({ fetchedAt });
+      } catch {
+        return createFailedConnectorRunResult(provider, fetchedAt);
+      }
+    }),
+  );
+
+  return {
+    results,
+    summary: summarizeConnectorRunResults(results)
+  };
+}
+
 export async function monitorFixtureGeoAnswers(
   provider: GeoAnswerMonitorProvider,
   request: GeoAnswerMonitorRequest,
@@ -841,6 +1155,186 @@ function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
   const requested = new Set(providers);
 
   return connectorProviders.filter((provider) => requested.has(provider));
+}
+
+function createLiveConnectorAdapter(
+  provider: ConnectorProvider,
+  config: Omit<LiveConnectorBatchSyncRequest, "fetchedAt" | "providers">,
+): ConnectorAdapter | null {
+  switch (provider) {
+    case "bing":
+      return config.bingApiKey
+        ? createLiveBingConnectorAdapter({
+            apiKey: config.bingApiKey,
+            fetch: config.fetch,
+            siteDomain: config.siteDomain
+          })
+        : null;
+    case "cms":
+      return getFixtureConnectorAdapter("cms");
+    case "ga4": {
+      const credential = findGoogleCredential("ga4", config.googleOAuthCredentials ?? []);
+      if (!credential || !config.ga4PropertyId) {
+        return null;
+      }
+
+      return createLiveGa4ConnectorAdapter({
+        credential,
+        fetch: config.fetch,
+        propertyId: config.ga4PropertyId
+      });
+    }
+    case "gsc": {
+      const credential = findGoogleCredential("gsc", config.googleOAuthCredentials ?? []);
+      if (!credential) {
+        return null;
+      }
+
+      return createLiveGscConnectorAdapter({
+        credential,
+        fetch: config.fetch,
+        siteDomain: config.siteDomain
+      });
+    }
+    case "pagespeed":
+      return config.pagespeedApiKey
+        ? createLivePageSpeedConnectorAdapter({
+            apiKey: config.pagespeedApiKey,
+            fetch: config.fetch,
+            siteDomain: config.siteDomain
+          })
+        : null;
+  }
+}
+
+interface GscSearchAnalyticsApiResponse {
+  readonly rows?: readonly {
+    readonly clicks?: number;
+    readonly ctr?: number;
+    readonly impressions?: number;
+    readonly keys?: readonly string[];
+    readonly position?: number;
+  }[];
+}
+
+interface Ga4RunReportApiResponse {
+  readonly rows?: readonly {
+    readonly dimensionValues?: readonly { readonly value?: string }[];
+    readonly metricValues?: readonly { readonly value?: string }[];
+  }[];
+}
+
+type BingUrlInfoApiResponse = Record<string, unknown>;
+
+function assertGoogleCredential(
+  provider: ConnectorOAuthProvider,
+  credential: GoogleConnectorOAuthCredential,
+) {
+  ConnectorOAuthProviderSchema.parse(credential.provider);
+
+  if (credential.provider !== provider) {
+    throw new Error(`Google OAuth credential provider mismatch: ${credential.provider} != ${provider}`);
+  }
+
+  if (credential.status !== undefined && credential.status !== "connected") {
+    throw new Error(`Google OAuth credential is not connected: ${credential.status}`);
+  }
+}
+
+function findGoogleCredential(
+  provider: ConnectorOAuthProvider,
+  credentials: readonly GoogleConnectorOAuthCredential[],
+) {
+  return credentials.find((credential) => credential.provider === provider);
+}
+
+function normalizeSiteUrl(siteDomain: string) {
+  const trimmed = siteDomain.trim();
+  const withProtocol = /^https?:\/\//iu.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const url = new URL(withProtocol);
+
+  if (!url.pathname || url.pathname === "") {
+    url.pathname = "/";
+  }
+
+  return url.toString();
+}
+
+function getConnectorDateRange(fetchedAt: string) {
+  const end = new Date(fetchedAt);
+  end.setUTCDate(end.getUTCDate() - 1);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 27);
+
+  return {
+    endDate: toDateOnly(end),
+    startDate: toDateOnly(start)
+  };
+}
+
+function toDateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function toGscKeys(keys: readonly string[] | undefined): [string, string, string, string] {
+  return [
+    keys?.[0] ?? "(not provided)",
+    keys?.[1] ?? "https://example.com/",
+    keys?.[2] ?? "ZZ",
+    keys?.[3] ?? "unknown"
+  ];
+}
+
+function assertFetchOk(response: Response, serviceName: string) {
+  if (!response.ok) {
+    throw new Error(`${serviceName} request failed with status ${response.status}`);
+  }
+}
+
+function unwrapBingUrlInfo(response: BingUrlInfoApiResponse): Record<string, unknown> {
+  const data = response.d;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return data as Record<string, unknown>;
+  }
+
+  return response;
+}
+
+function readFlexibleField(record: Record<string, unknown>, keys: readonly string[]) {
+  for (const key of keys) {
+    if (key in record) {
+      return record[key];
+    }
+  }
+
+  return undefined;
+}
+
+function toNonNegativeInteger(value: unknown) {
+  return Math.max(0, Math.trunc(toNonNegativeNumber(value)));
+}
+
+function toNonNegativeNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed;
+}
+
+function toNullableIsoDateTime(value: unknown) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
 }
 
 function orderGeoAnswerMonitorProviders(providers: readonly GeoAnswerMonitorProvider[]) {

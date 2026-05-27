@@ -542,6 +542,154 @@ describe("processCrawlJob", () => {
     });
   });
 
+  it("reads stored OAuth credentials when live connector sync is enabled", async () => {
+    const runUpdates: unknown[] = [];
+    const resultUpserts: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorOAuthCredential: {
+        async findMany(args) {
+          expect(args).toEqual({
+            where: {
+              provider: {
+                in: ["gsc", "ga4"]
+              },
+              siteId: "site_live",
+              status: "connected"
+            }
+          });
+
+          return [
+            {
+              accessToken: "gsc_token",
+              provider: "gsc",
+              status: "connected",
+              tokenExpiresAt: null
+            },
+            {
+              accessToken: "ga4_token",
+              provider: "ga4",
+              status: "connected",
+              tokenExpiresAt: null
+            }
+          ];
+        }
+      },
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          runUpdates.push(args);
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          resultUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_live",
+        organizationId: "org_live",
+        siteId: "site_live",
+        siteDomain: "searchops-ai-web.vercel.app",
+        requestedByUserId: "user_live",
+        fetchedAt: "2026-05-27T00:00:00.000Z",
+        providers: ["gsc", "ga4", "pagespeed"]
+      },
+      persistenceClient,
+      {
+        fetch: (async (url) => {
+          const value = String(url);
+
+          if (value.includes("searchAnalytics")) {
+            return new Response(
+              JSON.stringify({
+                rows: [
+                  {
+                    keys: [
+                      "searchops ai",
+                      "https://searchops-ai-web.vercel.app/",
+                      "kor",
+                      "desktop"
+                    ],
+                    clicks: 1,
+                    impressions: 10,
+                    ctr: 0.1,
+                    position: 2
+                  }
+                ]
+              }),
+              { status: 200 }
+            );
+          }
+
+          if (value.includes("analyticsdata.googleapis.com")) {
+            return new Response(
+              JSON.stringify({
+                rows: [
+                  {
+                    dimensionValues: [{ value: "/" }],
+                    metricValues: [
+                      { value: "5" },
+                      { value: "4" },
+                      { value: "1" },
+                      { value: "5" }
+                    ]
+                  }
+                ]
+              }),
+              { status: 200 }
+            );
+          }
+
+          return new Response(
+            JSON.stringify({
+              lighthouseResult: {
+                categories: {
+                  accessibility: { score: 1 },
+                  performance: { score: 1 },
+                  seo: { score: 1 }
+                },
+                audits: {
+                  "cumulative-layout-shift": { numericValue: 0 },
+                  "interaction-to-next-paint": { numericValue: 100 },
+                  "largest-contentful-paint": { numericValue: 1200 }
+                }
+              }
+            }),
+            { status: 200 }
+          );
+        }) as typeof fetch,
+        ga4PropertyId: "123456789",
+        liveExternalApis: "enabled",
+        pagespeedApiKey: "pagespeed_key"
+      },
+    );
+
+    expect(result.results.map((item) => [item.provider, item.fixture, item.status])).toEqual([
+      ["gsc", false, "ok"],
+      ["ga4", false, "ok"],
+      ["pagespeed", false, "ok"]
+    ]);
+    expect(result.summary).toMatchObject({
+      failedProviders: 0,
+      okProviders: 3,
+      totalRecords: 3
+    });
+    expect(resultUpserts).toHaveLength(3);
+    expect(runUpdates[0]).toMatchObject({
+      data: {
+        status: "completed"
+      },
+      where: { id: "sync_live" }
+    });
+  });
+
   it("marks connector sync runs failed when connector processing fails", async () => {
     const runUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {

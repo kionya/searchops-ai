@@ -10,7 +10,15 @@ import {
 
 const env = parseSearchOpsEnv(process.env);
 const crawlRuntime = createCrawlWorker({ redisUrl: env.REDIS_URL });
-const connectorSyncRuntime = createConnectorSyncWorker({ redisUrl: env.REDIS_URL });
+const connectorSyncRuntime = createConnectorSyncWorker({
+  redisUrl: env.REDIS_URL,
+  processorOptions: {
+    bingApiKey: env.SEARCHOPS_BING_API_KEY,
+    ga4PropertyId: env.SEARCHOPS_GA4_PROPERTY_ID,
+    liveExternalApis: shouldEnableConnectorLiveApis(env) ? "enabled" : "disabled",
+    pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY
+  }
+});
 const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker({ redisUrl: env.REDIS_URL });
 const schemaRichResultValidationRuntime = createSchemaRichResultValidationWorker({
   redisUrl: env.REDIS_URL
@@ -51,3 +59,12 @@ process.once("SIGTERM", () => {
 });
 
 console.log(`SearchOps worker listening for jobs: ${workerJobNames.join(", ")}`);
+
+function shouldEnableConnectorLiveApis(env: ReturnType<typeof parseSearchOpsEnv>) {
+  return Boolean(
+    env.SEARCHOPS_BING_API_KEY ||
+      env.SEARCHOPS_GA4_PROPERTY_ID ||
+      env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID ||
+      env.SEARCHOPS_PAGESPEED_API_KEY,
+  );
+}

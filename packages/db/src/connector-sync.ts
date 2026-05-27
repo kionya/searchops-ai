@@ -5,7 +5,8 @@ import {
   type ConnectorRunResult,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
-  type ConnectorSyncRunStatus
+  type ConnectorSyncRunStatus,
+  type ConnectorOAuthProvider
 } from "@searchops/types";
 
 import type { SearchOpsPrismaClient } from "./client.js";
@@ -59,7 +60,27 @@ export interface ConnectorSyncResultUpsertArgs {
   };
 }
 
+export interface ConnectorOAuthCredentialForSync {
+  readonly accessToken: string;
+  readonly provider: ConnectorOAuthProvider;
+  readonly status: "connected" | "expired" | "revoked";
+  readonly tokenExpiresAt: Date | null;
+}
+
+export interface ConnectorOAuthCredentialFindManyArgs {
+  where: {
+    provider?: {
+      in: readonly ConnectorOAuthProvider[];
+    };
+    siteId: string;
+    status?: "connected";
+  };
+}
+
 export interface ConnectorSyncPersistenceClient {
+  connectorOAuthCredential?: {
+    findMany(args: ConnectorOAuthCredentialFindManyArgs): Promise<ConnectorOAuthCredentialForSync[]>;
+  };
   connectorSyncRun: {
     create(args: ConnectorSyncRunCreateArgs): Promise<unknown>;
     update(args: ConnectorSyncRunUpdateArgs): Promise<unknown>;
@@ -82,9 +103,42 @@ export interface MarkConnectorSyncRunFailedOutput {
 }
 
 export function createPrismaConnectorSyncPersistenceClient(
-  prisma: Pick<SearchOpsPrismaClient, "connectorSyncResult" | "connectorSyncRun">,
+  prisma: Pick<
+    SearchOpsPrismaClient,
+    "connectorOAuthCredential" | "connectorSyncResult" | "connectorSyncRun"
+  >,
 ): ConnectorSyncPersistenceClient {
   return {
+    connectorOAuthCredential: {
+      async findMany(args) {
+        const rows = await prisma.connectorOAuthCredential.findMany({
+          where: {
+            ...(args.where.provider
+              ? {
+                  provider: {
+                    in: [...args.where.provider.in]
+                  }
+                }
+              : {}),
+            siteId: args.where.siteId,
+            ...(args.where.status ? { status: args.where.status } : {})
+          },
+          select: {
+            accessToken: true,
+            provider: true,
+            status: true,
+            tokenExpiresAt: true
+          }
+        });
+
+        return rows.map((row) => ({
+          accessToken: row.accessToken,
+          provider: row.provider as ConnectorOAuthProvider,
+          status: row.status as ConnectorOAuthCredentialForSync["status"],
+          tokenExpiresAt: row.tokenExpiresAt
+        }));
+      }
+    },
     connectorSyncRun: {
       async create(args) {
         return prisma.connectorSyncRun.create(args);
@@ -123,6 +177,25 @@ export async function createConnectorSyncRun(
     connectorSyncRunId: payload.connectorSyncRunId,
     status: "queued"
   };
+}
+
+export async function listConnectorOAuthCredentialsForSync(
+  client: ConnectorSyncPersistenceClient,
+  siteId: string,
+): Promise<ConnectorOAuthCredentialForSync[]> {
+  if (client.connectorOAuthCredential === undefined) {
+    return [];
+  }
+
+  return client.connectorOAuthCredential.findMany({
+    where: {
+      provider: {
+        in: ["gsc", "ga4"]
+      },
+      siteId,
+      status: "connected"
+    }
+  });
 }
 
 export async function persistConnectorSyncJobResult(

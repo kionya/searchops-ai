@@ -6,7 +6,11 @@ import {
   connectorsPackage,
   createConnectorRunResult,
   createFixtureConnectorAdapter,
+  createLiveBingConnectorAdapter,
+  createLiveGa4ConnectorAdapter,
   createLiveGeoAnswerMonitorAdapter,
+  createLiveGscConnectorAdapter,
+  createLivePageSpeedConnectorAdapter,
   createLiveSchemaRichResultValidatorAdapter,
   discoverKeywordTargetsFromConnectorResults,
   fixtureConnectorAdapters,
@@ -34,7 +38,8 @@ import {
   normalizePageSpeed,
   summarizeConnectorRunResults,
   syncFixtureConnector,
-  syncFixtureConnectors
+  syncFixtureConnectors,
+  syncLiveConnectors
 } from "./index.js";
 
 describe("connectors foundation", () => {
@@ -510,6 +515,319 @@ describe("connectors foundation", () => {
       status: "eligible",
       type: "Service",
       url: "https://example-clinic.com/service/seo"
+    });
+  });
+
+  it("wraps Google Search Console live OAuth calls behind the connector boundary", async () => {
+    const calls: unknown[] = [];
+    const adapter = createLiveGscConnectorAdapter({
+      credential: {
+        accessToken: "gsc_token",
+        provider: "gsc",
+        status: "connected"
+      },
+      fetch: (async (url, init) => {
+        calls.push({
+          body: init?.body,
+          headers: init?.headers,
+          method: init?.method,
+          url: String(url)
+        });
+
+        return new Response(
+          JSON.stringify({
+            rows: [
+              {
+                keys: [
+                  "searchops ai",
+                  "https://searchops-ai-web.vercel.app/",
+                  "kor",
+                  "mobile"
+                ],
+                clicks: 7,
+                impressions: 70,
+                ctr: 0.1,
+                position: 2.4
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch,
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+
+    expect(adapter.liveExternalApis).toBe("enabled");
+    expect(result).toMatchObject({
+      fixture: false,
+      provider: "gsc",
+      status: "ok"
+    });
+    expect(result.records[0]).toMatchObject({
+      clicks: 7,
+      endDate: "2026-05-26",
+      page: "https://searchops-ai-web.vercel.app/",
+      provider: "gsc",
+      query: "searchops ai",
+      startDate: "2026-04-29"
+    });
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      url: "https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fsearchops-ai-web.vercel.app%2F/searchAnalytics/query"
+    });
+  });
+
+  it("wraps GA4 live OAuth calls behind the connector boundary", async () => {
+    const calls: unknown[] = [];
+    const adapter = createLiveGa4ConnectorAdapter({
+      credential: {
+        accessToken: "ga4_token",
+        provider: "ga4",
+        status: "connected"
+      },
+      fetch: (async (url, init) => {
+        calls.push({
+          body: init?.body,
+          headers: init?.headers,
+          method: init?.method,
+          url: String(url)
+        });
+
+        return new Response(
+          JSON.stringify({
+            rows: [
+              {
+                dimensionValues: [{ value: "/" }],
+                metricValues: [
+                  { value: "31" },
+                  { value: "22" },
+                  { value: "2" },
+                  { value: "27" }
+                ]
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch,
+      propertyId: "123456789"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+
+    expect(result.records[0]).toMatchObject({
+      conversions: 2,
+      engagedSessions: 22,
+      pagePath: "/",
+      propertyId: "properties/123456789",
+      provider: "ga4",
+      sessions: 31,
+      totalUsers: 27
+    });
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      url: "https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport"
+    });
+  });
+
+  it("wraps PageSpeed API key calls behind the connector boundary", async () => {
+    const calls: string[] = [];
+    const adapter = createLivePageSpeedConnectorAdapter({
+      apiKey: "pagespeed_key",
+      fetch: (async (url) => {
+        calls.push(String(url));
+
+        return new Response(
+          JSON.stringify({
+            lighthouseResult: {
+              categories: {
+                accessibility: { score: 0.9 },
+                performance: { score: 0.8 },
+                seo: { score: 1 }
+              },
+              audits: {
+                "cumulative-layout-shift": { numericValue: 0.02 },
+                "interaction-to-next-paint": { numericValue: 150 },
+                "largest-contentful-paint": { numericValue: 1800 }
+              }
+            }
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch,
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+
+    expect(result.records[0]).toMatchObject({
+      accessibilityScore: 90,
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      performanceScore: 80,
+      provider: "pagespeed",
+      seoScore: 100,
+      url: "https://searchops-ai-web.vercel.app/"
+    });
+    expect(calls[0]).toContain("pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed");
+    expect(calls[0]).toContain("key=pagespeed_key");
+  });
+
+  it("wraps Bing Webmaster API key calls behind the connector boundary", async () => {
+    const calls: string[] = [];
+    const adapter = createLiveBingConnectorAdapter({
+      apiKey: "bing_key",
+      fetch: (async (url) => {
+        calls.push(String(url));
+
+        return new Response(
+          JSON.stringify({
+            d: {
+              Clicks: 4,
+              Impressions: 40,
+              IsIndexed: true,
+              LastCrawled: "2026-05-26T00:00:00Z"
+            }
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch,
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+
+    expect(result.records[0]).toMatchObject({
+      clicks: 4,
+      impressions: 40,
+      indexed: true,
+      lastCrawledAt: "2026-05-26T00:00:00.000Z",
+      provider: "bing",
+      siteUrl: "https://searchops-ai-web.vercel.app/"
+    });
+    expect(calls[0]).toContain("ssl.bing.com/webmaster/api.svc/json/GetUrlInfo");
+    expect(calls[0]).toContain("apikey=bing_key");
+  });
+
+  it("syncs live connectors with OAuth and API key credentials", async () => {
+    const result = await syncLiveConnectors({
+      bingApiKey: "bing_key",
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async (url) => {
+        const value = String(url);
+
+        if (value.includes("searchAnalytics")) {
+          return new Response(
+            JSON.stringify({
+              rows: [
+                {
+                  keys: [
+                    "searchops ai",
+                    "https://searchops-ai-web.vercel.app/",
+                    "kor",
+                    "desktop"
+                  ],
+                  clicks: 1,
+                  impressions: 10,
+                  ctr: 0.1,
+                  position: 1.5
+                }
+              ]
+            }),
+            { status: 200 }
+          );
+        }
+
+        if (value.includes("analyticsdata.googleapis.com")) {
+          return new Response(
+            JSON.stringify({
+              rows: [
+                {
+                  dimensionValues: [{ value: "/" }],
+                  metricValues: [
+                    { value: "3" },
+                    { value: "2" },
+                    { value: "1" },
+                    { value: "3" }
+                  ]
+                }
+              ]
+            }),
+            { status: 200 }
+          );
+        }
+
+        if (value.includes("pagespeedonline")) {
+          return new Response(
+            JSON.stringify({
+              lighthouseResult: {
+                categories: {
+                  accessibility: { score: 1 },
+                  performance: { score: 1 },
+                  seo: { score: 1 }
+                },
+                audits: {
+                  "cumulative-layout-shift": { numericValue: 0 },
+                  "interaction-to-next-paint": { numericValue: 100 },
+                  "largest-contentful-paint": { numericValue: 1200 }
+                }
+              }
+            }),
+            { status: 200 }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            d: {
+              IsIndexed: true
+            }
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch,
+      ga4PropertyId: "123456789",
+      googleOAuthCredentials: [
+        { accessToken: "gsc_token", provider: "gsc", status: "connected" },
+        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
+      ],
+      pagespeedApiKey: "pagespeed_key",
+      providers: ["gsc", "ga4", "pagespeed", "bing"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(result.results.map((item) => item.provider)).toEqual([
+      "gsc",
+      "ga4",
+      "pagespeed",
+      "bing"
+    ]);
+    expect(result.summary).toMatchObject({
+      failedProviders: 0,
+      okProviders: 4,
+      totalProviders: 4,
+      totalRecords: 4
+    });
+  });
+
+  it("marks missing live connector credentials as failed without throwing", async () => {
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      providers: ["gsc", "ga4", "pagespeed", "bing"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(result.results.map((item) => [item.provider, item.status])).toEqual([
+      ["gsc", "failed"],
+      ["ga4", "failed"],
+      ["pagespeed", "failed"],
+      ["bing", "failed"]
+    ]);
+    expect(result.summary).toMatchObject({
+      failedProviders: 4,
+      totalProviders: 4,
+      totalRecords: 0
     });
   });
 

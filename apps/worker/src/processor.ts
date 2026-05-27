@@ -1,5 +1,6 @@
 import {
   monitorFixtureGeoAnswersBatch,
+  syncLiveConnectors,
   syncFixtureConnectors,
   type ConnectorBatchSyncRequest,
   type ConnectorBatchSyncResult,
@@ -13,6 +14,7 @@ import { evaluateGeoVisibility } from "@searchops/geo-core";
 import {
   persistGeoAnswerMonitorJobResult,
   persistSchemaRichResultValidationJobResult,
+  listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
   persistConnectorSyncJobResult,
@@ -25,6 +27,7 @@ import {
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 import {
+  LiveExternalApiModeSchema,
   ConnectorSyncJobPayloadSchema,
   ConnectorSyncJobResultSchema,
   CrawlJobPayloadSchema,
@@ -51,6 +54,11 @@ export interface ProcessAndPersistCrawlJobOptions {
 }
 
 export interface ProcessConnectorSyncJobOptions {
+  readonly bingApiKey?: string | undefined;
+  readonly fetch?: typeof fetch | undefined;
+  readonly ga4PropertyId?: string | undefined;
+  readonly liveExternalApis?: "disabled" | "enabled";
+  readonly pagespeedApiKey?: string | undefined;
   readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
 }
 
@@ -118,7 +126,13 @@ export async function processAndPersistConnectorSyncJob(
 ): Promise<ConnectorSyncJobResult> {
   const payload = ConnectorSyncJobPayloadSchema.parse(input);
   try {
-    const result = await processConnectorSyncJob(payload, options);
+    const syncConnectors =
+      options.syncConnectors ??
+      (await createRuntimeConnectorSync(payload, persistenceClient, options));
+    const result = await processConnectorSyncJob(payload, {
+      ...options,
+      syncConnectors
+    });
     await persistConnectorSyncJobResult(persistenceClient, result);
     return result;
   } catch (error) {
@@ -128,6 +142,42 @@ export async function processAndPersistConnectorSyncJob(
     });
     throw error;
   }
+}
+
+async function createRuntimeConnectorSync(
+  payload: ConnectorSyncJobPayload,
+  persistenceClient: ConnectorSyncPersistenceClient,
+  options: ProcessConnectorSyncJobOptions,
+) {
+  const liveExternalApis = LiveExternalApiModeSchema.parse(
+    options.liveExternalApis ?? "disabled",
+  );
+
+  if (liveExternalApis === "disabled") {
+    return syncFixtureConnectors;
+  }
+
+  const credentials = await listConnectorOAuthCredentialsForSync(
+    persistenceClient,
+    payload.siteId,
+  );
+
+  return (request: ConnectorBatchSyncRequest) =>
+    syncLiveConnectors({
+      bingApiKey: options.bingApiKey,
+      fetchedAt: request.fetchedAt,
+      fetch: options.fetch,
+      ga4PropertyId: options.ga4PropertyId,
+      googleOAuthCredentials: credentials.map((credential) => ({
+        accessToken: credential.accessToken,
+        provider: credential.provider,
+        status: credential.status,
+        tokenExpiresAt: credential.tokenExpiresAt?.toISOString() ?? null
+      })),
+      pagespeedApiKey: options.pagespeedApiKey,
+      providers: request.providers,
+      siteDomain: payload.siteDomain
+    });
 }
 
 export async function processGeoAnswerMonitorJob(
