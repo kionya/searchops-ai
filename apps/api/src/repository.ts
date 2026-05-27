@@ -40,6 +40,11 @@ export interface CreateConnectorSyncRunInput {
   requestedByUserId: string;
 }
 
+export interface MarkConnectorSyncRunFailedInput {
+  readonly message: string;
+  readonly name?: string;
+}
+
 export interface UpsertConnectorOAuthCredentialInput {
   readonly accessToken: string;
   readonly connectedAt: string;
@@ -159,6 +164,10 @@ export interface SearchOpsRepository {
   createConnectorSyncRun(
     siteId: string,
     input: CreateConnectorSyncRunInput,
+  ): Promise<ConnectorSyncRun | null>;
+  markConnectorSyncRunFailed(
+    id: string,
+    input: MarkConnectorSyncRunFailedInput,
   ): Promise<ConnectorSyncRun | null>;
   listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
   getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
@@ -527,6 +536,27 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       return [...connectorSyncRuns.values()]
         .filter((connectorSyncRun) => connectorSyncRun.siteId === siteId)
         .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    },
+
+    async markConnectorSyncRunFailed(id, input) {
+      const connectorSyncRun = connectorSyncRuns.get(id);
+      if (!connectorSyncRun) {
+        return null;
+      }
+
+      const failedRun: ConnectorSyncRun = {
+        ...connectorSyncRun,
+        status: "failed",
+        endedAt: nowIso(),
+        summary: {
+          error: {
+            message: input.message,
+            name: input.name ?? "Error"
+          }
+        }
+      };
+      connectorSyncRuns.set(id, failedRun);
+      return failedRun;
     },
 
     async getConnectorSyncRun(id) {

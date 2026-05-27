@@ -27,6 +27,7 @@ import {
   createMemoryGeoAnswerMonitorQueue,
   createMemorySchemaRichResultValidationQueue,
 } from "./queue.js";
+import type { ConnectorSyncQueue } from "./queue.js";
 import { createMemoryDeadLetterJobStore } from "./dead-letter-store.js";
 import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
@@ -1805,6 +1806,54 @@ describe("api foundation", () => {
       "pagespeed",
       "cms",
     ]);
+  });
+
+  it("marks connector sync runs failed when queue enqueue fails", async () => {
+    const connectorSyncQueue: ConnectorSyncQueue = {
+      async enqueueConnectorSync() {
+        throw new Error("redis enqueue unavailable");
+      },
+    };
+    const repository = createMemoryRepository({
+      organizations: [seededOrganization],
+      sites: [seededSite],
+    });
+    const server = buildApiServer({
+      connectorSyncQueue,
+      repository,
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/connector-sync-runs",
+      payload: {
+        providers: ["pagespeed"],
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "queue_enqueue_failed",
+      connectorSyncRun: {
+        id: "sync_0001",
+        status: "failed",
+        summary: {
+          error: {
+            message: "redis enqueue unavailable",
+            name: "Error",
+          },
+        },
+      },
+    });
+    await expect(repository.getConnectorSyncRun("sync_0001")).resolves.toMatchObject({
+      connectorSyncRun: {
+        status: "failed",
+        summary: {
+          error: {
+            message: "redis enqueue unavailable",
+          },
+        },
+      },
+    });
   });
 
   it("validates connector sync provider lists", async () => {

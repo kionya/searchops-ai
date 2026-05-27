@@ -290,6 +290,32 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return connectorSyncRuns.map(toConnectorSyncRun);
     },
 
+    async markConnectorSyncRunFailed(id, input) {
+      const connectorSyncRun = await prisma.connectorSyncRun.findUnique({
+        select: { id: true },
+        where: { id }
+      });
+      if (connectorSyncRun === null) {
+        return null;
+      }
+
+      return toConnectorSyncRun(
+        await prisma.connectorSyncRun.update({
+          data: {
+            endedAt: new Date(),
+            status: "failed",
+            summary: toJson({
+              error: {
+                message: input.message,
+                name: input.name ?? "Error"
+              }
+            })
+          },
+          where: { id }
+        }),
+      );
+    },
+
     async getConnectorSyncRun(id) {
       const connectorSyncRun = await prisma.connectorSyncRun.findUnique({
         where: { id }

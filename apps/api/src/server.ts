@@ -209,6 +209,14 @@ function forbidden(message: string) {
   return { error: "forbidden", message };
 }
 
+function serializeErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function serializeErrorName(error: unknown) {
+  return error instanceof Error ? error.name : "Error";
+}
+
 function getRateLimitKey(request: FastifyRequest) {
   const forwardedFor = request.headers["x-forwarded-for"];
   const firstForwardedFor = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
@@ -1483,15 +1491,31 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const job = await connectorSyncQueue.enqueueConnectorSync({
-      connectorSyncRunId: connectorSyncRun.id,
-      organizationId: site.organizationId,
-      siteId: site.id,
-      siteDomain: site.domain,
-      requestedByUserId: userContext.userId,
-      fetchedAt: new Date().toISOString(),
-      providers: input.providers,
-    });
+    let job;
+    try {
+      job = await connectorSyncQueue.enqueueConnectorSync({
+        connectorSyncRunId: connectorSyncRun.id,
+        organizationId: site.organizationId,
+        siteId: site.id,
+        siteDomain: site.domain,
+        requestedByUserId: userContext.userId,
+        fetchedAt: new Date().toISOString(),
+        providers: input.providers,
+      });
+    } catch (error) {
+      const message = serializeErrorMessage(error);
+      const failedRun = await repository.markConnectorSyncRunFailed(connectorSyncRun.id, {
+        message,
+        name: serializeErrorName(error)
+      });
+      request.log.error({ error, connectorSyncRunId: connectorSyncRun.id }, "Connector sync enqueue failed");
+      reply.status(502).send({
+        error: "queue_enqueue_failed",
+        message: `Connector sync queue enqueue failed: ${message}`,
+        connectorSyncRun: failedRun ?? connectorSyncRun
+      });
+      return;
+    }
 
     reply.status(202).send(CreateConnectorSyncRunResponseSchema.parse({ connectorSyncRun, job }));
   });
