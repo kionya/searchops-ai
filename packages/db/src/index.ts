@@ -28,6 +28,8 @@ export {
   listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   persistConnectorSyncJobResult,
+  updateConnectorOAuthCredentialForSync,
+  type ConnectorOAuthCredentialUpdateArgs,
   type ConnectorOAuthCredentialFindManyArgs,
   type ConnectorOAuthCredentialForSync,
   type ConnectorSyncPersistenceClient,

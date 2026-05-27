@@ -1063,7 +1063,7 @@ export async function syncLiveConnectors({
           return createFailedConnectorRunResult(provider, fetchedAt);
         }
 
-        return adapter.sync({ fetchedAt });
+        return await adapter.sync({ fetchedAt });
       } catch {
         return createFailedConnectorRunResult(provider, fetchedAt);
       }

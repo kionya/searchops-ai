@@ -562,16 +562,30 @@ describe("processCrawlJob", () => {
             {
               accessToken: "gsc_token",
               provider: "gsc",
+              refreshToken: null,
               status: "connected",
-              tokenExpiresAt: null
+              tokenExpiresAt: null,
+              tokenType: "Bearer"
             },
             {
               accessToken: "ga4_token",
               provider: "ga4",
+              refreshToken: null,
               status: "connected",
-              tokenExpiresAt: null
+              tokenExpiresAt: null,
+              tokenType: "Bearer"
             }
           ];
+        },
+        async update(args) {
+          return {
+            accessToken: args.data.accessToken,
+            provider: args.where.siteId_provider.provider,
+            refreshToken: null,
+            status: "connected",
+            tokenExpiresAt: args.data.tokenExpiresAt,
+            tokenType: args.data.tokenType ?? "Bearer"
+          };
         }
       },
       connectorSyncRun: {
@@ -687,6 +701,220 @@ describe("processCrawlJob", () => {
         status: "completed"
       },
       where: { id: "sync_live" }
+    });
+  });
+
+  it("refreshes expired Google OAuth credentials before live connector sync", async () => {
+    const credentialUpdates: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorOAuthCredential: {
+        async findMany() {
+          return [
+            {
+              accessToken: "expired_gsc_token",
+              provider: "gsc",
+              refreshToken: "gsc_refresh",
+              status: "connected",
+              tokenExpiresAt: new Date("2026-05-27T10:00:00.000Z"),
+              tokenType: "Bearer"
+            }
+          ];
+        },
+        async update(args) {
+          credentialUpdates.push(args);
+          return {
+            accessToken: args.data.accessToken,
+            provider: args.where.siteId_provider.provider,
+            refreshToken: "gsc_refresh",
+            status: "connected",
+            tokenExpiresAt: args.data.tokenExpiresAt,
+            tokenType: args.data.tokenType ?? "Bearer"
+          };
+        }
+      },
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          return args;
+        }
+      }
+    };
+    const calls: string[] = [];
+
+    const result = await processAndPersistConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_refresh",
+        organizationId: "org_live",
+        siteId: "site_live",
+        siteDomain: "searchops-ai-web.vercel.app",
+        requestedByUserId: "user_live",
+        fetchedAt: "2026-05-27T12:10:00.000Z",
+        providers: ["gsc"]
+      },
+      persistenceClient,
+      {
+        fetch: (async (url, init) => {
+          calls.push(String(url));
+
+          if (String(url).includes("oauth2.googleapis.com")) {
+            expect(String(init?.body)).toContain("refresh_token=gsc_refresh");
+            return new Response(
+              JSON.stringify({
+                access_token: "fresh_gsc_token",
+                expires_in: 3600,
+                token_type: "Bearer"
+              }),
+              { status: 200 }
+            );
+          }
+
+          expect((init?.headers as Record<string, string>).authorization).toBe(
+            "Bearer fresh_gsc_token",
+          );
+          return new Response(
+            JSON.stringify({
+              rows: [
+                {
+                  keys: [
+                    "searchops ai",
+                    "https://searchops-ai-web.vercel.app/",
+                    "kor",
+                    "desktop"
+                  ],
+                  clicks: 1,
+                  impressions: 10,
+                  ctr: 0.1,
+                  position: 2
+                }
+              ]
+            }),
+            { status: 200 }
+          );
+        }) as typeof fetch,
+        googleOAuthClientId: "client_id",
+        googleOAuthClientSecret: "client_secret",
+        liveExternalApis: "enabled",
+        now: () => new Date("2026-05-27T12:10:00.000Z")
+      },
+    );
+
+    expect(calls).toEqual([
+      "https://oauth2.googleapis.com/token",
+      "https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fsearchops-ai-web.vercel.app%2F/searchAnalytics/query"
+    ]);
+    expect(credentialUpdates[0]).toMatchObject({
+      data: {
+        accessToken: "fresh_gsc_token",
+        tokenExpiresAt: new Date("2026-05-27T13:10:00.000Z"),
+        tokenType: "Bearer"
+      },
+      where: {
+        siteId_provider: {
+          provider: "gsc",
+          siteId: "site_live"
+        }
+      }
+    });
+    expect(result.results[0]).toMatchObject({
+      fixture: false,
+      provider: "gsc",
+      status: "ok"
+    });
+  });
+
+  it("scopes Google OAuth refresh failures to provider results", async () => {
+    const runUpdates: unknown[] = [];
+    const resultUpserts: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorOAuthCredential: {
+        async findMany() {
+          return [
+            {
+              accessToken: "expired_gsc_token",
+              provider: "gsc",
+              refreshToken: "revoked_refresh",
+              status: "connected",
+              tokenExpiresAt: new Date("2026-05-27T10:00:00.000Z"),
+              tokenType: "Bearer"
+            }
+          ];
+        },
+        async update(args) {
+          return {
+            accessToken: args.data.accessToken,
+            provider: args.where.siteId_provider.provider,
+            refreshToken: "revoked_refresh",
+            status: "connected",
+            tokenExpiresAt: args.data.tokenExpiresAt,
+            tokenType: args.data.tokenType ?? "Bearer"
+          };
+        }
+      },
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          runUpdates.push(args);
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          resultUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    const result = await processAndPersistConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_refresh_failed",
+        organizationId: "org_live",
+        siteId: "site_live",
+        siteDomain: "searchops-ai-web.vercel.app",
+        requestedByUserId: "user_live",
+        fetchedAt: "2026-05-27T12:10:00.000Z",
+        providers: ["gsc", "cms"]
+      },
+      persistenceClient,
+      {
+        fetch: (async (url) => {
+          if (String(url).includes("oauth2.googleapis.com")) {
+            return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+          }
+
+          return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
+        }) as typeof fetch,
+        googleOAuthClientId: "client_id",
+        googleOAuthClientSecret: "client_secret",
+        liveExternalApis: "enabled",
+        now: () => new Date("2026-05-27T12:10:00.000Z")
+      },
+    );
+
+    expect(result.results.map((item) => [item.provider, item.status])).toEqual([
+      ["gsc", "failed"],
+      ["cms", "ok"]
+    ]);
+    expect(result.summary).toMatchObject({
+      failedProviders: 1,
+      okProviders: 1,
+      totalProviders: 2
+    });
+    expect(resultUpserts).toHaveLength(2);
+    expect(runUpdates[0]).toMatchObject({
+      data: {
+        status: "partial"
+      },
+      where: { id: "sync_refresh_failed" }
     });
   });
 

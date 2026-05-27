@@ -20,6 +20,7 @@ import {
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
   persistSchemaRecommendationRecheck,
+  updateConnectorOAuthCredentialForSync,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
@@ -56,8 +57,11 @@ export interface ProcessAndPersistCrawlJobOptions {
 export interface ProcessConnectorSyncJobOptions {
   readonly bingApiKey?: string | undefined;
   readonly fetch?: typeof fetch | undefined;
+  readonly googleOAuthClientId?: string | undefined;
+  readonly googleOAuthClientSecret?: string | undefined;
   readonly ga4PropertyId?: string | undefined;
   readonly liveExternalApis?: "disabled" | "enabled";
+  readonly now?: () => Date;
   readonly pagespeedApiKey?: string | undefined;
   readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
 }
@@ -157,9 +161,11 @@ async function createRuntimeConnectorSync(
     return syncFixtureConnectors;
   }
 
-  const credentials = await listConnectorOAuthCredentialsForSync(
-    persistenceClient,
+  const credentials = await refreshExpiredGoogleCredentials(
+    await listConnectorOAuthCredentialsForSync(persistenceClient, payload.siteId),
     payload.siteId,
+    persistenceClient,
+    options,
   );
 
   return (request: ConnectorBatchSyncRequest) =>
@@ -178,6 +184,109 @@ async function createRuntimeConnectorSync(
       providers: request.providers,
       siteDomain: payload.siteDomain
     });
+}
+
+async function refreshExpiredGoogleCredentials(
+  credentials: Awaited<ReturnType<typeof listConnectorOAuthCredentialsForSync>>,
+  siteId: string,
+  persistenceClient: ConnectorSyncPersistenceClient,
+  options: ProcessConnectorSyncJobOptions,
+) {
+  const now = options.now?.() ?? new Date();
+
+  return Promise.all(
+    credentials.map(async (credential) => {
+      if (!shouldRefreshGoogleCredential(credential.tokenExpiresAt, now)) {
+        return credential;
+      }
+
+      if (
+        !credential.refreshToken ||
+        !options.googleOAuthClientId ||
+        !options.googleOAuthClientSecret
+      ) {
+        return credential;
+      }
+
+      try {
+        const refreshed = await refreshGoogleAccessToken({
+          clientId: options.googleOAuthClientId,
+          clientSecret: options.googleOAuthClientSecret,
+          fetch: options.fetch,
+          now,
+          refreshToken: credential.refreshToken
+        });
+        const updated = await updateConnectorOAuthCredentialForSync(persistenceClient, {
+          accessToken: refreshed.accessToken,
+          provider: credential.provider,
+          siteId,
+          tokenExpiresAt: refreshed.expiresAt,
+          tokenType: refreshed.tokenType
+        });
+
+        return updated ?? {
+          ...credential,
+          accessToken: refreshed.accessToken,
+          tokenExpiresAt: refreshed.expiresAt,
+          tokenType: refreshed.tokenType
+        };
+      } catch {
+        return credential;
+      }
+    }),
+  );
+}
+
+function shouldRefreshGoogleCredential(tokenExpiresAt: Date | null, now: Date) {
+  if (tokenExpiresAt === null) {
+    return false;
+  }
+
+  return tokenExpiresAt.getTime() <= now.getTime() + 120_000;
+}
+
+async function refreshGoogleAccessToken(input: {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly fetch?: typeof fetch | undefined;
+  readonly now: Date;
+  readonly refreshToken: string;
+}) {
+  const fetchImpl = input.fetch ?? fetch;
+  const body = new URLSearchParams({
+    client_id: input.clientId,
+    client_secret: input.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken
+  });
+  const response = await fetchImpl("https://oauth2.googleapis.com/token", {
+    body,
+    headers: {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google OAuth token refresh failed with status ${response.status}`);
+  }
+
+  const json = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  };
+  if (!json.access_token) {
+    throw new Error("Google OAuth token refresh did not return an access token");
+  }
+
+  const expiresInSeconds = typeof json.expires_in === "number" ? json.expires_in : 3600;
+
+  return {
+    accessToken: json.access_token,
+    expiresAt: new Date(input.now.getTime() + expiresInSeconds * 1000),
+    tokenType: json.token_type ?? "Bearer"
+  };
 }
 
 export async function processGeoAnswerMonitorJob(

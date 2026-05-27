@@ -63,8 +63,10 @@ export interface ConnectorSyncResultUpsertArgs {
 export interface ConnectorOAuthCredentialForSync {
   readonly accessToken: string;
   readonly provider: ConnectorOAuthProvider;
+  readonly refreshToken: string | null;
   readonly status: "connected" | "expired" | "revoked";
   readonly tokenExpiresAt: Date | null;
+  readonly tokenType: string | null;
 }
 
 export interface ConnectorOAuthCredentialFindManyArgs {
@@ -77,9 +79,24 @@ export interface ConnectorOAuthCredentialFindManyArgs {
   };
 }
 
+export interface ConnectorOAuthCredentialUpdateArgs {
+  data: {
+    accessToken: string;
+    tokenExpiresAt: Date | null;
+    tokenType?: string | null;
+  };
+  where: {
+    siteId_provider: {
+      provider: ConnectorOAuthProvider;
+      siteId: string;
+    };
+  };
+}
+
 export interface ConnectorSyncPersistenceClient {
   connectorOAuthCredential?: {
     findMany(args: ConnectorOAuthCredentialFindManyArgs): Promise<ConnectorOAuthCredentialForSync[]>;
+    update(args: ConnectorOAuthCredentialUpdateArgs): Promise<ConnectorOAuthCredentialForSync>;
   };
   connectorSyncRun: {
     create(args: ConnectorSyncRunCreateArgs): Promise<unknown>;
@@ -126,17 +143,48 @@ export function createPrismaConnectorSyncPersistenceClient(
           select: {
             accessToken: true,
             provider: true,
+            refreshToken: true,
             status: true,
-            tokenExpiresAt: true
+            tokenExpiresAt: true,
+            tokenType: true
           }
         });
 
         return rows.map((row) => ({
           accessToken: row.accessToken,
           provider: row.provider as ConnectorOAuthProvider,
+          refreshToken: row.refreshToken,
           status: row.status as ConnectorOAuthCredentialForSync["status"],
-          tokenExpiresAt: row.tokenExpiresAt
+          tokenExpiresAt: row.tokenExpiresAt,
+          tokenType: row.tokenType
         }));
+      },
+      async update(args) {
+        const row = await prisma.connectorOAuthCredential.update({
+          data: {
+            accessToken: args.data.accessToken,
+            tokenExpiresAt: args.data.tokenExpiresAt,
+            ...(args.data.tokenType === undefined ? {} : { tokenType: args.data.tokenType })
+          },
+          select: {
+            accessToken: true,
+            provider: true,
+            refreshToken: true,
+            status: true,
+            tokenExpiresAt: true,
+            tokenType: true
+          },
+          where: args.where
+        });
+
+        return {
+          accessToken: row.accessToken,
+          provider: row.provider as ConnectorOAuthProvider,
+          refreshToken: row.refreshToken,
+          status: row.status as ConnectorOAuthCredentialForSync["status"],
+          tokenExpiresAt: row.tokenExpiresAt,
+          tokenType: row.tokenType
+        };
       }
     },
     connectorSyncRun: {
@@ -194,6 +242,35 @@ export async function listConnectorOAuthCredentialsForSync(
       },
       siteId,
       status: "connected"
+    }
+  });
+}
+
+export async function updateConnectorOAuthCredentialForSync(
+  client: ConnectorSyncPersistenceClient,
+  input: {
+    accessToken: string;
+    provider: ConnectorOAuthProvider;
+    siteId: string;
+    tokenExpiresAt: Date | null;
+    tokenType?: string | null;
+  },
+): Promise<ConnectorOAuthCredentialForSync | null> {
+  if (client.connectorOAuthCredential === undefined) {
+    return null;
+  }
+
+  return client.connectorOAuthCredential.update({
+    data: {
+      accessToken: input.accessToken,
+      tokenExpiresAt: input.tokenExpiresAt,
+      ...(input.tokenType === undefined ? {} : { tokenType: input.tokenType })
+    },
+    where: {
+      siteId_provider: {
+        provider: input.provider,
+        siteId: input.siteId
+      }
     }
   });
 }

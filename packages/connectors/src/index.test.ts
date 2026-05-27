@@ -831,6 +831,33 @@ describe("connectors foundation", () => {
     });
   });
 
+  it("keeps a live provider API failure scoped to that provider result", async () => {
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () => new Response("unauthorized", { status: 401 })) as typeof fetch,
+      googleOAuthCredentials: [
+        { accessToken: "expired_gsc_token", provider: "gsc", status: "connected" }
+      ],
+      providers: ["gsc"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(result.results).toEqual([
+      {
+        fetchedAt: "2026-05-27T00:00:00.000Z",
+        fixture: false,
+        provider: "gsc",
+        records: [],
+        status: "failed"
+      }
+    ]);
+    expect(result.summary).toMatchObject({
+      failedProviders: 1,
+      totalProviders: 1,
+      totalRecords: 0
+    });
+  });
+
   it("discovers keyword targets from connector run results deterministically", async () => {
     const batch = await syncFixtureConnectors({
       fetchedAt: "2026-05-25T00:00:00.000Z",

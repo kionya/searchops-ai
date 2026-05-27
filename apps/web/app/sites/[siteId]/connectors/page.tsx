@@ -268,7 +268,15 @@ function ResultStatusPill({
 }
 
 function formatDateTime(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
+  if (isoDate === null) {
+    return "대기 중";
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Asia/Seoul"
+  }).format(new Date(isoDate));
 }
 
 const triggerPanelStyle = {

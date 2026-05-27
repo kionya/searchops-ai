@@ -4,8 +4,10 @@ import {
   buildConnectorSyncResultUpsertArgs,
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
+  listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   persistConnectorSyncJobResult,
+  updateConnectorOAuthCredentialForSync,
   type ConnectorSyncPersistenceClient
 } from "./connector-sync.js";
 
@@ -214,14 +216,97 @@ describe("connector sync persistence helpers", () => {
       }
     });
   });
+
+  it("lists and updates OAuth credentials for live connector sync", async () => {
+    const updates: unknown[] = [];
+    const client = createMockClient({
+      findCredentials(args) {
+        expect(args).toEqual({
+          where: {
+            provider: {
+              in: ["gsc", "ga4"]
+            },
+            siteId: "site_1",
+            status: "connected"
+          }
+        });
+      },
+      updateCredential(args) {
+        updates.push(args);
+      }
+    });
+
+    await expect(listConnectorOAuthCredentialsForSync(client, "site_1")).resolves.toEqual([
+      {
+        accessToken: "access",
+        provider: "gsc",
+        refreshToken: "refresh",
+        status: "connected",
+        tokenExpiresAt: new Date("2026-05-27T11:00:00.000Z"),
+        tokenType: "Bearer"
+      }
+    ]);
+    await expect(
+      updateConnectorOAuthCredentialForSync(client, {
+        accessToken: "fresh",
+        provider: "gsc",
+        siteId: "site_1",
+        tokenExpiresAt: new Date("2026-05-27T12:00:00.000Z"),
+        tokenType: "Bearer"
+      }),
+    ).resolves.toMatchObject({
+      accessToken: "fresh",
+      provider: "gsc"
+    });
+    expect(updates[0]).toMatchObject({
+      data: {
+        accessToken: "fresh",
+        tokenExpiresAt: new Date("2026-05-27T12:00:00.000Z")
+      },
+      where: {
+        siteId_provider: {
+          provider: "gsc",
+          siteId: "site_1"
+        }
+      }
+    });
+  });
 });
 
 function createMockClient(overrides: {
   createRun?: (args: unknown) => void;
+  findCredentials?: (args: unknown) => void;
   updateRun?: (args: unknown) => void;
+  updateCredential?: (args: unknown) => void;
   upsertResult?: (args: unknown) => void;
 }): ConnectorSyncPersistenceClient {
   return {
+    connectorOAuthCredential: {
+      async findMany(args) {
+        overrides.findCredentials?.(args);
+        return [
+          {
+            accessToken: "access",
+            provider: "gsc",
+            refreshToken: "refresh",
+            status: "connected",
+            tokenExpiresAt: new Date("2026-05-27T11:00:00.000Z"),
+            tokenType: "Bearer"
+          }
+        ];
+      },
+      async update(args) {
+        overrides.updateCredential?.(args);
+        return {
+          accessToken: args.data.accessToken,
+          provider: args.where.siteId_provider.provider,
+          refreshToken: "refresh",
+          status: "connected",
+          tokenExpiresAt: args.data.tokenExpiresAt,
+          tokenType: args.data.tokenType ?? "Bearer"
+        };
+      }
+    },
     connectorSyncRun: {
       async create(args) {
         overrides.createRun?.(args);

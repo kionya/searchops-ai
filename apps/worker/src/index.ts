@@ -15,6 +15,8 @@ const connectorSyncRuntime = createConnectorSyncWorker({
   processorOptions: {
     bingApiKey: env.SEARCHOPS_BING_API_KEY,
     ga4PropertyId: env.SEARCHOPS_GA4_PROPERTY_ID,
+    googleOAuthClientId: env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID,
+    googleOAuthClientSecret: env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET,
     liveExternalApis: shouldEnableConnectorLiveApis(env) ? "enabled" : "disabled",
     pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY
   }
