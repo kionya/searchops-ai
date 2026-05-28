@@ -880,7 +880,10 @@ describe("connectors foundation", () => {
   it("keeps a live provider API failure scoped to that provider result", async () => {
     const result = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
-      fetch: (async () => new Response("unauthorized", { status: 401 })) as typeof fetch,
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { message: "Permission denied for property." } }), {
+          status: 401
+        })) as typeof fetch,
       googleOAuthCredentials: [
         { accessToken: "expired_gsc_token", provider: "gsc", status: "connected" }
       ],
@@ -896,7 +899,8 @@ describe("connectors foundation", () => {
         records: [],
         status: "failed",
         error: {
-          message: "Google Search Console request failed with status 401",
+          message:
+            "Google Search Console request failed with status 401: Permission denied for property.",
           name: "Error"
         }
       }
@@ -905,7 +909,8 @@ describe("connectors foundation", () => {
       failedProviders: 1,
       providerErrors: {
         gsc: {
-          message: "Google Search Console request failed with status 401"
+          message:
+            "Google Search Console request failed with status 401: Permission denied for property."
         }
       },
       totalProviders: 1,

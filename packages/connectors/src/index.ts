@@ -692,7 +692,7 @@ export function createLiveGscConnectorAdapter({
         })
       });
 
-      assertFetchOk(response, "Google Search Console");
+      await assertFetchOk(response, "Google Search Console");
       const json = (await response.json()) as GscSearchAnalyticsApiResponse;
       const records = normalizeGscSearchAnalytics({
         siteUrl,
@@ -755,7 +755,7 @@ export function createLiveGa4ConnectorAdapter({
         },
       );
 
-      assertFetchOk(response, "Google Analytics Data API");
+      await assertFetchOk(response, "Google Analytics Data API");
       const json = (await response.json()) as Ga4RunReportApiResponse;
       const records = normalizeGa4Report({
         propertyId: normalizedPropertyId,
@@ -804,7 +804,7 @@ export function createLivePageSpeedConnectorAdapter({
       url.searchParams.append("category", "seo");
 
       const response = await fetchImpl(url);
-      assertFetchOk(response, "PageSpeed Insights");
+      await assertFetchOk(response, "PageSpeed Insights");
       const json = (await response.json()) as PageSpeedFixture;
       const records = normalizePageSpeed({
         ...json,
@@ -845,7 +845,7 @@ export function createLiveBingConnectorAdapter({
           endpoint.searchParams.set("url", urlToInspect);
 
           const response = await fetchImpl(endpoint);
-          assertFetchOk(response, "Bing Webmaster");
+          await assertFetchOk(response, "Bing Webmaster");
           const json = (await response.json()) as BingUrlInfoApiResponse;
           const info = unwrapBingUrlInfo(json);
 
@@ -1374,10 +1374,69 @@ function toGscKeys(keys: readonly string[] | undefined): [string, string, string
   ];
 }
 
-function assertFetchOk(response: Response, serviceName: string) {
+async function assertFetchOk(response: Response, serviceName: string) {
   if (!response.ok) {
-    throw new Error(`${serviceName} request failed with status ${response.status}`);
+    const detail = await readConnectorErrorDetail(response);
+    const suffix = detail ? `: ${detail}` : "";
+    throw new Error(`${serviceName} request failed with status ${response.status}${suffix}`);
   }
+}
+
+async function readConnectorErrorDetail(response: Response) {
+  try {
+    const raw = (await response.text()).trim();
+    if (raw.length === 0) {
+      return "";
+    }
+
+    return summarizeConnectorErrorBody(raw);
+  } catch {
+    return "";
+  }
+}
+
+function summarizeConnectorErrorBody(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const message = readJsonErrorMessage(parsed);
+    if (message) {
+      return truncateConnectorErrorDetail(message);
+    }
+  } catch {
+    // Use the raw response text below when the provider does not return JSON.
+  }
+
+  return truncateConnectorErrorDetail(raw.replace(/\s+/g, " "));
+}
+
+function readJsonErrorMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const error = record.error;
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    if (typeof errorRecord.message === "string") {
+      return errorRecord.message;
+    }
+  }
+
+  if (typeof record.message === "string") {
+    return record.message;
+  }
+
+  return null;
+}
+
+function truncateConnectorErrorDetail(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
 }
 
 function unwrapBingUrlInfo(response: BingUrlInfoApiResponse): Record<string, unknown> {
