@@ -11,6 +11,8 @@
     "dev": "turbo run dev --parallel",
     "lint": "corepack pnpm -r lint",
     "lint:turbo": "turbo run lint",
+    "start:api": "node apps/api/dist/index.js",
+    "start:worker": "node apps/worker/dist/index.js",
     "typecheck": "corepack pnpm build && corepack pnpm -r typecheck",
     "typecheck:turbo": "turbo run typecheck",
     "test": "corepack pnpm build && corepack pnpm -r test",
