@@ -6,6 +6,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "corepack pnpm -r build",
+    "build:web:safe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/web-build-timebox.ps1",
     "build:turbo": "turbo run build",
     "dev": "turbo run dev --parallel",
     "lint": "corepack pnpm -r lint",

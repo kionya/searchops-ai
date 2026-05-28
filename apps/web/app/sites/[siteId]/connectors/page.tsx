@@ -32,6 +32,7 @@ import {
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
 import { runConnectorSyncAction } from "./actions";
+import { ConnectorSyncSubmitButton } from "./submit-button";
 
 interface ConnectorsPageProps {
   readonly params: Promise<{
@@ -253,9 +254,7 @@ function ConnectorSyncTriggerPanel({
             </label>
           ))}
         </fieldset>
-        <button style={triggerButtonStyle} type="submit">
-          동기화 실행
-        </button>
+        <ConnectorSyncSubmitButton />
       </form>
     </section>
   );
@@ -354,18 +353,6 @@ const providerOptionStyle = {
   gap: 6,
   minHeight: 34,
   padding: "7px 9px"
-} as const;
-
-const triggerButtonStyle = {
-  background: "#2563eb",
-  border: 0,
-  borderRadius: 8,
-  color: "#ffffff",
-  cursor: "pointer",
-  fontSize: 14,
-  fontWeight: 800,
-  minHeight: 40,
-  padding: "10px 14px"
 } as const;
 
 const triggerFeedbackStyle = {

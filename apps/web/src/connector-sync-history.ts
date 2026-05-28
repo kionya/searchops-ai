@@ -51,6 +51,8 @@ export interface ConnectorSyncTriggerFeedback {
   readonly tone: "info" | "success" | "warning";
 }
 
+const connectorSyncHistoryFetchTimeoutMs = 4_000;
+const connectorSyncDetailFetchLimit = 8;
 const fixtureStartedAt = "2026-05-22T00:00:00.000Z";
 const fixtureEndedAt = "2026-05-22T00:01:00.000Z";
 
@@ -282,19 +284,26 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
   }
 
   try {
-    const listResponse = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connector-sync-runs`, {
-      cache: "no-store"
-    });
+    const listResponse = await fetchWithTimeout(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connector-sync-runs`,
+      {
+        cache: "no-store"
+      },
+    );
     if (!listResponse.ok) {
       throw new Error(`커넥터 동기화 이력 요청 실패: ${listResponse.status}`);
     }
 
     const list = ConnectorSyncRunListResponseSchema.parse(await listResponse.json());
-    const details = await Promise.all(
-      list.connectorSyncRuns.map(async (run) => {
-        const detailResponse = await fetch(`${apiBaseUrl}/connector-sync-runs/${encodeURIComponent(run.id)}`, {
-          cache: "no-store"
-        });
+    const recentRuns = list.connectorSyncRuns.slice(0, connectorSyncDetailFetchLimit);
+    const detailResults = await Promise.allSettled(
+      recentRuns.map(async (run) => {
+        const detailResponse = await fetchWithTimeout(
+          `${apiBaseUrl}/connector-sync-runs/${encodeURIComponent(run.id)}`,
+          {
+            cache: "no-store"
+          },
+        );
         if (!detailResponse.ok) {
           throw new Error(`커넥터 동기화 상세 요청 실패: ${detailResponse.status}`);
         }
@@ -302,9 +311,18 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
         return ConnectorSyncRunDetailResponseSchema.parse(await detailResponse.json());
       }),
     );
+    const details = detailResults
+      .filter((result): result is PromiseFulfilledResult<ReturnType<typeof ConnectorSyncRunDetailResponseSchema.parse>> =>
+        result.status === "fulfilled",
+      )
+      .map((result) => result.value);
+    const failedDetailCount = detailResults.filter((result) => result.status === "rejected").length;
 
     return {
-      errorMessage: null,
+      errorMessage:
+        failedDetailCount > 0
+          ? `일부 커넥터 상세 이력 ${failedDetailCount}개를 불러오지 못했습니다`
+          : null,
       resultsByRunId: groupConnectorSyncResultsByRun(details.flatMap((detail) => detail.results)),
       runs: list.connectorSyncRuns,
       source: "api"
@@ -315,6 +333,20 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
       ...fallback,
       errorMessage: error instanceof Error ? error.message : "커넥터 동기화 이력 요청에 실패했습니다"
     };
+  }
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), connectorSyncHistoryFetchTimeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -336,14 +368,17 @@ export async function triggerConnectorSync(
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connector-sync-runs`, {
-      body: JSON.stringify(input),
-      cache: "no-store",
-      headers: {
-        "content-type": "application/json"
+    const response = await fetchWithTimeout(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connector-sync-runs`,
+      {
+        body: JSON.stringify(input),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
       },
-      method: "POST"
-    });
+    );
     if (!response.ok) {
       throw new Error(`커넥터 동기화 실행 요청 실패: ${response.status}`);
     }
