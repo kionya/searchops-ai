@@ -106,6 +106,38 @@ describe("connectors foundation", () => {
     ]);
   });
 
+  it("normalizes PageSpeed performance-only API responses without crashing", () => {
+    const records = normalizePageSpeed({
+      fetchedAt: "2026-05-28T03:50:53.379Z",
+      lighthouseResult: {
+        audits: {
+          "cumulative-layout-shift": { numericValue: 0 },
+          "largest-contentful-paint": { numericValue: 926.48 }
+        },
+        categories: {
+          performance: { score: 1 }
+        }
+      },
+      strategy: "mobile",
+      url: "https://searchops-ai-web.vercel.app/"
+    });
+
+    expect(records).toEqual([
+      {
+        accessibilityScore: 0,
+        cumulativeLayoutShift: 0,
+        fetchedAt: "2026-05-28T03:50:53.379Z",
+        interactionToNextPaintMs: 0,
+        largestContentfulPaintMs: 926.48,
+        performanceScore: 100,
+        provider: "pagespeed",
+        seoScore: 0,
+        strategy: "mobile",
+        url: "https://searchops-ai-web.vercel.app/"
+      }
+    ]);
+  });
+
   it("normalizes Bing URL inspection fixtures", () => {
     const records = normalizeBingUrlInspection(mockBingUrlInspectionFixture);
 
@@ -672,6 +704,9 @@ describe("connectors foundation", () => {
     });
     expect(calls[0]).toContain("pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed");
     expect(calls[0]).toContain("key=pagespeed_key");
+    expect(calls[0]).toContain("category=performance");
+    expect(calls[0]).toContain("category=accessibility");
+    expect(calls[0]).toContain("category=seo");
   });
 
   it("wraps Bing Webmaster API key calls behind the connector boundary", async () => {

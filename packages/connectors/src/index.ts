@@ -98,14 +98,14 @@ export interface PageSpeedFixture {
   readonly strategy: "desktop" | "mobile";
   readonly lighthouseResult: {
     readonly categories: {
-      readonly accessibility: { readonly score: number };
-      readonly performance: { readonly score: number };
-      readonly seo: { readonly score: number };
+      readonly accessibility?: { readonly score: number | null | undefined };
+      readonly performance?: { readonly score: number | null | undefined };
+      readonly seo?: { readonly score: number | null | undefined };
     };
     readonly audits: {
-      readonly "cumulative-layout-shift": { readonly numericValue: number };
-      readonly "interaction-to-next-paint": { readonly numericValue: number };
-      readonly "largest-contentful-paint": { readonly numericValue: number };
+      readonly "cumulative-layout-shift"?: { readonly numericValue: number | null | undefined };
+      readonly "interaction-to-next-paint"?: { readonly numericValue: number | null | undefined };
+      readonly "largest-contentful-paint"?: { readonly numericValue: number | null | undefined };
     };
   };
 }
@@ -511,12 +511,12 @@ export function normalizePageSpeed(input: PageSpeedFixture): PageSpeedMetric[] {
       provider: "pagespeed",
       url: input.url,
       strategy: input.strategy,
-      performanceScore: toPercentScore(categories.performance.score),
-      accessibilityScore: toPercentScore(categories.accessibility.score),
-      seoScore: toPercentScore(categories.seo.score),
-      largestContentfulPaintMs: audits["largest-contentful-paint"].numericValue,
-      cumulativeLayoutShift: audits["cumulative-layout-shift"].numericValue,
-      interactionToNextPaintMs: audits["interaction-to-next-paint"].numericValue,
+      performanceScore: toPercentScore(readPageSpeedCategoryScore(categories, "performance")),
+      accessibilityScore: toPercentScore(readPageSpeedCategoryScore(categories, "accessibility")),
+      seoScore: toPercentScore(readPageSpeedCategoryScore(categories, "seo")),
+      largestContentfulPaintMs: readPageSpeedAuditNumericValue(audits, "largest-contentful-paint"),
+      cumulativeLayoutShift: readPageSpeedAuditNumericValue(audits, "cumulative-layout-shift"),
+      interactionToNextPaintMs: readPageSpeedAuditNumericValue(audits, "interaction-to-next-paint"),
       fetchedAt: input.fetchedAt
     })
   ];
@@ -799,6 +799,9 @@ export function createLivePageSpeedConnectorAdapter({
       url.searchParams.set("url", siteUrl);
       url.searchParams.set("strategy", strategy);
       url.searchParams.set("key", apiKey);
+      url.searchParams.append("category", "performance");
+      url.searchParams.append("category", "accessibility");
+      url.searchParams.append("category", "seo");
 
       const response = await fetchImpl(url);
       assertFetchOk(response, "PageSpeed Insights");
@@ -1529,6 +1532,22 @@ function parseNumberMetric(value: string) {
   }
 
   return parsed;
+}
+
+function readPageSpeedCategoryScore(
+  categories: PageSpeedFixture["lighthouseResult"]["categories"],
+  category: keyof PageSpeedFixture["lighthouseResult"]["categories"],
+) {
+  const score = categories[category]?.score;
+  return typeof score === "number" && Number.isFinite(score) ? score : 0;
+}
+
+function readPageSpeedAuditNumericValue(
+  audits: PageSpeedFixture["lighthouseResult"]["audits"],
+  auditId: keyof PageSpeedFixture["lighthouseResult"]["audits"],
+) {
+  const value = audits[auditId]?.numericValue;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function toPercentScore(score: number) {
