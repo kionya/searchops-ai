@@ -374,7 +374,11 @@ export function classifyConnectorSyncRunStatus(
     return "failed";
   }
 
-  if (result.summary.failedProviders > 0 || result.summary.partialProviders > 0) {
+  if (
+    result.summary.failedProviders > 0 ||
+    result.summary.partialProviders > 0 ||
+    result.summary.setupRequiredProviders > 0
+  ) {
     return "partial";
   }
 

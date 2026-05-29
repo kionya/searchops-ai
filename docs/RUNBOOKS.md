@@ -132,6 +132,38 @@ If Redis eviction warnings continue:
 3. Keep rate-limit counters and BullMQ queues separate if an edge/provider cache requires volatile eviction policies.
 4. Record the Redis provider, plan, region, and eviction policy in deployment notes.
 
+## 자사 데이터 커넥터 설정 점검
+
+목적:
+- GSC/PageSpeed 정상 동작은 유지하면서 GA4, Bing, CMS 문제를 코드 장애와 설정 문제로 구분한다.
+- 커넥터 화면에서 provider를 하나씩 실행해 어느 연결이 막히는지 바로 확인한다.
+
+공통 확인:
+1. worker 런타임에서 live connector를 켠 상태인지 확인한다. API/worker readiness에서 live provider credential 항목을 함께 본다.
+2. 커넥터 화면에서 `GA4만 실행`, `Bing만 실행`, `CMS만 실행` 버튼으로 provider별 재실행을 먼저 한다.
+3. `setup_required`는 아직 설정이 없다는 뜻이다. 장애로 처리하지 말고 아래 설정을 완료한 뒤 해당 provider만 다시 실행한다.
+4. `failed`는 provider API가 실제로 거절한 상태다. summary의 `providerErrors.<provider>.code`, `operatorMessage`, `nextAction`을 우선 확인한다.
+
+GA4:
+1. Railway worker에 `SEARCHOPS_GA4_PROPERTY_ID`를 설정한다.
+2. 값은 GA4 관리 > 속성 세부정보에 있는 숫자 Property ID다. `G-...` 측정 ID나 `GTM-...` 컨테이너 ID를 넣으면 안 된다.
+3. API 런타임에는 `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`, `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI`, `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET`이 필요하다.
+4. OAuth로 연결한 Google 계정을 GA4 관리 > 속성 액세스 관리에 추가한다. 최소 권한은 뷰어, 운영 분석까지 보려면 분석가 권한을 권장한다.
+5. `ga4_property_id_invalid`가 나오면 `SEARCHOPS_GA4_PROPERTY_ID`가 잘못된 것이다.
+6. `ga4_property_access_denied`가 나오면 Property ID 형식은 통과했지만 OAuth Google 계정이 해당 GA4 속성에 접근하지 못한다. 권한을 추가한 뒤 OAuth를 다시 연결하고 GA4만 재실행한다.
+
+Bing:
+1. Bing Webmaster Tools > API Access에서 API Key를 발급한다.
+2. Railway worker 환경변수 `SEARCHOPS_BING_API_KEY`에 저장하고 worker를 재배포한다.
+3. `bing_api_key_missing`은 환경변수가 비어 있는 상태다.
+4. `bing_invalid_api_key` 또는 `InvalidApiKey`는 코드 문제가 아니라 Bing Webmaster API Key가 틀렸거나 폐기된 상태다. 새 키로 교체한 뒤 Bing만 재실행한다.
+
+CMS:
+1. 현재 live CMS fetch connector는 미구성 상태다. 이 상태는 `failed`가 아니라 `setup_required`로 본다.
+2. CMS 데이터를 자동 반영하려면 `SEARCHOPS_CMS_WEBHOOK_SECRETS`를 provider별 JSON object로 설정하고 CMS webhook을 연결한다.
+3. WordPress, Webflow, generic headless CMS webhook payload는 connector boundary에서 정규화된다.
+4. CMS API에서 직접 live fetch가 필요하면 provider-specific CMS adapter를 추가한 뒤 CMS만 재실행한다.
+
 ## Secret Rotation
 
 Purpose:

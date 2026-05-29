@@ -472,6 +472,7 @@ describe("processCrawlJob", () => {
                 gsc: 0,
                 pagespeed: 0
               },
+              setupRequiredProviders: 0,
               totalProviders: 0,
               totalRecords: 0
             }

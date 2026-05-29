@@ -18,6 +18,7 @@ import {
   createDemoConnectorSyncHistory,
   formatSyncDuration,
   getConnectorSyncProviderErrorMessage,
+  getConnectorSyncResultTone,
   getConnectorSyncRunProviderErrorMessages,
   getConnectorSyncRunTone,
   getConnectorSyncTriggerFeedback,
@@ -1079,10 +1080,12 @@ describe("web foundation", () => {
       okResults: 4,
       partial: 1,
       queued: 0,
+      setupRequiredResults: 0,
       total: 3,
       totalRecords: 5
     });
     expect(getConnectorSyncRunTone("partial")).toBe("partial");
+    expect(getConnectorSyncResultTone("setup_required")).toBe("setup");
     expect(formatSyncDuration("2026-05-22T09:00:00.000Z", "2026-05-22T09:01:18.000Z")).toBe(
       "1m 18s",
     );
@@ -1108,6 +1111,7 @@ describe("web foundation", () => {
           gsc: 0,
           pagespeed: 0
         },
+        setupRequiredProviders: 0,
         totalProviders: 1,
         totalRecords: 0
       }
@@ -1118,6 +1122,37 @@ describe("web foundation", () => {
     expect(getConnectorSyncProviderErrorMessage(runWithProviderErrors, "gsc")).toBe(
       "GSC OAuth credential is missing for this site.",
     );
+    const runWithOperatorGuidance = {
+      ...firstRun,
+      summary: {
+        failedProviders: 1,
+        okProviders: 0,
+        partialProviders: 0,
+        providerErrors: {
+          ga4: {
+            code: "ga4_property_access_denied",
+            message:
+              "Google Analytics Data API request failed with status 403: User does not have sufficient permissions for this property.",
+            nextAction: "GA4 속성 액세스 관리에서 OAuth 계정을 뷰어 이상으로 추가하세요.",
+            operatorMessage:
+              "OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다."
+          }
+        },
+        recordCountsByProvider: {
+          bing: 0,
+          cms: 0,
+          ga4: 0,
+          gsc: 0,
+          pagespeed: 0
+        },
+        setupRequiredProviders: 0,
+        totalProviders: 1,
+        totalRecords: 0
+      }
+    };
+    expect(getConnectorSyncRunProviderErrorMessages(runWithOperatorGuidance)).toEqual([
+      "GA4: OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다. 조치: GA4 속성 액세스 관리에서 OAuth 계정을 뷰어 이상으로 추가하세요."
+    ]);
   });
 
   it("loads connector sync history through the API response contracts", async () => {

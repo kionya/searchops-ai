@@ -15,7 +15,7 @@ import { demoSite } from "./work-order-board";
 export type ConnectorSyncHistorySource = "api" | "fixture";
 export type ConnectorSyncTriggerStatus = "failed" | "fixture" | "queued";
 export type ConnectorSyncRunTone = "complete" | "failed" | "partial" | "queued";
-export type ConnectorSyncResultTone = "failed" | "ok" | "partial";
+export type ConnectorSyncResultTone = "failed" | "ok" | "partial" | "setup";
 
 export const connectorProviderOptions = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
@@ -33,6 +33,7 @@ export interface ConnectorSyncHistorySummary {
   readonly okResults: number;
   readonly partial: number;
   readonly queued: number;
+  readonly setupRequiredResults: number;
   readonly total: number;
   readonly totalRecords: number;
 }
@@ -78,6 +79,7 @@ export const demoConnectorSyncRuns: ConnectorSyncRun[] = [
         gsc: 1,
         pagespeed: 1
       },
+      setupRequiredProviders: 0,
       totalProviders: 3,
       totalRecords: 3
     }
@@ -103,6 +105,7 @@ export const demoConnectorSyncRuns: ConnectorSyncRun[] = [
         gsc: 0,
         pagespeed: 1
       },
+      setupRequiredProviders: 0,
       totalProviders: 3,
       totalRecords: 2
     }
@@ -128,6 +131,7 @@ export const demoConnectorSyncRuns: ConnectorSyncRun[] = [
         gsc: 0,
         pagespeed: 0
       },
+      setupRequiredProviders: 0,
       totalProviders: 1,
       totalRecords: 0
     }
@@ -466,6 +470,7 @@ export function summarizeConnectorSyncHistory(
     okResults: allResults.filter((result) => result.status === "ok").length,
     partial: history.runs.filter((run) => run.status === "partial").length,
     queued: history.runs.filter((run) => run.status === "queued" || run.status === "running").length,
+    setupRequiredResults: allResults.filter((result) => result.status === "setup_required").length,
     total: history.runs.length,
     totalRecords: allResults.reduce((total, result) => total + result.recordCount, 0)
   };
@@ -494,6 +499,10 @@ export function getConnectorSyncResultTone(status: string): ConnectorSyncResultT
 
   if (status === "partial") {
     return "partial";
+  }
+
+  if (status === "setup_required") {
+    return "setup";
   }
 
   return "failed";
@@ -531,8 +540,8 @@ export function getConnectorSyncRunProviderErrorMessages(run: ConnectorSyncRun):
         return null;
       }
 
-      const message = (error as Record<string, unknown>).message;
-      if (typeof message !== "string" || message.length === 0) {
+      const message = formatConnectorProviderErrorMessage(error as Record<string, unknown>);
+      if (message === null) {
         return null;
       }
 
@@ -560,8 +569,29 @@ export function getConnectorSyncProviderErrorMessage(
     return null;
   }
 
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" && message.length > 0 ? message : null;
+  return formatConnectorProviderErrorMessage(error as Record<string, unknown>);
+}
+
+function formatConnectorProviderErrorMessage(error: Record<string, unknown>) {
+  const operatorMessage = error.operatorMessage;
+  const message = error.message;
+  const nextAction = error.nextAction;
+  const primary =
+    typeof operatorMessage === "string" && operatorMessage.length > 0
+      ? operatorMessage
+      : typeof message === "string" && message.length > 0
+        ? message
+        : null;
+
+  if (primary === null) {
+    return null;
+  }
+
+  if (typeof nextAction === "string" && nextAction.length > 0) {
+    return `${primary} 조치: ${nextAction}`;
+  }
+
+  return primary;
 }
 
 export function formatConnectorProvider(provider: ConnectorProvider) {

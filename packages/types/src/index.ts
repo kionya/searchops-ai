@@ -2122,13 +2122,17 @@ export type ConnectorOAuthCredentialListResponse = z.infer<
   typeof ConnectorOAuthCredentialListResponseSchema
 >;
 
-export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed"]);
+export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed", "setup_required"]);
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
 export const ConnectorSyncProviderErrorSchema = z.object({
+  code: z.string().min(1).optional(),
   message: z.string().min(1),
   name: z.string().min(1).optional(),
+  nextAction: z.string().min(1).optional(),
+  operatorMessage: z.string().min(1).optional(),
+  setupRequired: z.boolean().optional(),
 });
 
 export type ConnectorSyncProviderError = z.infer<typeof ConnectorSyncProviderErrorSchema>;
@@ -2352,6 +2356,7 @@ export const ConnectorBatchSyncSummarySchema = z.object({
   partialProviders: NonNegativeIntegerSchema,
   providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
   recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
+  setupRequiredProviders: NonNegativeIntegerSchema.default(0),
   totalProviders: NonNegativeIntegerSchema,
   totalRecords: NonNegativeIntegerSchema,
 });

@@ -33,6 +33,7 @@ const statusLabels: Record<string, string> = {
   ready: "준비 완료",
   resolved: "해결됨",
   running: "실행 중",
+  setup_required: "설정 필요",
   still_open: "계속 열림",
   strong: "강함",
   updated: "업데이트됨",

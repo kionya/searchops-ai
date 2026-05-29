@@ -43,6 +43,7 @@ const summary = {
     gsc: 0,
     pagespeed: 1
   },
+  setupRequiredProviders: 0,
   totalProviders: 1,
   totalRecords: 1
 };
@@ -187,6 +188,23 @@ describe("connector sync persistence helpers", () => {
         }
       }),
     ).toBe("failed");
+    expect(
+      classifyConnectorSyncRunStatus({
+        connectorSyncRunId: "sync_3",
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        results: [],
+        summary: {
+          ...summary,
+          okProviders: 0,
+          setupRequiredProviders: 1,
+          totalProviders: 1
+        }
+      }),
+    ).toBe("partial");
   });
 
   it("marks connector sync runs failed with an error summary", async () => {

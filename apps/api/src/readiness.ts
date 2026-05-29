@@ -107,8 +107,8 @@ const readinessInputs: readonly ReadinessInput[] = [
     id: "connector-partial-failure-ux",
     title: "Connector 부분 성공/재시도 운영 UX",
     summary: "provider별 sync 실패, 재시도, 부분 성공 상태를 운영자가 확인하고 후속 처리할 수 있어야 합니다.",
-    nextAction: "connector sync history 화면에 provider별 실패 사유와 retry action을 노출하세요.",
-    status: "manual_followup",
+    nextAction: "connector sync history 화면에서 provider별 진단 코드와 개별 재실행 버튼을 확인하세요.",
+    status: "configured",
   },
   {
     category: "keyword_aeo",

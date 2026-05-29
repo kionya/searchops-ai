@@ -241,6 +241,7 @@ describe("connectors foundation", () => {
         gsc: 2,
         pagespeed: 1
       },
+      setupRequiredProviders: 0,
       totalProviders: 5,
       totalRecords: 9
     });
@@ -846,7 +847,7 @@ describe("connectors foundation", () => {
     });
   });
 
-  it("marks missing live connector credentials as failed without throwing", async () => {
+  it("marks missing live connector credentials as setup required without throwing", async () => {
     const result = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
@@ -854,24 +855,43 @@ describe("connectors foundation", () => {
     });
 
     expect(result.results.map((item) => [item.provider, item.status])).toEqual([
-      ["gsc", "failed"],
-      ["ga4", "failed"],
-      ["pagespeed", "failed"],
-      ["bing", "failed"],
-      ["cms", "failed"]
+      ["gsc", "setup_required"],
+      ["ga4", "setup_required"],
+      ["pagespeed", "setup_required"],
+      ["bing", "setup_required"],
+      ["cms", "setup_required"]
     ]);
     expect(result.summary).toMatchObject({
-      failedProviders: 5,
+      failedProviders: 0,
       providerErrors: {
-        bing: { message: "Bing Webmaster API key is missing in the worker runtime." },
-        cms: {
-          message:
-            "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter."
+        bing: {
+          code: "bing_api_key_missing",
+          message: "Bing Webmaster API key is missing in the worker runtime.",
+          setupRequired: true
         },
-        ga4: { message: "GA4 OAuth credential is missing for this site." },
-        gsc: { message: "GSC OAuth credential is missing for this site." },
-        pagespeed: { message: "PageSpeed API key is missing in the worker runtime." }
+        cms: {
+          code: "cms_live_connector_not_configured",
+          message:
+            "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.",
+          setupRequired: true
+        },
+        ga4: {
+          code: "ga4_oauth_missing",
+          message: "GA4 OAuth credential is missing for this site.",
+          setupRequired: true
+        },
+        gsc: {
+          code: "gsc_oauth_missing",
+          message: "GSC OAuth credential is missing for this site.",
+          setupRequired: true
+        },
+        pagespeed: {
+          code: "pagespeed_api_key_missing",
+          message: "PageSpeed API key is missing in the worker runtime.",
+          setupRequired: true
+        }
       },
+      setupRequiredProviders: 5,
       totalProviders: 5,
       totalRecords: 0
     });
@@ -915,6 +935,88 @@ describe("connectors foundation", () => {
       },
       totalProviders: 1,
       totalRecords: 0
+    });
+  });
+
+  it("diagnoses GA4 property id format separately from OAuth permission failures", async () => {
+    const invalidPropertyResult = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      ga4PropertyId: "G-J4S923Y2Z5",
+      googleOAuthCredentials: [
+        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
+      ],
+      providers: ["ga4"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(invalidPropertyResult.results[0]).toMatchObject({
+      provider: "ga4",
+      status: "failed",
+      error: {
+        code: "ga4_property_id_invalid",
+        operatorMessage:
+          "GA4 Property ID가 잘못되었거나 Google Analytics Data API에서 해당 속성을 찾을 수 없습니다."
+      }
+    });
+
+    const permissionResult = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "User does not have sufficient permissions for this property."
+            }
+          }),
+          { status: 403 }
+        )) as typeof fetch,
+      ga4PropertyId: "123456789",
+      googleOAuthCredentials: [
+        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
+      ],
+      providers: ["ga4"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(permissionResult.results[0]).toMatchObject({
+      provider: "ga4",
+      status: "failed",
+      error: {
+        code: "ga4_property_access_denied",
+        operatorMessage:
+          "OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다."
+      }
+    });
+  });
+
+  it("diagnoses Bing InvalidApiKey as a Railway and Bing Webmaster configuration issue", async () => {
+    const result = await syncLiveConnectors({
+      bingApiKey: "invalid_key",
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({
+            ErrorCode: 3,
+            Message: "ERROR!!! InvalidApiKey"
+          }),
+          { status: 400 }
+        )) as typeof fetch,
+      providers: ["bing"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(result.results[0]).toMatchObject({
+      provider: "bing",
+      status: "failed",
+      error: {
+        code: "bing_invalid_api_key",
+        operatorMessage: "Bing Webmaster API Key가 유효하지 않습니다."
+      }
+    });
+    expect(result.summary).toMatchObject({
+      failedProviders: 1,
+      setupRequiredProviders: 0
     });
   });
 

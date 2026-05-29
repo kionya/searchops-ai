@@ -2180,6 +2180,29 @@ describe("types foundation", () => {
       },
     });
     expect(
+      ConnectorRunResultSchema.parse({
+        provider: "cms",
+        status: "setup_required",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: false,
+        records: [],
+        error: {
+          code: "cms_live_connector_not_configured",
+          message:
+            "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.",
+          nextAction: "CMS webhook을 연결하세요.",
+          operatorMessage: "CMS live connector가 아직 구성되지 않았습니다.",
+          setupRequired: true,
+        },
+      }),
+    ).toMatchObject({
+      error: {
+        code: "cms_live_connector_not_configured",
+        setupRequired: true,
+      },
+      status: "setup_required",
+    });
+    expect(
       ConnectorSyncJobResultSchema.parse({
         connectorSyncRunId: "sync_1",
         organizationId: "org_1",

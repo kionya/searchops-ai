@@ -67,6 +67,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         <MetricCard label="동기화 실행" value={String(summary.total)} />
         <MetricCard label="완료" value={String(summary.completed)} />
         <MetricCard label="일부 완료/실패" value={String(summary.partial + summary.failed)} />
+        <MetricCard label="설정 필요" value={String(summary.setupRequiredResults)} />
         <MetricCard label="동기화 기록" value={String(summary.totalRecords)} />
       </div>
       <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
@@ -256,6 +257,16 @@ function ConnectorSyncTriggerPanel({
         </fieldset>
         <ConnectorSyncSubmitButton />
       </form>
+      <div style={quickProviderActionsStyle}>
+        {connectorProviderOptions.map((provider) => (
+          <form action={action} key={provider}>
+            <input name="providers" type="hidden" value={provider} />
+            <button style={quickProviderButtonStyle} type="submit">
+              {formatConnectorProvider(provider)}만 실행
+            </button>
+          </form>
+        ))}
+      </div>
     </section>
   );
 }
@@ -287,7 +298,8 @@ function ResultStatusPill({
   const toneStyle = {
     failed: { background: "#fef2f2", color: "#b91c1c" },
     ok: { background: "#ecfdf5", color: "#047857" },
-    partial: { background: "#fff7ed", color: "#c2410c" }
+    partial: { background: "#fff7ed", color: "#c2410c" },
+    setup: { background: "#fefce8", color: "#a16207" }
   }[tone];
 
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
@@ -321,6 +333,26 @@ const triggerFormStyle = {
   display: "grid",
   gap: 12,
   justifyItems: "end"
+} as const;
+
+const quickProviderActionsStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  gridColumn: "1 / -1",
+  justifyContent: "end"
+} as const;
+
+const quickProviderButtonStyle = {
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  color: "#172033",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+  minHeight: 32,
+  padding: "6px 10px"
 } as const;
 
 const providerFieldsetStyle = {
