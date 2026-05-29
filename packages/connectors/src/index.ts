@@ -179,6 +179,7 @@ export interface ConnectorBatchSyncRequest extends ConnectorSyncRequest {
 
 export interface GoogleConnectorOAuthCredential {
   readonly accessToken: string;
+  readonly externalAccountEmail?: string | null;
   readonly provider: ConnectorOAuthProvider;
   readonly status?: "connected" | "expired" | "revoked";
   readonly tokenExpiresAt?: string | null;
@@ -794,6 +795,13 @@ export function createLiveGa4ConnectorAdapter({
         },
       );
 
+      if (response.status === 403) {
+        throw new ConnectorProviderDiagnosticError(
+          "Google Analytics Data API request failed with status 403",
+          createGa4AccessDeniedDiagnosticWithEmail(credential.externalAccountEmail ?? null),
+        );
+      }
+
       await assertFetchOk(response, "Google Analytics Data API");
       const json = (await response.json()) as Ga4RunReportApiResponse;
       const records = normalizeGa4Report({
@@ -1293,12 +1301,15 @@ function classifyConnectorProviderError(
 }
 
 function createGa4AccessDeniedDiagnostic(): ConnectorProviderDiagnosticMetadata {
+  return createGa4AccessDeniedDiagnosticWithEmail(null);
+}
+
+function createGa4AccessDeniedDiagnosticWithEmail(email: string | null): ConnectorProviderDiagnosticMetadata {
+  const accountRef = email ? `"${email}" 계정` : "OAuth로 연결한 Google 계정";
   return {
     code: "ga4_property_access_denied",
-    nextAction:
-      "GA4 관리 > 속성 액세스 관리에서 OAuth로 연결한 Google 계정을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.",
-    operatorMessage:
-      "OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다."
+    nextAction: `GA4 관리 > 속성 액세스 관리에서 ${accountRef}을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.`,
+    operatorMessage: `OAuth Google 계정${email ? `(${email})` : ""}이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다.`
   };
 }
 

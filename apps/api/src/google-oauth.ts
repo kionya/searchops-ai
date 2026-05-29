@@ -95,7 +95,7 @@ export function createGoogleConnectorOAuthClient({
         siteId: input.siteId,
       };
       const state = signGoogleOAuthState(statePayload, stateSecret);
-      const scopes = providers.map((provider) => googleConnectorOAuthScopes[provider]);
+      const scopes = ["openid", "email", ...providers.map((provider) => googleConnectorOAuthScopes[provider])];
       const authorizationUrl = new URL(googleAuthorizationEndpoint);
       authorizationUrl.searchParams.set("access_type", "offline");
       authorizationUrl.searchParams.set("client_id", clientId);

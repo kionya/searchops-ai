@@ -31,6 +31,7 @@ import {
   type ConnectorSyncResultTone,
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
+import { getApiBaseUrl } from "../../../../src/api-base-url";
 import { runConnectorSyncAction } from "./actions";
 import { ConnectorSyncSubmitButton } from "./submit-button";
 
@@ -70,6 +71,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         <MetricCard label="설정 필요" value={String(summary.setupRequiredResults)} />
         <MetricCard label="동기화 기록" value={String(summary.totalRecords)} />
       </div>
+      <GoogleOAuthPanel siteId={siteId} />
       <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
       <section aria-label="커넥터 동기화 실행" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
@@ -223,6 +225,53 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   );
 }
 
+function GoogleOAuthPanel({ siteId }: { readonly siteId: string }) {
+  const apiBaseUrl = getApiBaseUrl();
+  const returnTo = `/sites/${siteId}/connectors`;
+
+  const oauthUrl = (providers: string) =>
+    apiBaseUrl
+      ? `${apiBaseUrl}/sites/${siteId}/connectors/google/oauth/start?providers=${providers}&returnTo=${encodeURIComponent(returnTo)}`
+      : null;
+
+  const gscUrl = oauthUrl("gsc");
+  const ga4Url = oauthUrl("ga4");
+  const bothUrl = oauthUrl("gsc,ga4");
+
+  return (
+    <section aria-label="Google OAuth 연결" style={oauthPanelStyle}>
+      <div>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Google OAuth 연결</h3>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          GSC·GA4 데이터를 live로 수집하려면 Google 계정을 연결하세요. 연결된 계정이 해당 속성의 뷰어 이상 권한을 가져야 합니다.
+        </p>
+        {!apiBaseUrl ? (
+          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
+            SEARCHOPS_API_BASE_URL 환경변수가 설정되지 않아 OAuth URL을 생성할 수 없습니다.
+          </p>
+        ) : null}
+      </div>
+      <div style={oauthButtonGroupStyle}>
+        {gscUrl ? (
+          <a href={gscUrl} style={oauthLinkButtonStyle}>
+            GSC 연결
+          </a>
+        ) : null}
+        {ga4Url ? (
+          <a href={ga4Url} style={oauthLinkButtonStyle}>
+            GA4 연결
+          </a>
+        ) : null}
+        {bothUrl ? (
+          <a href={bothUrl} style={{ ...oauthLinkButtonStyle, fontWeight: 700 }}>
+            GSC + GA4 함께 연결
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function ConnectorSyncTriggerPanel({
   siteId,
   triggerFeedback
@@ -316,6 +365,38 @@ function formatDateTime(isoDate: string | null) {
     timeZone: "Asia/Seoul"
   }).format(new Date(isoDate));
 }
+
+const oauthPanelStyle = {
+  alignItems: "start",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  display: "grid",
+  gap: 16,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  marginTop: 14,
+  padding: 16
+} as const;
+
+const oauthButtonGroupStyle = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: 8
+} as const;
+
+const oauthLinkButtonStyle = {
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  color: "#172033",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
+  minHeight: 36,
+  padding: "8px 14px",
+  textDecoration: "none",
+  whiteSpace: "nowrap" as const
+} as const;
 
 const triggerPanelStyle = {
   alignItems: "start",

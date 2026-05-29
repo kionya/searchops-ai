@@ -176,6 +176,7 @@ async function createRuntimeConnectorSync(
       ga4PropertyId: options.ga4PropertyId,
       googleOAuthCredentials: credentials.map((credential) => ({
         accessToken: credential.accessToken,
+        externalAccountEmail: credential.externalAccountEmail,
         provider: credential.provider,
         status: credential.status,
         tokenExpiresAt: credential.tokenExpiresAt?.toISOString() ?? null

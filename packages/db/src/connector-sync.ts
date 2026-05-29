@@ -62,6 +62,7 @@ export interface ConnectorSyncResultUpsertArgs {
 
 export interface ConnectorOAuthCredentialForSync {
   readonly accessToken: string;
+  readonly externalAccountEmail: string | null;
   readonly provider: ConnectorOAuthProvider;
   readonly refreshToken: string | null;
   readonly status: "connected" | "expired" | "revoked";
@@ -142,6 +143,7 @@ export function createPrismaConnectorSyncPersistenceClient(
           },
           select: {
             accessToken: true,
+            externalAccountEmail: true,
             provider: true,
             refreshToken: true,
             status: true,
@@ -152,6 +154,7 @@ export function createPrismaConnectorSyncPersistenceClient(
 
         return rows.map((row) => ({
           accessToken: row.accessToken,
+          externalAccountEmail: row.externalAccountEmail,
           provider: row.provider as ConnectorOAuthProvider,
           refreshToken: row.refreshToken,
           status: row.status as ConnectorOAuthCredentialForSync["status"],
@@ -168,6 +171,7 @@ export function createPrismaConnectorSyncPersistenceClient(
           },
           select: {
             accessToken: true,
+            externalAccountEmail: true,
             provider: true,
             refreshToken: true,
             status: true,
@@ -179,6 +183,7 @@ export function createPrismaConnectorSyncPersistenceClient(
 
         return {
           accessToken: row.accessToken,
+          externalAccountEmail: row.externalAccountEmail,
           provider: row.provider as ConnectorOAuthProvider,
           refreshToken: row.refreshToken,
           status: row.status as ConnectorOAuthCredentialForSync["status"],
