@@ -20,6 +20,7 @@ Does not own:
 
 - GA4: `SEARCHOPS_GA4_PROPERTY_ID`는 숫자 Property ID를 사용합니다. 측정 ID(`G-...`)나 GTM ID(`GTM-...`)가 아닙니다.
 - Bing: `SEARCHOPS_BING_API_KEY`는 Bing Webmaster Tools API Access에서 발급한 키입니다. `InvalidApiKey`는 코드 장애가 아니라 이 환경변수와 Bing 키의 설정 문제입니다.
+- Bing 5xx/HTML 응답: `bing_service_unavailable`은 API Key 문제가 아니라 Bing Webmaster API 또는 중간 게이트웨이의 일시 장애 가능성이 높습니다. 잠시 후 Bing만 재실행합니다.
 - PageSpeed: `SEARCHOPS_PAGESPEED_API_KEY`가 필요합니다.
 - Google OAuth refresh: `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`가 필요합니다.
 - CMS: live fetch adapter는 아직 미구성입니다. webhook 기반 수집은 API 런타임의 `SEARCHOPS_CMS_WEBHOOK_SECRETS`로 설정합니다.

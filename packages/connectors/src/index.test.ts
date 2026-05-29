@@ -1020,6 +1020,36 @@ describe("connectors foundation", () => {
     });
   });
 
+  it("diagnoses Bing 5xx HTML responses as temporary service availability issues", async () => {
+    const result = await syncLiveConnectors({
+      bingApiKey: "valid_key",
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () =>
+        new Response(
+          "<!DOCTYPE html><html><head><title>Service Unavailable</title></head><body>503</body></html>",
+          {
+            headers: { "content-type": "text/html" },
+            status: 503
+          }
+        )) as typeof fetch,
+      providers: ["bing"],
+      siteDomain: "searchops-ai-web.vercel.app"
+    });
+
+    expect(result.results[0]).toMatchObject({
+      provider: "bing",
+      status: "failed",
+      error: {
+        code: "bing_service_unavailable",
+        operatorMessage: expect.stringContaining("Bing Webmaster API")
+      }
+    });
+    expect(result.summary).toMatchObject({
+      failedProviders: 1,
+      setupRequiredProviders: 0
+    });
+  });
+
   it("discovers keyword targets from connector run results deterministically", async () => {
     const batch = await syncFixtureConnectors({
       fetchedAt: "2026-05-25T00:00:00.000Z",

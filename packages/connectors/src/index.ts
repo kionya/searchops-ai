@@ -1278,6 +1278,26 @@ function classifyConnectorProviderError(
     };
   }
 
+  if (
+    provider === "bing" &&
+    (normalized.includes("status 502") ||
+      normalized.includes("status 503") ||
+      normalized.includes("status 504") ||
+      normalized.includes("service unavailable") ||
+      normalized.includes("gateway") ||
+      normalized.includes("<!doctype html") ||
+      normalized.includes("<!doctype html public") ||
+      normalized.includes("<html"))
+  ) {
+    return {
+      code: "bing_service_unavailable",
+      nextAction:
+        "API Key 문제가 아니라 Bing Webmaster API 또는 중간 게이트웨이의 일시 장애일 수 있습니다. 5-10분 뒤 Bing만 다시 실행하고, 반복되면 Bing Webmaster Tools 상태와 Railway outbound 네트워크를 확인하세요.",
+      operatorMessage:
+        "Bing Webmaster API가 일시적으로 HTML 오류 페이지 또는 5xx 응답을 반환했습니다."
+    };
+  }
+
   if (provider === "ga4" && normalized.includes("sufficient permissions")) {
     return createGa4AccessDeniedDiagnostic();
   }

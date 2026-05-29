@@ -26,4 +26,5 @@ This package owns auth, retries, rate-limit behavior, and response normalization
 - `ga4_property_id_invalid`: `SEARCHOPS_GA4_PROPERTY_ID`가 숫자 Property ID가 아니거나 Data API에서 찾을 수 없습니다.
 - `ga4_property_access_denied`: OAuth Google 계정에 해당 GA4 속성 권한이 없습니다.
 - `bing_invalid_api_key`: Railway worker의 `SEARCHOPS_BING_API_KEY`가 Bing Webmaster Tools에서 유효하지 않습니다.
+- `bing_service_unavailable`: Bing Webmaster API 또는 중간 게이트웨이가 5xx/HTML 오류를 반환했습니다. Bing만 잠시 후 재실행합니다.
 - `cms_live_connector_not_configured`: CMS webhook 또는 provider-specific CMS adapter 구성이 필요합니다.

@@ -562,6 +562,7 @@ describe("processCrawlJob", () => {
           return [
             {
               accessToken: "gsc_token",
+              externalAccountEmail: null,
               provider: "gsc",
               refreshToken: null,
               status: "connected",
@@ -570,6 +571,7 @@ describe("processCrawlJob", () => {
             },
             {
               accessToken: "ga4_token",
+              externalAccountEmail: null,
               provider: "ga4",
               refreshToken: null,
               status: "connected",
@@ -581,6 +583,7 @@ describe("processCrawlJob", () => {
         async update(args) {
           return {
             accessToken: args.data.accessToken,
+            externalAccountEmail: null,
             provider: args.where.siteId_provider.provider,
             refreshToken: null,
             status: "connected",
@@ -713,6 +716,7 @@ describe("processCrawlJob", () => {
           return [
             {
               accessToken: "expired_gsc_token",
+              externalAccountEmail: null,
               provider: "gsc",
               refreshToken: "gsc_refresh",
               status: "connected",
@@ -725,6 +729,7 @@ describe("processCrawlJob", () => {
           credentialUpdates.push(args);
           return {
             accessToken: args.data.accessToken,
+            externalAccountEmail: null,
             provider: args.where.siteId_provider.provider,
             refreshToken: "gsc_refresh",
             status: "connected",
@@ -839,6 +844,7 @@ describe("processCrawlJob", () => {
           return [
             {
               accessToken: "expired_gsc_token",
+              externalAccountEmail: null,
               provider: "gsc",
               refreshToken: "revoked_refresh",
               status: "connected",
@@ -850,6 +856,7 @@ describe("processCrawlJob", () => {
         async update(args) {
           return {
             accessToken: args.data.accessToken,
+            externalAccountEmail: null,
             provider: args.where.siteId_provider.provider,
             refreshToken: "revoked_refresh",
             status: "connected",

@@ -157,6 +157,7 @@ Bing:
 2. Railway worker 환경변수 `SEARCHOPS_BING_API_KEY`에 저장하고 worker를 재배포한다.
 3. `bing_api_key_missing`은 환경변수가 비어 있는 상태다.
 4. `bing_invalid_api_key` 또는 `InvalidApiKey`는 코드 문제가 아니라 Bing Webmaster API Key가 틀렸거나 폐기된 상태다. 새 키로 교체한 뒤 Bing만 재실행한다.
+5. `bing_service_unavailable` 또는 503 HTML 응답은 API Key 문제가 아니라 Bing Webmaster API/중간 게이트웨이의 일시 장애 가능성이 높다. 5-10분 뒤 Bing만 재실행하고, 반복되면 Bing Webmaster Tools 상태와 Railway outbound 네트워크를 확인한다.
 
 CMS:
 1. 현재 live CMS fetch connector는 미구성 상태다. 이 상태는 `failed`가 아니라 `setup_required`로 본다.

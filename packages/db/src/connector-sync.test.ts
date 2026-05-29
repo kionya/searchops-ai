@@ -257,6 +257,7 @@ describe("connector sync persistence helpers", () => {
     await expect(listConnectorOAuthCredentialsForSync(client, "site_1")).resolves.toEqual([
       {
         accessToken: "access",
+        externalAccountEmail: null,
         provider: "gsc",
         refreshToken: "refresh",
         status: "connected",
@@ -305,6 +306,7 @@ function createMockClient(overrides: {
         return [
           {
             accessToken: "access",
+            externalAccountEmail: null,
             provider: "gsc",
             refreshToken: "refresh",
             status: "connected",
@@ -317,6 +319,7 @@ function createMockClient(overrides: {
         overrides.updateCredential?.(args);
         return {
           accessToken: args.data.accessToken,
+          externalAccountEmail: null,
           provider: args.where.siteId_provider.provider,
           refreshToken: "refresh",
           status: "connected",
