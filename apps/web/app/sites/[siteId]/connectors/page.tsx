@@ -227,12 +227,14 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
 
 function GoogleOAuthPanel({ siteId }: { readonly siteId: string }) {
   const apiBaseUrl = getApiBaseUrl();
-  const returnTo = `/sites/${siteId}/connectors`;
+  const appBaseUrl = process.env.SEARCHOPS_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? null;
+  const returnTo = appBaseUrl ? `${appBaseUrl}/sites/${siteId}/connectors` : null;
 
-  const oauthUrl = (providers: string) =>
-    apiBaseUrl
-      ? `${apiBaseUrl}/sites/${siteId}/connectors/google/oauth/start?providers=${providers}&returnTo=${encodeURIComponent(returnTo)}`
-      : null;
+  const oauthUrl = (providers: string) => {
+    if (!apiBaseUrl) return null;
+    const base = `${apiBaseUrl}/sites/${siteId}/connectors/google/oauth/start?providers=${providers}`;
+    return returnTo ? `${base}&returnTo=${encodeURIComponent(returnTo)}` : base;
+  };
 
   const gscUrl = oauthUrl("gsc");
   const ga4Url = oauthUrl("ga4");
