@@ -22,6 +22,7 @@ import {
   getSchemaRecommendationPriorityTone,
   getSchemaRecommendationStatusTone,
   getSchemaRecheckFeedback,
+  getSchemaRichResultValidationFeedback,
   getSchemaWorkOrderCreateFeedback,
   loadSchemaRecommendationDashboard,
   summarizeSchemaRecommendations,
@@ -29,6 +30,7 @@ import {
 } from "../../../../src/schema-recommendations";
 import {
   createSchemaWorkOrderAction,
+  queueSchemaRichResultValidationAction,
   recheckSchemaRecommendationAction
 } from "./actions";
 
@@ -38,6 +40,8 @@ interface SchemaPageProps {
   }>;
   readonly searchParams: Promise<{
     readonly recheck?: string;
+    readonly richResult?: string;
+    readonly jobId?: string;
     readonly recommendationId?: string;
     readonly schema?: string;
     readonly workOrderId?: string;
@@ -59,6 +63,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
     createSearchParams.workOrderId,
     createSearchParams.recommendationId,
   );
+  const richResultFeedback = getSchemaRichResultValidationFeedback(
+    createSearchParams.richResult,
+    createSearchParams.jobId,
+    createSearchParams.recommendationId,
+  );
 
   return (
     <section aria-labelledby="schema-recommendation-heading">
@@ -73,7 +82,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
         <MetricCard label="전환됨" value={String(summary.converted)} />
         <MetricCard label="해결됨" value={String(summary.resolved)} />
       </div>
-      <SchemaWorkOrderPanel createFeedback={createFeedback} recheckFeedback={recheckFeedback} />
+      <SchemaWorkOrderPanel
+        createFeedback={createFeedback}
+        recheckFeedback={recheckFeedback}
+        richResultFeedback={richResultFeedback}
+      />
       <section aria-label="스키마 추천" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -122,6 +135,7 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
               ) : (
                 dashboard.recommendations.map((recommendation) => {
                   const createAction = createSchemaWorkOrderAction.bind(null, siteId, recommendation.id);
+                  const richResultAction = queueSchemaRichResultValidationAction.bind(null, siteId, recommendation.id);
                   const recheckAction = recheckSchemaRecommendationAction.bind(null, siteId, recommendation);
 
                   return (
@@ -178,6 +192,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
                                 재검수
                               </button>
                             </form>
+                            <form action={richResultAction}>
+                              <button style={secondaryButtonStyle} type="submit">
+                                Rich result 검증
+                              </button>
+                            </form>
                           </span>
                         )}
                       </td>
@@ -221,10 +240,12 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
 
 function SchemaWorkOrderPanel({
   createFeedback,
-  recheckFeedback
+  recheckFeedback,
+  richResultFeedback
 }: {
   readonly createFeedback: ReturnType<typeof getSchemaWorkOrderCreateFeedback>;
   readonly recheckFeedback: ReturnType<typeof getSchemaRecheckFeedback>;
+  readonly richResultFeedback: ReturnType<typeof getSchemaRichResultValidationFeedback>;
 }) {
   return (
     <section aria-label="스키마 작업 지시서 전환" style={conversionPanelStyle}>
@@ -241,6 +262,11 @@ function SchemaWorkOrderPanel({
         {recheckFeedback ? (
           <p style={{ ...feedbackStyle[recheckFeedback.tone], margin: "10px 0 0" }}>
             {recheckFeedback.message}
+          </p>
+        ) : null}
+        {richResultFeedback ? (
+          <p style={{ ...feedbackStyle[richResultFeedback.tone], margin: "10px 0 0" }}>
+            {richResultFeedback.message}
           </p>
         ) : null}
       </div>

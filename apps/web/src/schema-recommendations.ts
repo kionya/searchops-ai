@@ -1,6 +1,7 @@
 import {
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CrawlerPageSnapshotSchema,
+  QueueSchemaRichResultValidationResponseSchema,
   RecheckSchemaRecommendationResponseSchema,
   SchemaRecommendationListResponseSchema,
   SchemaRecommendationRecordSchema,
@@ -17,6 +18,7 @@ import { demoSite } from "./work-order-board";
 
 export type SchemaRecommendationDashboardSource = "api" | "fixture";
 export type SchemaRecommendationRecheckStatus = "failed" | "fixture" | "not_resolved" | "resolved";
+export type SchemaRichResultValidationQueueStatus = "failed" | "fixture" | "queued";
 export type SchemaRecommendationTone = "good" | "neutral" | "risk";
 export type SchemaRecommendationWorkOrderStatus = "converted" | "failed" | "fixture";
 
@@ -60,6 +62,19 @@ export interface SchemaRecommendationRecheckResult {
 }
 
 export interface SchemaRecommendationRecheckFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
+export interface SchemaRichResultValidationQueueResult {
+  readonly errorMessage: string | null;
+  readonly jobId: string | null;
+  readonly recommendationId: string;
+  readonly source: SchemaRecommendationDashboardSource;
+  readonly status: SchemaRichResultValidationQueueStatus;
+}
+
+export interface SchemaRichResultValidationFeedback {
   readonly message: string;
   readonly tone: "info" | "success" | "warning";
 }
@@ -287,6 +302,55 @@ export async function recheckSchemaRecommendationWithDraft(
   }
 }
 
+export async function queueSchemaRichResultValidation(
+  recommendationId: string,
+): Promise<SchemaRichResultValidationQueueResult> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      jobId: null,
+      recommendationId,
+      source: "fixture",
+      status: "fixture"
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendationId)}/rich-result-validation-jobs`,
+      {
+        body: JSON.stringify({}),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Rich result 검증 작업 요청 실패: ${response.status}`);
+    }
+
+    const output = QueueSchemaRichResultValidationResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      jobId: output.job.id,
+      recommendationId: output.recommendation.id,
+      source: "api",
+      status: "queued"
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : "Rich result 검증 작업 요청에 실패했습니다",
+      jobId: null,
+      recommendationId,
+      source: "api",
+      status: "failed"
+    };
+  }
+}
+
 export function createDemoSchemaRecommendationDashboard(
   siteId: string = demoSite.id,
 ): SchemaRecommendationDashboardData {
@@ -415,6 +479,39 @@ export function getSchemaRecheckFeedback(
   if (status === "failed") {
     return {
       message: "스키마 재검수에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
+export function getSchemaRichResultValidationFeedback(
+  status: string | undefined,
+  jobId: string | undefined,
+  recommendationId: string | undefined,
+): SchemaRichResultValidationFeedback | null {
+  if (status === "queued") {
+    return {
+      message: jobId
+        ? `Rich result 검증 작업이 대기열에 등록되었습니다: ${jobId}`
+        : "Rich result 검증 작업이 대기열에 등록되었습니다.",
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: recommendationId
+        ? `데모 데이터 모드: ${recommendationId}의 Rich result 검증 작업을 요청하지 않았습니다.`
+        : "데모 데이터 모드: Rich result 검증 작업을 저장하려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "Rich result 검증 작업 등록에 실패했습니다. API 서버와 worker queue를 확인하세요.",
       tone: "warning"
     };
   }

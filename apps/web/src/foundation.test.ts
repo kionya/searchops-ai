@@ -132,8 +132,10 @@ import {
   formatSchemaJsonLdType,
   getSchemaRecommendationStatusTone,
   getSchemaRecheckFeedback,
+  getSchemaRichResultValidationFeedback,
   getSchemaWorkOrderCreateFeedback,
   loadSchemaRecommendationDashboard,
+  queueSchemaRichResultValidation,
   recheckSchemaRecommendationWithDraft,
   summarizeSchemaRecommendations
 } from "./schema-recommendations";
@@ -1161,6 +1163,54 @@ describe("web foundation", () => {
       .toContain("wo_schema_service");
   });
 
+  it("queues schema rich result validation jobs through the API response contract", async () => {
+    const recommendation = demoSchemaRecommendations[0];
+    if (!recommendation) {
+      throw new Error("Schema rich result validation fixture is missing");
+    }
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/schema-recommendations/${recommendation.id}/rich-result-validation-jobs`,
+        );
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({});
+
+        return Response.json({
+          recommendation,
+          job: {
+            id: "job_schema_rich_result",
+            name: "schema-rich-result-validation",
+            payload: {
+              recommendationId: recommendation.id,
+              siteId: recommendation.siteId,
+              siteDomain: "example-clinic.com",
+              requestedByUserId: "user_demo",
+              requestedAt: "2026-05-24T00:00:00.000Z",
+              url: recommendation.pageUrl,
+              type: recommendation.type,
+              jsonLd: recommendation.jsonLd,
+              requiredFields: recommendation.requiredFields,
+              recommendedFields: recommendation.recommendedFields
+            }
+          }
+        });
+      }),
+    );
+
+    await expect(queueSchemaRichResultValidation(recommendation.id)).resolves.toMatchObject({
+      jobId: "job_schema_rich_result",
+      recommendationId: recommendation.id,
+      source: "api",
+      status: "queued"
+    });
+    expect(getSchemaRichResultValidationFeedback("queued", "job_schema_rich_result", undefined)?.message)
+      .toContain("job_schema_rich_result");
+  });
+
   it("keeps schema dashboard deterministic without an API base URL", async () => {
     const recommendation = demoSchemaRecommendations[0];
     if (!recommendation) {
@@ -1203,6 +1253,15 @@ describe("web foundation", () => {
       status: "fixture"
     });
     expect(getSchemaRecheckFeedback("fixture", undefined, recommendation.id)?.tone).toBe("info");
+    await expect(queueSchemaRichResultValidation(recommendation.id)).resolves.toMatchObject({
+      jobId: null,
+      recommendationId: recommendation.id,
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getSchemaRichResultValidationFeedback("fixture", undefined, recommendation.id)?.tone).toBe(
+      "info",
+    );
   });
 
   it("summarizes deterministic connector sync history", () => {

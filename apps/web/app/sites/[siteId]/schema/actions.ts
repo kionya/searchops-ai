@@ -7,6 +7,7 @@ import type { SchemaRecommendationRecord } from "@searchops/types";
 
 import {
   convertSchemaRecommendationToWorkOrder,
+  queueSchemaRichResultValidation,
   recheckSchemaRecommendationWithDraft
 } from "../../../../src/schema-recommendations";
 
@@ -50,6 +51,29 @@ export async function recheckSchemaRecommendationAction(
   } catch {
     searchParams.set("recheck", "failed");
     searchParams.set("recommendationId", recommendation.id);
+  }
+
+  revalidatePath(`/sites/${siteId}/schema`);
+  redirect(`/sites/${siteId}/schema?${searchParams.toString()}`);
+}
+
+export async function queueSchemaRichResultValidationAction(
+  siteId: string,
+  recommendationId: string,
+  _formData: FormData,
+) {
+  const searchParams = new URLSearchParams();
+
+  try {
+    const result = await queueSchemaRichResultValidation(recommendationId);
+    searchParams.set("richResult", result.status);
+    searchParams.set("recommendationId", result.recommendationId);
+    if (result.jobId) {
+      searchParams.set("jobId", result.jobId);
+    }
+  } catch {
+    searchParams.set("richResult", "failed");
+    searchParams.set("recommendationId", recommendationId);
   }
 
   revalidatePath(`/sites/${siteId}/schema`);
