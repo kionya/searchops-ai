@@ -949,6 +949,46 @@ describe("api foundation", () => {
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("idp-verification");
   });
 
+  it("reports connector live setup without exposing secret values", async () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      DATABASE_URL: "postgresql://searchops:searchops@localhost:5432/searchops_ai?schema=public",
+      REDIS_URL: "redis://localhost:6379",
+      SEARCHOPS_API_BASE_URL: "http://localhost:4000",
+      SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID: "client-id",
+      SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET: "super-secret-client-secret",
+      SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI: "https://api.searchops.test/connectors/google/oauth/callback",
+      SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET: "super-secret-state",
+      SEARCHOPS_PUBLIC_APP_URL: "http://localhost:3000",
+    };
+    const server = buildApiServer({
+      currentTime: () => new Date("2026-06-07T00:00:00.000Z"),
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    try {
+      const response = await server.inject({
+        method: "GET",
+        url: "/ops/connector-live-setup",
+      });
+      const payload = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(payload.generatedAt).toBe("2026-06-07T00:00:00.000Z");
+      expect(payload.liveExternalApis).toBe("enabled");
+      expect(payload.checks.map((check: { id: string }) => check.id)).toContain(
+        "google-oauth-env",
+      );
+      expect(JSON.stringify(payload)).not.toContain("super-secret");
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
   it("lists worker dead-letter jobs for operations", async () => {
     const { server } = buildDeadLetterOperationsTestContext();
     const response = await server.inject({

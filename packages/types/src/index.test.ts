@@ -20,6 +20,7 @@ import {
   ConnectorOAuthCredentialSchema,
   ConnectorOAuthProviderListSchema,
   ConnectorProviderListSchema,
+  ConnectorLiveSetupReportSchema,
   ConnectorSyncJobResultSchema,
   ContentBriefDraftSchema,
   ContentBriefDetailResponseSchema,
@@ -513,6 +514,53 @@ describe("types foundation", () => {
       summary: {
         needsProvisioning: 1,
         total: 1,
+      },
+    });
+  });
+
+  it("validates connector live setup reports", () => {
+    expect(
+      ConnectorLiveSetupReportSchema.parse({
+        generatedAt: "2026-06-07T00:00:00.000Z",
+        environment: "local",
+        liveExternalApis: "disabled",
+        canRunFixtureMode: true,
+        canRunLiveConnectorSync: false,
+        checks: [
+          {
+            area: "runtime",
+            envKeys: ["DATABASE_URL", "REDIS_URL"],
+            id: "runtime-base-env",
+            nextAction: "Run API and worker.",
+            status: "configured",
+            summary: "Runtime env is configured.",
+            title: "Runtime env",
+          },
+          {
+            area: "gsc",
+            envKeys: ["SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"],
+            id: "gsc-live-credential",
+            nextAction: "Configure Google OAuth.",
+            status: "needs_provisioning",
+            summary: "GSC credential is missing.",
+            title: "GSC credential",
+          },
+        ],
+        summary: {
+          blocked: 0,
+          configured: 1,
+          needsProvisioning: 1,
+          ready: 0,
+          total: 2,
+          warnings: 0,
+        },
+      }),
+    ).toMatchObject({
+      canRunFixtureMode: true,
+      environment: "local",
+      summary: {
+        needsProvisioning: 1,
+        total: 2,
       },
     });
   });

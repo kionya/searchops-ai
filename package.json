@@ -18,6 +18,7 @@
     "test": "corepack pnpm build && corepack pnpm -r test",
     "test:turbo": "turbo run test",
     "test:runtime-smoke": "tsx scripts/test/runtime-smoke.ts",
+    "check:connector-live": "corepack pnpm --filter @searchops/types build && corepack pnpm --filter @searchops/api exec tsx src/connector-live-setup-cli.ts",
     "verify": "corepack pnpm lint && corepack pnpm build && corepack pnpm -r typecheck && corepack pnpm -r test",
     "format": "prettier --check .",
     "db:migrate": "corepack pnpm --filter @searchops/db db:migrate",

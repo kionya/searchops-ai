@@ -155,6 +155,7 @@ import {
   type SecretRotationExecutor,
 } from "./operations-hardening.js";
 import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay.js";
+import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import { createOperationalReadiness } from "./readiness.js";
 
@@ -781,6 +782,14 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   server.get("/ops/readiness", async () =>
     createOperationalReadiness({
       env: process.env,
+      generatedAt: currentTime(),
+    }),
+  );
+
+  server.get("/ops/connector-live-setup", async () =>
+    createConnectorLiveSetupReport({
+      env: process.env,
+      environment: process.env.NODE_ENV === "production" ? "deployment" : "local",
       generatedAt: currentTime(),
     }),
   );

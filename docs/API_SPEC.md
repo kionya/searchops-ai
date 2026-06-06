@@ -46,6 +46,7 @@ Tenant access is enforced at the API boundary from the authenticated user contex
 - `GET /metrics`
 - `GET /ops/metrics-export`
 - `GET /ops/readiness`
+- `GET /ops/connector-live-setup`
 - `GET /ops/dead-letter-jobs`
 - `DELETE /ops/dead-letter-jobs/:deadLetterJobId`
 - `GET /ops/backup-restore-drill-plan`

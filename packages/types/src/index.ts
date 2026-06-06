@@ -375,6 +375,75 @@ export type OperationalReadinessResponse = z.infer<
   typeof OperationalReadinessResponseSchema
 >;
 
+export const ConnectorLiveSetupEnvironmentSchema = z.enum(["local", "deployment"]);
+
+export type ConnectorLiveSetupEnvironment = z.infer<
+  typeof ConnectorLiveSetupEnvironmentSchema
+>;
+
+export const ConnectorLiveSetupStatusSchema = z.enum([
+  "ready",
+  "configured",
+  "needs_provisioning",
+  "warning",
+  "blocked",
+]);
+
+export type ConnectorLiveSetupStatus = z.infer<
+  typeof ConnectorLiveSetupStatusSchema
+>;
+
+export const ConnectorLiveSetupAreaSchema = z.enum([
+  "runtime",
+  "oauth",
+  "gsc",
+  "ga4",
+  "pagespeed",
+  "bing",
+  "cms",
+]);
+
+export type ConnectorLiveSetupArea = z.infer<typeof ConnectorLiveSetupAreaSchema>;
+
+export const ConnectorLiveSetupCheckSchema = z.object({
+  id: z.string().min(1),
+  area: ConnectorLiveSetupAreaSchema,
+  title: z.string().min(1),
+  status: ConnectorLiveSetupStatusSchema,
+  summary: z.string().min(1),
+  nextAction: z.string().min(1),
+  envKeys: z.array(z.string().min(1)).default([]),
+});
+
+export type ConnectorLiveSetupCheck = z.infer<typeof ConnectorLiveSetupCheckSchema>;
+
+export const ConnectorLiveSetupSummarySchema = z.object({
+  ready: z.number().int().nonnegative(),
+  configured: z.number().int().nonnegative(),
+  needsProvisioning: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+export type ConnectorLiveSetupSummary = z.infer<
+  typeof ConnectorLiveSetupSummarySchema
+>;
+
+export const ConnectorLiveSetupReportSchema = z.object({
+  generatedAt: IsoDateTimeSchema,
+  environment: ConnectorLiveSetupEnvironmentSchema,
+  liveExternalApis: z.enum(["disabled", "enabled"]),
+  canRunFixtureMode: z.boolean(),
+  canRunLiveConnectorSync: z.boolean(),
+  checks: z.array(ConnectorLiveSetupCheckSchema),
+  summary: ConnectorLiveSetupSummarySchema,
+});
+
+export type ConnectorLiveSetupReport = z.infer<
+  typeof ConnectorLiveSetupReportSchema
+>;
+
 export const OrganizationSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
