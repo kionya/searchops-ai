@@ -1,7 +1,13 @@
 import {
   CreateGeoVisibilityReportWorkOrderResponseSchema,
   CreateGeoVisibilityReportResponseSchema,
+  DefaultGeoAnswerMonitorProviders,
+  GeoAnswerMonitorProviderSchema,
   GeoVisibilityReportListResponseSchema,
+  QueueGeoAnswerMonitorRequestSchema,
+  QueueGeoAnswerMonitorResponseSchema,
+  type GeoAnswerMonitorProvider,
+  type GeoAnswerMonitorQuery,
   type GeoAnswerObservation,
   type GeoProvider,
   type GeoVisibilityReportRecord,
@@ -16,6 +22,7 @@ import { demoSite } from "./work-order-board";
 export type GeoVisibilityDashboardSource = "api" | "fixture";
 export type GeoVisibilityTone = "good" | "neutral" | "risk";
 export type GeoVisibilityCreateStatus = "created" | "failed" | "fixture";
+export type GeoAnswerMonitorQueueStatus = "failed" | "fixture" | "queued";
 export type GeoVisibilityWorkOrderStatus = "converted" | "failed" | "fixture";
 
 export interface GeoVisibilityDashboardData {
@@ -45,6 +52,21 @@ export interface GeoVisibilityCreateFeedback {
   readonly tone: "info" | "success" | "warning";
 }
 
+export interface GeoAnswerMonitorQueueResult {
+  readonly errorMessage: string | null;
+  readonly jobId: string | null;
+  readonly providerCount: number;
+  readonly providers: readonly GeoAnswerMonitorProvider[];
+  readonly queryCount: number;
+  readonly source: GeoVisibilityDashboardSource;
+  readonly status: GeoAnswerMonitorQueueStatus;
+}
+
+export interface GeoAnswerMonitorQueueFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
 export interface GeoVisibilityWorkOrderResult {
   readonly errorMessage: string | null;
   readonly reportId: string;
@@ -58,7 +80,35 @@ export interface GeoVisibilityWorkOrderFeedback {
   readonly tone: "info" | "success" | "warning";
 }
 
+export interface GeoWorkOrderPreviewCandidate {
+  readonly failingChecks: readonly string[];
+  readonly priority: "p0" | "p1" | "p2";
+  readonly reason: string;
+  readonly reportId: string;
+  readonly score: number;
+  readonly status: GeoVisibilityStatus;
+}
+
+export interface GeoWorkOrderBatchPreview {
+  readonly candidateCount: number;
+  readonly candidates: readonly GeoWorkOrderPreviewCandidate[];
+  readonly excludedStrongCount: number;
+  readonly reportIds: readonly string[];
+}
+
 const fixtureEvaluatedAt = "2026-05-24T00:00:00.000Z";
+
+export const geoAnswerMonitorProviderOptions: readonly GeoAnswerMonitorProvider[] = [
+  "chatgpt",
+  "perplexity",
+  "gemini",
+  "copilot",
+  "claude"
+];
+
+export const defaultGeoAnswerMonitorProviders: readonly GeoAnswerMonitorProvider[] = [
+  ...DefaultGeoAnswerMonitorProviders
+];
 
 export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
   {
@@ -242,6 +292,64 @@ export async function createGeoVisibilityReportFromFixture(
   }
 }
 
+export async function queueGeoAnswerMonitorJob(
+  site: Site,
+  formData?: FormData,
+): Promise<GeoAnswerMonitorQueueResult> {
+  const request = createGeoAnswerMonitorRequestFromForm(site, formData);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return {
+      errorMessage: null,
+      jobId: null,
+      providerCount: request.providers.length,
+      providers: request.providers,
+      queryCount: request.queries.length,
+      source: "fixture",
+      status: "fixture"
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/geo-answer-monitor-jobs`,
+      {
+        body: JSON.stringify(request),
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`GEO answer monitor queue request failed: ${response.status}`);
+    }
+
+    const output = QueueGeoAnswerMonitorResponseSchema.parse(await response.json());
+    return {
+      errorMessage: null,
+      jobId: output.job.id,
+      providerCount: output.job.payload.providers.length,
+      providers: output.job.payload.providers,
+      queryCount: output.job.payload.queries.length,
+      source: "api",
+      status: "queued"
+    };
+  } catch (error) {
+    return {
+      errorMessage:
+        error instanceof Error ? error.message : "GEO answer monitor queue request failed",
+      jobId: null,
+      providerCount: request.providers.length,
+      providers: request.providers,
+      queryCount: request.queries.length,
+      source: "api",
+      status: "failed"
+    };
+  }
+}
+
 export async function convertGeoVisibilityReportToWorkOrder(
   reportId: string,
 ): Promise<GeoVisibilityWorkOrderResult> {
@@ -300,6 +408,41 @@ export function createDemoGeoVisibilityDashboard(site: Site = demoSite): GeoVisi
   };
 }
 
+export function createGeoAnswerMonitorRequestFromForm(
+  site: Site,
+  formData?: FormData,
+  options: {
+    readonly observedAt?: string;
+  } = {},
+) {
+  const selectedProviders = parseGeoAnswerMonitorProviders(formData);
+
+  return QueueGeoAnswerMonitorRequestSchema.parse({
+    observedAt: options.observedAt ?? new Date().toISOString(),
+    providers: selectedProviders,
+    queries: createGeoAnswerMonitorQueries(site),
+    target: createGeoTarget(site)
+  });
+}
+
+export function createGeoAnswerMonitorQueries(site: Site): GeoAnswerMonitorQuery[] {
+  const locale = `${site.language}-${site.country}`;
+  const uniqueQueries = new Set<string>();
+
+  return createDemoGeoObservations(site)
+    .filter((observation) => {
+      if (uniqueQueries.has(observation.query)) {
+        return false;
+      }
+      uniqueQueries.add(observation.query);
+      return true;
+    })
+    .map((observation) => ({
+      locale,
+      query: observation.query
+    }));
+}
+
 export function summarizeGeoVisibilityDashboard(
   dashboard: GeoVisibilityDashboardData,
 ): GeoVisibilityDashboardSummary {
@@ -321,6 +464,34 @@ export function summarizeGeoVisibilityDashboard(
     weakOrMissing: dashboard.reports.filter(
       (report) => report.status === "weak" || report.status === "not_visible",
     ).length
+  };
+}
+
+export function summarizeGeoWorkOrderBatchPreview(
+  reports: readonly GeoVisibilityReportRecord[],
+): GeoWorkOrderBatchPreview {
+  const candidates = reports
+    .filter((report) => report.status !== "strong")
+    .map((report) => {
+      const failingChecks = report.checks
+        .filter((check) => check.status !== "pass")
+        .map((check) => check.checkId);
+
+      return {
+        failingChecks,
+        priority: getGeoWorkOrderCandidatePriority(report.status),
+        reason: getGeoWorkOrderCandidateReason(report.status, failingChecks),
+        reportId: report.id,
+        score: report.score,
+        status: report.status
+      };
+    });
+
+  return {
+    candidateCount: candidates.length,
+    candidates,
+    excludedStrongCount: reports.filter((report) => report.status === "strong").length,
+    reportIds: candidates.map((candidate) => candidate.reportId)
   };
 }
 
@@ -357,6 +528,42 @@ export function getGeoVisibilityCreateFeedback(
   if (status === "failed") {
     return {
       message: "GEO 노출 리포트 생성에 실패했습니다. API 서버를 확인한 뒤 다시 시도하세요.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
+export function getGeoAnswerMonitorQueueFeedback(
+  status: string | undefined,
+  jobId: string | undefined,
+  providers: string | undefined,
+  queryCount: string | undefined,
+): GeoAnswerMonitorQueueFeedback | null {
+  const providerLabel = providers ? providers.split(",").filter(Boolean).join(", ") : null;
+  const queryLabel = queryCount ? `${queryCount}개 질의` : "배치 질의";
+
+  if (status === "queued") {
+    return {
+      message: jobId
+        ? `GEO answer monitor 작업이 큐에 등록되었습니다: ${jobId} (${queryLabel}${providerLabel ? `, ${providerLabel}` : ""})`
+        : `GEO answer monitor 작업이 큐에 등록되었습니다 (${queryLabel}).`,
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message:
+        "데모 데이터 모드: GEO answer monitor 큐를 등록하려면 SEARCHOPS_API_BASE_URL과 API/worker 런타임을 설정하세요.",
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "GEO answer monitor 큐 등록에 실패했습니다. API 서버와 Redis/worker 설정을 확인하세요.",
       tone: "warning"
     };
   }
@@ -416,6 +623,18 @@ export function formatGeoDate(isoDate: string) {
   return isoDate.replace("T", " ").slice(0, 16);
 }
 
+export function formatGeoWorkOrderCandidatePriority(
+  priority: GeoWorkOrderPreviewCandidate["priority"],
+) {
+  const labels = {
+    p0: "P0",
+    p1: "P1",
+    p2: "P2"
+  } as const satisfies Record<GeoWorkOrderPreviewCandidate["priority"], string>;
+
+  return labels[priority];
+}
+
 export function createDemoGeoObservations(site: Site): GeoAnswerObservation[] {
   const brandName = site.name ?? site.domain;
   const locale = `${site.language}-${site.country}`;
@@ -459,6 +678,48 @@ function createGeoTarget(site: Site) {
     market: site.country,
     siteId: site.id
   };
+}
+
+function parseGeoAnswerMonitorProviders(formData: FormData | undefined) {
+  const providers = (formData?.getAll("providers") ?? [])
+    .map((provider) => String(provider))
+    .filter((provider) => provider.length > 0)
+    .map((provider) => GeoAnswerMonitorProviderSchema.parse(provider));
+
+  return providers.length > 0 ? providers : defaultGeoAnswerMonitorProviders;
+}
+
+function getGeoWorkOrderCandidatePriority(
+  status: GeoVisibilityStatus,
+): GeoWorkOrderPreviewCandidate["priority"] {
+  if (status === "not_visible") {
+    return "p0";
+  }
+
+  if (status === "weak") {
+    return "p1";
+  }
+
+  return "p2";
+}
+
+function getGeoWorkOrderCandidateReason(
+  status: GeoVisibilityStatus,
+  failingChecks: readonly string[],
+) {
+  if (status === "not_visible") {
+    return "브랜드 언급 또는 소유 URL 인용이 확인되지 않았습니다.";
+  }
+
+  if (status === "weak") {
+    return "언급률/인용률 기준 미달 리포트입니다.";
+  }
+
+  if (failingChecks.includes("COMPETITOR_CITATION_RISK")) {
+    return "경쟁사 인용 리스크가 있어 보강 작업 후보입니다.";
+  }
+
+  return "부분 노출 상태라 추가 소유 URL 인용 보강 후보입니다.";
 }
 
 function createCheck(

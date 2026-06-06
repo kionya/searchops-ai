@@ -16,17 +16,26 @@ import {
   thStyle
 } from "../../../../src/dashboard-table-styles";
 import {
+  defaultGeoAnswerMonitorProviders,
   formatGeoDate,
   formatGeoProvider,
   formatGeoStatus,
+  formatGeoWorkOrderCandidatePriority,
+  geoAnswerMonitorProviderOptions,
+  getGeoAnswerMonitorQueueFeedback,
   getGeoVisibilityCreateFeedback,
   getGeoVisibilityStatusTone,
   getGeoVisibilityWorkOrderFeedback,
   loadGeoVisibilityDashboard,
+  summarizeGeoWorkOrderBatchPreview,
   summarizeGeoVisibilityDashboard,
   type GeoVisibilityTone
 } from "../../../../src/geo-visibility-dashboard";
-import { createGeoVisibilityReportAction, createGeoWorkOrderAction } from "./actions";
+import {
+  createGeoVisibilityReportAction,
+  createGeoWorkOrderAction,
+  queueGeoAnswerMonitorAction
+} from "./actions";
 
 interface GeoPageProps {
   readonly params: Promise<{
@@ -34,6 +43,10 @@ interface GeoPageProps {
   }>;
   readonly searchParams: Promise<{
     readonly geo?: string;
+    readonly jobId?: string;
+    readonly monitor?: string;
+    readonly providers?: string;
+    readonly queryCount?: string;
     readonly reportId?: string;
     readonly workOrder?: string;
     readonly workOrderId?: string;
@@ -46,9 +59,16 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const site = resolveDashboardSite(siteId);
   const dashboard = await loadGeoVisibilityDashboard(site);
   const summary = summarizeGeoVisibilityDashboard(dashboard);
+  const workOrderPreview = summarizeGeoWorkOrderBatchPreview(dashboard.reports);
   const createFeedback = getGeoVisibilityCreateFeedback(
     createSearchParams.geo,
     createSearchParams.reportId,
+  );
+  const monitorFeedback = getGeoAnswerMonitorQueueFeedback(
+    createSearchParams.monitor,
+    createSearchParams.jobId,
+    createSearchParams.providers,
+    createSearchParams.queryCount,
   );
   const workOrderFeedback = getGeoVisibilityWorkOrderFeedback(
     createSearchParams.workOrder,
@@ -72,6 +92,8 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
       <GeoCreatePanel
         siteId={siteId}
         createFeedback={createFeedback}
+        monitorFeedback={monitorFeedback}
+        workOrderPreview={workOrderPreview}
         workOrderFeedback={workOrderFeedback}
       />
       <section aria-label="GEO 노출 리포트" style={tableSectionStyle}>
@@ -158,6 +180,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
           </table>
         </div>
       </section>
+      <GeoWorkOrderPreviewSection workOrderPreview={workOrderPreview} />
       <section aria-label="GEO 관측 상세" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -172,6 +195,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
             <thead>
               <tr>
                 <th style={thStyle}>Provider</th>
+                <th style={thStyle}>소스</th>
                 <th style={thStyle}>질의</th>
                 <th style={thStyle}>답변 근거</th>
                 <th style={thStyle}>인용 URL</th>
@@ -181,6 +205,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
               {(dashboard.reports[0]?.observations ?? []).map((observation) => (
                 <tr key={`${observation.provider}-${observation.query}`}>
                   <td style={tdStyle}>{formatGeoProvider(observation.provider)}</td>
+                  <td style={tdStyle}>{formatGeoObservationSource(observation.source)}</td>
                   <td style={tdStyle}>{observation.query}</td>
                   <td style={{ ...tdStyle, maxWidth: 340 }}>{observation.answerText || "답변 텍스트 없음"}</td>
                   <td style={{ ...tdStyle, ...codeTextStyle, maxWidth: 320 }}>
@@ -200,25 +225,38 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
 
 function GeoCreatePanel({
   createFeedback,
+  monitorFeedback,
+  workOrderPreview,
   workOrderFeedback,
   siteId
 }: {
   readonly createFeedback: ReturnType<typeof getGeoVisibilityCreateFeedback>;
+  readonly monitorFeedback: ReturnType<typeof getGeoAnswerMonitorQueueFeedback>;
+  readonly workOrderPreview: ReturnType<typeof summarizeGeoWorkOrderBatchPreview>;
   readonly workOrderFeedback: ReturnType<typeof getGeoVisibilityWorkOrderFeedback>;
   readonly siteId: string;
 }) {
-  const action = createGeoVisibilityReportAction.bind(null, siteId);
+  const createAction = createGeoVisibilityReportAction.bind(null, siteId);
+  const monitorAction = queueGeoAnswerMonitorAction.bind(null, siteId);
 
   return (
     <section aria-label="GEO 노출 리포트 생성" style={createPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>GEO 모니터 실행</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          데모 답변 관측으로 결정론적 노출 리포트를 저장합니다.
+          fixture 관측 저장과 provider 배치 관측 큐 등록을 분리해 추적합니다.
+        </p>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 8 }}>
+          작업 후보 {workOrderPreview.candidateCount}개, 강한 리포트 제외 {workOrderPreview.excludedStrongCount}개.
         </p>
         {createFeedback ? (
           <p style={{ ...feedbackStyle[createFeedback.tone], margin: "10px 0 0" }}>
             {createFeedback.message}
+          </p>
+        ) : null}
+        {monitorFeedback ? (
+          <p style={{ ...feedbackStyle[monitorFeedback.tone], margin: "10px 0 0" }}>
+            {monitorFeedback.message}
           </p>
         ) : null}
         {workOrderFeedback ? (
@@ -227,11 +265,103 @@ function GeoCreatePanel({
           </p>
         ) : null}
       </div>
-      <form action={action}>
-        <button style={createButtonStyle} type="submit">
-          모니터 실행
-        </button>
-      </form>
+      <div style={createPanelActionGridStyle}>
+        <form action={createAction} style={monitorFormStyle}>
+          <strong style={panelActionTitleStyle}>Fixture 리포트</strong>
+          <span style={panelActionDescriptionStyle}>저장 가능한 결정론적 관측 3건</span>
+          <button style={createButtonStyle} type="submit">
+            리포트 생성
+          </button>
+        </form>
+        <form action={monitorAction} style={monitorFormStyle}>
+          <strong style={panelActionTitleStyle}>Provider 배치 관측</strong>
+          <div style={providerGridStyle}>
+            {geoAnswerMonitorProviderOptions.map((provider) => (
+              <label key={provider} style={providerOptionStyle}>
+                <input
+                  defaultChecked={defaultGeoAnswerMonitorProviders.includes(provider)}
+                  name="providers"
+                  type="checkbox"
+                  value={provider}
+                />
+                <span>{formatGeoProvider(provider)}</span>
+              </label>
+            ))}
+          </div>
+          <button style={secondaryButtonStyle} type="submit">
+            큐 등록
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function GeoWorkOrderPreviewSection({
+  workOrderPreview
+}: {
+  readonly workOrderPreview: ReturnType<typeof summarizeGeoWorkOrderBatchPreview>;
+}) {
+  return (
+    <section aria-label="GEO 작업 지시서 후보" style={tableSectionStyle}>
+      <header style={tableHeaderStyle}>
+        <div>
+          <h3 style={{ fontSize: 18, margin: 0 }}>작업 지시서 후보 미리보기</h3>
+          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            strong 상태를 제외한 리포트 {workOrderPreview.candidateCount}개를 우선순위별로 검토합니다.
+          </p>
+        </div>
+        <span style={{ ...pillStyle, background: "#f8fafc", color: "#172033" }}>
+          후보 {workOrderPreview.candidateCount}
+        </span>
+      </header>
+      <div style={tableScrollStyle}>
+        <table style={{ ...tableStyle, minWidth: 840 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>우선순위</th>
+              <th style={thStyle}>리포트</th>
+              <th style={thStyle}>상태</th>
+              <th style={thStyle}>점수</th>
+              <th style={thStyle}>근거</th>
+              <th style={thStyle}>체크</th>
+            </tr>
+          </thead>
+          <tbody>
+            {workOrderPreview.candidates.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
+                  작업 지시서 후보가 없습니다.
+                </td>
+              </tr>
+            ) : (
+              workOrderPreview.candidates.map((candidate) => (
+                <tr key={candidate.reportId}>
+                  <td style={tdStyle}>
+                    <span style={{ ...pillStyle, ...priorityToneStyle[candidate.priority] }}>
+                      {formatGeoWorkOrderCandidatePriority(candidate.priority)}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, ...codeTextStyle }}>{candidate.reportId}</td>
+                  <td style={tdStyle}>
+                    <TonePill
+                      label={formatGeoStatus(candidate.status)}
+                      tone={getGeoVisibilityStatusTone(candidate.status)}
+                    />
+                  </td>
+                  <td style={tdStyle}>{candidate.score}</td>
+                  <td style={tdStyle}>{candidate.reason}</td>
+                  <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    {candidate.failingChecks.length === 0
+                      ? "부분 노출"
+                      : candidate.failingChecks.join(", ")}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -252,15 +382,64 @@ function TonePill({
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
 }
 
+function formatGeoObservationSource(source: "manual" | "fixture" | "connector") {
+  const labels = {
+    connector: "Connector",
+    fixture: "Fixture",
+    manual: "수동"
+  } as const satisfies Record<"manual" | "fixture" | "connector", string>;
+
+  return labels[source];
+}
+
 const createPanelStyle = {
-  alignItems: "center",
+  alignItems: "start",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  display: "flex",
+  display: "grid",
   gap: 16,
-  justifyContent: "space-between",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
   marginTop: 14,
   padding: 16
+} as const;
+
+const createPanelActionGridStyle = {
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
+} as const;
+
+const monitorFormStyle = {
+  alignItems: "start",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
+  display: "grid",
+  gap: 10,
+  padding: 12
+} as const;
+
+const panelActionTitleStyle = {
+  color: "#172033",
+  fontSize: 14
+} as const;
+
+const panelActionDescriptionStyle = {
+  color: "#64748b",
+  fontSize: 13
+} as const;
+
+const providerGridStyle = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))"
+} as const;
+
+const providerOptionStyle = {
+  alignItems: "center",
+  color: "#172033",
+  display: "flex",
+  fontSize: 13,
+  gap: 7
 } as const;
 
 const createButtonStyle = {
@@ -285,6 +464,12 @@ const secondaryButtonStyle = {
   fontWeight: 800,
   minHeight: 38,
   padding: "9px 12px"
+} as const;
+
+const priorityToneStyle = {
+  p0: { background: "#fef2f2", color: "#b91c1c" },
+  p1: { background: "#fff7ed", color: "#c2410c" },
+  p2: { background: "#eef2ff", color: "#3730a3" }
 } as const;
 
 const feedbackStyle = {

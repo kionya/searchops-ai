@@ -23,8 +23,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Done |
 | 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Done |
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Done |
-| 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Next |
-| 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Pending |
+| 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Done |
+| 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Next |
 | 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Pending |
 | 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Pending |
 
@@ -74,3 +74,12 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] Schema recommendation rows keep work-order creation, deterministic recheck, and rich-result validation actions together.
 - [x] Queue feedback shows the validation job id when the API returns one.
 - [x] Focused web tests, typecheck, lint, and browser verification pass before moving to GEO observation/batch UX.
+
+## Current Task 8 Acceptance Criteria
+
+- [x] GEO dashboard separates fixture report creation from provider batch observation queue registration.
+- [x] GEO answer monitor queue requests use the existing `POST /sites/:siteId/geo-answer-monitor-jobs` API contract and do not call live providers from the web app.
+- [x] Queue feedback shows job id, provider list, and query count when the API returns them.
+- [x] Work-order candidate preview lists non-strong reports with priority, failing checks, and report ids before row-level conversion.
+- [x] Observation details show whether data came from manual, fixture, or connector sources.
+- [x] Focused web tests, typecheck, lint, and desktop/mobile browser verification pass before moving to compliance hardening.

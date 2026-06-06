@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { resolveDashboardSite } from "../../../../src/dashboard-shell";
 import {
   convertGeoVisibilityReportToWorkOrder,
-  createGeoVisibilityReportFromFixture
+  createGeoVisibilityReportFromFixture,
+  queueGeoAnswerMonitorJob
 } from "../../../../src/geo-visibility-dashboard";
 
 export async function createGeoVisibilityReportAction(siteId: string, _formData: FormData) {
@@ -21,6 +22,26 @@ export async function createGeoVisibilityReportAction(siteId: string, _formData:
     }
   } catch {
     searchParams.set("geo", "failed");
+  }
+
+  revalidatePath(`/sites/${siteId}/geo`);
+  redirect(`/sites/${siteId}/geo?${searchParams.toString()}`);
+}
+
+export async function queueGeoAnswerMonitorAction(siteId: string, formData: FormData) {
+  const searchParams = new URLSearchParams();
+  const site = resolveDashboardSite(siteId);
+
+  try {
+    const result = await queueGeoAnswerMonitorJob(site, formData);
+    searchParams.set("monitor", result.status);
+    searchParams.set("providers", result.providers.join(","));
+    searchParams.set("queryCount", String(result.queryCount));
+    if (result.jobId) {
+      searchParams.set("jobId", result.jobId);
+    }
+  } catch {
+    searchParams.set("monitor", "failed");
   }
 
   revalidatePath(`/sites/${siteId}/geo`);

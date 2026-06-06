@@ -101,15 +101,21 @@ import {
 import {
   convertGeoVisibilityReportToWorkOrder,
   createDemoGeoVisibilityDashboard,
+  createGeoAnswerMonitorRequestFromForm,
   createGeoVisibilityReportFromFixture,
+  defaultGeoAnswerMonitorProviders,
   demoGeoVisibilityReports,
   formatGeoDate,
   formatGeoProvider,
   formatGeoStatus,
+  formatGeoWorkOrderCandidatePriority,
+  getGeoAnswerMonitorQueueFeedback,
   getGeoVisibilityCreateFeedback,
   getGeoVisibilityStatusTone,
   getGeoVisibilityWorkOrderFeedback,
   loadGeoVisibilityDashboard,
+  queueGeoAnswerMonitorJob,
+  summarizeGeoWorkOrderBatchPreview,
   summarizeGeoVisibilityDashboard
 } from "./geo-visibility-dashboard";
 import {
@@ -381,6 +387,15 @@ describe("web foundation", () => {
     expect(formatGeoStatus("not_visible")).toBe("미노출");
     expect(formatGeoProvider("chatgpt")).toBe("ChatGPT");
     expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 00:00");
+    const preview = summarizeGeoWorkOrderBatchPreview(dashboard.reports);
+    expect(preview).toMatchObject({
+      candidateCount: 1,
+      excludedStrongCount: 1,
+      reportIds: ["geo_report_demo_visible"]
+    });
+    expect(preview.candidates[0]?.priority).toBe("p2");
+    expect(formatGeoWorkOrderCandidatePriority(preview.candidates[0]?.priority ?? "p2"))
+      .toBe("P2");
   });
 
   it("loads GEO visibility reports through the API response contract", async () => {
@@ -474,6 +489,95 @@ describe("web foundation", () => {
     );
   });
 
+  it("builds deterministic GEO answer monitor queue requests from form data", () => {
+    const formData = new FormData();
+    formData.append("providers", "chatgpt");
+    formData.append("providers", "gemini");
+
+    expect(
+      createGeoAnswerMonitorRequestFromForm(demoSite, formData, {
+        observedAt: "2026-05-24T00:00:00.000Z"
+      }),
+    ).toMatchObject({
+      observedAt: "2026-05-24T00:00:00.000Z",
+      providers: ["chatgpt", "gemini"],
+      queries: [
+        {
+          locale: "ko-KR",
+          query: "답변엔진 최적화 클리닉"
+        },
+        {
+          locale: "ko-KR",
+          query: "의료 SEO 체크리스트"
+        },
+        {
+          locale: "ko-KR",
+          query: "강남 SEO 클리닉"
+        }
+      ],
+      target: {
+        domain: demoSite.domain,
+        siteId: demoSite.id
+      }
+    });
+  });
+
+  it("queues GEO answer monitor jobs through the API response contract", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/sites/${demoSite.id}/geo-answer-monitor-jobs`,
+        );
+        expect(init?.method).toBe("POST");
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          providers: ["chatgpt", "perplexity"],
+          target: {
+            domain: demoSite.domain,
+            siteId: demoSite.id
+          }
+        });
+        expect(body.queries).toHaveLength(3);
+
+        return Response.json({
+          job: {
+            id: "job_geo_answer_monitor",
+            name: "geo-answer-monitor",
+            payload: {
+              organizationId: "org_demo",
+              siteId: demoSite.id,
+              siteDomain: demoSite.domain,
+              requestedByUserId: "user_demo",
+              target: body.target,
+              queries: body.queries,
+              observedAt: body.observedAt,
+              providers: body.providers
+            }
+          }
+        });
+      }),
+    );
+
+    await expect(queueGeoAnswerMonitorJob(demoSite)).resolves.toMatchObject({
+      jobId: "job_geo_answer_monitor",
+      providerCount: 2,
+      providers: ["chatgpt", "perplexity"],
+      queryCount: 3,
+      source: "api",
+      status: "queued"
+    });
+    expect(
+      getGeoAnswerMonitorQueueFeedback(
+        "queued",
+        "job_geo_answer_monitor",
+        "chatgpt,perplexity",
+        "3",
+      )?.message,
+    ).toContain("job_geo_answer_monitor");
+  });
+
   it("creates GEO work orders through the API response contract", async () => {
     const report = demoGeoVisibilityReports[1];
     const workOrder = demoWorkOrders[0];
@@ -530,6 +634,14 @@ describe("web foundation", () => {
       status: "fixture"
     });
     expect(getGeoVisibilityCreateFeedback("fixture", undefined)?.tone).toBe("info");
+    await expect(queueGeoAnswerMonitorJob(demoSite)).resolves.toMatchObject({
+      jobId: null,
+      providers: defaultGeoAnswerMonitorProviders,
+      source: "fixture",
+      status: "fixture"
+    });
+    expect(getGeoAnswerMonitorQueueFeedback("fixture", undefined, undefined, undefined)?.tone)
+      .toBe("info");
     await expect(convertGeoVisibilityReportToWorkOrder("geo_report_demo_visible"))
       .resolves.toMatchObject({
         reportId: "geo_report_demo_visible",
