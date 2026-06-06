@@ -19,8 +19,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 1 | Connector live setup verification | Local/deploy env can be checked safely without external API calls or secret disclosure. | Done |
 | 2 | Local dev execution polish | API/worker/web startup and common failure states are documented or scripted. | Done |
 | 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Done |
-| 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Next |
-| 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Pending |
+| 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Done |
+| 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Next |
 | 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Pending |
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Pending |
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Pending |
@@ -42,3 +42,11 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] OAuth credential status uses the API contract when the API is configured and fixture data otherwise.
 - [x] The dashboard keeps GSC-only and GA4-only sync actions visible beside setup state.
 - [x] Focused web tests, typecheck, lint, and browser verification pass before moving to PageSpeed work.
+
+## Current Task 4 Acceptance Criteria
+
+- [x] Connector dashboard shows PageSpeed live setup status from `GET /ops/connector-live-setup`.
+- [x] PageSpeed status falls back to deterministic fixture data when the API base URL is absent or unavailable.
+- [x] PageSpeed API key requirements are shown without exposing any secret value.
+- [x] The PageSpeed-only sync action remains visible next to setup state.
+- [x] Focused web tests, typecheck, lint, and browser verification pass before moving to connector operations UX.

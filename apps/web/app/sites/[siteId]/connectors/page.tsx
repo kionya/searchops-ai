@@ -16,6 +16,13 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import { formatBooleanLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
+  formatConnectorLiveSetupStatus,
+  getConnectorLiveSetupTone,
+  getPageSpeedLiveSetupCheck,
+  loadConnectorLiveSetupData,
+  type ConnectorLiveSetupTone
+} from "../../../../src/connector-live-setup";
+import {
   formatConnectorOAuthDate,
   formatConnectorOAuthStatus,
   getConnectorOAuthTone,
@@ -56,12 +63,14 @@ interface ConnectorsPageProps {
 export default async function ConnectorsPage({ params, searchParams }: ConnectorsPageProps) {
   const { siteId } = await params;
   const triggerSearchParams = await searchParams;
-  const [history, oauthData] = await Promise.all([
+  const [history, oauthData, liveSetupData] = await Promise.all([
     loadConnectorSyncHistory(siteId),
-    loadConnectorOAuthData(siteId)
+    loadConnectorOAuthData(siteId),
+    loadConnectorLiveSetupData()
   ]);
   const summary = summarizeConnectorSyncHistory(history);
   const oauthStatuses = summarizeConnectorOAuthProviders(oauthData.credentials);
+  const pageSpeedSetupCheck = getPageSpeedLiveSetupCheck(liveSetupData.report);
   const allResults = Object.values(history.resultsByRunId).flat();
   const runsById = new Map(history.runs.map((run) => [run.id, run]));
   const triggerFeedback = getConnectorSyncTriggerFeedback(
@@ -88,6 +97,11 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         oauthSource={oauthData.source}
         oauthStatuses={oauthStatuses}
         siteId={siteId}
+      />
+      <PageSpeedSetupPanel
+        errorMessage={liveSetupData.errorMessage}
+        pageSpeedCheck={pageSpeedSetupCheck}
+        source={liveSetupData.source}
       />
       <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
       <section aria-label="커넥터 동기화 실행" style={tableSectionStyle}>
@@ -238,6 +252,54 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
           </table>
         </div>
       </section>
+    </section>
+  );
+}
+
+function PageSpeedSetupPanel({
+  errorMessage,
+  pageSpeedCheck,
+  source
+}: {
+  readonly errorMessage: string | null;
+  readonly pageSpeedCheck: ReturnType<typeof getPageSpeedLiveSetupCheck>;
+  readonly source: string;
+}) {
+  return (
+    <section aria-label="PageSpeed live setup" style={liveSetupPanelStyle}>
+      <div>
+        <h3 style={{ fontSize: 18, margin: 0 }}>PageSpeed live setup</h3>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          {pageSpeedCheck.summary}
+        </p>
+        <p style={{ ...mutedTextStyle, fontSize: 12, marginTop: 6 }}>
+          조치: {pageSpeedCheck.nextAction}
+        </p>
+        {errorMessage ? (
+          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
+            Live setup 조회 실패: {errorMessage}
+          </p>
+        ) : null}
+      </div>
+      <div style={liveSetupStatusBoxStyle}>
+        <LiveSetupStatusPill
+          label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
+          tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
+        />
+        <span style={{ ...codeTextStyle, color: "#475569", marginTop: 8 }}>
+          {pageSpeedCheck.envKeys.join(", ")}
+        </span>
+        <span
+          style={{
+            ...pillStyle,
+            background: source === "api" ? "#ecfdf5" : "#eef2ff",
+            color: source === "api" ? "#047857" : "#3730a3",
+            marginTop: 8
+          }}
+        >
+          {source === "api" ? "Live setup API 데이터" : "Live setup 데모 데이터"}
+        </span>
+      </div>
     </section>
   );
 }
@@ -430,6 +492,23 @@ function OAuthStatusPill({
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
 }
 
+function LiveSetupStatusPill({
+  label,
+  tone
+}: {
+  readonly label: string;
+  readonly tone: ConnectorLiveSetupTone;
+}) {
+  const toneStyle = {
+    missing: { background: "#fefce8", color: "#a16207" },
+    ready: { background: "#ecfdf5", color: "#047857" },
+    risk: { background: "#fef2f2", color: "#b91c1c" },
+    warning: { background: "#fff7ed", color: "#c2410c" }
+  }[tone];
+
+  return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
+}
+
 function formatDateTime(isoDate: string | null) {
   if (isoDate === null) {
     return "대기 중";
@@ -451,6 +530,24 @@ const oauthPanelStyle = {
   gridTemplateColumns: "minmax(0, 1fr) auto",
   marginTop: 14,
   padding: 16
+} as const;
+
+const liveSetupPanelStyle = {
+  alignItems: "start",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  display: "grid",
+  gap: 16,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  marginTop: 14,
+  padding: 16
+} as const;
+
+const liveSetupStatusBoxStyle = {
+  alignItems: "flex-start",
+  display: "flex",
+  flexDirection: "column",
+  minWidth: 220
 } as const;
 
 const oauthButtonGroupStyle = {

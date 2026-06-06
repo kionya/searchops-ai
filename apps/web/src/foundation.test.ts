@@ -15,6 +15,13 @@ import {
 } from "./dashboard-shell";
 import { getApiBaseUrl } from "./api-base-url";
 import {
+  createDemoConnectorLiveSetupData,
+  formatConnectorLiveSetupStatus,
+  getConnectorLiveSetupTone,
+  getPageSpeedLiveSetupCheck,
+  loadConnectorLiveSetupData
+} from "./connector-live-setup";
+import {
   createDemoConnectorOAuthData,
   formatConnectorOAuthStatus,
   getConnectorOAuthTone,
@@ -1203,6 +1210,66 @@ describe("web foundation", () => {
 
   it("falls back to fixture Google connector OAuth data without an API base URL", async () => {
     await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+      source: "fixture"
+    });
+  });
+
+  it("summarizes PageSpeed live setup status from the safe setup report", () => {
+    const data = createDemoConnectorLiveSetupData();
+    const check = getPageSpeedLiveSetupCheck(data.report);
+
+    expect(check).toMatchObject({
+      area: "pagespeed",
+      envKeys: ["SEARCHOPS_PAGESPEED_API_KEY"],
+      status: "needs_provisioning"
+    });
+    expect(formatConnectorLiveSetupStatus("ready")).toBe("준비됨");
+    expect(getConnectorLiveSetupTone("blocked")).toBe("risk");
+  });
+
+  it("loads PageSpeed live setup status through the ops API contract", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/connector-live-setup");
+        return Response.json({
+          generatedAt: "2026-05-27T00:00:00.000Z",
+          environment: "deployment",
+          liveExternalApis: "enabled",
+          canRunFixtureMode: false,
+          canRunLiveConnectorSync: true,
+          checks: [
+            {
+              id: "pagespeed-live-credential",
+              area: "pagespeed",
+              title: "PageSpeed live credential",
+              status: "ready",
+              summary: "PageSpeed Insights API key가 설정되어 있습니다.",
+              nextAction: "PageSpeed만 단독 동기화해 quota와 응답 상태를 확인하세요.",
+              envKeys: ["SEARCHOPS_PAGESPEED_API_KEY"]
+            }
+          ],
+          summary: {
+            ready: 1,
+            configured: 0,
+            needsProvisioning: 0,
+            warnings: 0,
+            blocked: 0,
+            total: 1
+          }
+        });
+      }),
+    );
+
+    const data = await loadConnectorLiveSetupData();
+
+    expect(data.source).toBe("api");
+    expect(getPageSpeedLiveSetupCheck(data.report).status).toBe("ready");
+  });
+
+  it("falls back to fixture PageSpeed live setup data without an API base URL", async () => {
+    await expect(loadConnectorLiveSetupData()).resolves.toMatchObject({
       source: "fixture"
     });
   });
