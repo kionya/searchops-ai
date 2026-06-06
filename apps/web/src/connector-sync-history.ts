@@ -16,6 +16,8 @@ export type ConnectorSyncHistorySource = "api" | "fixture";
 export type ConnectorSyncTriggerStatus = "failed" | "fixture" | "queued";
 export type ConnectorSyncRunTone = "complete" | "failed" | "partial" | "queued";
 export type ConnectorSyncResultTone = "failed" | "ok" | "partial" | "setup";
+export type ConnectorOperationStatus = ConnectorSyncResult["status"] | "not_run" | "queued";
+export type ConnectorOperationTone = ConnectorSyncResultTone | "idle" | "queued";
 
 export const connectorProviderOptions = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
@@ -50,6 +52,23 @@ export interface ConnectorSyncTriggerResult {
 export interface ConnectorSyncTriggerFeedback {
   readonly message: string;
   readonly tone: "info" | "success" | "warning";
+}
+
+export interface ConnectorProviderErrorGuidance {
+  readonly code: string | null;
+  readonly message: string;
+  readonly nextAction: string | null;
+}
+
+export interface ConnectorOperationGuidance {
+  readonly latestRunId: string | null;
+  readonly message: string;
+  readonly nextAction: string;
+  readonly provider: ConnectorProvider;
+  readonly recordCount: number;
+  readonly retryLabel: string;
+  readonly status: ConnectorOperationStatus;
+  readonly tone: ConnectorOperationTone;
 }
 
 const connectorSyncHistoryFetchTimeoutMs = 4_000;
@@ -508,6 +527,101 @@ export function getConnectorSyncResultTone(status: string): ConnectorSyncResultT
   return "failed";
 }
 
+export function getConnectorOperationTone(status: ConnectorOperationStatus): ConnectorOperationTone {
+  if (status === "not_run") {
+    return "idle";
+  }
+
+  if (status === "queued") {
+    return "queued";
+  }
+
+  return getConnectorSyncResultTone(status);
+}
+
+export function summarizeConnectorOperations(
+  history: ConnectorSyncHistoryData,
+): ConnectorOperationGuidance[] {
+  return connectorProviderOptions.map((provider) => {
+    const latest = findLatestConnectorProviderState(history, provider);
+    const guidance = getConnectorSyncProviderErrorGuidance(latest.run, provider);
+    const status = latest.result?.status ?? (latest.run ? "queued" : "not_run");
+
+    return {
+      latestRunId: latest.run?.id ?? null,
+      message: guidance?.message ?? getDefaultConnectorOperationMessage(provider, status),
+      nextAction: guidance?.nextAction ?? getDefaultConnectorOperationNextAction(provider, status),
+      provider,
+      recordCount: latest.result?.recordCount ?? 0,
+      retryLabel: status === "ok" ? "다시 실행" : "단독 실행",
+      status,
+      tone: getConnectorOperationTone(status)
+    };
+  });
+}
+
+function findLatestConnectorProviderState(
+  history: ConnectorSyncHistoryData,
+  provider: ConnectorProvider,
+) {
+  for (const run of history.runs) {
+    const result = history.resultsByRunId[run.id]?.find((item) => item.provider === provider);
+    if (result) {
+      return { result, run };
+    }
+
+    if (run.providers.includes(provider) && (run.status === "queued" || run.status === "running")) {
+      return { result: null, run };
+    }
+  }
+
+  return { result: null, run: null };
+}
+
+function getDefaultConnectorOperationMessage(
+  provider: ConnectorProvider,
+  status: ConnectorOperationStatus,
+) {
+  const providerName = formatConnectorProvider(provider);
+
+  switch (status) {
+    case "ok":
+      return `${providerName} 최근 동기화가 정상 완료되었습니다.`;
+    case "partial":
+      return `${providerName} 최근 동기화가 일부 완료 상태입니다.`;
+    case "setup_required":
+      return `${providerName} live 설정 보완이 필요합니다.`;
+    case "failed":
+      return `${providerName} 최근 동기화가 실패했습니다.`;
+    case "queued":
+      return `${providerName} 동기화가 대기열에 있습니다.`;
+    case "not_run":
+      return `${providerName} 동기화 이력이 아직 없습니다.`;
+  }
+}
+
+function getDefaultConnectorOperationNextAction(
+  provider: ConnectorProvider,
+  status: ConnectorOperationStatus,
+) {
+  const providerName = formatConnectorProvider(provider);
+
+  switch (status) {
+    case "ok":
+      return `필요 시 ${providerName}만 단독 실행해 최신 상태를 갱신하세요.`;
+    case "partial":
+      return `${providerName} 결과 상세를 확인한 뒤 ${providerName}만 다시 실행하세요.`;
+    case "setup_required":
+      return `표시된 설정 항목을 보완한 뒤 ${providerName}만 다시 실행하세요.`;
+    case "failed":
+      return `${providerName} provider 오류 메시지를 확인하고 ${providerName}만 다시 실행하세요.`;
+    case "queued":
+      return "worker가 실행 중인지 확인하고 완료될 때까지 기다리세요.";
+    case "not_run":
+      return `${providerName}만 실행해 provider별 상태를 확인하세요.`;
+  }
+}
+
 export function getConnectorSyncRunErrorMessage(run: ConnectorSyncRun): string | null {
   if (run.summary === null) {
     return null;
@@ -528,32 +642,41 @@ export function getConnectorSyncRunProviderErrorMessages(run: ConnectorSyncRun):
     return [];
   }
 
-  const summary = run.summary as Record<string, unknown>;
-  const providerErrors = summary.providerErrors;
-  if (!providerErrors || typeof providerErrors !== "object" || Array.isArray(providerErrors)) {
+  const providerErrors = getConnectorSyncProviderErrors(run);
+  if (providerErrors === null) {
     return [];
   }
 
   return Object.entries(providerErrors)
-    .map(([provider, error]) => {
-      if (!error || typeof error !== "object" || Array.isArray(error)) {
-        return null;
-      }
-
-      const message = formatConnectorProviderErrorMessage(error as Record<string, unknown>);
-      if (message === null) {
-        return null;
-      }
-
-      return `${formatConnectorProvider(provider as ConnectorProvider)}: ${message}`;
-    })
+    .map(([provider, error]) => formatConnectorProviderGuidanceMessage(provider, readUnknownConnectorProviderError(error)))
     .filter((message): message is string => message !== null);
+}
+
+export function getConnectorSyncProviderErrorGuidance(
+  run: ConnectorSyncRun | null | undefined,
+  provider: ConnectorProvider,
+): ConnectorProviderErrorGuidance | null {
+  const providerErrors = getConnectorSyncProviderErrors(run);
+  if (providerErrors === null) {
+    return null;
+  }
+
+  const error = providerErrors[provider];
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return null;
+  }
+
+  return readConnectorProviderErrorGuidance(error as Record<string, unknown>);
 }
 
 export function getConnectorSyncProviderErrorMessage(
   run: ConnectorSyncRun | undefined,
   provider: ConnectorProvider,
 ): string | null {
+  return formatConnectorProviderErrorMessage(getConnectorSyncProviderErrorGuidance(run, provider));
+}
+
+function getConnectorSyncProviderErrors(run: ConnectorSyncRun | null | undefined) {
   if (!run || run.summary === null) {
     return null;
   }
@@ -564,15 +687,19 @@ export function getConnectorSyncProviderErrorMessage(
     return null;
   }
 
-  const error = (providerErrors as Record<string, unknown>)[provider];
+  return providerErrors as Record<string, unknown>;
+}
+
+function readUnknownConnectorProviderError(error: unknown) {
   if (!error || typeof error !== "object" || Array.isArray(error)) {
     return null;
   }
 
-  return formatConnectorProviderErrorMessage(error as Record<string, unknown>);
+  return readConnectorProviderErrorGuidance(error as Record<string, unknown>);
 }
 
-function formatConnectorProviderErrorMessage(error: Record<string, unknown>) {
+function readConnectorProviderErrorGuidance(error: Record<string, unknown>) {
+  const code = error.code;
   const operatorMessage = error.operatorMessage;
   const message = error.message;
   const nextAction = error.nextAction;
@@ -587,11 +714,31 @@ function formatConnectorProviderErrorMessage(error: Record<string, unknown>) {
     return null;
   }
 
-  if (typeof nextAction === "string" && nextAction.length > 0) {
-    return `${primary} 조치: ${nextAction}`;
+  return {
+    code: typeof code === "string" && code.length > 0 ? code : null,
+    message: primary,
+    nextAction: typeof nextAction === "string" && nextAction.length > 0 ? nextAction : null
+  };
+}
+
+function formatConnectorProviderGuidanceMessage(
+  provider: string,
+  guidance: ConnectorProviderErrorGuidance | null,
+) {
+  const message = formatConnectorProviderErrorMessage(guidance);
+  if (message === null) {
+    return null;
   }
 
-  return primary;
+  return `${formatConnectorProvider(provider as ConnectorProvider)}: ${message}`;
+}
+
+function formatConnectorProviderErrorMessage(guidance: ConnectorProviderErrorGuidance | null) {
+  if (guidance === null) {
+    return null;
+  }
+
+  return guidance.nextAction ? `${guidance.message} 조치: ${guidance.nextAction}` : guidance.message;
 }
 
 export function formatConnectorProvider(provider: ConnectorProvider) {

@@ -36,7 +36,9 @@ import {
   getConnectorSyncRunProviderErrorMessages,
   getConnectorSyncRunTone,
   getConnectorSyncTriggerFeedback,
+  getConnectorSyncProviderErrorGuidance,
   loadConnectorSyncHistory,
+  summarizeConnectorOperations,
   summarizeConnectorSyncHistory,
   triggerConnectorSync
 } from "./connector-sync-history";
@@ -1136,6 +1138,25 @@ describe("web foundation", () => {
     expect(getConnectorSyncProviderErrorMessage(runWithProviderErrors, "gsc")).toBe(
       "GSC OAuth credential is missing for this site.",
     );
+    const operations = summarizeConnectorOperations(history);
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "pagespeed",
+          status: "ok",
+          retryLabel: "다시 실행"
+        }),
+        expect.objectContaining({
+          provider: "cms",
+          status: "partial"
+        }),
+        expect.objectContaining({
+          provider: "bing",
+          latestRunId: null,
+          status: "not_run"
+        })
+      ]),
+    );
     const runWithOperatorGuidance = {
       ...firstRun,
       summary: {
@@ -1167,6 +1188,66 @@ describe("web foundation", () => {
     expect(getConnectorSyncRunProviderErrorMessages(runWithOperatorGuidance)).toEqual([
       "GA4: OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다. 조치: GA4 속성 액세스 관리에서 OAuth 계정을 뷰어 이상으로 추가하세요."
     ]);
+    expect(getConnectorSyncProviderErrorGuidance(runWithOperatorGuidance, "ga4")).toEqual({
+      code: "ga4_property_access_denied",
+      message: "OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다.",
+      nextAction: "GA4 속성 액세스 관리에서 OAuth 계정을 뷰어 이상으로 추가하세요."
+    });
+    const setupRequiredRun = {
+      ...firstRun,
+      id: "sync_setup_required",
+      providers: ["pagespeed" as const],
+      status: "partial" as const,
+      summary: {
+        failedProviders: 0,
+        okProviders: 0,
+        partialProviders: 0,
+        providerErrors: {
+          pagespeed: {
+            code: "pagespeed_api_key_missing",
+            message: "PageSpeed API key is missing in the worker runtime.",
+            nextAction:
+              "Railway worker에 SEARCHOPS_PAGESPEED_API_KEY를 추가한 뒤 PageSpeed만 다시 실행하세요.",
+            operatorMessage: "PageSpeed API Key가 worker 런타임에 설정되지 않았습니다."
+          }
+        },
+        recordCountsByProvider: {
+          bing: 0,
+          cms: 0,
+          ga4: 0,
+          gsc: 0,
+          pagespeed: 0
+        },
+        setupRequiredProviders: 1,
+        totalProviders: 1,
+        totalRecords: 0
+      }
+    };
+    const setupOperations = summarizeConnectorOperations({
+      ...history,
+      resultsByRunId: {
+        [setupRequiredRun.id]: [
+          {
+            id: "sync_result_setup_required",
+            syncRunId: setupRequiredRun.id,
+            provider: "pagespeed",
+            status: "setup_required",
+            fetchedAt: "2026-05-22T00:00:00.000Z",
+            fixture: false,
+            recordCount: 0,
+            records: [],
+            createdAt: "2026-05-22T00:00:00.000Z"
+          }
+        ]
+      },
+      runs: [setupRequiredRun]
+    });
+    expect(setupOperations.find((item) => item.provider === "pagespeed")).toMatchObject({
+      message: "PageSpeed API Key가 worker 런타임에 설정되지 않았습니다.",
+      nextAction: "Railway worker에 SEARCHOPS_PAGESPEED_API_KEY를 추가한 뒤 PageSpeed만 다시 실행하세요.",
+      retryLabel: "단독 실행",
+      status: "setup_required"
+    });
   });
 
   it("summarizes Google connector OAuth credentials", () => {

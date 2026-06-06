@@ -20,8 +20,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 2 | Local dev execution polish | API/worker/web startup and common failure states are documented or scripted. | Done |
 | 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Done |
 | 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Done |
-| 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Next |
-| 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Pending |
+| 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Done |
+| 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Next |
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Pending |
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Pending |
 | 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Pending |
@@ -50,3 +50,11 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] PageSpeed API key requirements are shown without exposing any secret value.
 - [x] The PageSpeed-only sync action remains visible next to setup state.
 - [x] Focused web tests, typecheck, lint, and browser verification pass before moving to connector operations UX.
+
+## Current Task 5 Acceptance Criteria
+
+- [x] Connector dashboard shows provider-level operations guidance for GSC, GA4, PageSpeed, Bing, and CMS.
+- [x] Provider status includes latest run, record count, partial failure, setup-required, and not-run states.
+- [x] Provider error metadata is split into operator message and next action instead of only concatenated text.
+- [x] Each provider row offers a one-provider retry action.
+- [x] Focused web tests, typecheck, lint, and browser verification pass before moving to Keyword/AEO work.

@@ -22,6 +22,7 @@ const statusLabels: Record<string, string> = {
   needs_work: "개선 필요",
   none: "없음",
   not_ready: "준비 부족",
+  not_run: "미실행",
   not_resolved: "미해결",
   not_visible: "미노출",
   ok: "정상",

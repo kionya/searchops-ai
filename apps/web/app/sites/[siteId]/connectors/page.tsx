@@ -35,6 +35,7 @@ import {
   formatConnectorProvider,
   formatConnectorProviders,
   formatSyncDuration,
+  summarizeConnectorOperations,
   getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
   getConnectorSyncRunErrorMessage,
@@ -43,6 +44,8 @@ import {
   getConnectorSyncProviderErrorMessage,
   loadConnectorSyncHistory,
   summarizeConnectorSyncHistory,
+  type ConnectorOperationGuidance,
+  type ConnectorOperationTone,
   type ConnectorSyncResultTone,
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
@@ -71,6 +74,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   const summary = summarizeConnectorSyncHistory(history);
   const oauthStatuses = summarizeConnectorOAuthProviders(oauthData.credentials);
   const pageSpeedSetupCheck = getPageSpeedLiveSetupCheck(liveSetupData.report);
+  const operationGuidance = summarizeConnectorOperations(history);
   const allResults = Object.values(history.resultsByRunId).flat();
   const runsById = new Map(history.runs.map((run) => [run.id, run]));
   const triggerFeedback = getConnectorSyncTriggerFeedback(
@@ -92,6 +96,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         <MetricCard label="설정 필요" value={String(summary.setupRequiredResults)} />
         <MetricCard label="동기화 기록" value={String(summary.totalRecords)} />
       </div>
+      <ConnectorOperationsPanel operations={operationGuidance} siteId={siteId} />
       <GoogleOAuthPanel
         oauthErrorMessage={oauthData.errorMessage}
         oauthSource={oauthData.source}
@@ -252,6 +257,69 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
           </table>
         </div>
       </section>
+    </section>
+  );
+}
+
+function ConnectorOperationsPanel({
+  operations,
+  siteId
+}: {
+  readonly operations: readonly ConnectorOperationGuidance[];
+  readonly siteId: string;
+}) {
+  const action = runConnectorSyncAction.bind(null, siteId);
+
+  return (
+    <section aria-label="Provider 운영 상태" style={tableSectionStyle}>
+      <header style={tableHeaderStyle}>
+        <div>
+          <h3 style={{ fontSize: 18, margin: 0 }}>Provider 운영 상태</h3>
+          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            Provider별 최근 결과와 다음 조치를 확인합니다.
+          </p>
+        </div>
+      </header>
+      <div style={tableScrollStyle}>
+        <table style={{ ...tableStyle, minWidth: 920 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Provider</th>
+              <th style={thStyle}>상태</th>
+              <th style={thStyle}>최근 실행</th>
+              <th style={thStyle}>기록</th>
+              <th style={thStyle}>안내</th>
+              <th style={thStyle}>조치</th>
+            </tr>
+          </thead>
+          <tbody>
+            {operations.map((item) => (
+              <tr key={item.provider}>
+                <td style={tdStyle}>{formatConnectorProvider(item.provider)}</td>
+                <td style={tdStyle}>
+                  <OperationStatusPill label={formatStatusLabel(item.status)} tone={item.tone} />
+                </td>
+                <td style={{ ...tdStyle, ...codeTextStyle }}>{item.latestRunId ?? "없음"}</td>
+                <td style={tdStyle}>{item.recordCount}</td>
+                <td style={tdStyle}>
+                  <span>{item.message}</span>
+                  <span style={{ color: "#475569", display: "block", fontSize: 12, marginTop: 5 }}>
+                    {item.nextAction}
+                  </span>
+                </td>
+                <td style={tdStyle}>
+                  <form action={action}>
+                    <input name="providers" type="hidden" value={item.provider} />
+                    <button style={quickProviderButtonStyle} type="submit">
+                      {item.retryLabel}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -504,6 +572,25 @@ function LiveSetupStatusPill({
     ready: { background: "#ecfdf5", color: "#047857" },
     risk: { background: "#fef2f2", color: "#b91c1c" },
     warning: { background: "#fff7ed", color: "#c2410c" }
+  }[tone];
+
+  return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
+}
+
+function OperationStatusPill({
+  label,
+  tone
+}: {
+  readonly label: string;
+  readonly tone: ConnectorOperationTone;
+}) {
+  const toneStyle = {
+    failed: { background: "#fef2f2", color: "#b91c1c" },
+    idle: { background: "#f8fafc", color: "#475569" },
+    ok: { background: "#ecfdf5", color: "#047857" },
+    partial: { background: "#fff7ed", color: "#c2410c" },
+    queued: { background: "#eef2ff", color: "#3730a3" },
+    setup: { background: "#fefce8", color: "#a16207" }
   }[tone];
 
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
