@@ -16,6 +16,14 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import { formatBooleanLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
+  formatConnectorOAuthDate,
+  formatConnectorOAuthStatus,
+  getConnectorOAuthTone,
+  loadConnectorOAuthData,
+  summarizeConnectorOAuthProviders,
+  type ConnectorOAuthTone
+} from "../../../../src/connector-oauth";
+import {
   connectorProviderOptions,
   formatConnectorProvider,
   formatConnectorProviders,
@@ -48,8 +56,12 @@ interface ConnectorsPageProps {
 export default async function ConnectorsPage({ params, searchParams }: ConnectorsPageProps) {
   const { siteId } = await params;
   const triggerSearchParams = await searchParams;
-  const history = await loadConnectorSyncHistory(siteId);
+  const [history, oauthData] = await Promise.all([
+    loadConnectorSyncHistory(siteId),
+    loadConnectorOAuthData(siteId)
+  ]);
   const summary = summarizeConnectorSyncHistory(history);
+  const oauthStatuses = summarizeConnectorOAuthProviders(oauthData.credentials);
   const allResults = Object.values(history.resultsByRunId).flat();
   const runsById = new Map(history.runs.map((run) => [run.id, run]));
   const triggerFeedback = getConnectorSyncTriggerFeedback(
@@ -71,7 +83,12 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         <MetricCard label="설정 필요" value={String(summary.setupRequiredResults)} />
         <MetricCard label="동기화 기록" value={String(summary.totalRecords)} />
       </div>
-      <GoogleOAuthPanel siteId={siteId} />
+      <GoogleOAuthPanel
+        oauthErrorMessage={oauthData.errorMessage}
+        oauthSource={oauthData.source}
+        oauthStatuses={oauthStatuses}
+        siteId={siteId}
+      />
       <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
       <section aria-label="커넥터 동기화 실행" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
@@ -225,7 +242,17 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   );
 }
 
-function GoogleOAuthPanel({ siteId }: { readonly siteId: string }) {
+function GoogleOAuthPanel({
+  oauthErrorMessage,
+  oauthSource,
+  oauthStatuses,
+  siteId
+}: {
+  readonly oauthErrorMessage: string | null;
+  readonly oauthSource: string;
+  readonly oauthStatuses: ReturnType<typeof summarizeConnectorOAuthProviders>;
+  readonly siteId: string;
+}) {
   const apiBaseUrl = getApiBaseUrl();
   const appBaseUrl = process.env.SEARCHOPS_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? null;
   const returnTo = appBaseUrl ? `${appBaseUrl}/sites/${siteId}/connectors` : null;
@@ -252,6 +279,11 @@ function GoogleOAuthPanel({ siteId }: { readonly siteId: string }) {
             SEARCHOPS_API_BASE_URL 환경변수가 설정되지 않아 OAuth URL을 생성할 수 없습니다.
           </p>
         ) : null}
+        {oauthErrorMessage ? (
+          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
+            OAuth 상태 조회 실패: {oauthErrorMessage}
+          </p>
+        ) : null}
       </div>
       <div style={oauthButtonGroupStyle}>
         {gscUrl ? (
@@ -269,6 +301,32 @@ function GoogleOAuthPanel({ siteId }: { readonly siteId: string }) {
             GSC + GA4 함께 연결
           </a>
         ) : null}
+      </div>
+      <div style={oauthStatusGridStyle}>
+        {oauthStatuses.map((item) => (
+          <div key={item.provider} style={oauthStatusItemStyle}>
+            <div style={oauthStatusHeaderStyle}>
+              <strong>{formatConnectorProvider(item.provider)}</strong>
+              <OAuthStatusPill label={formatConnectorOAuthStatus(item.status)} tone={getConnectorOAuthTone(item.status)} />
+            </div>
+            <p style={{ ...mutedTextStyle, fontSize: 12, margin: "7px 0 0" }}>
+              {item.credential?.externalAccountEmail ?? "연결된 Google 계정 없음"}
+            </p>
+            <p style={{ ...mutedTextStyle, fontSize: 12, margin: "4px 0 0" }}>
+              만료: {formatConnectorOAuthDate(item.credential?.tokenExpiresAt ?? null)}
+            </p>
+          </div>
+        ))}
+        <span
+          style={{
+            ...pillStyle,
+            background: oauthSource === "api" ? "#ecfdf5" : "#eef2ff",
+            color: oauthSource === "api" ? "#047857" : "#3730a3",
+            justifySelf: "start"
+          }}
+        >
+          {oauthSource === "api" ? "OAuth API 데이터" : "OAuth 데모 데이터"}
+        </span>
       </div>
     </section>
   );
@@ -356,6 +414,22 @@ function ResultStatusPill({
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
 }
 
+function OAuthStatusPill({
+  label,
+  tone
+}: {
+  readonly label: string;
+  readonly tone: ConnectorOAuthTone;
+}) {
+  const toneStyle = {
+    connected: { background: "#ecfdf5", color: "#047857" },
+    missing: { background: "#f8fafc", color: "#475569" },
+    risk: { background: "#fef2f2", color: "#b91c1c" }
+  }[tone];
+
+  return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
+}
+
 function formatDateTime(isoDate: string | null) {
   if (isoDate === null) {
     return "대기 중";
@@ -384,6 +458,26 @@ const oauthButtonGroupStyle = {
   display: "flex",
   flexWrap: "wrap" as const,
   gap: 8
+} as const;
+
+const oauthStatusGridStyle = {
+  display: "grid",
+  gap: 10,
+  gridColumn: "1 / -1",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
+} as const;
+
+const oauthStatusItemStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 8,
+  padding: 12
+} as const;
+
+const oauthStatusHeaderStyle = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between"
 } as const;
 
 const oauthLinkButtonStyle = {

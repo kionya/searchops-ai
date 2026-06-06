@@ -15,6 +15,13 @@ import {
 } from "./dashboard-shell";
 import { getApiBaseUrl } from "./api-base-url";
 import {
+  createDemoConnectorOAuthData,
+  formatConnectorOAuthStatus,
+  getConnectorOAuthTone,
+  loadConnectorOAuthData,
+  summarizeConnectorOAuthProviders
+} from "./connector-oauth";
+import {
   createDemoConnectorSyncHistory,
   formatSyncDuration,
   getConnectorSyncProviderErrorMessage,
@@ -1153,6 +1160,51 @@ describe("web foundation", () => {
     expect(getConnectorSyncRunProviderErrorMessages(runWithOperatorGuidance)).toEqual([
       "GA4: OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다. 조치: GA4 속성 액세스 관리에서 OAuth 계정을 뷰어 이상으로 추가하세요."
     ]);
+  });
+
+  it("summarizes Google connector OAuth credentials", () => {
+    const data = createDemoConnectorOAuthData("site_1");
+    const statuses = summarizeConnectorOAuthProviders(data.credentials);
+
+    expect(statuses).toEqual([
+      expect.objectContaining({
+        provider: "gsc",
+        status: "connected"
+      }),
+      expect.objectContaining({
+        credential: null,
+        provider: "ga4",
+        status: "missing"
+      })
+    ]);
+    expect(formatConnectorOAuthStatus("connected")).toBe("연결됨");
+    expect(getConnectorOAuthTone("revoked")).toBe("risk");
+  });
+
+  it("loads Google connector OAuth credentials through the API contract", async () => {
+    const data = createDemoConnectorOAuthData("site_1");
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/connectors/oauth");
+        return Response.json({
+          credentials: data.credentials
+        });
+      }),
+    );
+
+    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+      credentials: data.credentials,
+      errorMessage: null,
+      source: "api"
+    });
+  });
+
+  it("falls back to fixture Google connector OAuth data without an API base URL", async () => {
+    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+      source: "fixture"
+    });
   });
 
   it("loads connector sync history through the API response contracts", async () => {

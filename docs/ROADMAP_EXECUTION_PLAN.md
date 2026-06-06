@@ -18,8 +18,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 |---:|---|---|---|
 | 1 | Connector live setup verification | Local/deploy env can be checked safely without external API calls or secret disclosure. | Done |
 | 2 | Local dev execution polish | API/worker/web startup and common failure states are documented or scripted. | Done |
-| 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Next |
-| 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Pending |
+| 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Done |
+| 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Next |
 | 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Pending |
 | 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Pending |
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Pending |
@@ -35,3 +35,10 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] `GET /ops/connector-live-setup` returns a Zod-validated report with no secret values.
 - [x] Partial Google OAuth, non-numeric GA4 property IDs, and malformed CMS webhook secret JSON are blocked before live connector sync.
 - [x] Focused typecheck, lint, tests, and root `corepack pnpm verify` pass.
+
+## Current Task 3 Acceptance Criteria
+
+- [x] Connector dashboard shows GSC and GA4 OAuth status separately.
+- [x] OAuth credential status uses the API contract when the API is configured and fixture data otherwise.
+- [x] The dashboard keeps GSC-only and GA4-only sync actions visible beside setup state.
+- [x] Focused web tests, typecheck, lint, and browser verification pass before moving to PageSpeed work.
