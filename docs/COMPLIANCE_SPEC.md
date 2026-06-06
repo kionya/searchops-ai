@@ -90,6 +90,15 @@ When CMS webhook secrets are configured, the inbound event must include provider
 headers: `x-searchops-cms-type`, `x-searchops-timestamp`, and `x-searchops-signature`. The API
 verifies an HMAC-SHA256 signature over the timestamp plus canonical normalized event payload before
 running any compliance recheck side effects, and rejects stale timestamps outside the replay window.
+Provider-specific webhook routes can also verify selected native signatures for WordPress
+(`x-wp-webhook-timestamp`, `x-wp-webhook-signature`) and Webflow
+(`x-webflow-timestamp`, `x-webflow-signature`) over the timestamp plus canonical provider payload.
+Native verification is only a provider-route fallback; normalized CMS event routes still use the
+SearchOps HMAC contract.
+
+The `kr-medical` rule pack exposes a deterministic refinement workflow with rule coverage, market
+phrase refinement, legal owner review, and draft-only publish gate stages. Legal owner review remains
+explicitly marked as a manual approval step before phrase or severity changes are treated as approved.
 
 ## Current Limitations
 
@@ -99,5 +108,6 @@ running any compliance recheck side effects, and rejects stale timestamps outsid
 - ComplianceFlag to WorkOrder conversion is deterministic and legal-owned.
 - Rule pack selection is deterministic. The `kr-medical` pack now includes Korean-market medical advertising refinements.
 - Compliance reviews and rechecks do not publish content or push changes to a CMS.
-- Inbound CMS update events trigger rechecks only after provider-scoped signature verification when CMS webhook secrets are configured.
-- Provider-specific CMS payload adapters remain future hardening scope; the current endpoint accepts the normalized event contract.
+- Inbound CMS update events trigger rechecks only after SearchOps HMAC or selected provider-native signature verification when CMS webhook secrets are configured.
+- WordPress, Webflow, and generic headless CMS payload adapters normalize provider webhook payloads without live CMS fetches.
+- KR medical rule pack refinement now has deterministic workflow metadata, but legal/market owner approval is still a manual governance step.

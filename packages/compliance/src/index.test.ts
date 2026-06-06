@@ -7,6 +7,7 @@ import {
   complianceGenerationMode,
   compliancePackage,
   complianceRulePacks,
+  createComplianceRulePackRefinementPlan,
   defaultComplianceRules,
   evaluateCompliance,
   guaranteedResultClaimRule,
@@ -65,6 +66,30 @@ describe("compliance contracts", () => {
         }),
       ),
     ).toBe("global");
+  });
+
+  it("creates a deterministic KR medical rule pack refinement workflow", () => {
+    const plan = createComplianceRulePackRefinementPlan("kr-medical");
+
+    expect(plan).toMatchObject({
+      autoPublishAllowed: false,
+      generatedBy: "deterministic",
+      legalOwnerRequired: true,
+      publishPolicy: "draft_only",
+      ruleCount: supportedComplianceRuleIds.length,
+      rulePackId: "kr-medical",
+      supportedRuleIds: supportedComplianceRuleIds,
+    });
+    expect(plan.stages.map((stage) => stage.id)).toEqual([
+      "rule_coverage",
+      "market_phrase_refinement",
+      "legal_owner_review",
+      "draft_only_publish_gate",
+    ]);
+    expect(plan.stages.find((stage) => stage.id === "legal_owner_review")).toMatchObject({
+      status: "needs_owner",
+    });
+    expect(plan.stages.filter((stage) => stage.status === "blocked")).toHaveLength(0);
   });
 });
 

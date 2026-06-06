@@ -33,6 +33,27 @@ export interface ComplianceRulePack {
   readonly rules: readonly ComplianceRule[];
 }
 
+export type ComplianceRulePackRefinementStageStatus = "blocked" | "needs_owner" | "ready";
+
+export interface ComplianceRulePackRefinementStage {
+  readonly evidence: string;
+  readonly id: string;
+  readonly nextAction: string;
+  readonly status: ComplianceRulePackRefinementStageStatus;
+  readonly title: string;
+}
+
+export interface ComplianceRulePackRefinementPlan {
+  readonly autoPublishAllowed: false;
+  readonly generatedBy: typeof complianceGenerationMode;
+  readonly legalOwnerRequired: boolean;
+  readonly publishPolicy: "draft_only";
+  readonly ruleCount: number;
+  readonly rulePackId: ComplianceRulePackId;
+  readonly stages: readonly ComplianceRulePackRefinementStage[];
+  readonly supportedRuleIds: readonly ComplianceRuleId[];
+}
+
 interface CompliancePatternRuleConfig {
   readonly id: ComplianceRuleId;
   readonly riskLevel: ComplianceRiskLevel;
@@ -349,6 +370,71 @@ export function selectComplianceRulePackId(input: ComplianceReviewInput): Compli
   }
 
   return "global";
+}
+
+export function createComplianceRulePackRefinementPlan(
+  rulePackId: ComplianceRulePackId = "kr-medical",
+): ComplianceRulePackRefinementPlan {
+  const rulePack = complianceRulePacks[rulePackId];
+  const supportedRuleIds = rulePack.rules.map((rule) => rule.id);
+  const missingRuleIds = supportedComplianceRuleIds.filter(
+    (ruleId) => !supportedRuleIds.includes(ruleId),
+  );
+  const hasDraftOnlyGate = supportedRuleIds.includes("UNREVIEWED_MEDICAL_PUBLISH");
+
+  return {
+    autoPublishAllowed: false,
+    generatedBy: complianceGenerationMode,
+    legalOwnerRequired: true,
+    publishPolicy: "draft_only",
+    ruleCount: supportedRuleIds.length,
+    rulePackId,
+    stages: [
+      {
+        evidence:
+          missingRuleIds.length === 0
+            ? `${supportedRuleIds.length} deterministic rules cover every supported medical advertising rule id.`
+            : `Missing deterministic rule ids: ${missingRuleIds.join(", ")}.`,
+        id: "rule_coverage",
+        nextAction:
+          missingRuleIds.length === 0
+            ? "Keep fixture coverage aligned with each supported rule id."
+            : "Add deterministic rules before expanding the rule pack.",
+        status: missingRuleIds.length === 0 ? "ready" : "blocked",
+        title: "Deterministic rule coverage",
+      },
+      {
+        evidence:
+          rulePackId === "kr-medical"
+            ? "KR medical pack contains Korean phrase refinements for outcomes, safety, superlatives, before/after, testimonials, and promotions."
+            : "Global pack uses English baseline medical advertising risk phrases.",
+        id: "market_phrase_refinement",
+        nextAction:
+          rulePackId === "kr-medical"
+            ? "Review false positive and false negative Korean phrases with legal or market owner before deployment."
+            : "Create market-specific phrase refinements before using this pack for non-English medical copy.",
+        status: "ready",
+        title: "Market phrase refinement",
+      },
+      {
+        evidence: "Rule pack changes affect legal-review routing and draft-only gates.",
+        id: "legal_owner_review",
+        nextAction: "Assign a legal or market owner to approve phrase changes and severity calibration.",
+        status: "needs_owner",
+        title: "Legal owner approval",
+      },
+      {
+        evidence: hasDraftOnlyGate
+          ? "UNREVIEWED_MEDICAL_PUBLISH remains part of the rule pack."
+          : "Draft-only publish guard is missing from this rule pack.",
+        id: "draft_only_publish_gate",
+        nextAction: "Keep medical content in draft-only workflows and do not connect rule output to CMS publish actions.",
+        status: hasDraftOnlyGate ? "ready" : "blocked",
+        title: "Draft-only publish gate",
+      },
+    ],
+    supportedRuleIds,
+  };
 }
 
 function isKrMarketContext(input: ComplianceReviewInput) {

@@ -54,6 +54,7 @@ import {
   getComplianceStatusUpdateFeedback,
   getComplianceWorkOrderFeedback,
   loadComplianceDashboard,
+  summarizeComplianceHardeningWorkflow,
   recheckComplianceFlagWithFixtureRevision,
   summarizeComplianceDashboard,
   updateComplianceFlagStatus
@@ -1760,6 +1761,16 @@ describe("web foundation", () => {
     expect(getComplianceRiskTone("high")).toBe("risk");
     expect(getComplianceRiskTone("medium")).toBe("neutral");
     expect(formatComplianceRisk("critical")).toBe("긴급");
+    expect(summarizeComplianceHardeningWorkflow(dashboard)).toMatchObject({
+      autoPublishAllowed: false,
+      deterministicRuleCount: 7,
+      legalReviewQueueCount: 2,
+      nativeSignatureProviders: ["wordpress", "webflow"],
+      rulePackId: "kr-medical"
+    });
+    expect(
+      summarizeComplianceHardeningWorkflow(dashboard).stages.map((stage) => stage.status),
+    ).toEqual(["needs_owner", "ready", "ready", "needs_owner"]);
   });
 
   it("loads compliance flags through the API response contract", async () => {

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
 
 import {
+  createCmsNativeWebhookSignature,
   createCmsWebhookSignature,
   parseCmsWebhookSecrets,
+  verifyCmsNativeWebhookSignature,
   verifyCmsWebhookRequest,
   verifyCmsWebhookSignature,
 } from "./webhook-security.js";
@@ -96,7 +98,7 @@ describe("CMS webhook security", () => {
           wordpress: "secret_1",
         },
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, scheme: "searchops_hmac" });
     expect(
       verifyCmsWebhookRequest({
         event,
@@ -105,6 +107,118 @@ describe("CMS webhook security", () => {
           "x-searchops-signature": signature,
           "x-searchops-timestamp": timestamp,
         },
+        now: new Date("2026-05-24T02:01:00.000Z"),
+        required: true,
+        secrets: {
+          wordpress: "secret_1",
+        },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("verifies selected provider native webhook signatures", () => {
+    const timestamp = "2026-05-24T02:00:00.000Z";
+    const wordpressPayload = {
+      id: 101,
+      link: "https://exampleclinic.com/services/botox",
+      modified_gmt: "2026-05-24T02:00:00",
+      status: "publish",
+    };
+    const wordpressSignature = createCmsNativeWebhookSignature({
+      cmsType: "wordpress",
+      payload: wordpressPayload,
+      secret: "secret_1",
+      timestamp,
+    });
+    const webflowPayload = {
+      payload: {
+        _id: "wf_201",
+        fieldData: {
+          slug: "services/laser-care",
+        },
+        lastUpdated: "2026-05-24T03:00:00.000Z",
+      },
+    };
+    const webflowSignature = createCmsNativeWebhookSignature({
+      cmsType: "webflow",
+      payload: webflowPayload,
+      secret: "secret_2",
+      timestamp,
+    });
+
+    expect(
+      verifyCmsNativeWebhookSignature({
+        cmsType: "wordpress",
+        headers: {
+          "x-wp-webhook-signature": wordpressSignature,
+          "x-wp-webhook-timestamp": timestamp,
+        },
+        now: new Date("2026-05-24T02:01:00.000Z"),
+        payload: wordpressPayload,
+        secret: "secret_1",
+      }),
+    ).toEqual({ ok: true, scheme: "wordpress_native" });
+    expect(
+      verifyCmsNativeWebhookSignature({
+        cmsType: "webflow",
+        headers: {
+          "x-webflow-signature": webflowSignature.replace("sha256=", ""),
+          "x-webflow-timestamp": timestamp,
+        },
+        now: new Date("2026-05-24T02:01:00.000Z"),
+        payload: webflowPayload,
+        secret: "secret_2",
+      }),
+    ).toEqual({ ok: true, scheme: "webflow_native" });
+    expect(() =>
+      createCmsNativeWebhookSignature({
+        cmsType: "headless",
+        payload: {},
+        secret: "secret_3",
+        timestamp,
+      }),
+    ).toThrow("not supported");
+  });
+
+  it("accepts native webhook signatures as a provider-route fallback", () => {
+    const timestamp = "2026-05-24T02:00:00.000Z";
+    const payload = {
+      id: 101,
+      link: "https://exampleclinic.com/services/botox",
+      modified_gmt: "2026-05-24T02:00:00",
+      status: "publish",
+    };
+    const signature = createCmsNativeWebhookSignature({
+      cmsType: "wordpress",
+      payload,
+      secret: "secret_1",
+      timestamp,
+    });
+
+    expect(
+      verifyCmsWebhookRequest({
+        allowNativeProviderSignature: true,
+        event,
+        headers: {
+          "x-wp-webhook-signature": signature,
+          "x-wp-webhook-timestamp": timestamp,
+        },
+        nativePayload: payload,
+        now: new Date("2026-05-24T02:01:00.000Z"),
+        required: true,
+        secrets: {
+          wordpress: "secret_1",
+        },
+      }),
+    ).toEqual({ ok: true, scheme: "wordpress_native" });
+    expect(
+      verifyCmsWebhookRequest({
+        event,
+        headers: {
+          "x-wp-webhook-signature": signature,
+          "x-wp-webhook-timestamp": timestamp,
+        },
+        nativePayload: payload,
         now: new Date("2026-05-24T02:01:00.000Z"),
         required: true,
         secrets: {

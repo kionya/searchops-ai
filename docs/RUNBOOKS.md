@@ -100,6 +100,7 @@ Post-deploy checks:
 2. Confirm worker queues consume jobs and dead-letter queues remain empty.
 3. Confirm `/ops/metrics-export` reports request counters and zero unexpected alerts.
 4. Confirm CMS webhook signature failures return `401` before side effects.
+5. For provider webhook routes, confirm WordPress/Webflow native signature failures also return `401` before side effects.
 
 ### Railway API/Worker And Redis Checks
 

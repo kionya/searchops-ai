@@ -24,8 +24,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Done |
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Done |
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Done |
-| 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Next |
-| 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Pending |
+| 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Done |
+| 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Next |
 | 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Pending |
 
 ## Current Task 1 Acceptance Criteria
@@ -83,3 +83,12 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] Work-order candidate preview lists non-strong reports with priority, failing checks, and report ids before row-level conversion.
 - [x] Observation details show whether data came from manual, fixture, or connector sources.
 - [x] Focused web tests, typecheck, lint, and desktop/mobile browser verification pass before moving to compliance hardening.
+
+## Current Task 9 Acceptance Criteria
+
+- [x] `packages/compliance` exposes deterministic KR medical rule pack refinement workflow metadata with legal owner approval kept explicit.
+- [x] Compliance dashboard shows KR rule pack hardening, native signature providers, draft-only gate, and legal review queue status.
+- [x] WordPress and Webflow provider webhook routes can verify selected native signature headers as fallback to SearchOps HMAC.
+- [x] Normalized CMS content update events still require the SearchOps HMAC contract when webhook signatures are configured.
+- [x] CMS webhook handling continues to normalize payloads, recheck deterministic compliance flags, and never fetch from or publish to live CMS systems.
+- [x] Focused compliance/API/web tests, typecheck, lint, browser verification, and root verify pass before moving to production hardening.

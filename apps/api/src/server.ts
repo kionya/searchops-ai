@@ -505,6 +505,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
   async function sendCmsContentUpdatedEventResponse({
     event,
+    nativeWebhookPayload,
     now,
     reply,
     request,
@@ -512,6 +513,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     site: preloadedSite,
   }: {
     readonly event: CmsContentUpdatedEventRequest;
+    readonly nativeWebhookPayload?: unknown;
     readonly now: Date;
     readonly reply: FastifyReply;
     readonly request: FastifyRequest;
@@ -520,6 +522,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   }) {
     const webhookVerification = verifyCmsWebhookRequest({
       event,
+      ...(nativeWebhookPayload === undefined
+        ? {}
+        : {
+            allowNativeProviderSignature: true,
+            nativePayload: nativeWebhookPayload,
+          }),
       headers: request.headers,
       now,
       required: requireCmsWebhookSignature,
@@ -1356,6 +1364,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     await sendCmsContentUpdatedEventResponse({
       event,
+      nativeWebhookPayload: request.body ?? {},
       now,
       reply,
       request,

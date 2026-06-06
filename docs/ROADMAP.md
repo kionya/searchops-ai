@@ -151,16 +151,19 @@ Phase 10 foundation status:
 - Deterministic rule pack selection is available for `global` and `kr-medical` packs.
 - `kr-medical` adds readable Korean medical advertising refinements for guaranteed outcomes, absolute safety, superlatives, before-and-after references, testimonials, and event/discount promotions.
 - `kr-medical` rule pack selection can use either Korean locale signals or Korean-market `.kr` domains.
+- `kr-medical` exposes a deterministic rule pack refinement workflow for rule coverage, market phrase review, legal owner approval, and draft-only publish gates.
 - Revised compliance copy can be rechecked through the API and dashboard; resolved flags close linked WorkOrders, while still-failing rules keep work open.
 - CMS content update events can trigger deterministic rechecks for matching active ComplianceFlags without fetching from or publishing to the live CMS.
 - CMS webhook signature verification is enforced when provider secrets are configured, using provider-scoped HMAC headers plus timestamp replay protection.
 - WordPress, Webflow, and generic headless CMS webhook payloads can be normalized through `packages/connectors` before entering the shared CMS recheck flow.
+- WordPress and Webflow provider webhook routes can verify selected native signature headers as a fallback to the SearchOps HMAC contract.
 - Closed-loop audit events persist the CMS update, compliance recheck, resolved flag, and completed WorkOrder transitions for history lookup.
 
 Phase 10 remaining limitations:
 
 - Compliance reviews do not publish content or push changes to a CMS.
-- Provider-specific native signature schemes and live CMS management APIs remain future hardening scope.
+- Legal/market owner approval for KR medical rule pack refinement remains a governance step outside automated tests.
+- Live CMS management APIs remain future hardening scope.
 
 ## Phase 11. Production hardening
 

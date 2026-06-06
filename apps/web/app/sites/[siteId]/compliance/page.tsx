@@ -28,6 +28,7 @@ import {
   getComplianceWorkOrderFeedback,
   loadComplianceDashboard,
   summarizeComplianceDashboard,
+  summarizeComplianceHardeningWorkflow,
   type ComplianceTone
 } from "../../../../src/compliance-dashboard";
 import {
@@ -58,6 +59,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
   const site = resolveDashboardSite(siteId);
   const dashboard = await loadComplianceDashboard(site);
   const summary = summarizeComplianceDashboard(dashboard);
+  const hardeningWorkflow = summarizeComplianceHardeningWorkflow(dashboard);
   const createFeedback = getComplianceReviewCreateFeedback(
     actionSearchParams.review,
     actionSearchParams.flagCount,
@@ -96,6 +98,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
         statusFeedback={statusFeedback}
         workOrderFeedback={workOrderFeedback}
       />
+      <ComplianceHardeningWorkflowPanel hardeningWorkflow={hardeningWorkflow} />
       <section aria-label="컴플라이언스 플래그" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -232,6 +235,57 @@ export default async function CompliancePage({ params, searchParams }: Complianc
   );
 }
 
+function ComplianceHardeningWorkflowPanel({
+  hardeningWorkflow
+}: {
+  readonly hardeningWorkflow: ReturnType<typeof summarizeComplianceHardeningWorkflow>;
+}) {
+  return (
+    <section aria-label="컴플라이언스 hardening workflow" style={tableSectionStyle}>
+      <header style={tableHeaderStyle}>
+        <div>
+          <h3 style={{ fontSize: 18, margin: 0 }}>Hardening workflow</h3>
+          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            {hardeningWorkflow.rulePackId} rule pack {hardeningWorkflow.deterministicRuleCount}개 룰, native signature provider {hardeningWorkflow.nativeSignatureProviders.join(", ")}.
+          </p>
+        </div>
+        <span style={{ ...pillStyle, background: "#fef2f2", color: "#b91c1c" }}>
+          auto-publish off
+        </span>
+      </header>
+      <div style={tableScrollStyle}>
+        <table style={{ ...tableStyle, minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>단계</th>
+              <th style={thStyle}>상태</th>
+              <th style={thStyle}>상세</th>
+              <th style={thStyle}>다음 조치</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hardeningWorkflow.stages.map((stage) => (
+              <tr key={stage.id}>
+                <td style={tdStyle}>
+                  <strong>{stage.title}</strong>
+                  <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                    {stage.id}
+                  </span>
+                </td>
+                <td style={tdStyle}>
+                  <WorkflowStatusPill status={stage.status} />
+                </td>
+                <td style={{ ...tdStyle, maxWidth: 300 }}>{stage.detail}</td>
+                <td style={{ ...tdStyle, maxWidth: 300 }}>{stage.nextAction}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function ComplianceCreatePanel({
   createFeedback,
   recheckFeedback,
@@ -287,13 +341,23 @@ function TonePill({
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
 }
 
+function WorkflowStatusPill({ status }: { readonly status: "needs_owner" | "ready" }) {
+  const statusStyle = {
+    needs_owner: { background: "#fff7ed", color: "#c2410c" },
+    ready: { background: "#ecfdf5", color: "#047857" }
+  }[status];
+  const label = status === "ready" ? "준비됨" : "owner 필요";
+
+  return <span style={{ ...pillStyle, ...statusStyle }}>{label}</span>;
+}
+
 const createPanelStyle = {
-  alignItems: "center",
+  alignItems: "start",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  display: "flex",
+  display: "grid",
   gap: 16,
-  justifyContent: "space-between",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
   marginTop: 14,
   padding: 16
 } as const;

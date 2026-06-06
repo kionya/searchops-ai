@@ -33,6 +33,23 @@ export interface ComplianceDashboardSummary {
   readonly total: number;
 }
 
+export interface ComplianceHardeningWorkflowStage {
+  readonly detail: string;
+  readonly id: string;
+  readonly nextAction: string;
+  readonly status: "needs_owner" | "ready";
+  readonly title: string;
+}
+
+export interface ComplianceHardeningWorkflowSummary {
+  readonly autoPublishAllowed: false;
+  readonly deterministicRuleCount: number;
+  readonly legalReviewQueueCount: number;
+  readonly nativeSignatureProviders: readonly string[];
+  readonly rulePackId: "kr-medical";
+  readonly stages: readonly ComplianceHardeningWorkflowStage[];
+}
+
 export interface ComplianceReviewCreateResult {
   readonly errorMessage: string | null;
   readonly flagCount: number;
@@ -396,6 +413,52 @@ export function summarizeComplianceDashboard(
     ).length,
     open: dashboard.flags.filter((flag) => flag.status === "open").length,
     total: dashboard.flags.length
+  };
+}
+
+export function summarizeComplianceHardeningWorkflow(
+  dashboard: ComplianceDashboardData,
+): ComplianceHardeningWorkflowSummary {
+  const legalReviewQueueCount = dashboard.flags.filter(
+    (flag) => flag.status === "open" || flag.status === "in_review",
+  ).length;
+
+  return {
+    autoPublishAllowed: false,
+    deterministicRuleCount: 7,
+    legalReviewQueueCount,
+    nativeSignatureProviders: ["wordpress", "webflow"],
+    rulePackId: "kr-medical",
+    stages: [
+      {
+        detail: "KR 의료광고 phrase refinement는 deterministic rule pack으로 유지됩니다.",
+        id: "kr_rule_pack_refinement",
+        nextAction: "법무/시장 owner가 phrase fixture와 severity calibration을 승인합니다.",
+        status: "needs_owner",
+        title: "KR rule pack refinement"
+      },
+      {
+        detail: "WordPress, Webflow provider webhook은 native signature fallback을 검증합니다.",
+        id: "cms_native_signatures",
+        nextAction: "provider별 webhook secret과 timestamp replay window를 운영 환경에서 확인합니다.",
+        status: "ready",
+        title: "CMS native signatures"
+      },
+      {
+        detail: "의료 콘텐츠는 flag와 work order만 만들고 CMS publish action과 연결하지 않습니다.",
+        id: "draft_only_gate",
+        nextAction: "ContentBrief, compliance, CMS recheck 경로의 draft-only 정책을 유지합니다.",
+        status: "ready",
+        title: "Draft-only gate"
+      },
+      {
+        detail: `${legalReviewQueueCount}개 플래그가 법무 검토 또는 재검수 대기열에 있습니다.`,
+        id: "legal_review_queue",
+        nextAction: "open/in_review 플래그를 work order로 전환하고 수정안 재검수를 실행합니다.",
+        status: legalReviewQueueCount > 0 ? "needs_owner" : "ready",
+        title: "Legal review queue"
+      }
+    ]
   };
 }
 

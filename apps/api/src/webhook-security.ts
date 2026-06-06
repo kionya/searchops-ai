@@ -24,13 +24,33 @@ export interface VerifyCmsWebhookSignatureInput extends CreateCmsWebhookSignatur
   readonly toleranceMs?: number;
 }
 
+export type CmsWebhookSignatureScheme = "searchops_hmac" | "webflow_native" | "wordpress_native";
+
+export interface CreateCmsNativeWebhookSignatureInput {
+  readonly cmsType: string;
+  readonly payload: unknown;
+  readonly secret: string;
+  readonly timestamp: string;
+}
+
+export interface VerifyCmsNativeWebhookSignatureInput {
+  readonly cmsType: string;
+  readonly headers: CmsWebhookHeaderInput;
+  readonly now: Date;
+  readonly payload: unknown;
+  readonly secret: string;
+  readonly toleranceMs?: number;
+}
+
 export interface CmsWebhookHeaderInput {
   readonly [headerName: string]: string | string[] | undefined;
 }
 
 export interface VerifyCmsWebhookRequestInput {
+  readonly allowNativeProviderSignature?: boolean;
   readonly event: CmsContentUpdatedEventRequest;
   readonly headers: CmsWebhookHeaderInput;
+  readonly nativePayload?: unknown;
   readonly now: Date;
   readonly required: boolean;
   readonly secrets: CmsWebhookSecretMap;
@@ -40,7 +60,30 @@ export interface VerifyCmsWebhookRequestInput {
 export interface VerifyCmsWebhookRequestResult {
   readonly ok: boolean;
   readonly message?: string;
+  readonly scheme?: CmsWebhookSignatureScheme;
 }
+
+interface CmsNativeWebhookSignatureConfig {
+  readonly label: string;
+  readonly scheme: CmsWebhookSignatureScheme;
+  readonly signatureHeader: string;
+  readonly timestampHeader: string;
+}
+
+export const cmsNativeWebhookSignatureConfigs = {
+  webflow: {
+    label: "Webflow",
+    scheme: "webflow_native",
+    signatureHeader: "x-webflow-signature",
+    timestampHeader: "x-webflow-timestamp",
+  },
+  wordpress: {
+    label: "WordPress",
+    scheme: "wordpress_native",
+    signatureHeader: "x-wp-webhook-signature",
+    timestampHeader: "x-wp-webhook-timestamp",
+  },
+} as const satisfies Record<string, CmsNativeWebhookSignatureConfig>;
 
 export function parseCmsWebhookSecrets(value: string | undefined): CmsWebhookSecretMap {
   if (value === undefined || value.trim() === "") {
@@ -68,6 +111,15 @@ export function createCmsWebhookSignature(input: CreateCmsWebhookSignatureInput)
   return `sha256=${createHmac("sha256", input.secret).update(signedPayload).digest("hex")}`;
 }
 
+export function createCmsNativeWebhookSignature(input: CreateCmsNativeWebhookSignatureInput) {
+  if (getCmsNativeWebhookSignatureConfig(input.cmsType) === null) {
+    throw new Error(`CMS native webhook signatures are not supported for ${input.cmsType}.`);
+  }
+
+  const signedPayload = `${input.timestamp}.${canonicalJsonStringify(input.payload)}`;
+  return `sha256=${createHmac("sha256", input.secret).update(signedPayload).digest("hex")}`;
+}
+
 export function verifyCmsWebhookSignature(input: VerifyCmsWebhookSignatureInput) {
   const timestampMs = Date.parse(input.timestamp);
   if (!Number.isFinite(timestampMs)) {
@@ -83,6 +135,56 @@ export function verifyCmsWebhookSignature(input: VerifyCmsWebhookSignatureInput)
   return timingSafeEqualText(expected.toLowerCase(), input.signature.toLowerCase());
 }
 
+export function verifyCmsNativeWebhookSignature(
+  input: VerifyCmsNativeWebhookSignatureInput,
+): VerifyCmsWebhookRequestResult {
+  const config = getCmsNativeWebhookSignatureConfig(input.cmsType);
+  if (config === null) {
+    return {
+      ok: false,
+      message: `CMS native webhook signatures are not supported for ${input.cmsType}.`,
+    };
+  }
+
+  const timestamp = getSingleHeader(input.headers, config.timestampHeader);
+  const signature = normalizeSignature(getSingleHeader(input.headers, config.signatureHeader));
+  if (timestamp === undefined || signature === undefined) {
+    return {
+      ok: false,
+      message: `${config.label} native webhook signature headers are required.`,
+    };
+  }
+
+  const timestampMs = Date.parse(timestamp);
+  if (!Number.isFinite(timestampMs)) {
+    return {
+      ok: false,
+      message: `${config.label} native webhook timestamp is invalid.`,
+    };
+  }
+
+  const toleranceMs = input.toleranceMs ?? defaultCmsWebhookToleranceMs;
+  if (Math.abs(input.now.getTime() - timestampMs) > toleranceMs) {
+    return {
+      ok: false,
+      message: `${config.label} native webhook timestamp is outside the replay window.`,
+    };
+  }
+
+  const expected = createCmsNativeWebhookSignature({
+    cmsType: input.cmsType,
+    payload: input.payload,
+    secret: input.secret,
+    timestamp,
+  });
+  return timingSafeEqualText(expected.toLowerCase(), signature.toLowerCase())
+    ? { ok: true, scheme: config.scheme }
+    : {
+        ok: false,
+        message: `${config.label} native webhook signature verification failed.`,
+      };
+}
+
 export function verifyCmsWebhookRequest(
   input: VerifyCmsWebhookRequestInput,
 ): VerifyCmsWebhookRequestResult {
@@ -90,6 +192,36 @@ export function verifyCmsWebhookRequest(
     return { ok: true };
   }
 
+  const searchOpsVerification = verifySearchOpsWebhookRequest(input);
+  if (searchOpsVerification.ok) {
+    return searchOpsVerification;
+  }
+
+  if (input.allowNativeProviderSignature === true && input.nativePayload !== undefined) {
+    const secret = input.secrets[input.event.cmsType];
+    if (secret === undefined) {
+      return {
+        ok: false,
+        message: "CMS webhook secret is not configured for this cmsType.",
+      };
+    }
+
+    return verifyCmsNativeWebhookSignature({
+      cmsType: input.event.cmsType,
+      headers: input.headers,
+      now: input.now,
+      payload: input.nativePayload,
+      secret,
+      ...(input.toleranceMs === undefined ? {} : { toleranceMs: input.toleranceMs }),
+    });
+  }
+
+  return searchOpsVerification;
+}
+
+function verifySearchOpsWebhookRequest(
+  input: VerifyCmsWebhookRequestInput,
+): VerifyCmsWebhookRequestResult {
   const headers = CmsWebhookSignatureHeadersSchema.safeParse({
     "x-searchops-cms-type": getSingleHeader(input.headers, "x-searchops-cms-type"),
     "x-searchops-signature": getSingleHeader(input.headers, "x-searchops-signature"),
@@ -132,7 +264,7 @@ export function verifyCmsWebhookRequest(
       : { ...signatureInput, toleranceMs: input.toleranceMs },
   );
   return ok
-    ? { ok: true }
+    ? { ok: true, scheme: "searchops_hmac" }
     : {
         ok: false,
         message: "CMS webhook signature verification failed.",
@@ -142,6 +274,22 @@ export function verifyCmsWebhookRequest(
 function getSingleHeader(headers: CmsWebhookHeaderInput, name: string) {
   const value = headers[name];
   return Array.isArray(value) ? value[0] : value;
+}
+
+function getCmsNativeWebhookSignatureConfig(cmsType: string) {
+  return cmsType in cmsNativeWebhookSignatureConfigs
+    ? cmsNativeWebhookSignatureConfigs[
+        cmsType as keyof typeof cmsNativeWebhookSignatureConfigs
+      ]
+    : null;
+}
+
+function normalizeSignature(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return /^[a-f0-9]{64}$/iu.test(value) ? `sha256=${value}` : value;
 }
 
 function canonicalJsonStringify(value: unknown): string {

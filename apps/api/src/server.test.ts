@@ -32,7 +32,10 @@ import { createMemoryDeadLetterJobStore } from "./dead-letter-store.js";
 import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
-import { createCmsWebhookSignature } from "./webhook-security.js";
+import {
+  createCmsNativeWebhookSignature,
+  createCmsWebhookSignature,
+} from "./webhook-security.js";
 import {
   createHmacJwtIdpTokenVerifier,
   createRequestAuthContextResolver,
@@ -2982,6 +2985,65 @@ describe("api foundation", () => {
         },
       ],
     });
+  });
+
+  it("accepts selected CMS native signatures for provider-specific webhooks", async () => {
+    const server = buildSecuredComplianceTestServer();
+    const timestamp = "2026-05-24T02:00:00.000Z";
+    const payload = {
+      id: "page_seed",
+      link: "https://exampleclinic.com/services/botox",
+      content: {
+        rendered:
+          "<p>This clinic explains consultation steps, possible discomfort, and individual variation.</p>",
+      },
+      modified_gmt: "2026-05-24T02:00:00",
+      status: "publish",
+      title: {
+        rendered: "Botox guide",
+      },
+    };
+    const signature = createCmsNativeWebhookSignature({
+      cmsType: "wordpress",
+      payload,
+      secret: "cms_secret_1",
+      timestamp,
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      payload,
+      url: "/sites/site_seed/cms/webhooks/wordpress",
+      headers: {
+        "x-wp-webhook-signature": signature,
+        "x-wp-webhook-timestamp": timestamp,
+      },
+    });
+    const invalidResponse = await server.inject({
+      method: "POST",
+      payload,
+      url: "/sites/site_seed/cms/webhooks/wordpress",
+      headers: {
+        "x-wp-webhook-signature":
+          "sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "x-wp-webhook-timestamp": timestamp,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      event: {
+        cmsType: "wordpress",
+        externalId: "page_seed",
+      },
+      matchedFlagCount: 1,
+      rechecks: [
+        {
+          resolved: true,
+        },
+      ],
+    });
+    expect(invalidResponse.statusCode).toBe(401);
   });
 
   it("records closed-loop audit events for CMS-triggered compliance resolution", async () => {

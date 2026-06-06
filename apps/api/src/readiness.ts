@@ -220,9 +220,9 @@ const readinessInputs: readonly ReadinessInput[] = [
     category: "compliance",
     id: "cms-native-signatures",
     title: "CMS native signature scheme",
-    summary: "SearchOps HMAC 외 provider native webhook signature 검증을 추가할 수 있습니다.",
-    nextAction: "선택한 CMS provider의 native signature header와 secret policy를 확정하세요.",
-    status: "manual_followup",
+    summary: "WordPress/Webflow provider webhook은 SearchOps HMAC 외 native signature fallback을 검증합니다.",
+    nextAction: "운영 환경에서 provider별 webhook secret과 timestamp replay window를 확인하세요.",
+    status: "configured",
   },
   {
     category: "compliance",
@@ -236,8 +236,8 @@ const readinessInputs: readonly ReadinessInput[] = [
     category: "compliance",
     id: "compliance-rule-pack-refinement",
     title: "법무/시장별 compliance rule pack refinement",
-    summary: "의료광고/시장별 금칙어와 claim rule은 법무 검토 후 세분화해야 합니다.",
-    nextAction: "KR 의료광고 rule pack부터 법무 owner와 승인 workflow를 정하세요.",
+    summary: "KR 의료광고 rule pack refinement workflow는 rule coverage, phrase review, owner approval, draft gate를 추적합니다.",
+    nextAction: "법무/시장 owner가 fixture와 severity calibration을 승인하세요.",
     status: "manual_followup",
   },
   {
