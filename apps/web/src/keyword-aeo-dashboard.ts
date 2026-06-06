@@ -1,21 +1,26 @@
 import {
   AeoReadinessReportListResponseSchema,
   AeoReadinessReportSchema,
+  CreateKeywordDiscoveryRequestSchema,
+  CreateKeywordDiscoveryResponseSchema,
   KeywordDiscoveryListResponseSchema,
   type AeoReadinessCheck,
   type AeoReadinessCheckStatus,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
   type AeoReadinessStatus,
+  type ConnectorSyncRun,
   type KeywordDiscoveryCandidateRecord
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
+import type { ConnectorSyncHistoryData } from "./connector-sync-history";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
 
 export type KeywordAeoDashboardSource = "api" | "fixture";
 export type AeoReadinessTone = "good" | "neutral" | "risk";
+export type KeywordDiscoveryCreateStatus = "created" | "failed" | "fixture";
 
 export interface KeywordAeoDashboardData {
   readonly errorMessage: string | null;
@@ -31,6 +36,20 @@ export interface KeywordAeoDashboardSummary {
   readonly ready: number;
   readonly total: number;
   readonly weakChecks: number;
+}
+
+export interface KeywordDiscoveryCreateResult {
+  readonly candidateCount: number;
+  readonly connectorSyncRunId: string;
+  readonly errorMessage: string | null;
+  readonly source: KeywordAeoDashboardSource;
+  readonly status: KeywordDiscoveryCreateStatus;
+  readonly topKeyword: string | null;
+}
+
+export interface KeywordDiscoveryCreateFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
 }
 
 const expectedEvidenceByCheck = {
@@ -265,6 +284,119 @@ export function summarizeKeywordAeoDashboard(
   };
 }
 
+export function findLatestGscKeywordDiscoveryRun(
+  history: ConnectorSyncHistoryData,
+): ConnectorSyncRun | null {
+  for (const run of history.runs) {
+    if (!run.providers.includes("gsc")) {
+      continue;
+    }
+
+    const hasGscRecords = (history.resultsByRunId[run.id] ?? []).some(
+      (result) =>
+        result.provider === "gsc" &&
+        (result.status === "ok" || result.status === "partial") &&
+        result.recordCount > 0,
+    );
+    if (hasGscRecords) {
+      return run;
+    }
+  }
+
+  return null;
+}
+
+export async function createKeywordDiscoveryFromConnectorRun(
+  siteId: string,
+  formData: FormData,
+): Promise<KeywordDiscoveryCreateResult> {
+  const input = createKeywordDiscoveryRequestFromForm(formData);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    const gscCandidates = demoKeywordDiscoveryCandidates.filter((candidate) => candidate.source === "gsc");
+    return {
+      candidateCount: gscCandidates.length,
+      connectorSyncRunId: input.connectorSyncRunId,
+      errorMessage: null,
+      source: "fixture",
+      status: "fixture",
+      topKeyword: gscCandidates[0]?.phrase ?? null
+    };
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
+      body: JSON.stringify(input),
+      cache: "no-store",
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    });
+    if (!response.ok) {
+      throw new Error(`키워드 발견 실행 요청 실패: ${response.status}`);
+    }
+
+    const output = CreateKeywordDiscoveryResponseSchema.parse(await response.json());
+    return {
+      candidateCount: output.candidates.length,
+      connectorSyncRunId: input.connectorSyncRunId,
+      errorMessage: null,
+      source: "api",
+      status: "created",
+      topKeyword: output.candidates[0]?.phrase ?? null
+    };
+  } catch (error) {
+    return {
+      candidateCount: 0,
+      connectorSyncRunId: input.connectorSyncRunId,
+      errorMessage: error instanceof Error ? error.message : "키워드 발견 실행 요청에 실패했습니다",
+      source: "api",
+      status: "failed",
+      topKeyword: null
+    };
+  }
+}
+
+export function createKeywordDiscoveryRequestFromForm(formData: FormData) {
+  const connectorSyncRunId = getRequiredFormText(formData, "connectorSyncRunId");
+
+  return CreateKeywordDiscoveryRequestSchema.parse({
+    connectorSyncRunId,
+    maxCandidates: getOptionalInteger(formData, "maxCandidates"),
+    minImpressions: getOptionalInteger(formData, "minImpressions")
+  });
+}
+
+export function getKeywordDiscoveryCreateFeedback(
+  status: string | undefined,
+  candidateCount: string | undefined,
+  topKeyword: string | undefined,
+): KeywordDiscoveryCreateFeedback | null {
+  if (status === "created") {
+    return {
+      message: `GSC 기반 키워드 후보 ${candidateCount ?? "0"}개를 저장했습니다.${topKeyword ? ` 상위 후보: ${topKeyword}` : ""}`,
+      tone: "success"
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: `데모 데이터 모드: GSC 후보 ${candidateCount ?? "0"}개를 파싱했지만 API 요청은 보내지 않았습니다.`,
+      tone: "info"
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "키워드 발견 실행에 실패했습니다. GSC connector sync run과 API 서버를 확인하세요.",
+      tone: "warning"
+    };
+  }
+
+  return null;
+}
+
 export function getWeakAeoChecks(report: AeoReadinessReport) {
   return report.checks.filter((check) => check.status !== "pass");
 }
@@ -346,4 +478,24 @@ function mapRecordToReadinessReport(record: AeoReadinessReportRecord): AeoReadin
     score: record.score,
     status: record.status
   });
+}
+
+function getRequiredFormText(formData: FormData, key: string) {
+  const value = formData.get(key);
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) {
+    throw new Error(`${key} is required`);
+  }
+
+  return text;
+}
+
+function getOptionalInteger(formData: FormData, key: string) {
+  const value = formData.get(key);
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) {
+    return undefined;
+  }
+
+  return Number(text);
 }

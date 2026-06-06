@@ -21,8 +21,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Done |
 | 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Done |
 | 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Done |
-| 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Next |
-| 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Pending |
+| 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Done |
+| 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Next |
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Pending |
 | 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Pending |
 | 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Pending |
@@ -58,3 +58,11 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] Provider error metadata is split into operator message and next action instead of only concatenated text.
 - [x] Each provider row offers a one-provider retry action.
 - [x] Focused web tests, typecheck, lint, and browser verification pass before moving to Keyword/AEO work.
+
+## Current Task 6 Acceptance Criteria
+
+- [x] Content dashboard recommends the latest persisted GSC connector sync run for keyword discovery.
+- [x] GSC keyword discovery can be triggered through `POST /sites/:siteId/keyword-discoveries`.
+- [x] Discovery requests remain deterministic and use persisted connector results, not live external APIs or LLMs.
+- [x] Discovered keyword rows can start a draft-only ContentBrief flow.
+- [x] Focused web tests, typecheck, lint, and desktop/mobile browser verification pass before moving to schema validation UX.

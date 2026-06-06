@@ -29,15 +29,18 @@ import {
 import {
   formatAeoCheckId,
   formatAeoReadinessStatus,
+  findLatestGscKeywordDiscoveryRun,
   getAeoCheckTone,
   getAeoReadinessTone,
+  getKeywordDiscoveryCreateFeedback,
   getWeakAeoChecks,
   loadKeywordAeoDashboard,
   summarizeKeywordAeoDashboard,
   type AeoReadinessTone,
   type KeywordAeoDashboardData
 } from "../../../../src/keyword-aeo-dashboard";
-import { createContentBriefAction } from "./actions";
+import { loadConnectorSyncHistory } from "../../../../src/connector-sync-history";
+import { createContentBriefAction, createKeywordDiscoveryAction } from "./actions";
 
 interface ContentPageProps {
   readonly params: Promise<{
@@ -46,6 +49,9 @@ interface ContentPageProps {
   readonly searchParams: Promise<{
     readonly brief?: string;
     readonly briefId?: string;
+    readonly candidates?: string;
+    readonly connectorSyncRunId?: string;
+    readonly keywordDiscovery?: string;
     readonly keyword?: string;
   }>;
 }
@@ -53,15 +59,22 @@ interface ContentPageProps {
 export default async function ContentPage({ params, searchParams }: ContentPageProps) {
   const { siteId } = await params;
   const createSearchParams = await searchParams;
-  const [history, keywordAeoDashboard] = await Promise.all([
+  const [history, keywordAeoDashboard, connectorSyncHistory] = await Promise.all([
     loadContentBriefHistory(siteId),
-    loadKeywordAeoDashboard(siteId)
+    loadKeywordAeoDashboard(siteId),
+    loadConnectorSyncHistory(siteId)
   ]);
   const summary = summarizeContentBriefHistory(history);
   const keywordAeoSummary = summarizeKeywordAeoDashboard(keywordAeoDashboard);
+  const latestGscRun = findLatestGscKeywordDiscoveryRun(connectorSyncHistory);
   const createFeedback = getContentBriefCreateFeedback(
     createSearchParams.brief,
     createSearchParams.briefId,
+    createSearchParams.keyword,
+  );
+  const keywordDiscoveryFeedback = getKeywordDiscoveryCreateFeedback(
+    createSearchParams.keywordDiscovery,
+    createSearchParams.candidates,
     createSearchParams.keyword,
   );
 
@@ -80,7 +93,10 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
       </div>
       <KeywordAeoReadinessPanel
         dashboard={keywordAeoDashboard}
+        keywordDiscoveryFeedback={keywordDiscoveryFeedback}
+        latestGscRunId={latestGscRun?.id ?? null}
         summary={keywordAeoSummary}
+        siteId={siteId}
       />
       <ContentBriefCreatePanel siteId={siteId} createFeedback={createFeedback} />
       <section aria-label="콘텐츠 브리프 기록" style={tableSectionStyle}>
@@ -166,11 +182,20 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
 
 function KeywordAeoReadinessPanel({
   dashboard,
+  keywordDiscoveryFeedback,
+  latestGscRunId,
+  siteId,
   summary
 }: {
   readonly dashboard: KeywordAeoDashboardData;
+  readonly keywordDiscoveryFeedback: ReturnType<typeof getKeywordDiscoveryCreateFeedback>;
+  readonly latestGscRunId: string | null;
+  readonly siteId: string;
   readonly summary: ReturnType<typeof summarizeKeywordAeoDashboard>;
 }) {
+  const discoveryAction = createKeywordDiscoveryAction.bind(null, siteId);
+  const briefAction = createContentBriefAction.bind(null, siteId);
+
   return (
     <section aria-label="키워드/AEO 준비도" style={tableSectionStyle}>
       <header style={tableHeaderStyle}>
@@ -202,6 +227,31 @@ function KeywordAeoReadinessPanel({
         <MetricCard label="평균 점수" value={summary.averageScore} />
         <MetricCard label="발견됨" value={String(dashboard.keywordDiscoveries.length)} />
       </div>
+      <form action={discoveryAction} style={keywordDiscoveryFormStyle}>
+        <div>
+          <strong>GSC 기반 키워드 발견</strong>
+          <p style={{ ...mutedTextStyle, fontSize: 12, margin: "5px 0 0" }}>
+            최근 GSC sync run: {latestGscRunId ?? "없음"}
+          </p>
+          {keywordDiscoveryFeedback ? (
+            <p style={{ ...createFeedbackStyle[keywordDiscoveryFeedback.tone], margin: "7px 0 0" }}>
+              {keywordDiscoveryFeedback.message}
+            </p>
+          ) : null}
+        </div>
+        <input name="connectorSyncRunId" type="hidden" value={latestGscRunId ?? ""} />
+        <label style={compactFieldStyle}>
+          <span style={labelStyle}>최소 impressions</span>
+          <input defaultValue={1} min={0} name="minImpressions" style={inputStyle} type="number" />
+        </label>
+        <label style={compactFieldStyle}>
+          <span style={labelStyle}>최대 후보</span>
+          <input defaultValue={25} min={1} name="maxCandidates" style={inputStyle} type="number" />
+        </label>
+        <button disabled={latestGscRunId === null} style={submitButtonStyle} type="submit">
+          GSC 후보 갱신
+        </button>
+      </form>
       <div style={tableScrollStyle}>
         <table style={{ ...tableStyle, minWidth: 980 }}>
           <thead>
@@ -278,12 +328,13 @@ function KeywordAeoReadinessPanel({
               <th style={thStyle}>점수</th>
               <th style={thStyle}>후보 페이지</th>
               <th style={thStyle}>근거</th>
+              <th style={thStyle}>브리프</th>
             </tr>
           </thead>
           <tbody>
             {dashboard.keywordDiscoveries.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
+                <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
                   아직 키워드 발견 후보가 없습니다.
                 </td>
               </tr>
@@ -314,6 +365,16 @@ function KeywordAeoReadinessPanel({
                     <span style={{ color: "#64748b", display: "block", fontSize: 13 }}>
                       {candidate.evidence.sourceField}; {candidate.evidence.impressions ?? candidate.evidence.title ?? "기록"}
                     </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <form action={briefAction}>
+                      <input name="phrase" type="hidden" value={candidate.phrase} />
+                      <input name="intent" type="hidden" value={candidate.intent ?? "informational"} />
+                      <input name="candidateUrl" type="hidden" value={candidate.pageUrl ?? ""} />
+                      <button style={secondaryButtonStyle} type="submit">
+                        초안 생성
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))
@@ -480,6 +541,15 @@ const keywordAeoMetricStyle = {
   padding: 16
 } as const;
 
+const keywordDiscoveryFormStyle = {
+  alignItems: "end",
+  borderTop: "1px solid #e5e7eb",
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "minmax(240px, 1fr) repeat(2, minmax(140px, 180px)) auto",
+  padding: 16
+} as const;
+
 const createFormStyle = {
   display: "grid",
   gap: 12,
@@ -489,6 +559,11 @@ const createFormStyle = {
 const fieldStyle = {
   display: "grid",
   gap: 6
+} as const;
+
+const compactFieldStyle = {
+  ...fieldStyle,
+  minWidth: 140
 } as const;
 
 const wideFieldStyle = {
@@ -536,6 +611,15 @@ const submitButtonStyle = {
   fontWeight: 800,
   minHeight: 40,
   padding: "10px 14px"
+} as const;
+
+const secondaryButtonStyle = {
+  ...submitButtonStyle,
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  color: "#172033",
+  minHeight: 36,
+  padding: "8px 12px"
 } as const;
 
 const createFeedbackStyle = {

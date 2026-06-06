@@ -113,9 +113,13 @@ import {
   summarizeGeoVisibilityDashboard
 } from "./geo-visibility-dashboard";
 import {
+  createKeywordDiscoveryFromConnectorRun,
+  createKeywordDiscoveryRequestFromForm,
   createDemoKeywordAeoDashboard,
+  findLatestGscKeywordDiscoveryRun,
   formatAeoCheckId,
   getAeoReadinessTone,
+  getKeywordDiscoveryCreateFeedback,
   getWeakAeoChecks,
   loadKeywordAeoDashboard,
   summarizeKeywordAeoDashboard
@@ -764,6 +768,121 @@ describe("web foundation", () => {
     expect(getWeakAeoChecks(readyReport)).toHaveLength(1);
     expect(getAeoReadinessTone("not_ready")).toBe("risk");
     expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("FAQ 스키마");
+  });
+
+  it("connects persisted GSC connector results to keyword discovery", async () => {
+    const connectorHistory = createDemoConnectorSyncHistory("site_1");
+    const latestGscRun = findLatestGscKeywordDiscoveryRun(connectorHistory);
+    expect(latestGscRun?.id).toBe("sync_demo_003");
+
+    const formData = new FormData();
+    formData.set("connectorSyncRunId", latestGscRun?.id ?? "");
+    formData.set("minImpressions", "3");
+    formData.set("maxCandidates", "12");
+
+    expect(createKeywordDiscoveryRequestFromForm(formData)).toMatchObject({
+      connectorSyncRunId: "sync_demo_003",
+      maxCandidates: 12,
+      minImpressions: 3
+    });
+    await expect(createKeywordDiscoveryFromConnectorRun("site_1", formData)).resolves.toMatchObject({
+      candidateCount: 1,
+      connectorSyncRunId: "sync_demo_003",
+      source: "fixture",
+      status: "fixture",
+      topKeyword: "답변엔진 최적화 클리닉"
+    });
+    expect(getKeywordDiscoveryCreateFeedback("fixture", "1", "답변엔진 최적화 클리닉")?.tone).toBe(
+      "info",
+    );
+  });
+
+  it("posts keyword discovery requests through the API contract", async () => {
+    const formData = new FormData();
+    formData.set("connectorSyncRunId", "sync_run_gsc");
+    formData.set("minImpressions", "5");
+    formData.set("maxCandidates", "10");
+
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.searchops.test/sites/site_1/keyword-discoveries");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          connectorSyncRunId: "sync_run_gsc",
+          maxCandidates: 10,
+          minImpressions: 5
+        });
+
+        return Response.json({
+          discoverySet: {
+            siteId: "site_1",
+            generatedBy: "deterministic",
+            discoveredAt: "2026-05-25T00:00:00.000Z",
+            candidates: [
+              {
+                keyword: {
+                  siteId: "site_1",
+                  phrase: "seo clinic",
+                  locale: "ko-KR",
+                  language: "ko",
+                  country: "KR",
+                  intent: "commercial",
+                  source: "gsc"
+                },
+                pageUrl: "https://example-clinic.com/service/seo",
+                score: 120,
+                evidence: {
+                  provider: "gsc",
+                  pageUrl: "https://example-clinic.com/service/seo",
+                  sourceField: "query",
+                  clicks: 12,
+                  impressions: 120,
+                  position: 3.2
+                }
+              }
+            ]
+          },
+          candidates: [
+            {
+              id: "keyword_discovery_1",
+              siteId: "site_1",
+              keywordId: "keyword_1",
+              phrase: "seo clinic",
+              locale: "ko-KR",
+              language: "ko",
+              country: "KR",
+              intent: "commercial",
+              source: "gsc",
+              pageUrl: "https://example-clinic.com/service/seo",
+              score: 120,
+              evidence: {
+                provider: "gsc",
+                pageUrl: "https://example-clinic.com/service/seo",
+                sourceField: "query",
+                clicks: 12,
+                impressions: 120,
+                position: 3.2
+              },
+              generatedBy: "deterministic",
+              discoveredAt: "2026-05-25T00:00:00.000Z",
+              createdAt: "2026-05-25T00:00:00.000Z",
+              updatedAt: "2026-05-25T00:00:00.000Z"
+            }
+          ]
+        });
+      }),
+    );
+
+    await expect(createKeywordDiscoveryFromConnectorRun("site_1", formData)).resolves.toMatchObject({
+      candidateCount: 1,
+      source: "api",
+      status: "created",
+      topKeyword: "seo clinic"
+    });
+    expect(getKeywordDiscoveryCreateFeedback("created", "1", "seo clinic")?.message).toContain(
+      "seo clinic",
+    );
   });
 
   it("loads keyword AEO readiness through the API response contract", async () => {
