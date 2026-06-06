@@ -2,6 +2,31 @@
 
 Local development helper scripts live here.
 
+## Local dev doctor
+
+`corepack pnpm check:local-dev` checks only local env values, localhost ports, and the API
+`/health` endpoint. It does not start/stop services, change Docker state, or call external APIs.
+
+Run from the repo root:
+
+```bash
+corepack pnpm check:local-dev
+```
+
+Useful variants:
+
+```bash
+corepack pnpm check:local-dev -- --json
+corepack pnpm check:local-dev -- --strict
+```
+
+What it distinguishes:
+
+- `web` open on `3000` but API closed on `4000`: connector sync actions will fail
+- API port open but `/health` unhealthy: inspect the API terminal
+- PostgreSQL or Redis closed: run `docker compose up -d`
+- worker process: no HTTP port; confirm the worker terminal says it is listening for jobs
+
 ## Connector live setup check
 
 `corepack pnpm check:connector-live` runs the API package's connector live setup CLI. It validates

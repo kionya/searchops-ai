@@ -54,14 +54,50 @@ export REDIS_URL="redis://localhost:6379"
 export SEARCHOPS_API_BASE_URL="http://localhost:4000"
 ```
 
-Then apply migrations and run the services:
+Then apply migrations and seed fixtures:
 
 ```sh
 corepack pnpm db:migrate:deploy
 corepack pnpm db:seed
+```
+
+Run the services in three terminal tabs. Long-running `dev` commands must remain open while testing.
+
+Terminal 1, API:
+
+```sh
+cd /Users/kionya/searchops-ai
+export DATABASE_URL="postgresql://searchops:searchops@localhost:5432/searchops_ai?schema=public"
+export REDIS_URL="redis://localhost:6379"
+export PORT=4000
+export SEARCHOPS_API_HOST="127.0.0.1"
 corepack pnpm --filter @searchops/api dev
+```
+
+Terminal 2, worker:
+
+```sh
+cd /Users/kionya/searchops-ai
+export DATABASE_URL="postgresql://searchops:searchops@localhost:5432/searchops_ai?schema=public"
+export REDIS_URL="redis://localhost:6379"
 corepack pnpm --filter @searchops/worker dev
+```
+
+Terminal 3, web:
+
+```sh
+cd /Users/kionya/searchops-ai
+export SEARCHOPS_API_BASE_URL="http://localhost:4000"
+export SEARCHOPS_PUBLIC_APP_URL="http://localhost:3000"
 corepack pnpm --filter @searchops/web dev
 ```
+
+Use the local doctor when a page action fails or a port is already in use:
+
+```sh
+corepack pnpm check:local-dev
+```
+
+If connector sync says the API server should be checked, the usual cause is that web is running on `3000` but API is not listening on `4000`.
 
 Run `corepack pnpm test:runtime-smoke` after Docker Desktop is running to verify PostgreSQL, Redis, API enqueueing, worker consumption, and Prisma persistence together.

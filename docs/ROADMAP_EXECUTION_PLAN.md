@@ -17,8 +17,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | Order | Workstream | Target Outcome | Status |
 |---:|---|---|---|
 | 1 | Connector live setup verification | Local/deploy env can be checked safely without external API calls or secret disclosure. | Done |
-| 2 | Local dev execution polish | API/worker/web startup and common failure states are documented or scripted. | Next |
-| 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Pending |
+| 2 | Local dev execution polish | API/worker/web startup and common failure states are documented or scripted. | Done |
+| 3 | Google connector live path | Google OAuth, GSC, and GA4 setup can be validated provider-by-provider. | Next |
 | 4 | PageSpeed live path | PageSpeed API key setup and single-provider sync path are validated. | Pending |
 | 5 | Connector operations UX | Provider-level retry, partial failure, setup-required, and next-action guidance are clearer in the dashboard. | Pending |
 | 6 | Keyword/AEO from connector data | Persisted GSC results drive keyword discovery and ContentBrief draft flow more clearly. | Pending |
