@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: searchops_ai
+      POSTGRES_PASSWORD: searchops
+      POSTGRES_USER: searchops
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U searchops -d searchops_ai"]
+      interval: 2s
+      retries: 20
+      timeout: 5s
+    ports:
+      - "5432:5432"
+    volumes:
+      - searchops-postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 20
+      timeout: 5s
+    ports:
+      - "6379:6379"
+    volumes:
+      - searchops-redis-data:/data
+
+volumes:
+  searchops-postgres-data:
+  searchops-redis-data:

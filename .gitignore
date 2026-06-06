@@ -12,3 +12,5 @@ Thumbs.db
 .bin/
 *.tsbuildinfo
 packages/db/src/generated/
+.codex/environments/
+.vercel/

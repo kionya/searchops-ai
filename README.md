@@ -29,3 +29,39 @@ Forbidden:
 ## Determinism Contract
 
 The core crawl -> analyze -> workorder -> recheck loop must run without LLM provider access. LLM use is isolated in `packages/ai-core` and is not a dependency of SEO rule execution.
+
+## Local Mac Setup
+
+Use Node 22 through `.nvmrc`, then run commands through Corepack so the repo uses `pnpm@9.15.9`.
+
+```sh
+corepack enable
+corepack prepare pnpm@9.15.9 --activate
+corepack pnpm install --frozen-lockfile
+```
+
+Start local PostgreSQL and Redis with Docker:
+
+```sh
+docker compose up -d
+```
+
+The default local values are documented in `.env.example`. This repo does not auto-load `.env` for API or worker processes, so export the runtime values in your shell before starting them:
+
+```sh
+export DATABASE_URL="postgresql://searchops:searchops@localhost:5432/searchops_ai?schema=public"
+export REDIS_URL="redis://localhost:6379"
+export SEARCHOPS_API_BASE_URL="http://localhost:4000"
+```
+
+Then apply migrations and run the services:
+
+```sh
+corepack pnpm db:migrate:deploy
+corepack pnpm db:seed
+corepack pnpm --filter @searchops/api dev
+corepack pnpm --filter @searchops/worker dev
+corepack pnpm --filter @searchops/web dev
+```
+
+Run `corepack pnpm test:runtime-smoke` after Docker Desktop is running to verify PostgreSQL, Redis, API enqueueing, worker consumption, and Prisma persistence together.
