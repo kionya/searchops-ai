@@ -1,5 +1,6 @@
 import {
   mutedTextStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -64,9 +65,10 @@ interface ConnectorsPageProps {
 
 export default async function ConnectorsPage({ params, searchParams }: ConnectorsPageProps) {
   const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
   const triggerSearchParams = await searchParams;
   const [history, oauthData, liveSetupData] = await Promise.all([
-    loadConnectorSyncHistory(siteId),
+    loadConnectorSyncHistory(site),
     loadConnectorOAuthData(siteId),
     loadConnectorLiveSetupData()
   ]);

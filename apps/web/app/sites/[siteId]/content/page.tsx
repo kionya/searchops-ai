@@ -2,6 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -58,11 +59,12 @@ interface ContentPageProps {
 
 export default async function ContentPage({ params, searchParams }: ContentPageProps) {
   const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
   const createSearchParams = await searchParams;
   const [history, keywordAeoDashboard, connectorSyncHistory] = await Promise.all([
-    loadContentBriefHistory(siteId),
-    loadKeywordAeoDashboard(siteId),
-    loadConnectorSyncHistory(siteId)
+    loadContentBriefHistory(site),
+    loadKeywordAeoDashboard(site),
+    loadConnectorSyncHistory(site)
   ]);
   const summary = summarizeContentBriefHistory(history);
   const keywordAeoSummary = summarizeKeywordAeoDashboard(keywordAeoDashboard);
@@ -98,7 +100,7 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
         summary={keywordAeoSummary}
         siteId={siteId}
       />
-      <ContentBriefCreatePanel siteId={siteId} createFeedback={createFeedback} />
+      <ContentBriefCreatePanel domain={site.domain} siteId={siteId} createFeedback={createFeedback} />
       <section aria-label="콘텐츠 브리프 기록" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -387,9 +389,11 @@ function KeywordAeoReadinessPanel({
 }
 
 function ContentBriefCreatePanel({
+  domain,
   siteId,
   createFeedback
 }: {
+  readonly domain: string;
   readonly siteId: string;
   readonly createFeedback: ReturnType<typeof getContentBriefCreateFeedback>;
 }) {
@@ -434,7 +438,7 @@ function ContentBriefCreatePanel({
           <span style={labelStyle}>후보 URL</span>
           <input
             name="candidateUrl"
-            placeholder="https://example-clinic.com/service/seo"
+            placeholder={`https://${domain}/service/seo`}
             style={inputStyle}
             type="url"
           />

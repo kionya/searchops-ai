@@ -10,13 +10,23 @@ export type { Prisma } from "./generated/prisma/index.js";
 
 export {
   buildUrlRecordUpsertArgs,
+  createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
   markCrawlRunFailed,
+  persistCrawlAnalysisResult,
   persistCrawlJobResult,
+  type CrawlAnalysisPersistenceClient,
   type CrawlPersistenceClient,
   type CrawlRunUpdateArgs,
   type MarkCrawlRunFailedOutput,
+  type PersistCrawlAnalysisInput,
+  type PersistCrawlAnalysisOutput,
   type PersistCrawlJobResultOutput,
+  type SchemaRecommendationUpsertArgs,
+  type SeoIssueUpsertArgs,
+  type SiteFindUniqueArgs,
+  type UrlRecordFindUniqueArgs,
+  type WorkOrderUpsertArgs,
   type UrlRecordUpsertArgs
 } from "./crawl.js";
 

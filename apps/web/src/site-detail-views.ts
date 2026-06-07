@@ -1,8 +1,19 @@
-import type { CrawlRun, SeoIssue, UrlRecord, WorkOrderPriority } from "@searchops/types";
+import {
+  SeoIssueListResponseSchema,
+  UrlRecordListResponseSchema,
+  type CrawlRun,
+  type SeoIssue,
+  type Site,
+  type UrlRecord,
+  type WorkOrderPriority
+} from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
+import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type CrawlRunTone = "complete" | "failed" | "queued";
+export type SiteDetailDataSource = "api" | "fixture";
 export type UrlIndexability = "indexable" | "not_indexable";
 
 export interface CrawlRunRow extends CrawlRun {
@@ -28,6 +39,18 @@ export interface IssueListRow extends SeoIssue {
   readonly category: string;
   readonly priority: WorkOrderPriority;
   readonly ownerHint: string;
+}
+
+export interface UrlInventoryDashboardData {
+  readonly errorMessage: string | null;
+  readonly rows: readonly UrlInventoryRow[];
+  readonly source: SiteDetailDataSource;
+}
+
+export interface IssueDashboardData {
+  readonly errorMessage: string | null;
+  readonly rows: readonly IssueListRow[];
+  readonly source: SiteDetailDataSource;
 }
 
 export const demoCrawlRunRows: CrawlRunRow[] = [
@@ -236,6 +259,85 @@ export function summarizeCrawlRuns(crawlRuns: readonly CrawlRunRow[]) {
   };
 }
 
+export function createSiteCrawlRunRows(site: Site): CrawlRunRow[] {
+  return scopeDemoFixtureToSite(demoCrawlRunRows, site);
+}
+
+export function createSiteUrlInventoryRows(site: Site): UrlInventoryRow[] {
+  return scopeDemoFixtureToSite(demoUrlInventoryRows, site);
+}
+
+export function createSiteIssueListRows(site: Site): IssueListRow[] {
+  return scopeDemoFixtureToSite(demoIssueListRows, site);
+}
+
+export async function loadSiteUrlInventoryDashboard(
+  siteOrId: Site | string,
+): Promise<UrlInventoryDashboardData> {
+  const site = getFixtureSite(siteOrId);
+  const siteId = getFixtureSiteId(siteOrId);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return createFixtureUrlInventoryDashboard(site);
+  }
+
+  try {
+    const [urlsResponse, issuesResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/urls`, { cache: "no-store" }),
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
+    ]);
+    if (!urlsResponse.ok) {
+      throw new Error(`URL inventory request failed with ${urlsResponse.status}`);
+    }
+    if (!issuesResponse.ok) {
+      throw new Error(`SEO issue request failed with ${issuesResponse.status}`);
+    }
+
+    const urls = UrlRecordListResponseSchema.parse(await urlsResponse.json()).urls;
+    const issues = SeoIssueListResponseSchema.parse(await issuesResponse.json()).issues;
+    return {
+      errorMessage: null,
+      rows: createUrlInventoryRowsFromApi(urls, issues),
+      source: "api"
+    };
+  } catch (error) {
+    return {
+      ...createFixtureUrlInventoryDashboard(site),
+      errorMessage: error instanceof Error ? error.message : "URL inventory request failed"
+    };
+  }
+}
+
+export async function loadSiteIssueDashboard(siteOrId: Site | string): Promise<IssueDashboardData> {
+  const site = getFixtureSite(siteOrId);
+  const siteId = getFixtureSiteId(siteOrId);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return createFixtureIssueDashboard(site);
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      throw new Error(`SEO issue request failed with ${response.status}`);
+    }
+
+    const issues = SeoIssueListResponseSchema.parse(await response.json()).issues;
+    return {
+      errorMessage: null,
+      rows: createIssueListRowsFromApi(issues),
+      source: "api"
+    };
+  } catch (error) {
+    return {
+      ...createFixtureIssueDashboard(site),
+      errorMessage: error instanceof Error ? error.message : "SEO issue request failed"
+    };
+  }
+}
+
 export function summarizeUrlInventory(urls: readonly UrlInventoryRow[]) {
   return {
     total: urls.length,
@@ -336,4 +438,120 @@ function createIssueListRow(input: Omit<IssueListRow, "createdAt" | "crawlRunId"
     },
     createdAt: "2026-05-19T09:05:00.000Z"
   };
+}
+
+function createFixtureUrlInventoryDashboard(site: Site): UrlInventoryDashboardData {
+  return {
+    errorMessage: null,
+    rows: createSiteUrlInventoryRows(site),
+    source: "fixture"
+  };
+}
+
+function createFixtureIssueDashboard(site: Site): IssueDashboardData {
+  return {
+    errorMessage: null,
+    rows: createSiteIssueListRows(site),
+    source: "fixture"
+  };
+}
+
+function createUrlInventoryRowsFromApi(
+  urls: readonly UrlRecord[],
+  issues: readonly SeoIssue[],
+): UrlInventoryRow[] {
+  return urls.map((urlRecord) => {
+    const relatedIssues = issues.filter((issue) => getIssueUrl(issue) === urlRecord.url);
+    const indexable = urlRecord.statusCode === null || urlRecord.statusCode < 400;
+
+    return {
+      ...urlRecord,
+      indexable,
+      indexability: indexable ? "indexable" : "not_indexable",
+      indexabilityReason: indexable ? "색인 허용" : "HTTP 오류로 확인 필요",
+      issueCount: relatedIssues.length,
+      path: formatUrlPath(urlRecord.url),
+      primarySignal: relatedIssues[0]?.title ?? "정상"
+    };
+  });
+}
+
+function createIssueListRowsFromApi(issues: readonly SeoIssue[]): IssueListRow[] {
+  return issues.map((issue) => ({
+    ...issue,
+    category: getIssueCategory(issue.ruleId),
+    ownerHint: getIssueOwnerHint(issue.ruleId),
+    priority: getIssuePriority(issue.severity),
+    url: getIssueUrl(issue)
+  }));
+}
+
+function getIssueUrl(issue: SeoIssue) {
+  const url = issue.evidence?.url;
+  return typeof url === "string" ? url : "unknown";
+}
+
+function getIssuePriority(severity: string): WorkOrderPriority {
+  if (severity === "critical") {
+    return "p0";
+  }
+
+  if (severity === "high") {
+    return "p1";
+  }
+
+  if (severity === "medium") {
+    return "p2";
+  }
+
+  return "p3";
+}
+
+function getIssueCategory(ruleId: string) {
+  if (ruleId.includes("TITLE") || ruleId.includes("META")) {
+    return "metadata";
+  }
+
+  if (ruleId.includes("H1")) {
+    return "headings";
+  }
+
+  if (ruleId.includes("CANONICAL")) {
+    return "canonical";
+  }
+
+  if (ruleId.includes("IMAGE")) {
+    return "images";
+  }
+
+  if (ruleId.includes("SCHEMA")) {
+    return "schema";
+  }
+
+  return "content";
+}
+
+function getIssueOwnerHint(ruleId: string) {
+  if (ruleId.includes("META")) {
+    return "marketer";
+  }
+
+  if (ruleId.includes("TITLE") || ruleId.includes("H1") || ruleId.includes("CANONICAL")) {
+    return "developer";
+  }
+
+  if (ruleId.includes("SCHEMA")) {
+    return "developer";
+  }
+
+  return "content";
+}
+
+function formatUrlPath(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname || "/"}${parsed.search}`;
+  } catch {
+    return url;
+  }
 }

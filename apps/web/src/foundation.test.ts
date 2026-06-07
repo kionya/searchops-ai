@@ -97,6 +97,14 @@ import {
   summarizeOperatorConsoleSignals
 } from "./operator-console";
 import {
+  createSiteRegistrationDraft,
+  createSiteRegistrationRequestFromForm,
+  createSiteRegistrationSearchParams,
+  getInitialCrawlFeedback,
+  mergeSitesWithCreatedPreview,
+  resolveSiteFromRegistrationId
+} from "./site-registry";
+import {
   createDemoOperationsHardeningDashboard,
   getBackupRestoreDrillRunFeedback,
   loadOperationsHardeningDashboard,
@@ -171,20 +179,27 @@ import {
 } from "./schema-recommendations";
 import {
   calculateSiteOverviewKpis,
+  createSiteOverviewInput,
   demoSiteOverviewInput,
   summarizeSiteOverview
 } from "./site-overview-kpis";
 import {
+  createSiteCrawlRunRows,
+  createSiteIssueListRows,
+  createSiteUrlInventoryRows,
   demoCrawlRunRows,
   demoIssueListRows,
   demoUrlInventoryRows,
   formatDuration,
+  loadSiteIssueDashboard,
+  loadSiteUrlInventoryDashboard,
   summarizeCrawlRuns,
   summarizeIssues,
   summarizeUrlInventory
 } from "./site-detail-views";
 import {
   canRecheckWorkOrder,
+  createSiteWorkOrders,
   demoSite,
   demoWorkOrders,
   groupWorkOrdersByStatus,
@@ -203,6 +218,226 @@ describe("web foundation", () => {
 
   it("can validate the dashboard site fixture shape", () => {
     expect(SiteSchema.parse(demoSite)).toMatchObject({ domain: "example-clinic.com" });
+  });
+
+  it("creates a deterministic dashboard site draft from registration input", () => {
+    const site = createSiteRegistrationDraft({
+      country: "kr",
+      domain: "https://www.Example-Clinic.com/services?utm_source=test",
+      industry: "medical",
+      language: "KO",
+      name: "Example Clinic"
+    });
+
+    expect(SiteSchema.parse(site)).toMatchObject({
+      country: "KR",
+      domain: "example-clinic.com",
+      id: "site_example_dash_clinic_dot_com",
+      industry: "medical",
+      language: "ko",
+      name: "Example Clinic",
+      organizationId: "org_demo"
+    });
+  });
+
+  it("builds a full site registration request from the form controls", () => {
+    const formData = new FormData();
+    formData.set("name", "Example Clinic");
+    formData.set("domain", "example-clinic.com");
+    formData.set("industry", "medical");
+    formData.set("language", "ko");
+    formData.set("country", "KR");
+    formData.set("initialCrawlEnabled", "true");
+    formData.set("startUrl", "https://example-clinic.com/services");
+    formData.set("maxPages", "12");
+    formData.set("respectRobotsTxt", "true");
+    formData.set("discoverSitemap", "true");
+    formData.set("generateSeoIssues", "true");
+    formData.set("generateWorkOrders", "true");
+    formData.set("generateSchemaRecommendations", "true");
+    formData.append("connectorProvider", "gsc");
+    formData.append("connectorProvider", "ga4");
+
+    expect(createSiteRegistrationRequestFromForm(formData)).toEqual({
+      automation: {
+        generateSchemaRecommendations: true,
+        generateSeoIssues: true,
+        generateWorkOrders: true
+      },
+      connectors: {
+        requestedProviders: ["gsc", "ga4"]
+      },
+      initialCrawl: {
+        discoverSitemap: true,
+        enabled: true,
+        maxPages: 12,
+        respectRobotsTxt: true,
+        startUrl: "https://example-clinic.com/services"
+      },
+      site: {
+        country: "KR",
+        domain: "example-clinic.com",
+        industry: "medical",
+        language: "ko",
+        name: "Example Clinic"
+      }
+    });
+  });
+
+  it("formats initial crawl queue feedback from registration redirects", () => {
+    expect(
+      getInitialCrawlFeedback({
+        crawl: "queued",
+        crawlRunId: "crawl_123"
+      }),
+    ).toEqual({
+      crawlRunId: "crawl_123",
+      message: "초기 crawl이 대기열에 등록됐습니다.",
+      tone: "info"
+    });
+    expect(getInitialCrawlFeedback({ crawl: "completed" })).toBeNull();
+  });
+
+  it("keeps fixture-created sites visible from the sites list query string", () => {
+    const site = createSiteRegistrationDraft({
+      domain: "example-clinic.com",
+      name: "Example Clinic"
+    });
+    const searchParams = createSiteRegistrationSearchParams(site, "fixture");
+    const sites = mergeSitesWithCreatedPreview([demoSite], Object.fromEntries(searchParams));
+
+    expect(sites.map((candidate) => candidate.id)).toContain("site_example_dash_clinic_dot_com");
+    expect(sites.at(-1)).toMatchObject({
+      domain: "example-clinic.com",
+      name: "Example Clinic"
+    });
+  });
+
+  it("resolves a registered dashboard site from its URL-safe id", () => {
+    expect(resolveSiteFromRegistrationId("site_example_dash_clinic_dot_com")).toMatchObject({
+      domain: "example-clinic.com",
+      id: "site_example_dash_clinic_dot_com",
+      name: "example-clinic.com"
+    });
+  });
+
+  it("applies a registered site domain across all dashboard module fixtures", () => {
+    const registeredSite = createSiteRegistrationDraft({
+      domain: "test-clinic.co.kr",
+      industry: "medical",
+      name: "테스트 피부과"
+    });
+    const crawlRows = createSiteCrawlRunRows(registeredSite);
+    const urlRows = createSiteUrlInventoryRows(registeredSite);
+    const issueRows = createSiteIssueListRows(registeredSite);
+    const workOrders = createSiteWorkOrders(registeredSite);
+    const overview = createSiteOverviewInput(registeredSite);
+    const schema = createDemoSchemaRecommendationDashboard(registeredSite);
+    const connector = createDemoConnectorSyncHistory(registeredSite);
+    const keywordAeo = createDemoKeywordAeoDashboard(registeredSite);
+    const content = createDemoContentBriefHistory(registeredSite);
+    const geo = createDemoGeoVisibilityDashboard(registeredSite);
+    const compliance = createDemoComplianceDashboard(registeredSite);
+    const serialized = JSON.stringify({
+      compliance,
+      connector,
+      content,
+      crawlRows,
+      geo,
+      issueRows,
+      keywordAeo,
+      overview,
+      schema,
+      urlRows,
+      workOrders
+    });
+
+    expect(crawlRows.map((row) => row.siteId)).toEqual(Array(crawlRows.length).fill(registeredSite.id));
+    expect(urlRows.every((row) => row.url.includes(registeredSite.domain))).toBe(true);
+    expect(issueRows.every((issue) => issue.url.includes(registeredSite.domain))).toBe(true);
+    expect(workOrders.every((workOrder) => workOrder.siteId === registeredSite.id)).toBe(true);
+    expect(schema.recommendations.every((recommendation) => recommendation.pageUrl.includes(registeredSite.domain))).toBe(true);
+    expect(keywordAeo.reports.every((report) => report.pageUrl === null || report.pageUrl.includes(registeredSite.domain))).toBe(true);
+    expect(geo.reports.every((report) => report.domain === registeredSite.domain)).toBe(true);
+    expect(compliance.flags.every((flag) => flag.url?.includes(registeredSite.domain))).toBe(true);
+    expect(serialized).toContain("test-clinic.co.kr");
+    expect(serialized).not.toContain("example-clinic.com");
+    expect(serialized).not.toContain("site_demo_rejuel");
+  });
+
+  it("loads URL inventory and SEO issues from the API before falling back to fixtures", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "http://api.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith(`/sites/${demoSite.id}/urls`)) {
+          return new Response(
+            JSON.stringify({
+              urls: [
+                {
+                  id: "url_api_home",
+                  siteId: demoSite.id,
+                  crawlRunId: "crawl_api_1",
+                  url: "https://example-clinic.com/",
+                  statusCode: 200,
+                  title: "Example Clinic",
+                  metaDescription: null,
+                  createdAt: "2026-06-07T00:00:00.000Z"
+                }
+              ]
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.endsWith(`/sites/${demoSite.id}/seo-issues`)) {
+          return new Response(
+            JSON.stringify({
+              issues: [
+                {
+                  id: "issue_api_meta",
+                  crawlRunId: "crawl_api_1",
+                  urlRecordId: "url_api_home",
+                  ruleId: "META_DESC_MISSING",
+                  severity: "medium",
+                  status: "open",
+                  title: "Missing meta description",
+                  evidence: {
+                    expectedValue: "present",
+                    observedValue: null,
+                    sourceField: "metaDescription",
+                    url: "https://example-clinic.com/"
+                  },
+                  createdAt: "2026-06-07T00:00:01.000Z"
+                }
+              ]
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const urls = await loadSiteUrlInventoryDashboard(demoSite);
+    const issues = await loadSiteIssueDashboard(demoSite);
+
+    expect(urls.source).toBe("api");
+    expect(urls.rows).toHaveLength(1);
+    expect(urls.rows[0]).toMatchObject({
+      issueCount: 1,
+      path: "/",
+      primarySignal: "Missing meta description"
+    });
+    expect(issues.source).toBe("api");
+    expect(issues.rows[0]).toMatchObject({
+      category: "metadata",
+      ownerHint: "marketer",
+      priority: "p2",
+      url: "https://example-clinic.com/"
+    });
   });
 
   it("normalizes API base URLs for deployed web runtime fetches", () => {

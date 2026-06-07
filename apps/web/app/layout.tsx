@@ -47,11 +47,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         ) : null}
         {isProduction && gaId ? (
           <>
-            <Script
-              async
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-              strategy="afterInteractive"
-            />
+            <Script src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`} strategy="afterInteractive" />
             <Script id="searchops-ga" strategy="afterInteractive">
               {`
                 window.dataLayer = window.dataLayer || [];

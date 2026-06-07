@@ -17,6 +17,7 @@ import {
 
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
+import { scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type GeoVisibilityDashboardSource = "api" | "fixture";
@@ -399,7 +400,7 @@ export function createDemoGeoVisibilityDashboard(site: Site = demoSite): GeoVisi
   return {
     errorMessage: null,
     reports: demoGeoVisibilityReports.map((report) => ({
-      ...report,
+      ...scopeDemoFixtureToSite(report, site),
       brandName: site.name ?? site.domain,
       domain: site.domain,
       siteId: site.id

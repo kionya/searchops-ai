@@ -8,6 +8,7 @@ import type {
   ConnectorSyncRun,
   ContentBrief,
   CmsContentUpdatedEventRequest,
+  CrawlRun,
   CrawlerPageSnapshot,
   DeadLetterJobRecord,
   GeoVisibilityReportRecord,
@@ -16,6 +17,7 @@ import type {
   SchemaRecommendationRecord,
   SeoIssue,
   Site,
+  UrlRecord,
   WorkOrder,
 } from "@searchops/types";
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
@@ -432,7 +434,7 @@ const seededWorkOrder: WorkOrder = {
 const seededSeoIssue: SeoIssue = {
   id: "issue_seed",
   crawlRunId: "crawl_seed",
-  urlRecordId: null,
+  urlRecordId: "url_seed",
   ruleId: "H1_MISSING",
   severity: "high",
   status: "open",
@@ -443,6 +445,26 @@ const seededSeoIssue: SeoIssue = {
     expectedValue: 1,
     sourceField: "h1Count",
   },
+  createdAt,
+};
+const seededCrawlRun: CrawlRun = {
+  id: "crawl_seed",
+  siteId: "site_seed",
+  status: "completed",
+  startedAt: createdAt,
+  endedAt: createdAt,
+  summary: {
+    pagesProcessed: 1,
+  },
+};
+const seededUrlRecord: UrlRecord = {
+  id: "url_seed",
+  siteId: "site_seed",
+  crawlRunId: "crawl_seed",
+  url: "https://exampleclinic.com/services",
+  statusCode: 200,
+  title: "Services",
+  metaDescription: null,
   createdAt,
 };
 const seededDeadLetterJob: DeadLetterJobRecord = {
@@ -778,7 +800,9 @@ function buildWorkOrderTestServer() {
     repository: createMemoryRepository({
       organizations: [seededOrganization],
       sites: [seededSite],
+      crawlRuns: [seededCrawlRun],
       seoIssues: [seededSeoIssue],
+      urlRecords: [seededUrlRecord],
       workOrders: [seededWorkOrder],
     }),
   });
@@ -1810,6 +1834,87 @@ describe("api foundation", () => {
         startUrl: "https://exampleclinic.com/",
         maxPages: 3,
         pages: [],
+      },
+    });
+    expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
+  });
+
+  it("registers a site and queues the initial crawl in one request", async () => {
+    const { server, crawlRunQueue } = buildCrawlRunTestContext();
+    const response = await server.inject({
+      method: "POST",
+      url: "/organizations/org_demo/sites/register",
+      headers: {
+        "x-mock-user-id": "user_site_register",
+      },
+      payload: {
+        site: {
+          country: "KR",
+          domain: "newclinic.example",
+          industry: "medical",
+          language: "ko",
+          name: "New Clinic",
+        },
+        initialCrawl: {
+          enabled: true,
+          maxPages: 5,
+          startUrl: "https://newclinic.example/",
+        },
+        automation: {
+          generateSchemaRecommendations: true,
+          generateSeoIssues: true,
+          generateWorkOrders: true,
+        },
+        connectors: {
+          requestedProviders: ["gsc", "ga4", "bing", "cms"],
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.site).toMatchObject({
+      organizationId: "org_demo",
+      domain: "newclinic.example",
+      name: "New Clinic",
+    });
+    expect(body.crawlRun).toMatchObject({
+      siteId: body.site.id,
+      status: "queued",
+      summary: {
+        startUrl: "https://newclinic.example/",
+        maxPages: 5,
+      },
+    });
+    expect(body.job).toMatchObject({
+      name: "crawl",
+      payload: {
+        crawlRunId: body.crawlRun.id,
+        siteId: body.site.id,
+        siteDomain: "newclinic.example",
+        requestedByUserId: "user_site_register",
+        startUrl: "https://newclinic.example/",
+        maxPages: 5,
+        analysis: {
+          generateSchemaRecommendations: true,
+          generateSeoIssues: true,
+          generateWorkOrders: true,
+        },
+        pages: [],
+      },
+    });
+    expect(body.next).toEqual({
+      dashboardUrl: `/sites/${body.site.id}?crawl=queued&crawlRunId=${body.crawlRun.id}`,
+      connectors: [
+        { provider: "gsc", status: "setup_required" },
+        { provider: "ga4", status: "setup_required" },
+        { provider: "bing", status: "setup_required" },
+        { provider: "cms", status: "setup_required" },
+      ],
+      automation: {
+        generateSchemaRecommendations: true,
+        generateSeoIssues: true,
+        generateWorkOrders: true,
       },
     });
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
@@ -3965,6 +4070,27 @@ describe("api foundation", () => {
       status: "open",
       priority: "p1",
       ownerType: "content",
+    });
+  });
+
+  it("lists crawled URLs and SEO issues for a site", async () => {
+    const server = buildWorkOrderTestServer();
+    const urlsResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/urls",
+    });
+    const issuesResponse = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/seo-issues",
+    });
+
+    expect(urlsResponse.statusCode).toBe(200);
+    expect(urlsResponse.json()).toEqual({
+      urls: [seededUrlRecord],
+    });
+    expect(issuesResponse.statusCode).toBe(200);
+    expect(issuesResponse.json()).toEqual({
+      issues: [seededSeoIssue],
     });
   });
 

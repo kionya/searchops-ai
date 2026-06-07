@@ -6,6 +6,7 @@ import {
   SchemaRecommendationListResponseSchema,
   SchemaRecommendationRecordSchema,
   type CrawlerPageSnapshot,
+  type Site,
   type SchemaJsonLdType,
   type SchemaRecommendationPriority,
   type SchemaRecommendationRecord,
@@ -14,6 +15,7 @@ import {
 
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
+import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type SchemaRecommendationDashboardSource = "api" | "fixture";
@@ -167,11 +169,12 @@ export const demoSchemaRecommendations: SchemaRecommendationRecord[] = [
 ];
 
 export async function loadSchemaRecommendationDashboard(
-  siteId: string,
+  siteOrId: Site | string,
 ): Promise<SchemaRecommendationDashboardData> {
+  const siteId = getFixtureSiteId(siteOrId);
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoSchemaRecommendationDashboard(siteId);
+    return createDemoSchemaRecommendationDashboard(siteOrId);
   }
 
   try {
@@ -192,7 +195,7 @@ export async function loadSchemaRecommendationDashboard(
       source: "api"
     };
   } catch (error) {
-    const fallback = createDemoSchemaRecommendationDashboard(siteId);
+    const fallback = createDemoSchemaRecommendationDashboard(siteOrId);
     return {
       ...fallback,
       errorMessage:
@@ -352,15 +355,13 @@ export async function queueSchemaRichResultValidation(
 }
 
 export function createDemoSchemaRecommendationDashboard(
-  siteId: string = demoSite.id,
+  siteOrId: Site | string = demoSite,
 ): SchemaRecommendationDashboardData {
+  const site = getFixtureSite(siteOrId);
   return {
     errorMessage: null,
     recommendations: demoSchemaRecommendations.map((recommendation) =>
-      SchemaRecommendationRecordSchema.parse({
-        ...recommendation,
-        siteId
-      }),
+      SchemaRecommendationRecordSchema.parse(scopeDemoFixtureToSite(recommendation, site)),
     ),
     source: "fixture"
   };

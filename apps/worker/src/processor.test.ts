@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  CrawlAnalysisPersistenceClient,
   ConnectorSyncPersistenceClient,
   CrawlPersistenceClient,
   GeoVisibilityPersistenceClient,
@@ -33,6 +34,19 @@ const normalHtml = `
     <a href="/about">About</a>
     <a href="https://external.example/reference">Reference</a>
     <img src="/hero.png" alt="Hero image" />
+  </body>
+</html>
+`;
+
+const analysisHtml = `
+<!doctype html>
+<html>
+  <head>
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://example.com/" />
+  </head>
+  <body>
+    <p>Clinic services and treatments.</p>
   </body>
 </html>
 `;
@@ -264,6 +278,200 @@ describe("processCrawlJob", () => {
     expect(result.status).toBe("completed");
     expect(upserts).toHaveLength(1);
     expect(updates).toHaveLength(1);
+  });
+
+  it("persists crawl-derived SEO issues, work orders, and schema recommendations", async () => {
+    const seoIssueUpserts: unknown[] = [];
+    const workOrderUpserts: unknown[] = [];
+    const schemaRecommendationUpserts: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          return args;
+        }
+      }
+    };
+    const crawlAnalysisClient: CrawlAnalysisPersistenceClient = {
+      site: {
+        async findUnique(args) {
+          expect(args).toEqual({ where: { id: "site_1" } });
+          return {
+            id: "site_1",
+            organizationId: "org_1"
+          };
+        }
+      },
+      urlRecord: {
+        async findUnique(args) {
+          expect(args).toEqual({
+            where: {
+              siteId_url: {
+                siteId: "site_1",
+                url: "https://example.com/"
+              }
+            }
+          });
+          return {
+            id: "url_1"
+          };
+        }
+      },
+      seoIssue: {
+        async upsert(args) {
+          seoIssueUpserts.push(args);
+          return {
+            id: `issue_${seoIssueUpserts.length}`
+          };
+        }
+      },
+      workOrder: {
+        async upsert(args) {
+          workOrderUpserts.push(args);
+          return args;
+        }
+      },
+      schemaRecommendation: {
+        async upsert(args) {
+          schemaRecommendationUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_analysis",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 25,
+        pages: [
+          {
+            url: "https://example.com/",
+            statusCode: 200,
+            html: analysisHtml
+          }
+        ]
+      },
+      persistenceClient,
+      {
+        crawlAnalysisClient
+      },
+    );
+
+    expect(seoIssueUpserts.length).toBeGreaterThan(0);
+    expect(workOrderUpserts).toHaveLength(seoIssueUpserts.length);
+    expect(schemaRecommendationUpserts.length).toBeGreaterThan(0);
+    expect(seoIssueUpserts[0]).toMatchObject({
+      create: {
+        crawlRunId: "crawl_analysis",
+        urlRecordId: "url_1"
+      }
+    });
+    expect(workOrderUpserts[0]).toMatchObject({
+      create: {
+        organizationId: "org_1",
+        siteId: "site_1"
+      }
+    });
+    expect(schemaRecommendationUpserts[0]).toMatchObject({
+      create: {
+        generatedBy: "deterministic",
+        siteId: "site_1"
+      }
+    });
+  });
+
+  it("respects disabled crawl analysis artifact options", async () => {
+    const seoIssueUpserts: unknown[] = [];
+    const workOrderUpserts: unknown[] = [];
+    const schemaRecommendationUpserts: unknown[] = [];
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: {
+        async upsert(args) {
+          return args;
+        }
+      },
+      crawlRun: {
+        async update(args) {
+          return args;
+        }
+      }
+    };
+    const crawlAnalysisClient: CrawlAnalysisPersistenceClient = {
+      site: {
+        async findUnique() {
+          return {
+            id: "site_1",
+            organizationId: "org_1"
+          };
+        }
+      },
+      urlRecord: {
+        async findUnique() {
+          return {
+            id: "url_1"
+          };
+        }
+      },
+      seoIssue: {
+        async upsert(args) {
+          seoIssueUpserts.push(args);
+          return {
+            id: "issue_1"
+          };
+        }
+      },
+      workOrder: {
+        async upsert(args) {
+          workOrderUpserts.push(args);
+          return args;
+        }
+      },
+      schemaRecommendation: {
+        async upsert(args) {
+          schemaRecommendationUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    await processAndPersistCrawlJob(
+      {
+        analysis: {
+          generateSchemaRecommendations: false,
+          generateSeoIssues: false,
+          generateWorkOrders: false
+        },
+        crawlRunId: "crawl_analysis_disabled",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        startUrl: "https://example.com/",
+        maxPages: 25,
+        pages: [
+          {
+            url: "https://example.com/",
+            statusCode: 200,
+            html: analysisHtml
+          }
+        ]
+      },
+      persistenceClient,
+      {
+        crawlAnalysisClient
+      },
+    );
+
+    expect(seoIssueUpserts).toHaveLength(0);
+    expect(workOrderUpserts).toHaveLength(0);
+    expect(schemaRecommendationUpserts).toHaveLength(0);
   });
 
   it("hands schema recommendation recheck crawl results to persistence", async () => {

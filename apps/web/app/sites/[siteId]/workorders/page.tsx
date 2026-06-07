@@ -5,12 +5,13 @@ import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/t
 import {
   MetricCard,
   metricGridStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import { formatOwnerLabel } from "../../../../src/korean-labels";
 import {
   canRecheckWorkOrder,
-  demoWorkOrders,
+  createSiteWorkOrders,
   formatDate,
   formatPriority,
   groupWorkOrdersByStatus,
@@ -64,8 +65,16 @@ const statusLabels: Record<WorkOrderStatus, string> = {
   blocked: "차단됨"
 };
 
-export default function WorkOrdersPage() {
-  const workOrders = demoWorkOrders;
+interface WorkOrdersPageProps {
+  readonly params: Promise<{
+    readonly siteId: string;
+  }>;
+}
+
+export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
+  const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
+  const workOrders = createSiteWorkOrders(site);
   const groupedWorkOrders = groupWorkOrdersByStatus(workOrders);
   const summary = summarizeWorkOrders(workOrders);
 
@@ -92,7 +101,7 @@ export default function WorkOrdersPage() {
             <h2 id="board-heading" style={{ fontSize: 22, margin: 0 }}>
               칸반 보드
             </h2>
-            <p style={{ ...mutedText, marginTop: 4 }}>진행 대상 작업 지시서 {summary.active}개</p>
+            <p style={{ ...mutedText, marginTop: 4 }}>{site.domain} 진행 대상 작업 지시서 {summary.active}개</p>
           </div>
           <span style={{ color: "#475569", fontSize: 14 }}>진행 중 {summary.inProgress}개</span>
         </div>

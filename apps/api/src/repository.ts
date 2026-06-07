@@ -31,6 +31,7 @@ import type {
   UpdateComplianceFlagRequest,
   UpdateSiteRequest,
   UpdateWorkOrderRequest,
+  UrlRecord,
   WorkOrder,
   WorkOrderDraft
 } from "@searchops/types";
@@ -161,6 +162,8 @@ export interface SearchOpsRepository {
   createCrawlRun(siteId: string, input: CreateCrawlRunRequest): Promise<CrawlRun | null>;
   getCrawlRun(id: string): Promise<CrawlRun | null>;
   listCrawlRuns(siteId: string): Promise<CrawlRun[]>;
+  listUrlRecords(siteId: string): Promise<UrlRecord[] | null>;
+  listSeoIssues(siteId: string): Promise<SeoIssue[] | null>;
   createConnectorSyncRun(
     siteId: string,
     input: CreateConnectorSyncRunInput,
@@ -261,6 +264,7 @@ export interface MemoryRepositorySeed {
   readonly complianceFlags?: readonly ComplianceFlag[];
   readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
   readonly seoIssues?: readonly SeoIssue[];
+  readonly urlRecords?: readonly UrlRecord[];
   readonly workOrders?: readonly WorkOrder[];
 }
 
@@ -305,6 +309,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const complianceFlags = new Map<string, ComplianceFlag>();
   const schemaRecommendations = new Map<string, SchemaRecommendationRecord>();
   const seoIssues = new Map<string, SeoIssue>();
+  const urlRecords = new Map<string, UrlRecord>();
   const workOrders = new Map<string, WorkOrder>();
   let organizationCounter = 1;
   let siteCounter = 1;
@@ -395,6 +400,10 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
   for (const seoIssue of seed.seoIssues ?? []) {
     seoIssues.set(seoIssue.id, seoIssue);
+  }
+
+  for (const urlRecord of seed.urlRecords ?? []) {
+    urlRecords.set(urlRecord.id, urlRecord);
   }
 
   for (const workOrder of seed.workOrders ?? []) {
@@ -503,6 +512,26 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
       return [...crawlRuns.values()]
         .filter((crawlRun) => crawlRun.siteId === siteId)
         .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    },
+
+    async listUrlRecords(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...urlRecords.values()]
+        .filter((urlRecord) => urlRecord.siteId === siteId)
+        .sort((a, b) => a.url.localeCompare(b.url));
+    },
+
+    async listSeoIssues(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+
+      return [...seoIssues.values()]
+        .filter((seoIssue) => crawlRuns.get(seoIssue.crawlRunId)?.siteId === siteId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.ruleId.localeCompare(b.ruleId));
     },
 
     async createConnectorSyncRun(siteId, input) {

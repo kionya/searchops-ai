@@ -17,7 +17,9 @@
     "@searchops/db": "workspace:*",
     "@searchops/geo-core": "workspace:*",
     "@searchops/schema-core": "workspace:*",
+    "@searchops/seo-core": "workspace:*",
     "@searchops/types": "workspace:*",
+    "@searchops/workorders": "workspace:*",
     "bullmq": "^5.52.1"
   }
 }

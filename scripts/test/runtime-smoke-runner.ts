@@ -163,15 +163,38 @@ async function main() {
         }
       }
     });
+    const seoIssue = await prisma.seoIssue.findFirst({
+      where: {
+        crawlRunId: payload.crawlRun.id,
+        ruleId: "CANONICAL_MISSING"
+      }
+    });
+    const workOrder =
+      seoIssue === null
+        ? null
+        : await prisma.workOrder.findUnique({
+            where: {
+              seoIssueId: seoIssue.id
+            }
+          });
+    const schemaRecommendation = await prisma.schemaRecommendation.findFirst({
+      where: {
+        pageUrl: startUrl,
+        siteId
+      }
+    });
 
     assert.equal(crawlRun.siteId, siteId);
     assert.equal(crawlRun.status, "completed");
     assert.equal((crawlRun.summary as { pagesProcessed?: unknown } | null)?.pagesProcessed, 1);
     assert.equal(urlRecord?.statusCode, 200);
     assert.equal(urlRecord?.title, "Runtime Smoke Fixture");
+    assert.equal(seoIssue?.urlRecordId, urlRecord?.id);
+    assert.equal(workOrder?.siteId, siteId);
+    assert.equal(schemaRecommendation?.generatedBy, "deterministic");
 
     console.log(
-      `Runtime smoke passed: ${payload.crawlRun.id} completed and persisted ${urlRecord?.url}`,
+      `Runtime smoke passed: ${payload.crawlRun.id} completed and persisted ${urlRecord?.url}, ${seoIssue?.id}, ${schemaRecommendation?.id}`,
     );
   } finally {
     await workerRuntime.close();

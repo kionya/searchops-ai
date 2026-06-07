@@ -2,6 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -16,15 +17,24 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import { formatStatusLabel } from "../../../../src/korean-labels";
 import {
-  demoCrawlRunRows,
+  createSiteCrawlRunRows,
   formatDateTime,
   formatDuration,
   getCrawlRunTone,
   summarizeCrawlRuns
 } from "../../../../src/site-detail-views";
 
-export default function CrawlsPage() {
-  const summary = summarizeCrawlRuns(demoCrawlRunRows);
+interface CrawlsPageProps {
+  readonly params: Promise<{
+    readonly siteId: string;
+  }>;
+}
+
+export default async function CrawlsPage({ params }: CrawlsPageProps) {
+  const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
+  const crawlRunRows = createSiteCrawlRunRows(site);
+  const summary = summarizeCrawlRuns(crawlRunRows);
 
   return (
     <section aria-labelledby="crawl-history-heading">
@@ -49,7 +59,7 @@ export default function CrawlsPage() {
               최근 상태: {formatStatusLabel(summary.latestStatus)}
             </p>
           </div>
-          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>데모 데이터</span>
+          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
         <div style={tableScrollStyle}>
           <table style={tableStyle}>
@@ -66,7 +76,7 @@ export default function CrawlsPage() {
               </tr>
             </thead>
             <tbody>
-              {demoCrawlRunRows.map((crawlRun) => (
+              {crawlRunRows.map((crawlRun) => (
                 <tr key={crawlRun.id}>
                   <td style={tdStyle}>
                     <strong>{crawlRun.label}</strong>

@@ -6,10 +6,12 @@ import {
   CreateConnectorSyncRunResponseSchema,
   type ConnectorProvider,
   type ConnectorSyncResult,
-  type ConnectorSyncRun
+  type ConnectorSyncRun,
+  type Site
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
+import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type ConnectorSyncHistorySource = "api" | "fixture";
@@ -309,10 +311,11 @@ export const demoConnectorSyncResults: ConnectorSyncResult[] = [
   }
 ];
 
-export async function loadConnectorSyncHistory(siteId: string): Promise<ConnectorSyncHistoryData> {
+export async function loadConnectorSyncHistory(siteOrId: Site | string): Promise<ConnectorSyncHistoryData> {
+  const siteId = getFixtureSiteId(siteOrId);
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoConnectorSyncHistory(siteId);
+    return createDemoConnectorSyncHistory(siteOrId);
   }
 
   try {
@@ -360,7 +363,7 @@ export async function loadConnectorSyncHistory(siteId: string): Promise<Connecto
       source: "api"
     };
   } catch (error) {
-    const fallback = createDemoConnectorSyncHistory(siteId);
+    const fallback = createDemoConnectorSyncHistory(siteOrId);
     return {
       ...fallback,
       errorMessage: error instanceof Error ? error.message : "커넥터 동기화 이력 요청에 실패했습니다"
@@ -436,11 +439,15 @@ export async function triggerConnectorSync(
   }
 }
 
-export function createDemoConnectorSyncHistory(siteId: string = demoSite.id): ConnectorSyncHistoryData {
+export function createDemoConnectorSyncHistory(siteOrId: Site | string = demoSite): ConnectorSyncHistoryData {
+  const site = getFixtureSite(siteOrId);
+  const runs = scopeDemoFixtureToSite(demoConnectorSyncRuns, site);
+  const results = scopeDemoFixtureToSite(demoConnectorSyncResults, site);
+
   return {
     errorMessage: null,
-    resultsByRunId: groupConnectorSyncResultsByRun(demoConnectorSyncResults),
-    runs: demoConnectorSyncRuns.map((run) => ({ ...run, siteId })),
+    resultsByRunId: groupConnectorSyncResultsByRun(results),
+    runs,
     source: "fixture"
   };
 }

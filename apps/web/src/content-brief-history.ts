@@ -5,11 +5,13 @@ import {
   type ContentBrief,
   type ContentBriefStatus,
   type CreateContentBriefDraftRequest,
-  type KeywordIntent
+  type KeywordIntent,
+  type Site
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
 import { formatGenerationModeLabel, formatIntentLabel, formatPublishPolicyLabel, formatStatusLabel } from "./korean-labels";
+import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type ContentBriefHistorySource = "api" | "fixture";
@@ -109,10 +111,11 @@ export const demoContentBriefs: ContentBrief[] = [
   }
 ];
 
-export async function loadContentBriefHistory(siteId: string): Promise<ContentBriefHistoryData> {
+export async function loadContentBriefHistory(siteOrId: Site | string): Promise<ContentBriefHistoryData> {
+  const siteId = getFixtureSiteId(siteOrId);
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoContentBriefHistory(siteId);
+    return createDemoContentBriefHistory(siteOrId);
   }
 
   try {
@@ -130,7 +133,7 @@ export async function loadContentBriefHistory(siteId: string): Promise<ContentBr
       source: "api"
     };
   } catch (error) {
-    const fallback = createDemoContentBriefHistory(siteId);
+    const fallback = createDemoContentBriefHistory(siteOrId);
     return {
       ...fallback,
       errorMessage: error instanceof Error ? error.message : "콘텐츠 브리프 이력 요청에 실패했습니다"
@@ -217,9 +220,11 @@ export function createContentBriefRequestFromForm(
   });
 }
 
-export function createDemoContentBriefHistory(siteId: string = demoSite.id): ContentBriefHistoryData {
+export function createDemoContentBriefHistory(siteOrId: Site | string = demoSite): ContentBriefHistoryData {
+  const site = getFixtureSite(siteOrId);
+
   return {
-    briefs: demoContentBriefs.map((brief) => ({ ...brief, siteId })),
+    briefs: scopeDemoFixtureToSite(demoContentBriefs, site),
     errorMessage: null,
     source: "fixture"
   };

@@ -1,5 +1,7 @@
 import type { Site, WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/types";
 
+import { scopeDemoFixtureToSite } from "./site-fixture-scope";
+
 export const demoSite: Site = {
   id: "site_demo_rejuel",
   organizationId: "org_demo",
@@ -211,6 +213,10 @@ export function formatPriority(priority: WorkOrderPriority) {
 
 export function formatDate(isoDate: string | null) {
   return isoDate ? isoDate.slice(0, 10) : "일정 없음";
+}
+
+export function createSiteWorkOrders(site: Site): WorkOrder[] {
+  return scopeDemoFixtureToSite(demoWorkOrders, site);
 }
 
 export function sortWorkOrdersForBoard(workOrders: readonly WorkOrder[]) {

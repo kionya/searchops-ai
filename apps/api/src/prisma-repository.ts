@@ -17,6 +17,7 @@ import {
   SchemaRecommendationRecordSchema,
   SeoIssueSchema,
   SiteSchema,
+  UrlRecordSchema,
   WorkOrderSchema,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
@@ -37,6 +38,7 @@ import {
   type SchemaRecommendationRecord,
   type SeoIssue,
   type Site,
+  type UrlRecord,
   type WorkOrder,
   type WorkOrderDraft
 } from "@searchops/types";
@@ -89,6 +91,7 @@ type SchemaRecommendationRecordResult = Awaited<
   ReturnType<SearchOpsPrismaClient["schemaRecommendation"]["findFirst"]>
 >;
 type SeoIssueRecord = Awaited<ReturnType<SearchOpsPrismaClient["seoIssue"]["findFirst"]>>;
+type UrlRecordResult = Awaited<ReturnType<SearchOpsPrismaClient["urlRecord"]["findFirst"]>>;
 type WorkOrderRecord = Awaited<ReturnType<SearchOpsPrismaClient["workOrder"]["findFirst"]>>;
 type ComplianceFlagWithWorkOrder = NonNullable<ComplianceFlagRecord> & {
   workOrder: NonNullable<WorkOrderRecord> | null;
@@ -245,6 +248,42 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         }
       });
       return crawlRuns.map(toCrawlRun);
+    },
+
+    async listUrlRecords(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const urlRecords = await prisma.urlRecord.findMany({
+        orderBy: [{ url: "asc" }],
+        where: { siteId }
+      });
+      return urlRecords.map(toUrlRecord);
+    },
+
+    async listSeoIssues(siteId) {
+      const site = await prisma.site.findUnique({
+        select: { id: true },
+        where: { id: siteId }
+      });
+      if (site === null) {
+        return null;
+      }
+
+      const issues = await prisma.seoIssue.findMany({
+        orderBy: [{ createdAt: "desc" }, { ruleId: "asc" }],
+        where: {
+          crawlRun: {
+            siteId
+          }
+        }
+      });
+      return issues.map(toSeoIssue);
     },
 
     async createConnectorSyncRun(siteId, input) {
@@ -1783,6 +1822,19 @@ function toSeoIssue(record: NonNullable<SeoIssueRecord>): SeoIssue {
     status: record.status,
     title: record.title,
     evidence: record.evidence,
+    createdAt: record.createdAt.toISOString()
+  });
+}
+
+function toUrlRecord(record: NonNullable<UrlRecordResult>): UrlRecord {
+  return UrlRecordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    crawlRunId: record.crawlRunId,
+    url: record.url,
+    statusCode: record.statusCode,
+    title: record.title,
+    metaDescription: record.metaDescription,
     createdAt: record.createdAt.toISOString()
   });
 }

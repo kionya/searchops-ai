@@ -1,11 +1,13 @@
 import type {
   CrawlRun,
   SeoIssue,
+  Site,
   UrlRecord,
   WorkOrder,
   WorkOrderPriority
 } from "@searchops/types";
 
+import { scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite, demoWorkOrders } from "./work-order-board";
 
 export interface DashboardUrlRecord extends UrlRecord {
@@ -87,6 +89,10 @@ export const demoSiteOverviewInput: SiteOverviewInput = {
   workOrders: demoWorkOrders,
   geo: demoGeoVisibility
 };
+
+export function createSiteOverviewInput(site: Site): SiteOverviewInput {
+  return scopeDemoFixtureToSite(demoSiteOverviewInput, site);
+}
 
 export function calculateSiteOverviewKpis(input: SiteOverviewInput): SiteOverviewKpis {
   return {

@@ -283,6 +283,130 @@ a {
   border-color: #94a3b8;
 }
 
+.searchops-sites-command-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(240px, 0.8fr);
+  margin-top: 14px;
+}
+
+.searchops-registration-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.searchops-field,
+.searchops-field-pair {
+  min-width: 0;
+}
+
+.searchops-field {
+  display: grid;
+  gap: 6px;
+}
+
+.searchops-field span {
+  color: var(--searchops-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.searchops-field input,
+.searchops-field select {
+  background: #f8fafc;
+  border: 1px solid var(--searchops-line);
+  border-radius: 8px;
+  color: var(--searchops-ink);
+  font: inherit;
+  min-height: 40px;
+  min-width: 0;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.searchops-field input:focus,
+.searchops-field select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  outline: none;
+}
+
+.searchops-field-pair {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.searchops-option-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.searchops-checkbox-field {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--searchops-line);
+  border-radius: 8px;
+  color: #334155;
+  display: flex;
+  font-size: 13px;
+  font-weight: 750;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.searchops-checkbox-field input[type="checkbox"] {
+  accent-color: #2563eb;
+  height: 16px;
+  width: 16px;
+}
+
+.searchops-registration-feedback {
+  align-items: center;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.searchops-registration-feedback a {
+  color: inherit;
+}
+
+.searchops-registration-feedback.ready {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.searchops-registration-feedback.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.searchops-registration-feedback.warning {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.searchops-registration-feedback.risk {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.searchops-registry-summary {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 0;
+}
+
 .searchops-label {
   color: var(--searchops-muted);
   display: block;
@@ -361,6 +485,11 @@ a {
   }
 
   .searchops-site-topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .searchops-sites-command-grid,
+  .searchops-field-pair {
     grid-template-columns: 1fr;
   }
 

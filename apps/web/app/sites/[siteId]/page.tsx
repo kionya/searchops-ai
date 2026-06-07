@@ -4,16 +4,21 @@ import type { CSSProperties } from "react";
 import {
   getSiteDashboardPath,
   metricGridStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../src/dashboard-shell";
 import {
   calculateSiteOverviewKpis,
-  demoSiteOverviewInput,
+  createSiteOverviewInput,
   summarizeSiteOverview,
   type SiteOverviewKpis
 } from "../../../src/site-overview-kpis";
 import {
-  demoWorkOrders,
+  getInitialCrawlFeedback,
+  type SiteRegistrationSearchParams
+} from "../../../src/site-registry";
+import {
+  createSiteWorkOrders,
   summarizeWorkOrders
 } from "../../../src/work-order-board";
 
@@ -21,13 +26,18 @@ interface SiteOverviewPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
+  readonly searchParams?: Promise<SiteRegistrationSearchParams>;
 }
 
-export default async function SiteOverviewPage({ params }: SiteOverviewPageProps) {
+export default async function SiteOverviewPage({ params, searchParams }: SiteOverviewPageProps) {
   const { siteId } = await params;
-  const kpis = calculateSiteOverviewKpis(demoSiteOverviewInput);
-  const summary = summarizeSiteOverview(demoSiteOverviewInput);
-  const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
+  const initialCrawlFeedback = getInitialCrawlFeedback(await searchParams);
+  const site = resolveDashboardSite(siteId);
+  const overviewInput = createSiteOverviewInput(site);
+  const workOrders = createSiteWorkOrders(site);
+  const kpis = calculateSiteOverviewKpis(overviewInput);
+  const summary = summarizeSiteOverview(overviewInput);
+  const workOrderSummary = summarizeWorkOrders(workOrders);
 
   return (
     <section aria-labelledby="site-overview-heading">
@@ -36,6 +46,12 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
         eyebrow="개요"
         title="사이트 상태 요약"
       />
+      {initialCrawlFeedback ? (
+        <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
+          <span>{initialCrawlFeedback.message}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{initialCrawlFeedback.crawlRunId}</span>
+        </section>
+      ) : null}
       <div style={metricGridStyle}>
         {kpiCards(kpis).map((card) => (
           <OverviewKpiCard
@@ -69,7 +85,7 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
       </section>
       <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
       <p style={{ color: "#64748b", fontSize: 13, marginTop: 14 }}>
-        실시간 API 조회가 연결되기 전까지 KPI 값은 결정론적 데모 데이터를 사용합니다.
+        실시간 API 조회가 연결되기 전까지 KPI 값은 {site.domain} 기준의 결정론적 fixture 데이터를 사용합니다.
       </p>
     </section>
   );

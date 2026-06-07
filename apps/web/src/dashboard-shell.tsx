@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { productName, type Site } from "@searchops/types";
 
 import { formatIndustryLabel } from "./korean-labels";
+import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
 
 export const dashboardFontStack =
@@ -99,7 +100,11 @@ export function getSiteDashboardPath(siteId: string, segment: SiteRouteSegment) 
 }
 
 export function resolveDashboardSite(siteId: string): Site {
-  return siteId === demoSite.id ? demoSite : { ...demoSite, id: siteId, name: siteId };
+  if (siteId === demoSite.id) {
+    return demoSite;
+  }
+
+  return resolveSiteFromRegistrationId(siteId) ?? { ...demoSite, id: siteId, name: siteId };
 }
 
 export function AppWorkspaceFrame({
