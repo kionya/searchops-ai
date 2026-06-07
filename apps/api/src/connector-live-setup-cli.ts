@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
+import { createConnectorLiveSetupReport, summarizeConnectorLiveSetupFailure } from "./connector-live-setup.js";
 
 const args = new Set(process.argv.slice(2));
 const environment = args.has("--deployment") ? "deployment" : "local";
@@ -15,7 +15,11 @@ if (args.has("--json")) {
   printTextReport();
 }
 
-if (report.summary.blocked > 0 || (args.has("--require-live") && !report.canRunLiveConnectorSync)) {
+const requireLive = args.has("--require-live");
+const failureSummary = summarizeConnectorLiveSetupFailure(report, { requireLive });
+
+if (failureSummary) {
+  console.log(failureSummary);
   process.exitCode = 1;
 }
 

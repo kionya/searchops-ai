@@ -56,6 +56,31 @@ export function createConnectorLiveSetupReport({
   });
 }
 
+export function summarizeConnectorLiveSetupFailure(
+  report: ConnectorLiveSetupReport,
+  options: { readonly requireLive: boolean },
+) {
+  const reasons: string[] = [];
+
+  if (report.summary.blocked > 0) {
+    const blockedIds = report.checks
+      .filter((check) => check.status === "blocked")
+      .map((check) => check.id)
+      .join(", ");
+    reasons.push(`blocked checks: ${blockedIds}`);
+  }
+
+  if (options.requireLive && !report.canRunLiveConnectorSync) {
+    reasons.push("require-live was requested, but no provider is ready for live connector sync.");
+  }
+
+  if (reasons.length === 0) {
+    return undefined;
+  }
+
+  return `Connector live setup check failed: ${reasons.join("; ")}`;
+}
+
 function evaluateRuntimeBase(env: NodeJS.ProcessEnv): ConnectorLiveSetupCheck {
   const missing = runtimeBaseKeys.filter((key) => !hasEnv(env, key));
   if (missing.length > 0) {

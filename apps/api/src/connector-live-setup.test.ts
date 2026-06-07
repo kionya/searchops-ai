@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
+import { createConnectorLiveSetupReport, summarizeConnectorLiveSetupFailure } from "./connector-live-setup.js";
 
 const baseEnv = {
   DATABASE_URL: "postgresql://searchops:searchops@localhost:5432/searchops_ai?schema=public",
@@ -75,5 +75,17 @@ describe("connector live setup report", () => {
       "pagespeed",
       "bing",
     ]);
+  });
+
+  it("explains require-live failures without exposing secrets", () => {
+    const report = createConnectorLiveSetupReport({
+      env: { ...baseEnv },
+      environment: "deployment",
+      generatedAt: new Date("2026-06-07T00:00:00.000Z"),
+    });
+
+    expect(summarizeConnectorLiveSetupFailure(report, { requireLive: true })).toBe(
+      "Connector live setup check failed: require-live was requested, but no provider is ready for live connector sync.",
+    );
   });
 });
