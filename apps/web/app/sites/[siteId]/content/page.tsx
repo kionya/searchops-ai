@@ -543,7 +543,7 @@ const keywordAeoMetricStyle = {
 
 const keywordDiscoveryFormStyle = {
   alignItems: "end",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid #dbe4ef",
   display: "grid",
   gap: 12,
   gridTemplateColumns: "minmax(240px, 1fr) repeat(2, minmax(140px, 180px)) auto",

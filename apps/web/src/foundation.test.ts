@@ -38,6 +38,7 @@ import {
   getConnectorSyncTriggerFeedback,
   getConnectorSyncProviderErrorGuidance,
   loadConnectorSyncHistory,
+  summarizeConnectorCommandCenter,
   summarizeConnectorOperations,
   summarizeConnectorSyncHistory,
   triggerConnectorSync
@@ -91,6 +92,10 @@ import {
   loadObservabilityDashboard,
   summarizeOperationalMetrics
 } from "./observability-dashboard";
+import {
+  createOperatorConsoleSignals,
+  summarizeOperatorConsoleSignals
+} from "./operator-console";
 import {
   createDemoOperationsHardeningDashboard,
   getBackupRestoreDrillRunFeedback,
@@ -415,6 +420,43 @@ describe("web foundation", () => {
     expect(getBackupRestoreDrillRunFeedback("dry_run", "restore_1")).toEqual({
       message: "restore drill dry-run을 확인했습니다: restore_1",
       tone: "info"
+    });
+  });
+
+  it("summarizes the operator console signal matrix", () => {
+    const readiness = createDemoOperationalReadinessDashboard();
+    const observability = createDemoObservabilityDashboard();
+    const deadLetter = createDemoDeadLetterOperations();
+    const hardening = createDemoOperationsHardeningDashboard();
+    const productization = createDemoProductizationDashboard();
+
+    const signals = createOperatorConsoleSignals({
+      canLaunch: productization.productization.canLaunch,
+      deadLetterSummary: deadLetter.summary,
+      hardeningSummary: hardening.summary,
+      observabilitySummary: observability.summary,
+      productizationSummary: productization.productization.summary,
+      readinessSummary: readiness.readiness.summary
+    });
+
+    expect(signals.map((signal) => signal.id)).toEqual([
+      "readiness",
+      "observability",
+      "dead-letter",
+      "hardening",
+      "productization"
+    ]);
+    expect(summarizeOperatorConsoleSignals(signals)).toEqual({
+      neutral: 0,
+      ready: 0,
+      risk: 4,
+      total: 5,
+      warning: 1
+    });
+    expect(signals.find((signal) => signal.id === "productization")).toMatchObject({
+      href: "/ops/productization",
+      tone: "risk",
+      value: "2 blockers"
     });
   });
 
@@ -1615,6 +1657,14 @@ describe("web foundation", () => {
         })
       ]),
     );
+    expect(summarizeConnectorCommandCenter(operations)).toEqual({
+      actionRequiredProviders: 2,
+      blockedProviders: 0,
+      currentRecords: 4,
+      latestRunId: "sync_demo_003",
+      readyProviders: 3,
+      totalProviders: 5
+    });
     const runWithOperatorGuidance = {
       ...firstRun,
       summary: {

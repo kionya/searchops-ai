@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
@@ -30,11 +30,17 @@ export default async function ProductizationPage() {
   const { productization } = dashboard;
 
   return (
-    <main style={pageStyle}>
-      <Link href="/ops" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        운영 허브로
-      </Link>
-      <section aria-labelledby="productization-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="Auth/RBAC, tenant isolation, invite, billing, domain, legal, onboarding launch blockers를 secret 없이 확인합니다."
+      eyebrow="Productization"
+      title="Productization readiness"
+    >
+      <section aria-labelledby="productization-heading">
         <SectionHeader
           description="Auth/RBAC, tenant isolation, invite, billing, domain, legal, onboarding launch blockers를 secret 없이 확인합니다."
           eyebrow="제품화"
@@ -112,7 +118,7 @@ export default async function ProductizationPage() {
           </div>
         </section>
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 

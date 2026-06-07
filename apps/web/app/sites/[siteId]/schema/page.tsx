@@ -348,7 +348,8 @@ const previewGridStyle = {
 } as const;
 
 const previewCardStyle = {
-  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   minWidth: 0,
   padding: 14

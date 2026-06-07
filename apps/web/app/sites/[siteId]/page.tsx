@@ -47,7 +47,7 @@ export default async function SiteOverviewPage({ params }: SiteOverviewPageProps
           />
         ))}
       </div>
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 16, padding: 18 }}>
+      <section className="searchops-panel" style={{ marginTop: 16 }}>
         <h3 id="site-overview-heading" style={{ fontSize: 18, margin: "0 0 8px" }}>
           다음 작업
         </h3>
@@ -92,7 +92,8 @@ function WorkOrderSummaryBand({
   return (
     <section
       aria-labelledby="work-order-summary-heading"
-      style={{ borderTop: "1px solid #e5e7eb", marginTop: 18, paddingTop: 18 }}
+      className="searchops-panel"
+      style={{ marginTop: 18 }}
     >
       <div
         style={{
@@ -208,15 +209,7 @@ function ActionLink({ href, label }: { readonly href: string; readonly label: st
   return (
     <Link
       href={href}
-      style={{
-        border: "1px solid #dbe4ef",
-        borderRadius: 8,
-        color: "#172033",
-        fontWeight: 700,
-        minHeight: 42,
-        padding: "11px 12px",
-        textDecoration: "none"
-      }}
+      className="searchops-button secondary"
     >
       {label}
     </Link>
@@ -224,16 +217,18 @@ function ActionLink({ href, label }: { readonly href: string; readonly label: st
 }
 
 const kpiCardStyle: CSSProperties = {
-  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   borderTop: "4px solid #94a3b8",
+  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.05)",
   minHeight: 132,
   padding: 14
 };
 
 const toneColors = {
   neutral: "#64748b",
-  placeholder: "#7c3aed",
+  placeholder: "#2563eb",
   positive: "#059669",
   risk: "#dc2626"
 } as const;

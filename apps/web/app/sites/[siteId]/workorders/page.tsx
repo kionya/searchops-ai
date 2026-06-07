@@ -152,16 +152,16 @@ export default function WorkOrdersPage() {
           </div>
         </div>
 
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflowX: "auto" }}>
+        <div style={{ background: "#ffffff", border: "1px solid #dbe4ef", borderRadius: 8, overflowX: "auto" }}>
           <table style={{ borderCollapse: "collapse", minWidth: 900, width: "100%" }}>
-            <thead style={{ background: "#f8fafc" }}>
+            <thead style={{ background: "#f1f5f9" }}>
               <tr>
                 {["작업 지시서", "상태", "담당", "마감", "근거", "검수 방법"].map(
                   (heading) => (
                     <th
                       key={heading}
                       style={{
-                        borderBottom: "1px solid #e5e7eb",
+                        borderBottom: "1px solid #dbe4ef",
                         color: "#475569",
                         fontSize: 12,
                         padding: "11px 12px",
