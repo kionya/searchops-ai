@@ -1,14 +1,17 @@
 import {
   DeadLetterJobListResponseSchema,
+  DeadLetterReplayPlanSchema,
   DeleteDeadLetterJobResponseSchema,
   type DeadLetterJobRecord,
   type DeadLetterJobStatus,
+  type DeadLetterReplayPlan,
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
 
 export type DeadLetterOperationsSource = "api" | "fixture";
 export type DeadLetterClearStatus = "cleared" | "failed" | "fixture";
+export type DeadLetterReplayPlanStatus = "blocked" | "failed" | "fixture" | "ready";
 export type DeadLetterStatusTone = "done" | "failed" | "queued" | "running";
 
 export interface DeadLetterOperationsData {
@@ -34,7 +37,20 @@ export interface DeadLetterClearResult {
   readonly status: DeadLetterClearStatus;
 }
 
+export interface DeadLetterReplayPlanResult {
+  readonly deadLetterJobId: string;
+  readonly errorMessage: string | null;
+  readonly plan: DeadLetterReplayPlan | null;
+  readonly source: DeadLetterOperationsSource;
+  readonly status: DeadLetterReplayPlanStatus;
+}
+
 export interface DeadLetterClearFeedback {
+  readonly message: string;
+  readonly tone: "info" | "success" | "warning";
+}
+
+export interface DeadLetterReplayFeedback {
   readonly message: string;
   readonly tone: "info" | "success" | "warning";
 }
@@ -145,6 +161,51 @@ export async function clearDeadLetterJob(id: string): Promise<DeadLetterClearRes
   }
 }
 
+export async function loadDeadLetterReplayPlan(id: string): Promise<DeadLetterReplayPlanResult> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    const plan = createDemoDeadLetterReplayPlan(id);
+    return {
+      deadLetterJobId: id,
+      errorMessage: null,
+      plan,
+      source: "fixture",
+      status: "fixture",
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/ops/dead-letter-jobs/${encodeURIComponent(id)}/replay-plan`,
+      {
+        cache: "no-store",
+        method: "POST",
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`실패 작업 재실행 계획 요청 실패: ${response.status}`);
+    }
+
+    const plan = DeadLetterReplayPlanSchema.parse(await response.json());
+    return {
+      deadLetterJobId: id,
+      errorMessage: null,
+      plan,
+      source: "api",
+      status: plan.status,
+    };
+  } catch (error) {
+    return {
+      deadLetterJobId: id,
+      errorMessage:
+        error instanceof Error ? error.message : "실패 작업 재실행 계획 요청에 실패했습니다",
+      plan: null,
+      source: "api",
+      status: "failed",
+    };
+  }
+}
+
 export function createDemoDeadLetterOperations(): DeadLetterOperationsData {
   return {
     deadLetterJobs: demoDeadLetterJobs,
@@ -152,6 +213,48 @@ export function createDemoDeadLetterOperations(): DeadLetterOperationsData {
     source: "fixture",
     summary: summarizeDeadLetterOperations(demoDeadLetterJobs),
   };
+}
+
+export function createDemoDeadLetterReplayPlan(id: string): DeadLetterReplayPlan {
+  const job = demoDeadLetterJobs.find((candidate) => candidate.id === id) ?? demoDeadLetterJobs[0];
+  if (job === undefined) {
+    throw new Error("Dead-letter fixture is missing.");
+  }
+
+  return DeadLetterReplayPlanSchema.parse({
+    id: `dead_letter_replay_${normalizeDeadLetterPlanToken(id)}_fixture`,
+    createdAt: job.payload.failedAt,
+    deadLetterJobId: id,
+    originalQueue: job.payload.originalQueue,
+    originalJobName: job.payload.originalJobName,
+    originalJobId: job.payload.originalJobId,
+    reason:
+      "Replay requires queue-specific reconstruction because dead-letter entries intentionally omit raw customer/provider payloads.",
+    status: "blocked",
+    steps: [
+      {
+        id: "inspect_failure",
+        title: "Inspect failed job metadata",
+        description: "Review queue, job name, attempt count, and failure reason before replay.",
+        command: null,
+        status: "ready",
+      },
+      {
+        id: "reconstruct_payload",
+        title: "Reconstruct payload from source of truth",
+        description: "Use DB records or deterministic fixture inputs, not dead-letter metadata alone.",
+        command: null,
+        status: "blocked",
+      },
+      {
+        id: "enqueue_replay",
+        title: "Enqueue queue-specific replay",
+        description: "Replay only after the owning queue processor defines an idempotent retry path.",
+        command: null,
+        status: "blocked",
+      },
+    ],
+  });
 }
 
 export function summarizeDeadLetterOperations(
@@ -195,6 +298,46 @@ export function getDeadLetterClearFeedback(
   return null;
 }
 
+export function getDeadLetterReplayFeedback(
+  status: string | undefined,
+  jobId: string | undefined,
+  planId: string | undefined,
+): DeadLetterReplayFeedback | null {
+  if (status === "ready") {
+    return {
+      message: planId
+        ? `재실행 계획이 준비됐습니다: ${planId}`
+        : "재실행 계획이 준비됐습니다.",
+      tone: "success",
+    };
+  }
+
+  if (status === "blocked") {
+    return {
+      message: jobId
+        ? `재실행 계획을 확인했습니다. ${jobId}는 source-of-truth payload 재구성이 필요합니다.`
+        : "재실행 계획을 확인했습니다. source-of-truth payload 재구성이 필요합니다.",
+      tone: "info",
+    };
+  }
+
+  if (status === "fixture") {
+    return {
+      message: "데모 데이터 모드: 실제 재실행 계획을 보려면 SEARCHOPS_API_BASE_URL을 설정하세요.",
+      tone: "info",
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      message: "재실행 계획 요청에 실패했습니다. API 서버와 dead-letter job ID를 확인하세요.",
+      tone: "warning",
+    };
+  }
+
+  return null;
+}
+
 export function getDeadLetterStatusTone(status: DeadLetterJobStatus): DeadLetterStatusTone {
   if (status === "completed") {
     return "done";
@@ -213,4 +356,8 @@ export function getDeadLetterStatusTone(status: DeadLetterJobStatus): DeadLetter
 
 export function formatDeadLetterDate(isoDate: string | null) {
   return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
+}
+
+function normalizeDeadLetterPlanToken(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }

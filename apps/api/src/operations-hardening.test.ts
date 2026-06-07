@@ -7,6 +7,7 @@ import {
   createMemoryOperationsExecutor,
   createBackupRestoreDrillPlan,
   createDeadLetterReplayPlan,
+  createMigrationDeploymentGatePlan,
   createSecretRotationPlan,
   executeBackupRestoreDrill,
   executeSecretRotation,
@@ -56,6 +57,42 @@ describe("operations hardening plans", () => {
         },
         {
           id: "verify_restore",
+        },
+      ],
+    });
+  });
+
+  it("creates a deterministic migration deployment gate plan", () => {
+    expect(
+      createMigrationDeploymentGatePlan({
+        createdAt,
+        environment: "production",
+      }),
+    ).toMatchObject({
+      id: "migration_gate_production_20260526",
+      environment: "production",
+      status: "ready",
+      requiredInputs: [
+        "DATABASE_URL",
+        "packages/db/prisma/schema.prisma",
+        "packages/db/prisma/migrations",
+      ],
+      steps: [
+        {
+          id: "generate_client",
+          command: "corepack pnpm --filter @searchops/db db:generate",
+        },
+        {
+          id: "preflight_migration_status",
+          command: "corepack pnpm db:migrate:status",
+        },
+        {
+          id: "deploy_migrations",
+          command: "corepack pnpm db:migrate:deploy",
+        },
+        {
+          id: "postdeploy_migration_status",
+          command: "corepack pnpm db:migrate:status",
         },
       ],
     });

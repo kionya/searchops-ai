@@ -36,10 +36,11 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 
 ## Phase 11 Production Hardening
 
-- Redis-backed rate limiting requires a Redis provider suitable for shared counters.
+- Redis-backed rate limiting is wired in the API runtime and requires a Redis provider suitable for shared counters.
 - BullMQ Redis must use `noeviction`.
-- Observability log drain, alert routing, restore drill scheduler, secret manager executor, and IdP JWKS/issuer/audience are deployment provisioning tasks.
-- Backup/restore drills and migration deploy checks must be rehearsed before customer data is onboarded.
+- Observability log drain, alert routing, restore drill scheduler, secret manager executor, and IdP JWKS/issuer/audience remain deployment provisioning tasks.
+- GitHub Actions migration-gate validates Prisma migrations against temporary PostgreSQL; the production deploy pipeline should keep the same status/deploy/status sequence.
+- Backup/restore drills must be rehearsed against a scratch restore database before customer data is onboarded.
 
 ## Productization
 

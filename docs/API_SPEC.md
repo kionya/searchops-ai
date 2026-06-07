@@ -36,7 +36,7 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 
 ## Phase 11 API
 
-The API exposes process-local operational metrics, can export request and worker failure metrics for operations tooling, can send exports into injected log drain and alert router adapters, can create deterministic backup restore drill, secret rotation, and dead-letter replay plans, can dispatch restore drill and secret rotation runs through configured deployment executors, can enforce request rate limits from validated environment settings, exposes worker dead-letter metadata for operator cleanup and queue-specific replay, and reports launch readiness for provider credentials, production hardening, and productization follow-up. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
+The API exposes process-local operational metrics, can export request and worker failure metrics for operations tooling, can send exports into injected log drain and alert router adapters, can create deterministic backup restore drill, migration deployment gate, secret rotation, and dead-letter replay plans, can dispatch restore drill and secret rotation runs through configured deployment executors, can enforce Redis-backed request rate limits from validated environment settings, exposes worker dead-letter metadata for operator cleanup and queue-specific replay, and reports launch readiness for provider credentials, production hardening, and productization follow-up. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
 
 Tenant access is enforced at the API boundary from the authenticated user context. Local development may provide this context with mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`). Deployment runtimes can either provide trusted external IdP claims with `x-searchops-idp-*` headers or configure HS256 JWT bearer verification with `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience. Organization/site routes and site-scoped resource routes use the resolved context for cross-tenant denial and write-role checks.
 
@@ -50,6 +50,7 @@ Tenant access is enforced at the API boundary from the authenticated user contex
 - `GET /ops/dead-letter-jobs`
 - `DELETE /ops/dead-letter-jobs/:deadLetterJobId`
 - `GET /ops/backup-restore-drill-plan`
+- `GET /ops/migration-deployment-gate-plan`
 - `POST /ops/backup-restore-drill-runs`
 - `POST /ops/secret-rotation-plan`
 - `POST /ops/secret-rotations`

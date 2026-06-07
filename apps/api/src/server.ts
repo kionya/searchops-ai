@@ -66,6 +66,7 @@ import {
   HealthResponseSchema,
   GeoVisibilityReportListResponseSchema,
   KeywordDiscoveryListResponseSchema,
+  MigrationDeploymentGatePlanSchema,
   OrganizationListResponseSchema,
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
@@ -146,6 +147,7 @@ import {
 import {
   createBackupRestoreDrillPlan,
   createDeadLetterReplayPlan,
+  createMigrationDeploymentGatePlan,
   createNoopBackupRestoreDrillScheduler,
   createNoopSecretRotationExecutor,
   createSecretRotationPlan,
@@ -474,12 +476,22 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    const decision = await rateLimitStore.consume({
-      key: getRateLimitKey(request),
-      maxRequests: rateLimit.maxRequests,
-      nowMs: currentTime().getTime(),
-      windowMs: rateLimit.windowMs,
-    });
+    let decision;
+    try {
+      decision = await rateLimitStore.consume({
+        key: getRateLimitKey(request),
+        maxRequests: rateLimit.maxRequests,
+        nowMs: currentTime().getTime(),
+        windowMs: rateLimit.windowMs,
+      });
+    } catch (error) {
+      request.log.error({ err: error }, "Rate-limit store unavailable.");
+      return reply.status(503).send({
+        error: "rate_limit_store_unavailable",
+        message: "Rate limit store unavailable.",
+      });
+    }
+
     if (decision.limited) {
       return reply.status(429).send({
         error: "rate_limited",
@@ -845,6 +857,21 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       createdAt: currentTime(),
       environment: query.environment,
     });
+  });
+
+  server.get("/ops/migration-deployment-gate-plan", async (request) => {
+    const query = z
+      .object({
+        environment: z.string().trim().min(1).default("production"),
+      })
+      .parse(request.query);
+
+    return MigrationDeploymentGatePlanSchema.parse(
+      createMigrationDeploymentGatePlan({
+        createdAt: currentTime(),
+        environment: query.environment,
+      }),
+    );
   });
 
   server.post("/ops/secret-rotation-plan", async (request) =>

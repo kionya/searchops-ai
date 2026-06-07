@@ -175,6 +175,19 @@ export const BackupRestoreDrillPlanSchema = z.object({
 
 export type BackupRestoreDrillPlan = z.infer<typeof BackupRestoreDrillPlanSchema>;
 
+export const MigrationDeploymentGatePlanSchema = z.object({
+  id: NonEmptyStringSchema,
+  environment: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+  requiredInputs: z.array(NonEmptyStringSchema),
+  status: z.enum(["blocked", "ready"]),
+  steps: z.array(OperationalRunbookStepSchema),
+});
+
+export type MigrationDeploymentGatePlan = z.infer<
+  typeof MigrationDeploymentGatePlanSchema
+>;
+
 export const SecretRotationPlanRequestSchema = z.object({
   provider: NonEmptyStringSchema,
   oldSecretRef: NonEmptyStringSchema,

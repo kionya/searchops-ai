@@ -26,8 +26,8 @@ export default function 사이트Page() {
           <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
             {productName}
           </h1>
-          <Link href="/ops/readiness" style={secondaryLinkStyle}>
-            출시 준비도
+          <Link href="/ops" style={secondaryLinkStyle}>
+            운영 허브
           </Link>
         </div>
         <p style={{ ...mutedTextStyle, fontFamily: dashboardFontStack }}>

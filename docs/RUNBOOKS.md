@@ -11,6 +11,7 @@ Purpose:
 Automation endpoint:
 - `GET /ops/backup-restore-drill-plan?environment=<name>` returns the deterministic drill checklist and commands for the target environment.
 - `POST /ops/backup-restore-drill-runs` dispatches the drill plan to the configured deployment restore scheduler. It accepts `environment` and `dryRun`.
+- The web dashboard exposes the same plan at `/ops/hardening` with fixture fallback when the API base URL is not configured.
 
 Required inputs:
 - `DATABASE_URL` for the source database.
@@ -46,6 +47,10 @@ Rollback:
 Purpose:
 - Make Prisma schema changes predictable before deploy.
 - Separate generated client drift from database drift.
+
+Automation endpoint and CI gate:
+- `GET /ops/migration-deployment-gate-plan?environment=<name>` returns the deterministic migration deploy gate checklist.
+- GitHub Actions `migration-gate` runs `pnpm db:migrate:deploy` and `pnpm db:migrate:status` against a temporary PostgreSQL service on pull requests and pushes to `main`.
 
 Developer workflow:
 1. Update `packages/db/prisma/schema.prisma`.
@@ -89,7 +94,7 @@ Required environment:
 Pre-deploy checks:
 1. Run `corepack pnpm verify` on the release commit.
 2. Run `corepack pnpm db:migrate:status`.
-3. Confirm Redis connectivity for BullMQ queues and rate-limit storage if enabled.
+3. Confirm Redis connectivity for BullMQ queues and rate-limit storage if enabled. API runtime rate limiting uses the same `REDIS_URL` when `SEARCHOPS_RATE_LIMIT_ENABLED=true` or `NODE_ENV=production`.
 4. Confirm CMS webhook secrets are provider-scoped and rotated through the deployment secret manager.
 5. Confirm `/health`, `/metrics`, and `/ops/metrics-export` are reachable from the operations network.
 6. Confirm tenant-scoped API calls deny cross-tenant access.
@@ -126,6 +131,7 @@ Smoke check sequence:
 5. Confirm the worker logs a completed job and the API history endpoint shows persisted output.
 6. Confirm dead-letter queues are empty, or inspect `/ops/dead-letter-jobs` if any job failed.
 7. Open `/ops/readiness` and confirm every remaining provider credential, hardening task, and productization follow-up is visible without exposing secret values.
+8. Open `/ops/hardening` and confirm restore drill and migration gate plans render without secret values.
 
 If Redis eviction warnings continue:
 1. Prefer a Redis provider or plan that supports `noeviction`.
@@ -196,6 +202,7 @@ Purpose:
 Automation endpoint:
 - `POST /ops/dead-letter-jobs/:deadLetterJobId/replay-plan` returns the queue/job metadata and a blocked replay checklist.
 - `POST /ops/dead-letter-jobs/:deadLetterJobId/replay` enqueues a queue-specific replay job when the operator provides the reconstructed source-of-truth payload.
+- The web dashboard exposes replay-plan status from `/ops/dead-letter` and does not auto-requeue metadata-only entries.
 
 Rules:
 - Dead-letter entries intentionally omit raw customer/provider payloads.

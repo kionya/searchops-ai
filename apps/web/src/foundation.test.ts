@@ -71,11 +71,14 @@ import {
   summarizeContentBriefHistory
 } from "./content-brief-history";
 import {
+  createDemoDeadLetterReplayPlan,
   createDemoDeadLetterOperations,
   demoDeadLetterJobs,
   formatDeadLetterDate,
   getDeadLetterClearFeedback,
+  getDeadLetterReplayFeedback,
   getDeadLetterStatusTone,
+  loadDeadLetterReplayPlan,
   loadDeadLetterOperations,
   summarizeDeadLetterOperations
 } from "./dead-letter-operations";
@@ -88,6 +91,13 @@ import {
   loadObservabilityDashboard,
   summarizeOperationalMetrics
 } from "./observability-dashboard";
+import {
+  createDemoOperationsHardeningDashboard,
+  getBackupRestoreDrillRunFeedback,
+  loadOperationsHardeningDashboard,
+  runBackupRestoreDrill,
+  summarizeOperationsHardening
+} from "./operations-hardening-dashboard";
 import {
   createDemoOperationalReadinessDashboard,
   formatReadinessStatus,
@@ -316,6 +326,39 @@ describe("web foundation", () => {
     });
   });
 
+  it("loads dead-letter replay plans through the API response contract", async () => {
+    const plan = createDemoDeadLetterReplayPlan(demoDeadLetterJobs[0]!.id);
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          `https://api.searchops.test/ops/dead-letter-jobs/${encodeURIComponent(demoDeadLetterJobs[0]!.id)}/replay-plan`,
+        );
+        expect(init?.method).toBe("POST");
+
+        return Response.json(plan);
+      }),
+    );
+
+    const result = await loadDeadLetterReplayPlan(demoDeadLetterJobs[0]!.id);
+
+    expect(result.source).toBe("api");
+    expect(result.status).toBe("blocked");
+    expect(result.plan?.deadLetterJobId).toBe(demoDeadLetterJobs[0]!.id);
+  });
+
+  it("formats dead-letter replay feedback", () => {
+    expect(getDeadLetterReplayFeedback("blocked", "job_1", "plan_1")).toEqual({
+      message: "재실행 계획을 확인했습니다. job_1는 source-of-truth payload 재구성이 필요합니다.",
+      tone: "info"
+    });
+    expect(getDeadLetterReplayFeedback("failed", undefined, undefined)).toEqual({
+      message: "재실행 계획 요청에 실패했습니다. API 서버와 dead-letter job ID를 확인하세요.",
+      tone: "warning"
+    });
+  });
+
   it("summarizes observability dashboard fixtures", () => {
     const dashboard = createDemoObservabilityDashboard();
 
@@ -349,6 +392,89 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("api");
     expect(dashboard.errorMessage).toBeNull();
     expect(dashboard.summary.alertCount).toBe(2);
+  });
+
+  it("summarizes operations hardening fixtures", () => {
+    const dashboard = createDemoOperationsHardeningDashboard();
+
+    expect(
+      summarizeOperationsHardening(dashboard.backupRestorePlan, dashboard.migrationGatePlan),
+    ).toEqual({
+      migrationSteps: 4,
+      requiredInputs: 5,
+      restoreSteps: 4
+    });
+    expect(getBackupRestoreDrillRunFeedback("dry_run", "restore_1")).toEqual({
+      message: "restore drill dry-run을 확인했습니다: restore_1",
+      tone: "info"
+    });
+  });
+
+  it("loads operations hardening plans through the API response contract", async () => {
+    const fixture = createDemoOperationsHardeningDashboard();
+    const requestedUrls: string[] = [];
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        requestedUrls.push(String(input));
+
+        if (String(input).includes("migration-deployment-gate-plan")) {
+          return Response.json(fixture.migrationGatePlan);
+        }
+
+        return Response.json(fixture.backupRestorePlan);
+      }),
+    );
+
+    const dashboard = await loadOperationsHardeningDashboard("production");
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(requestedUrls).toEqual([
+      "https://api.searchops.test/ops/backup-restore-drill-plan?environment=production",
+      "https://api.searchops.test/ops/migration-deployment-gate-plan?environment=production"
+    ]);
+  });
+
+  it("dispatches backup restore drill dry-runs through the API response contract", async () => {
+    const fixture = createDemoOperationsHardeningDashboard();
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/backup-restore-drill-runs");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          dryRun: true,
+          environment: "production"
+        });
+
+        return Response.json({
+          dryRun: true,
+          plan: fixture.backupRestorePlan,
+          dispatch: {
+            acceptedAt: "2026-05-26T00:01:00.000Z",
+            externalRunId: null,
+            message: "Dry-run accepted for restore drill.",
+            provider: "memory",
+            status: "dry_run"
+          }
+        });
+      }),
+    );
+
+    const result = await runBackupRestoreDrill({
+      dryRun: true,
+      environment: "production"
+    });
+
+    expect(result).toMatchObject({
+      dispatchStatus: "dry_run",
+      planId: fixture.backupRestorePlan.id,
+      source: "api",
+      status: "dry_run"
+    });
   });
 
   it("loads operational readiness through the API response contract", async () => {

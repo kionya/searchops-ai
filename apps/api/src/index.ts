@@ -22,6 +22,7 @@ import {
   createHttpBackupRestoreDrillScheduler,
   createHttpSecretRotationExecutor
 } from "./operations-hardening.js";
+import { createIoredisApiRateLimitStore } from "./redis-rate-limit.js";
 import { createGoogleConnectorOAuthClientFromEnv } from "./google-oauth.js";
 import { createPrismaRepository } from "./prisma-repository.js";
 import { buildApiServer } from "./server.js";
@@ -37,6 +38,9 @@ const schemaRichResultValidationQueue = createBullMqSchemaRichResultValidationQu
 });
 const deadLetterJobStore = createBullMqDeadLetterJobStore({ redisUrl: env.REDIS_URL });
 const rateLimitEnabled = env.SEARCHOPS_RATE_LIMIT_ENABLED ?? (env.NODE_ENV === "production");
+const rateLimitStore = rateLimitEnabled
+  ? createIoredisApiRateLimitStore({ redisUrl: env.REDIS_URL })
+  : undefined;
 const deploymentTokenVerifier =
   env.SEARCHOPS_IDP_JWKS_JSON === undefined
     ? env.SEARCHOPS_IDP_JWT_HS256_SECRET === undefined
@@ -107,6 +111,7 @@ const server = buildApiServer({
     maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,
     windowMs: env.SEARCHOPS_RATE_LIMIT_WINDOW_MS ?? 60_000
   },
+  ...(rateLimitStore === undefined ? {} : { rateLimitStore }),
   schemaRichResultValidationQueue,
   secretRotationExecutor,
   repository: createPrismaRepository(prisma)
@@ -117,6 +122,7 @@ server.addHook("onClose", async () => {
   await crawlRunQueue.close();
   await deadLetterJobStore.close();
   await geoAnswerMonitorQueue.close();
+  await rateLimitStore?.close();
   await schemaRichResultValidationQueue.close();
   await prisma.$disconnect();
 });

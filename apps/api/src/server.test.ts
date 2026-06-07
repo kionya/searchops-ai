@@ -1070,6 +1070,28 @@ describe("api foundation", () => {
     });
   });
 
+  it("creates migration deployment gate plans for operations", async () => {
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/migration-deployment-gate-plan?environment=production",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: "migration_gate_production_20260526",
+      environment: "production",
+      status: "ready",
+      requiredInputs: [
+        "DATABASE_URL",
+        "packages/db/prisma/schema.prisma",
+        "packages/db/prisma/migrations",
+      ],
+    });
+  });
+
   it("creates secret rotation plans without raw secret values", async () => {
     const { server } = buildDeadLetterOperationsTestContext({
       currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
@@ -1332,6 +1354,34 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(429);
     expect(consumedKeys).toEqual(["203.0.113.10"]);
+  });
+
+  it("fails requests explicitly when the configured rate-limit store is unavailable", async () => {
+    const rateLimitStore: ApiRateLimitStore = {
+      async consume() {
+        throw new Error("redis unavailable");
+      },
+    };
+    const server = buildApiServer({
+      rateLimit: {
+        enabled: true,
+        maxRequests: 1,
+        windowMs: 1000,
+      },
+      rateLimitStore,
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+
+    const response = await server.inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      error: "rate_limit_store_unavailable",
+      message: "Rate limit store unavailable.",
+    });
   });
 
   it("provides mock auth context without real login", async () => {

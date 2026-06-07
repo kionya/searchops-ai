@@ -21,16 +21,21 @@ import { formatStatusLabel } from "../../../src/korean-labels";
 import {
   formatDeadLetterDate,
   getDeadLetterClearFeedback,
+  getDeadLetterReplayFeedback,
   getDeadLetterStatusTone,
+  loadDeadLetterReplayPlan,
   loadDeadLetterOperations,
   type DeadLetterStatusTone,
 } from "../../../src/dead-letter-operations";
-import { clearDeadLetterJobAction } from "./actions";
+import { clearDeadLetterJobAction, planDeadLetterReplayAction } from "./actions";
 
 interface DeadLetterPageProps {
   readonly searchParams: Promise<{
     readonly clear?: string;
     readonly jobId?: string;
+    readonly planId?: string;
+    readonly replay?: string;
+    readonly replayJobId?: string;
   }>;
 }
 
@@ -40,6 +45,13 @@ export default async function DeadLetterOperationsPage({
   const params = await searchParams;
   const operations = await loadDeadLetterOperations();
   const feedback = getDeadLetterClearFeedback(params.clear, params.jobId);
+  const replayFeedback = getDeadLetterReplayFeedback(
+    params.replay,
+    params.replayJobId,
+    params.planId,
+  );
+  const replayPlan =
+    params.replayJobId === undefined ? null : await loadDeadLetterReplayPlan(params.replayJobId);
 
   return (
     <main style={pageStyle}>
@@ -75,6 +87,11 @@ export default async function DeadLetterOperationsPage({
               {feedback ? (
                 <p style={{ ...feedbackStyle[feedback.tone], margin: "8px 0 0" }}>
                   {feedback.message}
+                </p>
+              ) : null}
+              {replayFeedback ? (
+                <p style={{ ...feedbackStyle[replayFeedback.tone], margin: "8px 0 0" }}>
+                  {replayFeedback.message}
                 </p>
               ) : null}
             </div>
@@ -124,12 +141,20 @@ export default async function DeadLetterOperationsPage({
                     <td style={tdStyle}>{formatDeadLetterDate(job.payload.failedAt)}</td>
                     <td style={tdStyle}>{job.payload.failedReason}</td>
                     <td style={tdStyle}>
-                      <form action={clearDeadLetterJobAction}>
-                        <input name="id" type="hidden" value={job.id} />
-                        <button style={clearButtonStyle} type="submit">
-                          정리
-                        </button>
-                      </form>
+                      <div style={actionGroupStyle}>
+                        <form action={planDeadLetterReplayAction}>
+                          <input name="id" type="hidden" value={job.id} />
+                          <button style={secondaryButtonStyle} type="submit">
+                            재실행 계획
+                          </button>
+                        </form>
+                        <form action={clearDeadLetterJobAction}>
+                          <input name="id" type="hidden" value={job.id} />
+                          <button style={clearButtonStyle} type="submit">
+                            정리
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -137,6 +162,59 @@ export default async function DeadLetterOperationsPage({
             </table>
           </div>
         </section>
+        {replayPlan?.plan ? (
+          <section aria-label="재실행 계획" style={tableSectionStyle}>
+            <header style={tableHeaderStyle}>
+              <div>
+                <h3 style={{ fontSize: 18, margin: 0 }}>재실행 계획</h3>
+                <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+                  dead-letter metadata만으로는 고객/provider payload를 재구성하지 않습니다.
+                </p>
+                {replayPlan.errorMessage ? (
+                  <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                    계획 조회 실패: {replayPlan.errorMessage}
+                  </p>
+                ) : null}
+              </div>
+              <span
+                style={{
+                  ...pillStyle,
+                  background: replayPlan.plan.status === "ready" ? "#ecfdf5" : "#fff7ed",
+                  color: replayPlan.plan.status === "ready" ? "#047857" : "#c2410c",
+                }}
+              >
+                {replayPlan.plan.status === "ready" ? "준비됨" : "차단됨"}
+              </span>
+            </header>
+            <div style={tableScrollStyle}>
+              <table style={{ ...tableStyle, minWidth: 900 }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>단계</th>
+                    <th style={thStyle}>상태</th>
+                    <th style={thStyle}>설명</th>
+                    <th style={thStyle}>명령</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replayPlan.plan.steps.map((step) => (
+                    <tr key={step.id}>
+                      <td style={tdStyle}>
+                        <strong>{step.title}</strong>
+                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                          {step.id}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>{step.status}</td>
+                      <td style={tdStyle}>{step.description}</td>
+                      <td style={{ ...tdStyle, ...codeTextStyle }}>{step.command ?? "수동 확인"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </section>
     </main>
   );
@@ -169,6 +247,24 @@ const clearButtonStyle = {
   fontWeight: 800,
   minHeight: 34,
   padding: "8px 12px",
+} as const;
+
+const secondaryButtonStyle = {
+  background: "#ffffff",
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
+  color: "#0f172a",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 800,
+  minHeight: 34,
+  padding: "8px 12px",
+} as const;
+
+const actionGroupStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
 } as const;
 
 const feedbackStyle = {

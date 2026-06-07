@@ -25,8 +25,8 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 7 | Schema validation UX | Rich-result validation can be triggered from schema recommendation screens and linked to work orders. | Done |
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Done |
 | 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Done |
-| 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Next |
-| 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Pending |
+| 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Done |
+| 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Next |
 
 ## Current Task 1 Acceptance Criteria
 
@@ -92,3 +92,14 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] Normalized CMS content update events still require the SearchOps HMAC contract when webhook signatures are configured.
 - [x] CMS webhook handling continues to normalize payloads, recheck deterministic compliance flags, and never fetch from or publish to live CMS systems.
 - [x] Focused compliance/API/web tests, typecheck, lint, browser verification, and root verify pass before moving to production hardening.
+
+## Current Task 10 Acceptance Criteria
+
+- [x] API runtime wires the distributed rate-limit store to Redis through a direct `ioredis` dependency when rate limiting is enabled.
+- [x] Rate-limit store failures return an explicit `503 rate_limit_store_unavailable` response instead of an unclassified server error.
+- [x] `GET /ops/migration-deployment-gate-plan` returns a Zod-validated deterministic migration deploy gate plan.
+- [x] GitHub Actions includes a migration-gate job that runs Prisma migrate deploy/status against a temporary PostgreSQL service.
+- [x] Dead-letter dashboard exposes replay-plan checklist status without auto-requeueing metadata-only payloads.
+- [x] Operations hardening dashboard exposes backup/restore drill plans, dry-run dispatch, and migration gate steps with fixture fallback.
+- [x] Operations hub links readiness, metrics, dead-letter, and production hardening screens.
+- [x] Focused API/web tests pass before moving to productization.

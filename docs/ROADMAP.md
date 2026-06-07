@@ -193,11 +193,12 @@ Phase 11 starting status:
 - `CDX-140`: API bearer-token auth supports RS256/JWKS verification through explicit deployment JWKS env, alongside the existing HS256 verifier.
 - `CDX-141`: Launch readiness API and dashboard track the remaining Phase 6-11 and productization work as configured, provisioning-needed, or manual-follow-up items without exposing secrets.
 - `CDX-142`: Production launch docs cover billing, onboarding, privacy, terms, security, and deployment provisioning tasks that cannot be completed by code alone.
+- `CDX-143`: API runtime wires Redis-backed rate limiting through `ioredis`, exposes a deterministic migration deployment gate plan, adds a GitHub Actions migration-gate job with a temporary PostgreSQL service, and links ops readiness, metrics, dead-letter replay planning, and restore/migration hardening through an operator hub.
 
 Phase 11 remaining limitations:
 
-- API rate limiting has a Redis-like distributed adapter boundary, but deployment-specific Redis client wiring and edge-provider implementations remain future scope.
+- API rate limiting is wired to Redis in the API runtime when enabled; edge-provider-specific rate limits remain deployment scope.
 - Metrics export can feed injected log drain and alert router adapters, including HTTP SaaS/webhook endpoints configured by env; provider account provisioning remains deployment scope.
-- Dead-letter queues capture failed job metadata and expose operator cleanup views, and supported queues can be replayed with operator-supplied source-of-truth payloads and deterministic replay job IDs.
+- Dead-letter queues capture failed job metadata and expose operator cleanup plus replay-plan views. Execution still requires operator-supplied source-of-truth payloads and queue-specific replay ownership.
 - HS256 and RS256/JWKS bearer verification are available at the API runtime boundary; provider account provisioning and JWKS rotation policy remain deployment follow-up work.
-- Restore drill and secret rotation dispatch routes call configured HTTP executors; the external scheduler/secret manager account and credential provisioning remain deployment scope.
+- Restore drill and secret rotation dispatch routes call configured HTTP executors; the external scheduler/secret manager account, real restore-drill evidence, and credential provisioning remain deployment scope.

@@ -2,6 +2,7 @@ import {
   BackupRestoreDrillPlanSchema,
   BackupRestoreDrillExecutionResponseSchema,
   DeadLetterReplayPlanSchema,
+  MigrationDeploymentGatePlanSchema,
   OperationalDispatchResultSchema,
   SecretRotationExecutionResponseSchema,
   SecretRotationPlanSchema,
@@ -9,6 +10,7 @@ import {
   type BackupRestoreDrillExecutionResponse,
   type DeadLetterJobRecord,
   type DeadLetterReplayPlan,
+  type MigrationDeploymentGatePlan,
   type OperationalDispatchResult,
   type SecretRotationExecutionResponse,
   type SecretRotationPlan,
@@ -18,6 +20,11 @@ import {
 } from "@searchops/types";
 
 export interface CreateBackupRestoreDrillPlanInput {
+  readonly createdAt: Date;
+  readonly environment: string;
+}
+
+export interface CreateMigrationDeploymentGatePlanInput {
   readonly createdAt: Date;
   readonly environment: string;
 }
@@ -98,6 +105,55 @@ export function createBackupRestoreDrillPlan({
         id: "verify_restore",
         title: "Verify restored database",
         description: "Run migration status and read-only smoke checks against the restored database.",
+        command: "corepack pnpm db:migrate:status",
+        status: "ready",
+      },
+    ],
+  });
+}
+
+export function createMigrationDeploymentGatePlan({
+  createdAt,
+  environment,
+}: CreateMigrationDeploymentGatePlanInput): MigrationDeploymentGatePlan {
+  const normalizedEnvironment = normalizeToken(environment);
+
+  return MigrationDeploymentGatePlanSchema.parse({
+    id: `migration_gate_${normalizedEnvironment}_${formatPlanDate(createdAt)}`,
+    environment,
+    createdAt: createdAt.toISOString(),
+    requiredInputs: [
+      "DATABASE_URL",
+      "packages/db/prisma/schema.prisma",
+      "packages/db/prisma/migrations",
+    ],
+    status: "ready",
+    steps: [
+      {
+        id: "generate_client",
+        title: "Generate Prisma client",
+        description: "Regenerate the Prisma client from the checked-in schema before migration checks.",
+        command: "corepack pnpm --filter @searchops/db db:generate",
+        status: "ready",
+      },
+      {
+        id: "preflight_migration_status",
+        title: "Check migration status",
+        description: "Confirm the target database and checked-in migrations are in a deployable state.",
+        command: "corepack pnpm db:migrate:status",
+        status: "ready",
+      },
+      {
+        id: "deploy_migrations",
+        title: "Deploy migrations",
+        description: "Apply checked-in migrations through Prisma migrate deploy.",
+        command: "corepack pnpm db:migrate:deploy",
+        status: "ready",
+      },
+      {
+        id: "postdeploy_migration_status",
+        title: "Verify migration status after deploy",
+        description: "Confirm there are no pending, failed, or divergent migrations after deploy.",
         command: "corepack pnpm db:migrate:status",
         status: "ready",
       },
