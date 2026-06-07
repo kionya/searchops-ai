@@ -1839,6 +1839,19 @@ describe("api foundation", () => {
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
   });
 
+  it("lists crawl runs for a site", async () => {
+    const server = buildWorkOrderTestServer();
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/crawl-runs",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      crawlRuns: [seededCrawlRun],
+    });
+  });
+
   it("registers a site and queues the initial crawl in one request", async () => {
     const { server, crawlRunQueue } = buildCrawlRunTestContext();
     const response = await server.inject({

@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -59,7 +59,7 @@ interface ContentPageProps {
 
 export default async function ContentPage({ params, searchParams }: ContentPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const createSearchParams = await searchParams;
   const [history, keywordAeoDashboard, connectorSyncHistory] = await Promise.all([
     loadContentBriefHistory(site),

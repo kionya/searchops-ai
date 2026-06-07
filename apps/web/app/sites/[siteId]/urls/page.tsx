@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -28,7 +28,7 @@ interface UrlsPageProps {
 
 export default async function UrlsPage({ params }: UrlsPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const urlInventory = await loadSiteUrlInventoryDashboard(site);
   const urlInventoryRows = urlInventory.rows;
   const summary = summarizeUrlInventory(urlInventoryRows);

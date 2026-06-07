@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 
-import { productName, type Site } from "@searchops/types";
+import { productName, SiteSchema, type Site } from "@searchops/types";
 
+import { getApiBaseUrl } from "./api-base-url";
 import { formatIndustryLabel } from "./korean-labels";
 import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
@@ -105,6 +106,26 @@ export function resolveDashboardSite(siteId: string): Site {
   }
 
   return resolveSiteFromRegistrationId(siteId) ?? { ...demoSite, id: siteId, name: siteId };
+}
+
+export async function loadDashboardSite(siteId: string): Promise<Site> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return resolveDashboardSite(siteId);
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      throw new Error(`Site request failed with ${response.status}`);
+    }
+
+    return SiteSchema.parse(await response.json());
+  } catch {
+    return resolveDashboardSite(siteId);
+  }
 }
 
 export function AppWorkspaceFrame({

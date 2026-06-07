@@ -3,9 +3,9 @@ import type { CSSProperties } from "react";
 import type { WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searchops/types";
 
 import {
+  loadDashboardSite,
   MetricCard,
   metricGridStyle,
-  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import { formatOwnerLabel } from "../../../../src/korean-labels";
@@ -73,7 +73,7 @@ interface WorkOrdersPageProps {
 
 export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const workOrders = createSiteWorkOrders(site);
   const groupedWorkOrders = groupWorkOrdersByStatus(workOrders);
   const summary = summarizeWorkOrders(workOrders);

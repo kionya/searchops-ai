@@ -1,4 +1,5 @@
 import {
+  CrawlRunListResponseSchema,
   SeoIssueListResponseSchema,
   UrlRecordListResponseSchema,
   type CrawlRun,
@@ -50,6 +51,12 @@ export interface UrlInventoryDashboardData {
 export interface IssueDashboardData {
   readonly errorMessage: string | null;
   readonly rows: readonly IssueListRow[];
+  readonly source: SiteDetailDataSource;
+}
+
+export interface CrawlRunDashboardData {
+  readonly errorMessage: string | null;
+  readonly rows: readonly CrawlRunRow[];
   readonly source: SiteDetailDataSource;
 }
 
@@ -308,6 +315,41 @@ export async function loadSiteUrlInventoryDashboard(
   }
 }
 
+export async function loadSiteCrawlRunDashboard(siteOrId: Site | string): Promise<CrawlRunDashboardData> {
+  const site = getFixtureSite(siteOrId);
+  const siteId = getFixtureSiteId(siteOrId);
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return createFixtureCrawlRunDashboard(site);
+  }
+
+  try {
+    const [crawlRunsResponse, issuesResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/crawl-runs`, { cache: "no-store" }),
+      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
+    ]);
+    if (!crawlRunsResponse.ok) {
+      throw new Error(`Crawl run request failed with ${crawlRunsResponse.status}`);
+    }
+    if (!issuesResponse.ok) {
+      throw new Error(`SEO issue request failed with ${issuesResponse.status}`);
+    }
+
+    const crawlRuns = CrawlRunListResponseSchema.parse(await crawlRunsResponse.json()).crawlRuns;
+    const issues = SeoIssueListResponseSchema.parse(await issuesResponse.json()).issues;
+    return {
+      errorMessage: null,
+      rows: createCrawlRunRowsFromApi(crawlRuns, issues),
+      source: "api"
+    };
+  } catch (error) {
+    return {
+      ...createFixtureCrawlRunDashboard(site),
+      errorMessage: error instanceof Error ? error.message : "Crawl run request failed"
+    };
+  }
+}
+
 export async function loadSiteIssueDashboard(siteOrId: Site | string): Promise<IssueDashboardData> {
   const site = getFixtureSite(siteOrId);
   const siteId = getFixtureSiteId(siteOrId);
@@ -456,6 +498,40 @@ function createFixtureIssueDashboard(site: Site): IssueDashboardData {
   };
 }
 
+function createFixtureCrawlRunDashboard(site: Site): CrawlRunDashboardData {
+  return {
+    errorMessage: null,
+    rows: createSiteCrawlRunRows(site),
+    source: "fixture"
+  };
+}
+
+function createCrawlRunRowsFromApi(
+  crawlRuns: readonly CrawlRun[],
+  issues: readonly SeoIssue[],
+): CrawlRunRow[] {
+  return crawlRuns.map((crawlRun, index) => {
+    const relatedIssues = issues.filter((issue) => issue.crawlRunId === crawlRun.id);
+    const pagesCrawled = readNumericSummary(crawlRun.summary, ["pagesProcessed", "pagesCrawled", "pagesAnalyzed"]);
+    const urlsDiscovered = readNumericSummary(crawlRun.summary, [
+      "pagesRequested",
+      "pagesDiscovered",
+      "urlsDiscovered",
+      "pagesProcessed"
+    ]);
+
+    return {
+      ...crawlRun,
+      durationSeconds: calculateDurationSeconds(crawlRun),
+      failureReason: readFailureReason(crawlRun.summary),
+      issuesFound: relatedIssues.length,
+      label: createCrawlRunLabel(crawlRun, index),
+      pagesCrawled,
+      urlsDiscovered
+    };
+  });
+}
+
 function createUrlInventoryRowsFromApi(
   urls: readonly UrlRecord[],
   issues: readonly SeoIssue[],
@@ -554,4 +630,54 @@ function formatUrlPath(url: string) {
   } catch {
     return url;
   }
+}
+
+function calculateDurationSeconds(crawlRun: CrawlRun) {
+  if (crawlRun.endedAt === null) {
+    return null;
+  }
+
+  const started = new Date(crawlRun.startedAt).getTime();
+  const ended = new Date(crawlRun.endedAt).getTime();
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) {
+    return null;
+  }
+
+  return Math.round((ended - started) / 1000);
+}
+
+function createCrawlRunLabel(crawlRun: CrawlRun, index: number) {
+  if (crawlRun.status === "queued") {
+    return "대기 중";
+  }
+
+  if (crawlRun.status === "failed") {
+    return "실패 크롤링";
+  }
+
+  return index === 0 ? "최근 크롤링" : "크롤링";
+}
+
+function readFailureReason(summary: CrawlRun["summary"]) {
+  const error = summary?.error;
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  return null;
+}
+
+function readNumericSummary(summary: CrawlRun["summary"], keys: readonly string[]) {
+  for (const key of keys) {
+    const value = summary?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 0;
 }

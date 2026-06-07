@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { resolveDashboardSite, SiteDashboardFrame } from "../../../src/dashboard-shell";
+import { loadDashboardSite, SiteDashboardFrame } from "../../../src/dashboard-shell";
 
 interface SiteDashboardLayoutProps {
   readonly children: ReactNode;
@@ -11,7 +11,7 @@ interface SiteDashboardLayoutProps {
 
 export default async function SiteDashboardLayout({ children, params }: SiteDashboardLayoutProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
 
   return <SiteDashboardFrame site={site}>{children}</SiteDashboardFrame>;
 }

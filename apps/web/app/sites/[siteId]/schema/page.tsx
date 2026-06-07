@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -51,7 +51,7 @@ interface SchemaPageProps {
 
 export default async function SchemaPage({ params, searchParams }: SchemaPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const createSearchParams = await searchParams;
   const dashboard = await loadSchemaRecommendationDashboard(site);
   const summary = summarizeSchemaRecommendations(dashboard);

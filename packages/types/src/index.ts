@@ -553,6 +553,12 @@ export const CrawlRunSchema = z.object({
 
 export type CrawlRun = z.infer<typeof CrawlRunSchema>;
 
+export const CrawlRunListResponseSchema = z.object({
+  crawlRuns: z.array(CrawlRunSchema),
+});
+
+export type CrawlRunListResponse = z.infer<typeof CrawlRunListResponseSchema>;
+
 export const CreateCrawlRunRequestSchema = z.object({
   startUrl: HttpUrlSchema.optional(),
   maxPages: z.number().int().positive().max(100).default(25),

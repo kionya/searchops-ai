@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -29,7 +29,7 @@ interface IssuesPageProps {
 
 export default async function IssuesPage({ params }: IssuesPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const issueList = await loadSiteIssueDashboard(site);
   const issueListRows = issueList.rows;
   const summary = summarizeIssues(issueListRows);

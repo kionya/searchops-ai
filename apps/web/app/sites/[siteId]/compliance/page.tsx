@@ -4,7 +4,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -56,7 +56,7 @@ interface CompliancePageProps {
 export default async function CompliancePage({ params, searchParams }: CompliancePageProps) {
   const { siteId } = await params;
   const actionSearchParams = await searchParams;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const dashboard = await loadComplianceDashboard(site);
   const summary = summarizeComplianceDashboard(dashboard);
   const hardeningWorkflow = summarizeComplianceHardeningWorkflow(dashboard);

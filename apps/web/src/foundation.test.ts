@@ -11,6 +11,7 @@ import {
 import {
   dashboardPlaceholders,
   getSiteDashboardPath,
+  loadDashboardSite,
   siteRouteItems
 } from "./dashboard-shell";
 import { getApiBaseUrl } from "./api-base-url";
@@ -191,6 +192,7 @@ import {
   demoIssueListRows,
   demoUrlInventoryRows,
   formatDuration,
+  loadSiteCrawlRunDashboard,
   loadSiteIssueDashboard,
   loadSiteUrlInventoryDashboard,
   summarizeCrawlRuns,
@@ -321,6 +323,39 @@ describe("web foundation", () => {
     });
   });
 
+  it("loads registered dashboard site metadata from the API", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "http://api.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/sites/site_api_clinic")) {
+          return new Response(
+            JSON.stringify({
+              id: "site_api_clinic",
+              organizationId: "org_demo",
+              domain: "gangnam.rejuel.com",
+              name: "리쥬엘의원 강남",
+              industry: "medical",
+              language: "ko",
+              country: "KR",
+              createdAt: "2026-06-07T00:00:00.000Z"
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    await expect(loadDashboardSite("site_api_clinic")).resolves.toMatchObject({
+      domain: "gangnam.rejuel.com",
+      id: "site_api_clinic",
+      name: "리쥬엘의원 강남"
+    });
+  });
+
   it("applies a registered site domain across all dashboard module fixtures", () => {
     const registeredSite = createSiteRegistrationDraft({
       domain: "test-clinic.co.kr",
@@ -438,6 +473,85 @@ describe("web foundation", () => {
       priority: "p2",
       url: "https://example-clinic.com/"
     });
+  });
+
+  it("loads crawl history from the API instead of showing fixture 503 rows", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "http://api.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith(`/sites/${demoSite.id}/crawl-runs`)) {
+          return new Response(
+            JSON.stringify({
+              crawlRuns: [
+                {
+                  id: "crawl_api_completed",
+                  siteId: demoSite.id,
+                  status: "completed",
+                  startedAt: "2026-06-07T00:00:00.000Z",
+                  endedAt: "2026-06-07T00:00:12.000Z",
+                  summary: {
+                    pagesProcessed: 5,
+                    pagesRequested: 5,
+                    startUrl: "https://example-clinic.com/"
+                  }
+                }
+              ]
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.endsWith(`/sites/${demoSite.id}/seo-issues`)) {
+          return new Response(
+            JSON.stringify({
+              issues: [
+                {
+                  id: "issue_api_h1",
+                  crawlRunId: "crawl_api_completed",
+                  urlRecordId: "url_api_home",
+                  ruleId: "H1_MISSING",
+                  severity: "high",
+                  status: "open",
+                  title: "Missing H1",
+                  evidence: { url: "https://example-clinic.com/" },
+                  createdAt: "2026-06-07T00:00:01.000Z"
+                },
+                {
+                  id: "issue_api_alt",
+                  crawlRunId: "crawl_api_completed",
+                  urlRecordId: "url_api_home",
+                  ruleId: "IMAGE_ALT_MISSING",
+                  severity: "low",
+                  status: "open",
+                  title: "Missing alt text",
+                  evidence: { url: "https://example-clinic.com/" },
+                  createdAt: "2026-06-07T00:00:02.000Z"
+                }
+              ]
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const dashboard = await loadSiteCrawlRunDashboard(demoSite);
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.rows).toHaveLength(1);
+    expect(dashboard.rows[0]).toMatchObject({
+      durationSeconds: 12,
+      failureReason: null,
+      id: "crawl_api_completed",
+      issuesFound: 2,
+      pagesCrawled: 5,
+      urlsDiscovered: 5
+    });
+    expect(dashboard.rows.map((row) => row.failureReason)).not.toContain("시작 URL이 503을 반환했습니다");
   });
 
   it("normalizes API base URLs for deployed web runtime fetches", () => {

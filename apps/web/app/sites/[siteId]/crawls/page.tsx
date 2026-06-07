@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -17,10 +17,10 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import { formatStatusLabel } from "../../../../src/korean-labels";
 import {
-  createSiteCrawlRunRows,
   formatDateTime,
   formatDuration,
   getCrawlRunTone,
+  loadSiteCrawlRunDashboard,
   summarizeCrawlRuns
 } from "../../../../src/site-detail-views";
 
@@ -32,8 +32,9 @@ interface CrawlsPageProps {
 
 export default async function CrawlsPage({ params }: CrawlsPageProps) {
   const { siteId } = await params;
-  const site = resolveDashboardSite(siteId);
-  const crawlRunRows = createSiteCrawlRunRows(site);
+  const site = await loadDashboardSite(siteId);
+  const crawlRunDashboard = await loadSiteCrawlRunDashboard(site);
+  const crawlRunRows = crawlRunDashboard.rows;
   const summary = summarizeCrawlRuns(crawlRunRows);
 
   return (

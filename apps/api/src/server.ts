@@ -46,6 +46,7 @@ import {
   CreateContentBriefDraftResponseSchema,
   ConnectorSyncRunDetailResponseSchema,
   ConnectorSyncRunListResponseSchema,
+  CrawlRunListResponseSchema,
   CreateCrawlRunRequestSchema,
   CreateCrawlRunResponseSchema,
   CreateGeoVisibilityReportRequestSchema,
@@ -1627,6 +1628,17 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     });
 
     reply.status(202).send(CreateCrawlRunResponseSchema.parse({ crawlRun, job }));
+  });
+
+  server.get("/sites/:id/crawl-runs", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(CrawlRunListResponseSchema.parse({ crawlRuns: await repository.listCrawlRuns(id) }));
   });
 
   server.post("/sites/:id/connector-sync-runs", async (request, reply) => {

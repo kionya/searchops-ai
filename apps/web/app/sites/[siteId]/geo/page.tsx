@@ -2,7 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  resolveDashboardSite,
+  loadDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -56,7 +56,7 @@ interface GeoPageProps {
 export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const { siteId } = await params;
   const createSearchParams = await searchParams;
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const dashboard = await loadGeoVisibilityDashboard(site);
   const summary = summarizeGeoVisibilityDashboard(dashboard);
   const workOrderPreview = summarizeGeoWorkOrderBatchPreview(dashboard.reports);

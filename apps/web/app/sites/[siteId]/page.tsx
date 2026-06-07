@@ -3,8 +3,8 @@ import type { CSSProperties } from "react";
 
 import {
   getSiteDashboardPath,
+  loadDashboardSite,
   metricGridStyle,
-  resolveDashboardSite,
   SectionHeader
 } from "../../../src/dashboard-shell";
 import {
@@ -32,7 +32,7 @@ interface SiteOverviewPageProps {
 export default async function SiteOverviewPage({ params, searchParams }: SiteOverviewPageProps) {
   const { siteId } = await params;
   const initialCrawlFeedback = getInitialCrawlFeedback(await searchParams);
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
   const overviewInput = createSiteOverviewInput(site);
   const workOrders = createSiteWorkOrders(site);
   const kpis = calculateSiteOverviewKpis(overviewInput);
