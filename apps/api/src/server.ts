@@ -158,6 +158,7 @@ import {
 } from "./operations-hardening.js";
 import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay.js";
 import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
+import { createProductizationReadiness } from "./productization-readiness.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import { createOperationalReadiness } from "./readiness.js";
 
@@ -801,6 +802,13 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
   server.get("/ops/readiness", async () =>
     createOperationalReadiness({
+      env: process.env,
+      generatedAt: currentTime(),
+    }),
+  );
+
+  server.get("/ops/productization", async () =>
+    createProductizationReadiness({
       env: process.env,
       generatedAt: currentTime(),
     }),

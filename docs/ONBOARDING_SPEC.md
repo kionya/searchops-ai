@@ -11,3 +11,9 @@ Initial customer onboarding should guide a user through:
 7. Recheck after a CMS/content update.
 
 The flow should remain safe without live connectors. GSC, GA4, PageSpeed, Bing, CMS, GEO provider, and billing setup can be shown as optional readiness steps until credentials are provisioned.
+
+Implemented productization surface:
+
+- `/onboarding` shows the fixture-safe initial flow: site, first crawl, issue review, first work order, optional connector setup, and billing/team follow-up.
+- `/ops/productization` reports whether onboarding is configured and whether live auth/billing/domain provider work remains.
+- Customer-specific completion state should be persisted only after auth and billing provider decisions are finalized.

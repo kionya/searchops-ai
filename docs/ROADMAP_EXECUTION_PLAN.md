@@ -26,7 +26,7 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 | 8 | GEO observation/batch UX | Manual/fixture/live observations, batch report generation, and bulk work-order preview are designed and implemented. | Done |
 | 9 | Compliance hardening | KR medical rule pack refinement workflow and selected CMS native signatures are added without auto-publish. | Done |
 | 10 | Production hardening | Redis rate limit wiring, observability, alerts, dead-letter replay polish, restore drill, and migration gates are completed. | Done |
-| 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Next |
+| 11 | Productization | Auth/RBAC, tenant isolation E2E, invite flow, billing, production domain, onboarding, and legal docs are completed. | Done |
 
 ## Current Task 1 Acceptance Criteria
 
@@ -103,3 +103,13 @@ This checklist continues from the current deterministic MVP. Work must stay insi
 - [x] Operations hardening dashboard exposes backup/restore drill plans, dry-run dispatch, and migration gate steps with fixture fallback.
 - [x] Operations hub links readiness, metrics, dead-letter, and production hardening screens.
 - [x] Focused API/web tests pass before moving to productization.
+
+## Current Task 11 Acceptance Criteria
+
+- [x] `GET /ops/productization` returns a Zod-validated productization readiness report without live IdP, billing, DNS, email, or legal service calls.
+- [x] Productization report distinguishes implemented code evidence from external provisioning and manual policy follow-up.
+- [x] Tenant isolation and RBAC evidence is surfaced from existing API route coverage.
+- [x] Invite and billing remain provider-ready skeletons and are not connected to live email/payment systems.
+- [x] `/ops/productization` and `/onboarding` render with API/fixture fallback.
+- [x] Production domain and legal docs remain explicit launch blockers/follow-ups until deployment/legal review.
+- [x] Focused API/web tests pass before final verification.

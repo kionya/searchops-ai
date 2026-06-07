@@ -26,9 +26,14 @@ export default function 사이트Page() {
           <h1 style={{ fontSize: 34, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
             {productName}
           </h1>
-          <Link href="/ops" style={secondaryLinkStyle}>
-            운영 허브
-          </Link>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Link href="/onboarding" style={secondaryLinkStyle}>
+              온보딩
+            </Link>
+            <Link href="/ops" style={secondaryLinkStyle}>
+              운영 허브
+            </Link>
+          </div>
         </div>
         <p style={{ ...mutedTextStyle, fontFamily: dashboardFontStack }}>
           사이트, 크롤링 상태, SEO 이슈, 작업 지시서, 재검수 진행 상황을 확인합니다.

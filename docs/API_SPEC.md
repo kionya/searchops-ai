@@ -40,12 +40,15 @@ The API exposes process-local operational metrics, can export request and worker
 
 Tenant access is enforced at the API boundary from the authenticated user context. Local development may provide this context with mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`). Deployment runtimes can either provide trusted external IdP claims with `x-searchops-idp-*` headers or configure HS256 JWT bearer verification with `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience. Organization/site routes and site-scoped resource routes use the resolved context for cross-tenant denial and write-role checks.
 
+Productization readiness is exposed as a deterministic operations report. It summarizes external Auth/RBAC provisioning, tenant isolation evidence, invite policy, billing policy, production domain, legal docs, and onboarding status without calling IdP, billing, DNS, or email providers.
+
 ## Routes
 
 - `GET /health`
 - `GET /metrics`
 - `GET /ops/metrics-export`
 - `GET /ops/readiness`
+- `GET /ops/productization`
 - `GET /ops/connector-live-setup`
 - `GET /ops/dead-letter-jobs`
 - `DELETE /ops/dead-letter-jobs/:deadLetterJobId`

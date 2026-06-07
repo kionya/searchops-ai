@@ -105,6 +105,14 @@ import {
   loadOperationalReadiness
 } from "./operational-readiness";
 import {
+  createDemoProductizationDashboard,
+  formatProductizationArea,
+  getProductizationTone,
+  loadProductizationDashboard,
+  onboardingSteps,
+  summarizeOnboardingSteps
+} from "./productization-dashboard";
+import {
   futureModuleKeys,
   futureModuleSkeletons,
   summarizeFutureModules
@@ -495,6 +503,39 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("api");
     expect(grouped.connectors.length).toBeGreaterThan(0);
     expect(formatReadinessStatus("needs_provisioning")).toBe("프로비저닝 필요");
+  });
+
+  it("summarizes productization readiness and onboarding fixtures", () => {
+    const dashboard = createDemoProductizationDashboard();
+
+    expect(dashboard.productization.canLaunch).toBe(false);
+    expect(formatProductizationArea("auth_rbac")).toBe("Auth/RBAC");
+    expect(getProductizationTone("needs_provisioning")).toBe("risk");
+    expect(summarizeOnboardingSteps(onboardingSteps)).toEqual({
+      available: 4,
+      blocked: 1,
+      optional: 1,
+      total: 6
+    });
+  });
+
+  it("loads productization readiness through the API response contract", async () => {
+    const fixture = createDemoProductizationDashboard().productization;
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe("https://api.searchops.test/ops/productization");
+
+        return Response.json(fixture);
+      }),
+    );
+
+    const dashboard = await loadProductizationDashboard();
+
+    expect(dashboard.source).toBe("api");
+    expect(dashboard.errorMessage).toBeNull();
+    expect(dashboard.productization.summary.total).toBe(7);
   });
 
   it("summarizes deterministic GEO visibility dashboard fixtures", () => {

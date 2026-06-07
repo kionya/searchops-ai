@@ -952,6 +952,39 @@ describe("api foundation", () => {
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("idp-verification");
   });
 
+  it("reports productization readiness without live provider calls", async () => {
+    const { server } = buildDeadLetterOperationsTestContext({
+      currentTime: () => new Date("2026-05-27T00:00:00.000Z"),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/ops/productization",
+      headers: {
+        "x-mock-user-role": "owner",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      canLaunch: false,
+      generatedAt: "2026-05-27T00:00:00.000Z",
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "tenant-isolation-e2e",
+          status: "configured",
+        }),
+        expect.objectContaining({
+          id: "billing-subscription",
+          status: "manual_followup",
+        }),
+        expect.objectContaining({
+          id: "production-domain",
+          status: "needs_provisioning",
+        }),
+      ]),
+    });
+  });
+
   it("reports connector live setup without exposing secret values", async () => {
     const originalEnv = process.env;
     process.env = {

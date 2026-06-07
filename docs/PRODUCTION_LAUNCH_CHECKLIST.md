@@ -44,4 +44,7 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 
 ## Productization
 
-- External auth/RBAC provider, billing/subscription provider, organization invite flow, tenant isolation E2E, production domain, error monitoring policy, privacy/terms/security docs, and onboarding flow must be completed before public launch.
+- `/ops/productization` must show no launch-blocking provisioning gaps before public launch.
+- External auth/RBAC provider and production domain require deployment env provisioning.
+- Billing/subscription provider and organization invite delivery require provider and policy decisions before customer onboarding.
+- Tenant isolation API coverage, privacy/terms/security docs, and fixture-safe onboarding surface are implemented, but live smoke accounts and legal review remain release checklist evidence.

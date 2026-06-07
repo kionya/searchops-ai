@@ -202,3 +202,19 @@ Phase 11 remaining limitations:
 - Dead-letter queues capture failed job metadata and expose operator cleanup plus replay-plan views. Execution still requires operator-supplied source-of-truth payloads and queue-specific replay ownership.
 - HS256 and RS256/JWKS bearer verification are available at the API runtime boundary; provider account provisioning and JWKS rotation policy remain deployment follow-up work.
 - Restore drill and secret rotation dispatch routes call configured HTTP executors; the external scheduler/secret manager account, real restore-drill evidence, and credential provisioning remain deployment scope.
+
+## Phase 12. Productization
+
+Prepare the product surface for live customers without introducing external provider calls into deterministic package tests.
+
+Phase 12 status:
+
+- `CDX-144`: `/ops/productization` reports Auth/RBAC provisioning, tenant isolation evidence, invite policy, billing policy, production domain, legal docs, and onboarding status without calling external providers.
+- `CDX-145`: Web productization and onboarding surfaces expose launch blockers, fixture-safe first-run steps, and provider follow-up status from API data or deterministic fixtures.
+
+Phase 12 remaining limitations:
+
+- External IdP provider selection, issuer/audience/JWKS provisioning, and invite email delivery remain deployment/product decisions.
+- Billing provider selection, plan pricing, subscription identifiers, and entitlement enforcement remain future implementation after policy approval.
+- Production domain and DNS/HTTPS configuration remain deployment scope.
+- Privacy, terms, and security docs remain drafts until legal review.

@@ -27,6 +27,11 @@ const opsLinks = [
     title: "Production hardening",
     description: "restore drill, migration gate, 운영 실행 계획을 확인합니다.",
   },
+  {
+    href: "/ops/productization",
+    title: "Productization",
+    description: "Auth/RBAC, invite, billing, domain, legal launch blockers를 확인합니다.",
+  },
 ];
 
 export default function OperationsHubPage() {

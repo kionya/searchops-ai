@@ -388,6 +388,59 @@ export type OperationalReadinessResponse = z.infer<
   typeof OperationalReadinessResponseSchema
 >;
 
+export const ProductizationReadinessAreaSchema = z.enum([
+  "auth_rbac",
+  "billing",
+  "domain",
+  "invites",
+  "legal",
+  "onboarding",
+  "tenant_isolation",
+]);
+
+export type ProductizationReadinessArea = z.infer<
+  typeof ProductizationReadinessAreaSchema
+>;
+
+export const ProductizationReadinessItemSchema = z.object({
+  id: z.string().min(1),
+  area: ProductizationReadinessAreaSchema,
+  title: z.string().min(1),
+  status: OperationalReadinessStatusSchema,
+  summary: z.string().min(1),
+  nextAction: z.string().min(1),
+  envKeys: z.array(z.string().min(1)).default([]),
+  evidence: z.array(z.string().min(1)).default([]),
+});
+
+export type ProductizationReadinessItem = z.infer<
+  typeof ProductizationReadinessItemSchema
+>;
+
+export const ProductizationReadinessSummarySchema = z.object({
+  configured: z.number().int().nonnegative(),
+  launchBlocking: z.number().int().nonnegative(),
+  manualFollowup: z.number().int().nonnegative(),
+  needsProvisioning: z.number().int().nonnegative(),
+  ready: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+export type ProductizationReadinessSummary = z.infer<
+  typeof ProductizationReadinessSummarySchema
+>;
+
+export const ProductizationReadinessResponseSchema = z.object({
+  generatedAt: IsoDateTimeSchema,
+  canLaunch: z.boolean(),
+  items: z.array(ProductizationReadinessItemSchema),
+  summary: ProductizationReadinessSummarySchema,
+});
+
+export type ProductizationReadinessResponse = z.infer<
+  typeof ProductizationReadinessResponseSchema
+>;
+
 export const ConnectorLiveSetupEnvironmentSchema = z.enum(["local", "deployment"]);
 
 export type ConnectorLiveSetupEnvironment = z.infer<
