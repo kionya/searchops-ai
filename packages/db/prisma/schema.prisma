@@ -183,13 +183,14 @@ model SeoIssue {
   @@index([crawlRunId])
   @@index([ruleId])
   @@index([status])
+  @@unique([crawlRunId, urlRecordId, ruleId])
 }
 
 model WorkOrder {
   id                 String    @id @default(cuid())
   organizationId     String
   siteId             String?
-  seoIssueId         String?
+  seoIssueId         String? @unique
   schemaRecommendationId String? @unique
   geoVisibilityReportId String? @unique
   status             String    @default("open")

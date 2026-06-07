@@ -58,6 +58,8 @@ import {
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
   CreateSiteRequestSchema,
+  CreateSiteRegistrationRequestSchema,
+  CreateSiteRegistrationResponseSchema,
   DeadLetterJobListResponseSchema,
   DeadLetterReplayRequestSchema,
   DeleteDeadLetterJobResponseSchema,
@@ -83,6 +85,7 @@ import {
   SchemaRecommendationDetailResponseSchema,
   SchemaRecommendationListResponseSchema,
   SecretRotationPlanRequestSchema,
+  SeoIssueListResponseSchema,
   SiteListResponseSchema,
   SiteSchema,
   StartConnectorOAuthRequestSchema,
@@ -90,6 +93,7 @@ import {
   UpdateComplianceFlagRequestSchema,
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
+  UrlRecordListResponseSchema,
   WorkOrderListResponseSchema,
   WorkOrderSchema,
   type CmsContentUpdatedEventRequest,
@@ -396,7 +400,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return true;
     }
 
-    if (routeUrl === "/organizations/:organizationId/sites") {
+    if (
+      routeUrl === "/organizations/:organizationId/sites" ||
+      routeUrl === "/organizations/:organizationId/sites/register"
+    ) {
       const { organizationId } = OrganizationParamsSchema.parse(request.params);
       return ensureOrganizationAccess({ organizationId, reply, request });
     }
@@ -992,6 +999,81 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.status(201).send(SiteSchema.parse(site));
   });
 
+  server.post("/organizations/:organizationId/sites/register", async (request, reply) => {
+    const { organizationId } = OrganizationParamsSchema.parse(request.params);
+    const input = CreateSiteRegistrationRequestSchema.parse(request.body);
+    const site = await repository.createSite(organizationId, input.site);
+    if (!site) {
+      reply.status(404).send(notFound("Organization not found"));
+      return;
+    }
+
+    if (!input.initialCrawl.enabled) {
+      reply.status(201).send(
+        CreateSiteRegistrationResponseSchema.parse({
+          site,
+          crawlRun: null,
+          job: null,
+          next: {
+            dashboardUrl: `/sites/${site.id}`,
+            connectors: input.connectors.requestedProviders.map((provider) => ({
+              provider,
+              status: "setup_required",
+            })),
+            automation: input.automation,
+          },
+        }),
+      );
+      return;
+    }
+
+    const startUrl = input.initialCrawl.startUrl ?? `https://${site.domain}/`;
+    if (!isUrlAllowedForCrawl(startUrl, site.domain)) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "initialCrawl.startUrl must be within the site domain or its subdomains",
+      });
+      return;
+    }
+
+    const crawlRun = await repository.createCrawlRun(site.id, {
+      maxPages: input.initialCrawl.maxPages,
+      startUrl,
+    });
+    if (!crawlRun) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const userContext = resolveRequestUserContext(request);
+    const job = await crawlRunQueue.enqueueCrawl({
+      analysis: input.automation,
+      crawlRunId: crawlRun.id,
+      siteId: site.id,
+      siteDomain: site.domain,
+      requestedByUserId: userContext.userId,
+      startUrl,
+      maxPages: input.initialCrawl.maxPages,
+      pages: [],
+    });
+
+    reply.status(202).send(
+      CreateSiteRegistrationResponseSchema.parse({
+        site,
+        crawlRun,
+        job,
+        next: {
+          dashboardUrl: `/sites/${site.id}?crawl=queued&crawlRunId=${crawlRun.id}`,
+          connectors: input.connectors.requestedProviders.map((provider) => ({
+            provider,
+            status: "setup_required",
+          })),
+          automation: input.automation,
+        },
+      }),
+    );
+  });
+
   server.get("/sites/:id", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const site = await repository.getSite(id);
@@ -1001,6 +1083,28 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(SiteSchema.parse(site));
+  });
+
+  server.get("/sites/:id/urls", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const urls = await repository.listUrlRecords(id);
+    if (!urls) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(UrlRecordListResponseSchema.parse({ urls }));
+  });
+
+  server.get("/sites/:id/seo-issues", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const issues = await repository.listSeoIssues(id);
+    if (!issues) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(SeoIssueListResponseSchema.parse({ issues }));
   });
 
   server.get("/sites/:id/work-orders", async (request, reply) => {

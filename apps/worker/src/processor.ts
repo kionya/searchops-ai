@@ -9,18 +9,29 @@ import {
   type SchemaRichResultValidatorAdapterInput
 } from "@searchops/connectors";
 import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
-import { extractJsonLdTypes, validateJsonLdDraft } from "@searchops/schema-core";
+import {
+  extractJsonLdTypes,
+  recommendJsonLdForSnapshots,
+  validateJsonLdDraft
+} from "@searchops/schema-core";
 import { evaluateGeoVisibility } from "@searchops/geo-core";
+import { analyzeUrlSeoSnapshots } from "@searchops/seo-core";
+import {
+  createWorkOrdersFromSeoIssues,
+  hasWorkOrderTemplate
+} from "@searchops/workorders";
 import {
   persistGeoAnswerMonitorJobResult,
   persistSchemaRichResultValidationJobResult,
   listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
+  persistCrawlAnalysisResult,
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
   persistSchemaRecommendationRecheck,
   updateConnectorOAuthCredentialForSync,
+  type CrawlAnalysisPersistenceClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
@@ -50,6 +61,7 @@ import {
 } from "@searchops/types";
 
 export interface ProcessAndPersistCrawlJobOptions {
+  readonly crawlAnalysisClient?: CrawlAnalysisPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
   readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
 }
@@ -387,6 +399,7 @@ export async function processAndPersistCrawlJob(
 
     const result = processCrawlJob(payload);
     await persistCrawlJobResult(persistenceClient, result, payload.pages);
+    await persistCrawlAnalysisFromCrawlResult(payload, result, options.crawlAnalysisClient);
     await persistSchemaRecommendationRecheckFromCrawlResult(
       payload,
       result,
@@ -414,6 +427,51 @@ function extractPageSignals(page: CrawlJobPageInput) {
     url: page.url,
     finalUrl: page.finalUrl,
     html: page.html
+  });
+}
+
+async function persistCrawlAnalysisFromCrawlResult(
+  payload: CrawlJobPayload,
+  result: CrawlJobResult,
+  crawlAnalysisClient: CrawlAnalysisPersistenceClient | undefined,
+) {
+  if (crawlAnalysisClient === undefined || result.snapshots.length === 0) {
+    return null;
+  }
+
+  const analysisOptions = {
+    generateSchemaRecommendations: payload.analysis?.generateSchemaRecommendations ?? true,
+    generateSeoIssues: payload.analysis?.generateSeoIssues ?? true,
+    generateWorkOrders: payload.analysis?.generateWorkOrders ?? true
+  };
+  const seoIssues = analysisOptions.generateSeoIssues
+    ? analyzeUrlSeoSnapshots(result.snapshots).filter((issue) => hasWorkOrderTemplate(issue.ruleId))
+    : [];
+  const workOrders = analysisOptions.generateWorkOrders
+    ? createWorkOrdersFromSeoIssues(seoIssues)
+    : [];
+  const schemaRecommendationSets = analysisOptions.generateSchemaRecommendations
+    ? recommendJsonLdForSnapshots({
+        site: {
+          country: "KR",
+          domain: payload.siteDomain,
+          id: payload.siteId,
+          industry: null,
+          language: "ko",
+          name: null
+        },
+        snapshots: result.snapshots
+      })
+    : [];
+
+  return persistCrawlAnalysisResult(crawlAnalysisClient, {
+    crawlRunId: result.crawlRunId,
+    schemaRecommendationSets,
+    seoIssueWorkOrders: seoIssues.map((issue, index) => ({
+      issue,
+      workOrder: analysisOptions.generateWorkOrders ? workOrders[index]! : null
+    })),
+    siteId: result.siteId
   });
 }
 

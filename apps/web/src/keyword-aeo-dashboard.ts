@@ -10,12 +10,14 @@ import {
   type AeoReadinessReportRecord,
   type AeoReadinessStatus,
   type ConnectorSyncRun,
-  type KeywordDiscoveryCandidateRecord
+  type KeywordDiscoveryCandidateRecord,
+  type Site
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
 import type { ConnectorSyncHistoryData } from "./connector-sync-history";
 import { formatStatusLabel } from "./korean-labels";
+import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type KeywordAeoDashboardSource = "api" | "fixture";
@@ -202,31 +204,25 @@ export const demoKeywordDiscoveryCandidates: KeywordDiscoveryCandidateRecord[] =
 ];
 
 export function createDemoKeywordAeoDashboard(
-  siteId: string = demoSite.id,
+  siteOrId: Site | string = demoSite,
 ): KeywordAeoDashboardData {
+  const site = getFixtureSite(siteOrId);
+
   return {
     errorMessage: null,
-    keywordDiscoveries: demoKeywordDiscoveryCandidates.map((candidate) => ({
-      ...candidate,
-      siteId
-    })),
+    keywordDiscoveries: scopeDemoFixtureToSite(demoKeywordDiscoveryCandidates, site),
     reports: demoAeoReadinessReports.map((report) =>
-      AeoReadinessReportSchema.parse({
-        ...report,
-        keyword: {
-          ...report.keyword,
-          siteId
-        }
-      }),
+      AeoReadinessReportSchema.parse(scopeDemoFixtureToSite(report, site)),
     ),
     source: "fixture"
   };
 }
 
-export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAeoDashboardData> {
+export async function loadKeywordAeoDashboard(siteOrId: Site | string): Promise<KeywordAeoDashboardData> {
+  const siteId = getFixtureSiteId(siteOrId);
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoKeywordAeoDashboard(siteId);
+    return createDemoKeywordAeoDashboard(siteOrId);
   }
 
   try {
@@ -254,7 +250,7 @@ export async function loadKeywordAeoDashboard(siteId: string): Promise<KeywordAe
       source: "api"
     };
   } catch (error) {
-    const fallback = createDemoKeywordAeoDashboard(siteId);
+    const fallback = createDemoKeywordAeoDashboard(siteOrId);
     return {
       ...fallback,
       errorMessage:

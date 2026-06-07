@@ -2,6 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -16,12 +17,22 @@ import {
 } from "../../../../src/dashboard-table-styles";
 import { formatCategoryLabel, formatOwnerLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
-  demoIssueListRows,
+  loadSiteIssueDashboard,
   summarizeIssues
 } from "../../../../src/site-detail-views";
 
-export default function IssuesPage() {
-  const summary = summarizeIssues(demoIssueListRows);
+interface IssuesPageProps {
+  readonly params: Promise<{
+    readonly siteId: string;
+  }>;
+}
+
+export default async function IssuesPage({ params }: IssuesPageProps) {
+  const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
+  const issueList = await loadSiteIssueDashboard(site);
+  const issueListRows = issueList.rows;
+  const summary = summarizeIssues(issueListRows);
 
   return (
     <section aria-labelledby="seo-issue-list-heading">
@@ -46,7 +57,7 @@ export default function IssuesPage() {
               이슈 {summary.inReview}개가 결정론적 재검수를 기다리고 있습니다.
             </p>
           </div>
-          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>데모 데이터</span>
+          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
         <div style={tableScrollStyle}>
           <table style={tableStyle}>
@@ -62,7 +73,7 @@ export default function IssuesPage() {
               </tr>
             </thead>
             <tbody>
-              {demoIssueListRows.map((issue) => (
+              {issueListRows.map((issue) => (
                 <tr key={issue.id}>
                   <td style={tdStyle}>
                     <strong>{issue.title}</strong>

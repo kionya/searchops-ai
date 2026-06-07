@@ -573,6 +573,12 @@ export const UrlRecordSchema = z.object({
 
 export type UrlRecord = z.infer<typeof UrlRecordSchema>;
 
+export const UrlRecordListResponseSchema = z.object({
+  urls: z.array(UrlRecordSchema),
+});
+
+export type UrlRecordListResponse = z.infer<typeof UrlRecordListResponseSchema>;
+
 export const SeoIssueSchema = z.object({
   id: IdSchema,
   crawlRunId: IdSchema,
@@ -586,6 +592,12 @@ export const SeoIssueSchema = z.object({
 });
 
 export type SeoIssue = z.infer<typeof SeoIssueSchema>;
+
+export const SeoIssueListResponseSchema = z.object({
+  issues: z.array(SeoIssueSchema),
+});
+
+export type SeoIssueListResponse = z.infer<typeof SeoIssueListResponseSchema>;
 
 export const SeoIssueRuleIdSchema = z.enum([
   "TITLE_MISSING",
@@ -2038,7 +2050,16 @@ export const CrawlJobPageInputSchema = z.object({
 
 export type CrawlJobPageInput = z.infer<typeof CrawlJobPageInputSchema>;
 
+export const CrawlAnalysisOptionsSchema = z.object({
+  generateSchemaRecommendations: z.boolean().default(true),
+  generateSeoIssues: z.boolean().default(true),
+  generateWorkOrders: z.boolean().default(true),
+});
+
+export type CrawlAnalysisOptions = z.infer<typeof CrawlAnalysisOptionsSchema>;
+
 export const CrawlJobPayloadSchema = z.object({
+  analysis: CrawlAnalysisOptionsSchema.optional(),
   crawlRunId: IdSchema,
   siteId: IdSchema,
   siteDomain: DomainSchema,
@@ -2065,6 +2086,58 @@ export const CreateCrawlRunResponseSchema = z.object({
 });
 
 export type CreateCrawlRunResponse = z.infer<typeof CreateCrawlRunResponseSchema>;
+
+const SiteRegistrationAutomationSchema = z.object({
+  generateSeoIssues: z.boolean().default(true),
+  generateWorkOrders: z.boolean().default(true),
+  generateSchemaRecommendations: z.boolean().default(true),
+});
+
+const SiteRegistrationConnectorProviderSchema = z.enum(["gsc", "ga4", "bing", "cms"]);
+
+export const CreateSiteRegistrationRequestSchema = z.object({
+  site: CreateSiteRequestSchema,
+  initialCrawl: CreateCrawlRunRequestSchema.extend({
+    enabled: z.boolean().default(true),
+    discoverSitemap: z.boolean().default(true),
+    respectRobotsTxt: z.boolean().default(true),
+  }).default({}),
+  automation: SiteRegistrationAutomationSchema.default({}),
+  connectors: z
+    .object({
+      requestedProviders: z
+        .array(SiteRegistrationConnectorProviderSchema)
+        .refine((providers) => new Set(providers).size === providers.length, {
+          message: "Connector providers must be unique",
+        })
+        .default([]),
+    })
+    .default({}),
+});
+
+export type CreateSiteRegistrationRequest = z.infer<
+  typeof CreateSiteRegistrationRequestSchema
+>;
+
+export const CreateSiteRegistrationResponseSchema = z.object({
+  site: SiteSchema,
+  crawlRun: CrawlRunSchema.nullable(),
+  job: QueuedCrawlJobSchema.nullable(),
+  next: z.object({
+    dashboardUrl: z.string().min(1),
+    connectors: z.array(
+      z.object({
+        provider: SiteRegistrationConnectorProviderSchema,
+        status: z.literal("setup_required"),
+      }),
+    ),
+    automation: SiteRegistrationAutomationSchema,
+  }),
+});
+
+export type CreateSiteRegistrationResponse = z.infer<
+  typeof CreateSiteRegistrationResponseSchema
+>;
 
 export const QueueSchemaRecommendationRecheckCrawlResponseSchema = z.object({
   recommendation: SchemaRecommendationRecordSchema,

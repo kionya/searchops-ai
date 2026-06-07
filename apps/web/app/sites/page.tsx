@@ -8,16 +8,31 @@ import {
   mutedTextStyle
 } from "../../src/dashboard-shell";
 import { formatIndustryLabel } from "../../src/korean-labels";
-import { demoSite, demoWorkOrders, summarizeWorkOrders } from "../../src/work-order-board";
+import {
+  type SiteRegistryData,
+  type SiteRegistrationFeedback,
+  type SiteRegistrationSearchParams,
+  loadSiteRegistry
+} from "../../src/site-registry";
+import { demoWorkOrders, summarizeWorkOrders } from "../../src/work-order-board";
+import { createSiteAction } from "./actions";
 
-const mockSites = [demoSite];
 const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
 
-export default function SitesPage() {
+interface SitesPageProps {
+  readonly searchParams?: Promise<SiteRegistrationSearchParams>;
+}
+
+export default async function SitesPage({ searchParams }: SitesPageProps) {
+  const registry = await loadSiteRegistry(await searchParams);
+
   return (
     <AppWorkspaceFrame
       actions={
         <div className="searchops-action-row">
+          <a className="searchops-button secondary" href="#site-registration">
+            신규 사이트
+          </a>
           <Link className="searchops-button secondary" href="/onboarding">
             온보딩
           </Link>
@@ -38,14 +53,19 @@ export default function SitesPage() {
               <h3 id="sites-heading" style={{ fontSize: 22, margin: "5px 0 0" }}>
                 사이트
               </h3>
-              <p style={{ ...mutedTextStyle, marginTop: 5 }}>{mockSites.length}개 설정됨</p>
+              <p style={{ ...mutedTextStyle, marginTop: 5 }}>{registry.sites.length}개 설정됨</p>
             </div>
-            <span className="searchops-status-pill ready">Fixture-safe</span>
+            <RegistryModePill registry={registry} />
           </div>
         </div>
 
+        <div className="searchops-sites-command-grid">
+          <SiteRegistrationPanel feedback={registry.feedback} />
+          <SiteRegistrySummary registry={registry} />
+        </div>
+
         <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-          {mockSites.map((site) => (
+          {registry.sites.map((site) => (
             <article className="searchops-card" key={site.id}>
               <div
                 style={{
@@ -75,6 +95,132 @@ export default function SitesPage() {
         </div>
       </section>
     </AppWorkspaceFrame>
+  );
+}
+
+function RegistryModePill({ registry }: { readonly registry: SiteRegistryData }) {
+  return (
+    <span className={`searchops-status-pill ${registry.mode === "api" ? "ready" : "info"}`}>
+      {registry.mode === "api" ? "API 저장소" : "Fixture preview"}
+    </span>
+  );
+}
+
+function SiteRegistrationPanel({
+  feedback
+}: {
+  readonly feedback: SiteRegistrationFeedback | null;
+}) {
+  return (
+    <section aria-labelledby="site-registration-heading" className="searchops-panel" id="site-registration">
+      <div style={{ display: "grid", gap: 4 }}>
+        <span className="searchops-label">new property</span>
+        <h3 id="site-registration-heading" style={{ fontSize: 20, margin: 0 }}>
+          사이트 등록
+        </h3>
+      </div>
+
+      {feedback ? (
+        <div className={`searchops-registration-feedback ${feedback.tone}`} role="status">
+          <span>{feedback.message}</span>
+          <Link href={feedback.href}>열기</Link>
+        </div>
+      ) : null}
+
+      <form action={createSiteAction} className="searchops-registration-form">
+        <label className="searchops-field">
+          <span>사이트 이름</span>
+          <input name="name" placeholder="리쥬엘의원 강남" />
+        </label>
+        <label className="searchops-field">
+          <span>도메인</span>
+          <input name="domain" placeholder="example-clinic.com" required />
+        </label>
+        <label className="searchops-field">
+          <span>업종</span>
+          <select defaultValue="medical" name="industry">
+            <option value="medical">의료/병원</option>
+            <option value="beauty">뷰티/피부관리</option>
+            <option value="local_service">로컬 서비스</option>
+            <option value="commerce">커머스</option>
+            <option value="b2b">B2B</option>
+          </select>
+        </label>
+        <div className="searchops-field-pair">
+          <label className="searchops-field">
+            <span>언어</span>
+            <input defaultValue="ko" name="language" />
+          </label>
+          <label className="searchops-field">
+            <span>국가</span>
+            <input defaultValue="KR" name="country" />
+          </label>
+        </div>
+        <div className="searchops-field-pair">
+          <label className="searchops-field">
+            <span>시작 URL</span>
+            <input name="startUrl" placeholder="https://example-clinic.com/" />
+          </label>
+          <label className="searchops-field">
+            <span>최대 페이지</span>
+            <input defaultValue="10" max="100" min="1" name="maxPages" type="number" />
+          </label>
+        </div>
+        <div className="searchops-option-grid" aria-label="초기 크롤링 옵션">
+          <CheckboxField label="초기 crawl 실행" name="initialCrawlEnabled" />
+          <CheckboxField label="robots.txt 준수" name="respectRobotsTxt" />
+          <CheckboxField label="sitemap 탐색" name="discoverSitemap" />
+        </div>
+        <div className="searchops-option-grid" aria-label="자동 생성 옵션">
+          <CheckboxField label="SEO issue 생성" name="generateSeoIssues" />
+          <CheckboxField label="WorkOrder 생성" name="generateWorkOrders" />
+          <CheckboxField label="Schema 추천 생성" name="generateSchemaRecommendations" />
+        </div>
+        <div className="searchops-option-grid" aria-label="커넥터 설정 필요 항목">
+          <ConnectorField label="GSC" value="gsc" />
+          <ConnectorField label="GA4" value="ga4" />
+          <ConnectorField label="Bing" value="bing" />
+          <ConnectorField label="CMS" value="cms" />
+        </div>
+        <button className="searchops-button" type="submit">
+          사이트 추가
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function CheckboxField({ label, name }: { readonly label: string; readonly name: string }) {
+  return (
+    <label className="searchops-checkbox-field">
+      <input name={name} type="hidden" value="false" />
+      <input defaultChecked name={name} type="checkbox" value="true" />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function ConnectorField({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <label className="searchops-checkbox-field">
+      <input name="connectorProvider" type="checkbox" value={value} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function SiteRegistrySummary({ registry }: { readonly registry: SiteRegistryData }) {
+  const fixtureCount = registry.sites.filter((site) => site.id.startsWith("site_")).length;
+
+  return (
+    <aside className="searchops-panel" aria-label="사이트 등록 상태">
+      <span className="searchops-label">registration state</span>
+      <dl className="searchops-registry-summary">
+        <SiteFact label="저장 모드" value={registry.mode === "api" ? "API" : "Fixture"} />
+        <SiteFact label="등록 사이트" value={String(registry.sites.length)} />
+        <SiteFact label="대시보드 준비" value={String(fixtureCount)} />
+      </dl>
+    </aside>
   );
 }
 

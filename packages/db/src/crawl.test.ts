@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildUrlRecordUpsertArgs,
   markCrawlRunFailed,
+  persistCrawlAnalysisResult,
   persistCrawlJobResult,
+  type CrawlAnalysisPersistenceClient,
   type CrawlPersistenceClient
 } from "./crawl.js";
 
@@ -192,6 +194,187 @@ describe("crawl persistence helpers", () => {
       create: {
         url: "https://example.com/new",
         statusCode: 301
+      }
+    });
+  });
+
+  it("upserts deterministic crawl analysis artifacts", async () => {
+    const siteReads: unknown[] = [];
+    const urlReads: unknown[] = [];
+    const seoIssueUpserts: unknown[] = [];
+    const workOrderUpserts: unknown[] = [];
+    const schemaRecommendationUpserts: unknown[] = [];
+    const client: CrawlAnalysisPersistenceClient = {
+      site: {
+        async findUnique(args) {
+          siteReads.push(args);
+          return {
+            id: "site_1",
+            organizationId: "org_1"
+          };
+        }
+      },
+      urlRecord: {
+        async findUnique(args) {
+          urlReads.push(args);
+          return {
+            id: "url_1"
+          };
+        }
+      },
+      seoIssue: {
+        async upsert(args) {
+          seoIssueUpserts.push(args);
+          return {
+            id: "issue_1"
+          };
+        }
+      },
+      workOrder: {
+        async upsert(args) {
+          workOrderUpserts.push(args);
+          return args;
+        }
+      },
+      schemaRecommendation: {
+        async upsert(args) {
+          schemaRecommendationUpserts.push(args);
+          return args;
+        }
+      }
+    };
+
+    const output = await persistCrawlAnalysisResult(client, {
+      crawlRunId: "crawl_1",
+      siteId: "site_1",
+      seoIssueWorkOrders: [
+        {
+          issue: {
+            category: "metadata",
+            effortScore: 20,
+            evidence: {
+              expectedValue: "present",
+              observedValue: null,
+              sourceField: "title",
+              url: "https://example.com/"
+            },
+            impactScore: 70,
+            priority: "p1",
+            priorityScore: 76,
+            ruleId: "TITLE_MISSING",
+            severity: "high",
+            title: "Missing title"
+          },
+          workOrder: {
+            acceptanceCriteria: ["Title tag is present."],
+            estimatedEffort: "s",
+            evidence: {
+              expectedValue: "present",
+              observedValue: null,
+              sourceField: "title",
+              url: "https://example.com/"
+            },
+            impact: "Search snippets need a title.",
+            instructions: ["Add a descriptive title tag."],
+            ownerType: "developer",
+            priority: "p1",
+            problem: "The page has no title.",
+            relatedIssues: ["TITLE_MISSING"],
+            title: "Add title tag",
+            verificationMethod: "Re-run crawl."
+          }
+        }
+      ],
+      schemaRecommendationSets: [
+        {
+          generatedBy: "deterministic",
+          pageUrl: "https://example.com/",
+          recommendations: [
+            {
+              evidence: {
+                expectedType: "WebPage",
+                observedTypes: [],
+                sourceField: "jsonLd",
+                url: "https://example.com/"
+              },
+              generatedBy: "deterministic",
+              instructions: ["Add WebPage JSON-LD."],
+              jsonLd: {
+                "@context": "https://schema.org",
+                "@type": "WebPage",
+                name: "Example"
+              },
+              priority: "p1",
+              reason: "WebPage JSON-LD is missing.",
+              recommendedFields: ["description"],
+              requiredFields: ["name"],
+              type: "WebPage",
+              url: "https://example.com/"
+            }
+          ],
+          siteId: "site_1"
+        }
+      ]
+    });
+
+    expect(output).toEqual({
+      schemaRecommendationsUpserted: 1,
+      seoIssuesUpserted: 1,
+      workOrdersUpserted: 1
+    });
+    expect(siteReads).toEqual([{ where: { id: "site_1" } }]);
+    expect(urlReads).toEqual([
+      {
+        where: {
+          siteId_url: {
+            siteId: "site_1",
+            url: "https://example.com/"
+          }
+        }
+      }
+    ]);
+    expect(seoIssueUpserts[0]).toMatchObject({
+      where: {
+        crawlRunId_urlRecordId_ruleId: {
+          crawlRunId: "crawl_1",
+          ruleId: "TITLE_MISSING",
+          urlRecordId: "url_1"
+        }
+      },
+      create: {
+        crawlRunId: "crawl_1",
+        ruleId: "TITLE_MISSING",
+        severity: "high",
+        title: "Missing title",
+        urlRecordId: "url_1"
+      }
+    });
+    expect(workOrderUpserts[0]).toMatchObject({
+      where: {
+        seoIssueId: "issue_1"
+      },
+      create: {
+        organizationId: "org_1",
+        priority: "p1",
+        seoIssueId: "issue_1",
+        siteId: "site_1",
+        title: "Add title tag"
+      }
+    });
+    expect(schemaRecommendationUpserts[0]).toMatchObject({
+      where: {
+        siteId_pageUrl_type: {
+          pageUrl: "https://example.com/",
+          siteId: "site_1",
+          type: "WebPage"
+        }
+      },
+      create: {
+        generatedBy: "deterministic",
+        pageUrl: "https://example.com/",
+        priority: "p1",
+        siteId: "site_1",
+        type: "WebPage"
       }
     });
   });

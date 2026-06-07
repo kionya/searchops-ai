@@ -2,6 +2,7 @@ import {
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
+  resolveDashboardSite,
   SectionHeader
 } from "../../../../src/dashboard-shell";
 import {
@@ -15,12 +16,22 @@ import {
   thStyle
 } from "../../../../src/dashboard-table-styles";
 import {
-  demoUrlInventoryRows,
+  loadSiteUrlInventoryDashboard,
   summarizeUrlInventory
 } from "../../../../src/site-detail-views";
 
-export default function UrlsPage() {
-  const summary = summarizeUrlInventory(demoUrlInventoryRows);
+interface UrlsPageProps {
+  readonly params: Promise<{
+    readonly siteId: string;
+  }>;
+}
+
+export default async function UrlsPage({ params }: UrlsPageProps) {
+  const { siteId } = await params;
+  const site = resolveDashboardSite(siteId);
+  const urlInventory = await loadSiteUrlInventoryDashboard(site);
+  const urlInventoryRows = urlInventory.rows;
+  const summary = summarizeUrlInventory(urlInventoryRows);
 
   return (
     <section aria-labelledby="url-inventory-heading">
@@ -45,7 +56,7 @@ export default function UrlsPage() {
               현재 색인 가능한 URL 중 {summary.healthy}개는 열린 URL 단위 이슈가 없습니다.
             </p>
           </div>
-          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>데모 데이터</span>
+          <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
         <div style={tableScrollStyle}>
           <table style={tableStyle}>
@@ -61,7 +72,7 @@ export default function UrlsPage() {
               </tr>
             </thead>
             <tbody>
-              {demoUrlInventoryRows.map((urlRecord) => (
+              {urlInventoryRows.map((urlRecord) => (
                 <tr key={urlRecord.id}>
                   <td style={tdStyle}>
                     <strong>{urlRecord.path}</strong>
