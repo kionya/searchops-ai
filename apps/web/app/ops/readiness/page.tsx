@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
@@ -33,11 +33,17 @@ export default async function OperationalReadinessPage() {
   const grouped = groupReadinessByCategory(readiness.items);
 
   return (
-    <main style={pageStyle}>
-      <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        사이트 목록으로
-      </Link>
-      <section aria-labelledby="readiness-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="Phase 6-11과 제품화 잔여 항목을 provider credential, 운영 자동화, 문서, 수동 정책 확정 상태로 추적합니다."
+      eyebrow="Operations"
+      title="출시 준비도"
+    >
+      <section aria-labelledby="readiness-heading">
         <SectionHeader
           description="Phase 6-11과 제품화 잔여 항목을 provider credential, 운영 자동화, 문서, 수동 정책 확정 상태로 추적합니다."
           eyebrow="운영"
@@ -137,7 +143,7 @@ export default async function OperationalReadinessPage() {
           </div>
         </section>
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 
@@ -165,7 +171,8 @@ const categoryGridStyle = {
 } as const;
 
 const categoryCardStyle = {
-  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   padding: 14,
 } as const;

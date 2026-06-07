@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
@@ -54,11 +54,17 @@ export default async function DeadLetterOperationsPage({
     params.replayJobId === undefined ? null : await loadDeadLetterReplayPlan(params.replayJobId);
 
   return (
-    <main style={pageStyle}>
-      <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        사이트 목록으로
-      </Link>
-      <section aria-labelledby="실패 작업-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="크롤링, 커넥터, GEO, 스키마 검증 큐에서 실패한 워커 작업 메타데이터를 확인합니다."
+      eyebrow="Operations"
+      title="실패 작업 관리"
+    >
+      <section aria-labelledby="실패 작업-heading">
         <SectionHeader
           description="크롤링, 커넥터, GEO, 스키마 검증 큐에서 실패한 워커 작업 메타데이터를 확인합니다."
           eyebrow="운영"
@@ -216,7 +222,7 @@ export default async function DeadLetterOperationsPage({
           </section>
         ) : null}
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 
@@ -238,8 +244,8 @@ function DeadLetterStatusPill({
 }
 
 const clearButtonStyle = {
-  background: "#172033",
-  border: 0,
+  background: "#111827",
+  border: "1px solid #111827",
   borderRadius: 8,
   color: "#ffffff",
   cursor: "pointer",
@@ -251,7 +257,7 @@ const clearButtonStyle = {
 
 const secondaryButtonStyle = {
   background: "#ffffff",
-  border: "1px solid #cbd5e1",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   color: "#0f172a",
   cursor: "pointer",

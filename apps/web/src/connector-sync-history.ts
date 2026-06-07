@@ -71,6 +71,15 @@ export interface ConnectorOperationGuidance {
   readonly tone: ConnectorOperationTone;
 }
 
+export interface ConnectorCommandCenterSummary {
+  readonly actionRequiredProviders: number;
+  readonly blockedProviders: number;
+  readonly currentRecords: number;
+  readonly latestRunId: string | null;
+  readonly readyProviders: number;
+  readonly totalProviders: number;
+}
+
 const connectorSyncHistoryFetchTimeoutMs = 4_000;
 const connectorSyncDetailFetchLimit = 8;
 const fixtureStartedAt = "2026-05-22T00:00:00.000Z";
@@ -558,6 +567,21 @@ export function summarizeConnectorOperations(
       tone: getConnectorOperationTone(status)
     };
   });
+}
+
+export function summarizeConnectorCommandCenter(
+  operations: readonly ConnectorOperationGuidance[],
+): ConnectorCommandCenterSummary {
+  return {
+    actionRequiredProviders: operations.filter((operation) =>
+      ["idle", "partial", "queued", "setup"].includes(operation.tone),
+    ).length,
+    blockedProviders: operations.filter((operation) => operation.tone === "failed").length,
+    currentRecords: operations.reduce((total, operation) => total + operation.recordCount, 0),
+    latestRunId: operations.find((operation) => operation.latestRunId !== null)?.latestRunId ?? null,
+    readyProviders: operations.filter((operation) => operation.tone === "ok").length,
+    totalProviders: operations.length
+  };
 }
 
 function findLatestConnectorProviderState(

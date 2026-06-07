@@ -1,14 +1,13 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../src/dashboard-shell";
 import {
-  pillStyle,
   tableHeaderStyle,
   tableSectionStyle,
 } from "../../src/dashboard-table-styles";
@@ -21,11 +20,17 @@ export default function OnboardingPage() {
   const summary = summarizeOnboardingSteps(onboardingSteps);
 
   return (
-    <main style={pageStyle}>
-      <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        사이트 목록으로
-      </Link>
-      <section aria-labelledby="onboarding-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/sites">
+          사이트 목록으로
+        </Link>
+      }
+      description="첫 사이트, 첫 크롤링, 첫 작업 지시서까지의 초기 운영 흐름과 선택 설정을 확인합니다."
+      eyebrow="Productization"
+      title="온보딩"
+    >
+      <section aria-labelledby="onboarding-heading">
         <SectionHeader
           description="첫 사이트, 첫 크롤링, 첫 작업 지시서까지의 초기 운영 흐름과 선택 설정을 확인합니다."
           eyebrow="제품화"
@@ -51,20 +56,15 @@ export default function OnboardingPage() {
           </header>
           <div style={stepGridStyle}>
             {onboardingSteps.map((step) => (
-              <article key={step.id} style={stepStyle}>
-                <span
-                  style={{
-                    ...pillStyle,
-                    ...onboardingToneStyle[step.status],
-                  }}
-                >
+              <article className="searchops-card" key={step.id}>
+                <span className={`searchops-status-pill ${onboardingToneClass[step.status]}`}>
                   {formatOnboardingStatus(step.status)}
                 </span>
                 <strong style={{ display: "block", fontSize: 17, marginTop: 12 }}>
                   {step.title}
                 </strong>
                 {step.href ? (
-                  <Link href={step.href} style={stepLinkStyle}>
+                  <Link className="searchops-button secondary" href={step.href} style={{ marginTop: 12 }}>
                     열기
                   </Link>
                 ) : null}
@@ -73,7 +73,7 @@ export default function OnboardingPage() {
           </div>
         </section>
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 
@@ -94,23 +94,8 @@ const stepGridStyle = {
   padding: 16,
 } as const;
 
-const stepStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 8,
-  padding: 14,
-} as const;
-
-const stepLinkStyle = {
-  color: "#2563eb",
-  display: "inline-flex",
-  fontSize: 14,
-  fontWeight: 700,
-  marginTop: 12,
-  textDecoration: "none",
-} as const;
-
-const onboardingToneStyle = {
-  available: { background: "#ecfdf5", color: "#047857" },
-  blocked: { background: "#fff7ed", color: "#c2410c" },
-  optional: { background: "#eff6ff", color: "#1d4ed8" },
+const onboardingToneClass = {
+  available: "ready",
+  blocked: "warning",
+  optional: "info",
 } as const;

@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
@@ -38,11 +38,17 @@ export default async function OperationsHardeningPage({
   const feedback = getBackupRestoreDrillRunFeedback(params.restore, params.planId);
 
   return (
-    <main style={pageStyle}>
-      <Link href="/ops" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        운영 허브로
-      </Link>
-      <section aria-labelledby="ops-hardening-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="Redis rate limit, migration deploy gate, backup/restore drill을 운영 환경에 연결하기 전 안전한 계획으로 확인합니다."
+      eyebrow="Operations"
+      title="Production hardening"
+    >
+      <section aria-labelledby="ops-hardening-heading">
         <SectionHeader
           description="Redis rate limit, migration deploy gate, backup/restore drill을 운영 환경에 연결하기 전 안전한 계획으로 확인합니다."
           eyebrow="운영"
@@ -101,7 +107,7 @@ export default async function OperationsHardeningPage({
           <RunbookStepTable steps={dashboard.migrationGatePlan.steps} />
         </section>
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 
@@ -148,8 +154,8 @@ function RunbookStepTable({
 }
 
 const primaryButtonStyle = {
-  background: "#172033",
-  border: 0,
+  background: "#111827",
+  border: "1px solid #111827",
   borderRadius: 8,
   color: "#ffffff",
   cursor: "pointer",

@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  AppWorkspaceFrame,
   MetricCard,
   metricGridStyle,
   mutedTextStyle,
-  pageStyle,
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
@@ -31,11 +31,17 @@ export default async function ObservabilityPage() {
   const dashboard = await loadObservabilityDashboard();
 
   return (
-    <main style={pageStyle}>
-      <Link href="/sites" style={{ color: "#2563eb", fontSize: 14, textDecoration: "none" }}>
-        사이트 목록으로
-      </Link>
-      <section aria-labelledby="observability-heading" style={{ marginTop: 18 }}>
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="운영 지표 export, 워커 실패 요약, 결정론적 알림 라우팅 신호를 확인합니다."
+      eyebrow="Operations"
+      title="운영 지표"
+    >
+      <section aria-labelledby="observability-heading">
         <SectionHeader
           description="운영 지표 export, 워커 실패 요약, 결정론적 알림 라우팅 신호를 확인합니다."
           eyebrow="운영"
@@ -156,7 +162,7 @@ export default async function ObservabilityPage() {
           </div>
         </section>
       </section>
-    </main>
+    </AppWorkspaceFrame>
   );
 }
 

@@ -1,15 +1,18 @@
 import type { CSSProperties } from "react";
 
 export const tableSectionStyle: CSSProperties = {
-  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
+  boxShadow: "0 18px 48px rgba(15, 23, 42, 0.06)",
   marginTop: 14,
   overflow: "hidden"
 };
 
 export const tableHeaderStyle: CSSProperties = {
   alignItems: "start",
-  borderBottom: "1px solid #e5e7eb",
+  background: "#ffffff",
+  borderBottom: "1px solid #dbe4ef",
   display: "grid",
   gap: 8,
   gridTemplateColumns: "minmax(0, 1fr) auto",
@@ -27,11 +30,12 @@ export const tableStyle: CSSProperties = {
 };
 
 export const thStyle: CSSProperties = {
-  background: "#f8fafc",
-  borderBottom: "1px solid #e5e7eb",
+  background: "#f1f5f9",
+  borderBottom: "1px solid #dbe4ef",
   color: "#475569",
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 800,
+  letterSpacing: 0,
   padding: "11px 12px",
   textAlign: "left",
   textTransform: "uppercase"
@@ -40,6 +44,7 @@ export const thStyle: CSSProperties = {
 export const tdStyle: CSSProperties = {
   borderBottom: "1px solid #eef2f7",
   fontSize: 14,
+  lineHeight: 1.42,
   padding: "12px"
 };
 
@@ -52,7 +57,7 @@ export const pillStyle: CSSProperties = {
   borderRadius: 999,
   display: "inline-flex",
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 800,
   lineHeight: 1,
-  padding: "6px 8px"
+  padding: "7px 9px"
 };

@@ -1,6 +1,4 @@
 import {
-  MetricCard,
-  metricGridStyle,
   mutedTextStyle,
   SectionHeader
 } from "../../../../src/dashboard-shell";
@@ -35,6 +33,7 @@ import {
   formatConnectorProvider,
   formatConnectorProviders,
   formatSyncDuration,
+  summarizeConnectorCommandCenter,
   summarizeConnectorOperations,
   getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
@@ -75,6 +74,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   const oauthStatuses = summarizeConnectorOAuthProviders(oauthData.credentials);
   const pageSpeedSetupCheck = getPageSpeedLiveSetupCheck(liveSetupData.report);
   const operationGuidance = summarizeConnectorOperations(history);
+  const commandSummary = summarizeConnectorCommandCenter(operationGuidance);
   const allResults = Object.values(history.resultsByRunId).flat();
   const runsById = new Map(history.runs.map((run) => [run.id, run]));
   const triggerFeedback = getConnectorSyncTriggerFeedback(
@@ -83,19 +83,20 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   );
 
   return (
-    <section aria-labelledby="connector-sync-history-heading">
+    <section aria-label="커넥터 커맨드 센터">
       <SectionHeader
-        description="GSC, GA4, PageSpeed, Bing, CMS 동기화 실행 상태와 저장된 provider 결과를 확인합니다."
+        description="GSC, GA4, PageSpeed, Bing, CMS의 live 설정, 최신 provider 상태, 재실행 액션을 한 화면에서 제어합니다."
         eyebrow="커넥터"
-        title="커넥터 동기화 이력"
+        title="커넥터 커맨드 센터"
       />
-      <div style={metricGridStyle}>
-        <MetricCard label="동기화 실행" value={String(summary.total)} />
-        <MetricCard label="완료" value={String(summary.completed)} />
-        <MetricCard label="일부 완료/실패" value={String(summary.partial + summary.failed)} />
-        <MetricCard label="설정 필요" value={String(summary.setupRequiredResults)} />
-        <MetricCard label="동기화 기록" value={String(summary.totalRecords)} />
-      </div>
+      <ConnectorCommandCenterPanel
+        commandSummary={commandSummary}
+        historyErrorMessage={history.errorMessage}
+        historySource={history.source}
+        liveSetupData={liveSetupData}
+        pageSpeedCheck={pageSpeedSetupCheck}
+        summary={summary}
+      />
       <ConnectorOperationsPanel operations={operationGuidance} siteId={siteId} />
       <GoogleOAuthPanel
         oauthErrorMessage={oauthData.errorMessage}
@@ -261,6 +262,96 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   );
 }
 
+function ConnectorCommandCenterPanel({
+  commandSummary,
+  historyErrorMessage,
+  historySource,
+  liveSetupData,
+  pageSpeedCheck,
+  summary
+}: {
+  readonly commandSummary: ReturnType<typeof summarizeConnectorCommandCenter>;
+  readonly historyErrorMessage: string | null;
+  readonly historySource: string;
+  readonly liveSetupData: Awaited<ReturnType<typeof loadConnectorLiveSetupData>>;
+  readonly pageSpeedCheck: ReturnType<typeof getPageSpeedLiveSetupCheck>;
+  readonly summary: ReturnType<typeof summarizeConnectorSyncHistory>;
+}) {
+  const liveModeLabel =
+    liveSetupData.report.liveExternalApis === "enabled"
+      ? "Live external APIs"
+      : "Fixture-safe mode";
+
+  return (
+    <section aria-label="커넥터 커맨드 센터 요약" style={commandCenterStyle}>
+      <header style={commandCenterHeaderStyle}>
+        <div>
+          <p style={commandCenterEyebrowStyle}>provider command matrix</p>
+          <h3 style={{ fontSize: 22, letterSpacing: 0, lineHeight: 1.15, margin: "6px 0 8px" }}>
+            {commandSummary.readyProviders}/{commandSummary.totalProviders} providers ready.
+          </h3>
+          <p style={{ ...mutedTextStyle, fontSize: 14, maxWidth: 760 }}>
+            최신 실행 기준 provider 상태를 먼저 보고, 필요한 provider만 단독 재실행할 수 있습니다.
+          </p>
+          {historyErrorMessage ? (
+            <p style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0" }}>
+              API 연결 실패: {historyErrorMessage}
+            </p>
+          ) : null}
+          {liveSetupData.errorMessage ? (
+            <p style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0" }}>
+              Live setup 조회 실패: {liveSetupData.errorMessage}
+            </p>
+          ) : null}
+        </div>
+        <div style={commandCenterBadgeStackStyle}>
+          <span
+            style={{
+              ...pillStyle,
+              background: historySource === "api" ? "#ecfdf5" : "#eef2ff",
+              color: historySource === "api" ? "#047857" : "#3730a3"
+            }}
+          >
+            {historySource === "api" ? "Sync API 데이터" : "Sync 데모 데이터"}
+          </span>
+          <span
+            style={{
+              ...pillStyle,
+              background: liveSetupData.source === "api" ? "#ecfdf5" : "#eef2ff",
+              color: liveSetupData.source === "api" ? "#047857" : "#3730a3"
+            }}
+          >
+            {liveSetupData.source === "api" ? "Setup API 데이터" : "Setup 데모 데이터"}
+          </span>
+          <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+            {liveModeLabel}
+          </span>
+        </div>
+      </header>
+      <div style={commandMetricGridStyle}>
+        <CommandMetric label="Ready providers" value={`${commandSummary.readyProviders}/${commandSummary.totalProviders}`} />
+        <CommandMetric label="Action required" value={String(commandSummary.actionRequiredProviders)} />
+        <CommandMetric label="Blocked" value={String(commandSummary.blockedProviders)} />
+        <CommandMetric label="Current records" value={String(commandSummary.currentRecords)} />
+        <CommandMetric label="History records" value={String(summary.totalRecords)} />
+        <CommandMetric label="Latest run" value={commandSummary.latestRunId ?? "없음"} />
+      </div>
+      <div style={liveSetupStripStyle}>
+        <div>
+          <strong style={{ display: "block", fontSize: 14 }}>PageSpeed live setup</strong>
+          <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 4 }}>
+            {pageSpeedCheck.summary}
+          </span>
+        </div>
+        <LiveSetupStatusPill
+          label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
+          tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
+        />
+      </div>
+    </section>
+  );
+}
+
 function ConnectorOperationsPanel({
   operations,
   siteId
@@ -271,56 +362,63 @@ function ConnectorOperationsPanel({
   const action = runConnectorSyncAction.bind(null, siteId);
 
   return (
-    <section aria-label="Provider 운영 상태" style={tableSectionStyle}>
-      <header style={tableHeaderStyle}>
+    <section aria-label="Provider 운영 상태" style={providerCommandSectionStyle}>
+      <header style={providerCommandHeaderStyle}>
         <div>
-          <h3 style={{ fontSize: 18, margin: 0 }}>Provider 운영 상태</h3>
+          <h3 style={{ fontSize: 18, margin: 0 }}>Provider command cards</h3>
           <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-            Provider별 최근 결과와 다음 조치를 확인합니다.
+            Provider별 최근 결과, 기록 수, 다음 조치를 확인하고 단독 실행합니다.
           </p>
         </div>
       </header>
-      <div style={tableScrollStyle}>
-        <table style={{ ...tableStyle, minWidth: 920 }}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Provider</th>
-              <th style={thStyle}>상태</th>
-              <th style={thStyle}>최근 실행</th>
-              <th style={thStyle}>기록</th>
-              <th style={thStyle}>안내</th>
-              <th style={thStyle}>조치</th>
-            </tr>
-          </thead>
-          <tbody>
-            {operations.map((item) => (
-              <tr key={item.provider}>
-                <td style={tdStyle}>{formatConnectorProvider(item.provider)}</td>
-                <td style={tdStyle}>
-                  <OperationStatusPill label={formatStatusLabel(item.status)} tone={item.tone} />
-                </td>
-                <td style={{ ...tdStyle, ...codeTextStyle }}>{item.latestRunId ?? "없음"}</td>
-                <td style={tdStyle}>{item.recordCount}</td>
-                <td style={tdStyle}>
-                  <span>{item.message}</span>
-                  <span style={{ color: "#475569", display: "block", fontSize: 12, marginTop: 5 }}>
-                    {item.nextAction}
-                  </span>
-                </td>
-                <td style={tdStyle}>
-                  <form action={action}>
-                    <input name="providers" type="hidden" value={item.provider} />
-                    <button style={quickProviderButtonStyle} type="submit">
-                      {item.retryLabel}
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={providerCommandGridStyle}>
+        {operations.map((item) => (
+          <article key={item.provider} style={providerCommandCardStyle}>
+            <div style={providerCardHeaderStyle}>
+              <strong>{formatConnectorProvider(item.provider)}</strong>
+              <OperationStatusPill label={formatStatusLabel(item.status)} tone={item.tone} />
+            </div>
+            <dl style={providerCardMetaStyle}>
+              <div>
+                <dt style={providerCardMetaLabelStyle}>최근 실행</dt>
+                <dd style={{ ...providerCardMetaValueStyle, ...codeTextStyle }}>
+                  {item.latestRunId ?? "없음"}
+                </dd>
+              </div>
+              <div>
+                <dt style={providerCardMetaLabelStyle}>기록</dt>
+                <dd style={providerCardMetaValueStyle}>{item.recordCount}</dd>
+              </div>
+            </dl>
+            <p style={{ fontSize: 13, lineHeight: 1.45, margin: "12px 0 0" }}>{item.message}</p>
+            <p style={{ color: "#475569", fontSize: 12, lineHeight: 1.45, margin: "6px 0 0" }}>
+              {item.nextAction}
+            </p>
+            <form action={action} style={{ marginTop: 14 }}>
+              <input name="providers" type="hidden" value={item.provider} />
+              <button style={providerCardButtonStyle} type="submit">
+                {item.retryLabel}
+              </button>
+            </form>
+          </article>
+        ))}
       </div>
     </section>
+  );
+}
+
+function CommandMetric({
+  label,
+  value
+}: {
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <article style={commandMetricCardStyle}>
+      <span style={commandMetricLabelStyle}>{label}</span>
+      <strong style={commandMetricValueStyle}>{value}</strong>
+    </article>
   );
 }
 
@@ -608,13 +706,142 @@ function formatDateTime(isoDate: string | null) {
   }).format(new Date(isoDate));
 }
 
+const commandCenterStyle = {
+  background: "#f8fafc",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  marginTop: 4,
+  padding: 18
+} as const;
+
+const commandCenterHeaderStyle = {
+  alignItems: "start",
+  display: "grid",
+  gap: 16,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))"
+} as const;
+
+const commandCenterBadgeStackStyle = {
+  alignItems: "flex-start",
+  display: "flex",
+  flexDirection: "column",
+  gap: 8
+} as const;
+
+const commandCenterEyebrowStyle = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 800,
+  letterSpacing: 0,
+  margin: 0,
+  textTransform: "uppercase"
+} as const;
+
+const commandMetricGridStyle = {
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  marginTop: 16
+} as const;
+
+const commandMetricCardStyle = {
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  minHeight: 82,
+  padding: 12
+} as const;
+
+const commandMetricLabelStyle = {
+  color: "#64748b",
+  display: "block",
+  fontSize: 12,
+  fontWeight: 800,
+  letterSpacing: 0,
+  textTransform: "uppercase"
+} as const;
+
+const commandMetricValueStyle = {
+  display: "block",
+  fontSize: 22,
+  lineHeight: 1.05,
+  marginTop: 8,
+  overflowWrap: "anywhere"
+} as const;
+
+const liveSetupStripStyle = {
+  alignItems: "center",
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+  justifyContent: "space-between",
+  marginTop: 12,
+  padding: 12
+} as const;
+
+const providerCommandSectionStyle = {
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  marginTop: 14,
+  overflow: "hidden"
+} as const;
+
+const providerCommandHeaderStyle = {
+  borderBottom: "1px solid #dbe4ef",
+  padding: 16
+} as const;
+
+const providerCommandGridStyle = {
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))",
+  padding: 16
+} as const;
+
+const providerCommandCardStyle = {
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  minHeight: 248,
+  padding: 14
+} as const;
+
+const providerCardHeaderStyle = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between"
+} as const;
+
+const providerCardMetaStyle = {
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  margin: "14px 0 0"
+} as const;
+
+const providerCardMetaLabelStyle = {
+  color: "#64748b",
+  fontSize: 12,
+  margin: 0
+} as const;
+
+const providerCardMetaValueStyle = {
+  fontSize: 13,
+  fontWeight: 800,
+  margin: "4px 0 0",
+  overflowWrap: "anywhere"
+} as const;
+
 const oauthPanelStyle = {
   alignItems: "start",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
   display: "grid",
   gap: 16,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   marginTop: 14,
   padding: 16
 } as const;
@@ -625,7 +852,7 @@ const liveSetupPanelStyle = {
   borderRadius: 8,
   display: "grid",
   gap: 16,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   marginTop: 14,
   padding: 16
 } as const;
@@ -652,7 +879,7 @@ const oauthStatusGridStyle = {
 } as const;
 
 const oauthStatusItemStyle = {
-  border: "1px solid #e5e7eb",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   padding: 12
 } as const;
@@ -684,7 +911,7 @@ const triggerPanelStyle = {
   borderRadius: 8,
   display: "grid",
   gap: 16,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   marginTop: 14,
   padding: 16
 } as const;
@@ -716,6 +943,11 @@ const quickProviderButtonStyle = {
   padding: "6px 10px"
 } as const;
 
+const providerCardButtonStyle = {
+  ...quickProviderButtonStyle,
+  width: "100%"
+} as const;
+
 const providerFieldsetStyle = {
   border: 0,
   display: "flex",
@@ -737,7 +969,7 @@ const providerLegendStyle = {
 
 const providerOptionStyle = {
   alignItems: "center",
-  border: "1px solid #e5e7eb",
+  border: "1px solid #dbe4ef",
   borderRadius: 8,
   color: "#172033",
   display: "inline-flex",
