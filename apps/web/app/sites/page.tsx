@@ -7,7 +7,14 @@ import {
   metricGridStyle,
   mutedTextStyle
 } from "../../src/dashboard-shell";
+import {
+  createEasySetupGuide,
+  summarizeEasySetupGuide,
+  type EasySetupStep
+} from "../../src/easy-setup";
 import { formatIndustryLabel } from "../../src/korean-labels";
+import { loadOperationalReadiness } from "../../src/operational-readiness";
+import { loadProductizationDashboard } from "../../src/productization-dashboard";
 import {
   type SiteRegistryData,
   type SiteRegistrationFeedback,
@@ -24,7 +31,18 @@ interface SitesPageProps {
 }
 
 export default async function SitesPage({ searchParams }: SitesPageProps) {
-  const registry = await loadSiteRegistry(await searchParams);
+  const resolvedSearchParams = await searchParams;
+  const [registry, readinessDashboard, productizationDashboard] = await Promise.all([
+    loadSiteRegistry(resolvedSearchParams),
+    loadOperationalReadiness(),
+    loadProductizationDashboard()
+  ]);
+  const guide = createEasySetupGuide({
+    productization: productizationDashboard.productization,
+    readiness: readinessDashboard.readiness
+  });
+  const guideSummary = summarizeEasySetupGuide(guide);
+  const nextStep = guide.find((group) => group.id === "available_now")?.steps[0] ?? null;
 
   return (
     <AppWorkspaceFrame
@@ -61,7 +79,11 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
 
         <div className="searchops-sites-command-grid">
           <SiteRegistrationPanel feedback={registry.feedback} />
-          <SiteRegistrySummary registry={registry} />
+          <SiteRegistrySummary
+            nextStep={nextStep}
+            registry={registry}
+            setupSummary={guideSummary}
+          />
         </div>
 
         <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
@@ -209,17 +231,45 @@ function ConnectorField({ label, value }: { readonly label: string; readonly val
   );
 }
 
-function SiteRegistrySummary({ registry }: { readonly registry: SiteRegistryData }) {
+function SiteRegistrySummary({
+  nextStep,
+  registry,
+  setupSummary
+}: {
+  readonly nextStep: EasySetupStep | null;
+  readonly registry: SiteRegistryData;
+  readonly setupSummary: ReturnType<typeof summarizeEasySetupGuide>;
+}) {
   const fixtureCount = registry.sites.filter((site) => site.id.startsWith("site_")).length;
 
   return (
     <aside className="searchops-panel" aria-label="사이트 등록 상태">
-      <span className="searchops-label">registration state</span>
+      <span className="searchops-label">easy setup</span>
+      <h3 style={{ fontSize: 20, margin: "5px 0 8px" }}>지금 할 일</h3>
+      {nextStep ? (
+        <div className="searchops-easy-next-action">
+          <strong>{nextStep.title}</strong>
+          <p>{nextStep.description}</p>
+          <Link className="searchops-button secondary" href={nextStep.href}>
+            {nextStep.actionLabel}
+          </Link>
+        </div>
+      ) : null}
       <dl className="searchops-registry-summary">
         <SiteFact label="저장 모드" value={registry.mode === "api" ? "API" : "Fixture"} />
         <SiteFact label="등록 사이트" value={String(registry.sites.length)} />
         <SiteFact label="대시보드 준비" value={String(fixtureCount)} />
+        <SiteFact label="출시 전 연결" value={String(setupSummary.connectBeforeLaunch)} />
+        <SiteFact label="나중에 결정" value={String(setupSummary.decideLater)} />
       </dl>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+        <Link className="searchops-button" href="/onboarding">
+          시작하기
+        </Link>
+        <Link className="searchops-button secondary" href="/ops/readiness">
+          고급 준비도
+        </Link>
+      </div>
     </aside>
   );
 }

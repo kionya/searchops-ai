@@ -18,6 +18,11 @@ import {
   thStyle,
 } from "../../../src/dashboard-table-styles";
 import {
+  createEasySetupGuide,
+  summarizeEasySetupGuide,
+  type EasySetupGroup,
+} from "../../../src/easy-setup";
+import {
   formatReadinessCategory,
   formatReadinessStatus,
   getReadinessTone,
@@ -26,11 +31,20 @@ import {
   type OperationalReadinessCategory,
   type OperationalReadinessTone,
 } from "../../../src/operational-readiness";
+import { loadProductizationDashboard } from "../../../src/productization-dashboard";
 
 export default async function OperationalReadinessPage() {
-  const dashboard = await loadOperationalReadiness();
+  const [dashboard, productizationDashboard] = await Promise.all([
+    loadOperationalReadiness(),
+    loadProductizationDashboard(),
+  ]);
   const { readiness } = dashboard;
   const grouped = groupReadinessByCategory(readiness.items);
+  const easyGuide = createEasySetupGuide({
+    productization: productizationDashboard.productization,
+    readiness,
+  });
+  const easySummary = summarizeEasySetupGuide(easyGuide);
 
   return (
     <AppWorkspaceFrame
@@ -55,6 +69,30 @@ export default async function OperationalReadinessPage() {
           <MetricCard label="프로비저닝 필요" value={String(readiness.summary.needsProvisioning)} />
           <MetricCard label="수동 후속" value={String(readiness.summary.manualFollowup)} />
         </div>
+
+        <section aria-label="쉬운 출시 준비 요약" style={tableSectionStyle}>
+          <header style={tableHeaderStyle}>
+            <div>
+              <h3 style={{ fontSize: 18, margin: 0 }}>쉬운 요약</h3>
+              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+                자세한 설정값을 보기 전에 지금 가능한 일과 출시 전 연결할 일을 먼저 확인합니다.
+              </p>
+            </div>
+            <Link className="searchops-button secondary" href="/onboarding">
+              시작하기
+            </Link>
+          </header>
+          <div style={easySummaryGridStyle}>
+            <EasyReadinessSummaryCard label="지금 가능" value={easySummary.availableNow} tone="ready" />
+            <EasyReadinessSummaryCard label="출시 전 연결" value={easySummary.connectBeforeLaunch} tone="warning" />
+            <EasyReadinessSummaryCard label="나중에 결정" value={easySummary.decideLater} tone="info" />
+          </div>
+          <div style={easyGroupGridStyle}>
+            {easyGuide.map((group) => (
+              <EasyReadinessGroupCard group={group} key={group.id} />
+            ))}
+          </div>
+        </section>
 
         <section aria-label="출시 준비도 요약" style={tableSectionStyle}>
           <header style={tableHeaderStyle}>
@@ -99,7 +137,7 @@ export default async function OperationalReadinessPage() {
         <section aria-label="출시 준비도 상세" style={tableSectionStyle}>
           <header style={tableHeaderStyle}>
             <div>
-              <h3 style={{ fontSize: 18, margin: 0 }}>상세 항목</h3>
+              <h3 style={{ fontSize: 18, margin: 0 }}>고급 상세 항목</h3>
               <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
                 실제 credential 값은 표시하지 않고, 필요한 env key와 다음 조치만 보여줍니다.
               </p>
@@ -147,6 +185,42 @@ export default async function OperationalReadinessPage() {
   );
 }
 
+function EasyReadinessSummaryCard({
+  label,
+  tone,
+  value,
+}: {
+  readonly label: string;
+  readonly tone: "info" | "ready" | "warning";
+  readonly value: number;
+}) {
+  return (
+    <article style={easySummaryCardStyle}>
+      <span className={`searchops-status-pill ${tone}`}>{label}</span>
+      <strong style={{ display: "block", fontSize: 28, marginTop: 10 }}>{value}</strong>
+    </article>
+  );
+}
+
+function EasyReadinessGroupCard({ group }: { readonly group: EasySetupGroup }) {
+  const previewSteps = group.steps.slice(0, 4);
+
+  return (
+    <article style={categoryCardStyle}>
+      <h4 style={{ fontSize: 16, margin: 0 }}>{group.title}</h4>
+      <p style={{ ...mutedTextStyle, fontSize: 13, lineHeight: 1.42, marginTop: 4 }}>{group.description}</p>
+      <ul style={{ display: "grid", gap: 7, margin: "12px 0 0", padding: 0 }}>
+        {previewSteps.map((step) => (
+          <li key={step.id} style={{ display: "grid", gap: 2, listStyle: "none" }}>
+            <strong style={{ fontSize: 13 }}>{step.title}</strong>
+            <span style={{ color: "#64748b", fontSize: 12 }}>{step.actionLabel}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
 function ReadinessStatusPill({
   label,
   tone,
@@ -175,4 +249,25 @@ const categoryCardStyle = {
   border: "1px solid #dbe4ef",
   borderRadius: 8,
   padding: 14,
+} as const;
+
+const easySummaryGridStyle = {
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
+  padding: 16,
+} as const;
+
+const easySummaryCardStyle = {
+  background: "#ffffff",
+  border: "1px solid #dbe4ef",
+  borderRadius: 8,
+  padding: 14,
+} as const;
+
+const easyGroupGridStyle = {
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
+  padding: "0 16px 16px",
 } as const;

@@ -119,6 +119,11 @@ import {
   loadOperationalReadiness
 } from "./operational-readiness";
 import {
+  createEasySetupGuide,
+  formatEasySetupGroupTitle,
+  summarizeEasySetupGuide
+} from "./easy-setup";
+import {
   createDemoProductizationDashboard,
   formatProductizationArea,
   getProductizationTone,
@@ -894,6 +899,48 @@ describe("web foundation", () => {
     expect(dashboard.source).toBe("api");
     expect(grouped.connectors.length).toBeGreaterThan(0);
     expect(formatReadinessStatus("needs_provisioning")).toBe("프로비저닝 필요");
+  });
+
+  it("maps launch readiness into beginner-friendly setup groups", () => {
+    const readiness = createDemoOperationalReadinessDashboard().readiness;
+    const productization = createDemoProductizationDashboard().productization;
+    const guide = createEasySetupGuide({ productization, readiness });
+    const summary = summarizeEasySetupGuide(guide);
+    const beginnerText = JSON.stringify(guide.map((group) => ({
+      steps: group.steps.map((step) => ({
+        actionLabel: step.actionLabel,
+        description: step.description,
+        reason: step.reason,
+        title: step.title
+      })),
+      title: group.title
+    })));
+
+    expect(guide.map((group) => group.id)).toEqual([
+      "available_now",
+      "connect_before_launch",
+      "decide_later"
+    ]);
+    expect(formatEasySetupGroupTitle("available_now")).toBe("지금 바로 가능");
+    expect(summary).toEqual({
+      availableNow: 5,
+      connectBeforeLaunch: 14,
+      decideLater: 15,
+      total: 34
+    });
+    expect(guide[0]?.steps.map((step) => step.id)).toEqual([
+      "register-site",
+      "first-crawl",
+      "review-urls",
+      "review-seo-issues",
+      "create-workorders"
+    ]);
+    expect(guide[1]?.steps[0]).toMatchObject({
+      actionLabel: "연결 방법 보기",
+      href: "/ops/readiness",
+      tone: "warning"
+    });
+    expect(beginnerText).not.toContain("SEARCHOPS_");
   });
 
   it("summarizes productization readiness and onboarding fixtures", () => {

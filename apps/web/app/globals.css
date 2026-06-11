@@ -407,6 +407,23 @@ a {
   margin: 14px 0 0;
 }
 
+.searchops-easy-next-action {
+  background: #f8fafc;
+  border: 1px solid var(--searchops-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.searchops-easy-next-action p {
+  color: var(--searchops-muted);
+  font-size: 13px;
+  line-height: 1.42;
+  margin: 0;
+}
+
 .searchops-label {
   color: var(--searchops-muted);
   display: block;
