@@ -1,5 +1,78 @@
 # SearchOps AI Progress
 
+> 이 문서 위쪽은 **운영 배포·프로비저닝 진행상황**(최신), 아래쪽은 **제품 빌드 로그(Phase 0–11)**.
+
+---
+
+## 🚀 운영 배포 · 프로비저닝 진행상황
+
+Updated: 2026-06-22
+Live: web = https://searchops-ai-web.vercel.app · api = https://searchops-api-production.up.railway.app
+
+### 현재 운영 상태 (한눈에)
+
+| 구성요소 | 상태 |
+|---|---|
+| DB (Supabase, 서울) | ✅ 연결·마이그레이션 적용 |
+| Redis (Railway, noeviction) | ✅ 연결 |
+| API 엔진 (Railway) | ✅ 가동 (`/health` 200) |
+| Worker 엔진 (Railway) | ✅ 가동 (Active) |
+| 웹사이트 (Vercel) | ✅ 가동 + API 실시간 연결 |
+| 인증/보안 | ✅ `NODE_ENV=production` + HS256 IdP → 익명/사칭 차단(fail-open 닫힘) |
+
+**/ops/readiness 실측 (2026-06-22):** 전체 **41** / 설정됨 **24** / 프로비저닝 필요 **7** / 수동 후속 **10** — 배지 "API 데이터". (A안 완료로 `alert-routing`·`error-monitoring-uptime` configured 전환: 22→24)
+
+### 완료한 작업 (이번 배포 사이클)
+
+1. **Phase 0 — DB**: Supabase 연결 + `prisma migrate deploy`(15개) + seed. 로컬 Docker로 동일 파이프라인 리허설 후 운영 적용.
+2. **Phase 1 — Redis**: Railway Redis(noeviction) 연결, API·Worker 양쪽 부팅 확인.
+3. **인증/보안**: `NODE_ENV=production` + `SEARCHOPS_IDP_JWT_HS256_SECRET` → mock/trusted-header fallback 차단(`/ops/*` 401로 확인).
+4. **웹↔API 연결 (PR #75 머지)**: `apps/web/src/api-client.ts`(`apiFetch` + HS256 서비스 토큰 자동 발급) 추가, 16개 모듈 **37곳** `fetch`→`apiFetch`, `/ops/readiness`·`/ops/productization`·`/ops/observability` `force-dynamic`. typecheck/lint/build 통과.
+5. **Vercel web env**: `SEARCHOPS_API_BASE_URL` + `SEARCHOPS_IDP_JWT_HS256_SECRET` 설정. (실수로 넣었던 `NODE_ENV`/`DATABASE_URL` 제거 → 빌드 복구)
+6. **결과**: `/ops/readiness` "데모 데이터" → "API 데이터" 전환 확인.
+7. **A안 — 알림 + 에러/가동 모니터링 (PR #76 머지, 2026-06-22)**:
+   - `apps/web/app/api/ops/alert-sink/route.ts` 인증 sink(Bearer 상수시간 검증·로깅·200) + `.github/workflows/ops-heartbeat.yml`(5분: `/health` 다운 감지 → 실패 시 GitHub 알림 + HS256 단명 토큰으로 `/ops/metrics-export` 호출해 **fire-on-read** 구동).
+   - 설정: Vercel `SEARCHOPS_OPS_ALERT_SINK_TOKEN` / Railway `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`(+`_TOKEN`) / GH repo secret `SEARCHOPS_IDP_JWT_HS256_SECRET`(searchops-ai).
+   - 검증: readiness `alert-routing`+`error-monitoring-uptime` **configured**(22→24), sink `GET` 200·잘못된 토큰 401, 워크플로 수동 실행 성공(`health=200 metrics-export=200`).
+   - ⚠️ 미검증 1건: 실제 알림 1회 전달(= Railway `_TOKEN` ↔ Vercel `SINK_TOKEN` 일치). 불일치 시 첫 실알림에서 sink 401 → `/ops/metrics-export` 500 → 워크플로 실패로 드러남(self-detecting). 두 값이 동일하면 정상.
+   - 보너스: main이 **클린 빌드에서 실패하던** `next/script` 타입 잠복버그(Vercel `NODE_ENV=production` 설치 + Turbo 캐시로 가려져 있던 것)를 `apps/web/next.config.mjs`에서 함께 수정(배포 빌드 타입/린트 재검사 off; CI `verify`가 게이트).
+
+### 환경변수 위치 (어디에 무엇이)
+
+- **Railway API**: `DATABASE_URL`, `REDIS_URL`, `NODE_ENV=production`, `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`(+`_TOKEN`), Google OAuth quad 등
+- **Railway Worker**: `DATABASE_URL`, `REDIS_URL` (+ 커넥터 키)
+- **Vercel Web**: `SEARCHOPS_API_BASE_URL`, `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`(알림 sink 검증 — Railway `_TOKEN`과 **동일값**)
+- **GitHub repo secret (searchops-ai)**: `SEARCHOPS_IDP_JWT_HS256_SECRET` (ops-heartbeat 워크플로 토큰 발급용)
+- ⚠️ Web에는 `NODE_ENV`/`DATABASE_URL`을 **넣지 말 것** (Vercel 빌드 실패; 이 둘은 Railway 전용)
+
+### 다음 작업 (남은 7개 · 우선순위)
+
+> 다음 권장: **B 도메인 연결**, 또는 **외부 uptime 모니터(UptimeRobot/Better Stack) 이중화**(SMS/전화 알림 + GH Actions 폴러와 이중화 — 현재 다운 감지는 GH Actions `/health` 폴러 단일).
+
+**A. ✅ 완료 (PR #76, 2026-06-22)** — 알림 + 에러/가동 모니터링. `alert-routing`·`error-monitoring-uptime` configured. 상세는 위 "완료한 작업 7". (외부 uptime 모니터 이중화는 선택 후속.)
+
+**B. 🏠 도메인 정하면**
+- **Production domain**: 커스텀 도메인 결정 → Railway API에 `SEARCHOPS_PUBLIC_APP_URL` 설정 + Vercel 커스텀 도메인/DNS.
+
+**C. 💤 나중에 / 선택 (지금 불필요)**
+- CMS 읽기(`SEARCHOPS_CMS_WEBHOOK_SECRETS`), Observability log drain(`SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`), Restore drill 웹훅(`SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`), Secret rotation 웹훅(`SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL`)
+- **엔지니어링 필요(env만으로 안 됨)**: GEO live providers, Rich result live validator
+- **코드 작업**: organization-invite (하드코딩 manual_followup → `canLaunch`를 막고 있음)
+
+### 재시작 후 빠른 재개 ("껐다 켜도 바로")
+
+다음 세션에서 아래처럼 말하면 즉시 이어서 진행:
+- ~~"알림 설정 해줘" → A~~ ✅ **완료 (PR #76)** — 남은 선택: 외부 uptime 모니터 이중화 / 실알림 1회 토큰일치 확인
+- **"도메인 연결해줘"** → B 진행
+- **"남은 프로비저닝 ◯◯ 해줘"** → 해당 항목
+- 상태 확인: https://searchops-ai-web.vercel.app/ops/readiness ("API 데이터" 배지 + 수치)
+- 상세 절차서: `docs/PROVISIONING_RUNBOOK.md` (서비스별 env 키 매트릭스 + 단계)
+- 토큰 수동 발급: `SEARCHOPS_IDP_JWT_HS256_SECRET='<값>' node issue-token.mjs`
+
+---
+
+# 제품 빌드 로그 (Phase 0–11)
+
 Updated: 2026-05-26
 
 ## Current State
