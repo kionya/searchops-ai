@@ -1,0 +1,59 @@
+name: ops-heartbeat
+
+# 운영 가동 감지 + fire-on-read 알림 구동.
+# 1) GET /health 가 200 인지 확인 (프로세스 다운 감지 → 실패 시 GitHub 알림)
+# 2) HS256 시크릿으로 단명(5분) owner 토큰을 발급해 GET /ops/metrics-export 호출
+#    → 어댑터의 fire-on-read 알림 평가/발송을 주기적으로 구동
+# 주의: schedule 워크플로는 기본 브랜치(main)에서만 동작하며, GitHub 부하에 따라
+#       수 분 지연될 수 있고 60일 무활동 시 비활성화될 수 있음.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # 5분마다 (GitHub Actions 최소 권장 간격)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    env:
+      API_BASE: https://searchops-api-production.up.railway.app
+    steps:
+      - name: Probe /health (liveness) + drive fire-on-read alerts
+        env:
+          SECRET: ${{ secrets.SEARCHOPS_IDP_JWT_HS256_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SECRET:-}" ]; then
+            echo "::error::SEARCHOPS_IDP_JWT_HS256_SECRET repo secret 미설정"
+            exit 1
+          fi
+
+          # 1) 프로세스 다운 감지: /health 는 정적 {ok:true} 200 (DB/Redis 검사 안 함)
+          h=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$API_BASE/health" || echo "000")
+          echo "health=$h"
+          if [ "$h" != "200" ]; then
+            echo "::error::API /health 비정상 (got $h) — 프로세스 다운/네트워크 장애 의심"
+            exit 1
+          fi
+
+          # 2) fire-on-read 구동용 단명 owner 토큰 발급 (issue-token.mjs 와 동일 클레임)
+          TOKEN=$(SECRET="$SECRET" node -e 'const{createHmac}=require("crypto");const s=process.env.SECRET;const seg=o=>Buffer.from(JSON.stringify(o)).toString("base64url");const now=Math.floor(Date.now()/1e3);const head=seg({alg:"HS256",typ:"JWT"});const pay=seg({sub:"ci_heartbeat",organization_id:"org_demo",role:"owner",exp:now+300});const data=head+"."+pay;const sig=createHmac("sha256",s).update(data).digest("base64url");process.stdout.write(data+"."+sig)')
+          echo "::add-mask::$TOKEN"
+
+          # 3) /ops/metrics-export 호출 → 5xx/429/dead-letter 조건 평가 + 알림 웹훅 발송 구동
+          m=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -H "Authorization: Bearer $TOKEN" "$API_BASE/ops/metrics-export" || echo "000")
+          echo "metrics-export=$m"
+          if [ "$m" != "200" ]; then
+            echo "::error::/ops/metrics-export 비정상 (got $m) — 인증/엔진/웹훅 전달 실패 의심"
+            exit 1
+          fi
+
+          echo "ops-heartbeat ok: health=$h metrics-export=$m"
