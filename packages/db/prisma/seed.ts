@@ -244,7 +244,12 @@ async function main() {
     });
 
     await prisma.user.upsert({
-      where: { email: seedFixture.user.email },
+      where: {
+        organizationId_email: {
+          organizationId: seedFixture.user.organizationId,
+          email: seedFixture.user.email
+        }
+      },
       update: {
         organizationId: seedFixture.user.organizationId,
         name: seedFixture.user.name,
