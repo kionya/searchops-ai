@@ -9,6 +9,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatGenerationModeLabel, formatIntentLabel, formatPublishPolicyLabel, formatStatusLabel } from "./korean-labels";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
@@ -119,7 +120,7 @@ export async function loadContentBriefHistory(siteOrId: Site | string): Promise<
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/content-briefs`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/content-briefs`, {
       cache: "no-store"
     });
     if (!response.ok) {
@@ -158,7 +159,7 @@ export async function createContentBriefFromForm(
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/content-briefs`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/content-briefs`, {
       body: JSON.stringify(input),
       cache: "no-store",
       headers: {

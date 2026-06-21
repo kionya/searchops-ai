@@ -6,6 +6,7 @@ import {
   type OperationalReadinessStatus,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
 export type { OperationalReadinessCategory } from "@searchops/types";
@@ -76,7 +77,7 @@ export async function loadOperationalReadiness(): Promise<OperationalReadinessDa
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/readiness`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/readiness`, {
       cache: "no-store",
     });
     if (!response.ok) {

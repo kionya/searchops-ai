@@ -27,6 +27,8 @@ import {
   type OperationalReadinessTone,
 } from "../../../src/operational-readiness";
 
+export const dynamic = "force-dynamic";
+
 export default async function OperationalReadinessPage() {
   const dashboard = await loadOperationalReadiness();
   const { readiness } = dashboard;

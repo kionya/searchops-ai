@@ -9,6 +9,7 @@ import {
   type WorkOrderPriority
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
@@ -290,8 +291,8 @@ export async function loadSiteUrlInventoryDashboard(
 
   try {
     const [urlsResponse, issuesResponse] = await Promise.all([
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/urls`, { cache: "no-store" }),
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/urls`, { cache: "no-store" }),
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
     ]);
     if (!urlsResponse.ok) {
       throw new Error(`URL inventory request failed with ${urlsResponse.status}`);
@@ -325,8 +326,8 @@ export async function loadSiteCrawlRunDashboard(siteOrId: Site | string): Promis
 
   try {
     const [crawlRunsResponse, issuesResponse] = await Promise.all([
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/crawl-runs`, { cache: "no-store" }),
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/crawl-runs`, { cache: "no-store" }),
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, { cache: "no-store" })
     ]);
     if (!crawlRunsResponse.ok) {
       throw new Error(`Crawl run request failed with ${crawlRunsResponse.status}`);
@@ -359,7 +360,7 @@ export async function loadSiteIssueDashboard(siteOrId: Site | string): Promise<I
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/seo-issues`, {
       cache: "no-store"
     });
     if (!response.ok) {

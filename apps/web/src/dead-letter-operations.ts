@@ -7,6 +7,7 @@ import {
   type DeadLetterReplayPlan,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
 export type DeadLetterOperationsSource = "api" | "fixture";
@@ -97,7 +98,7 @@ export async function loadDeadLetterOperations(): Promise<DeadLetterOperationsDa
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/dead-letter-jobs`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/dead-letter-jobs`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -133,7 +134,7 @@ export async function clearDeadLetterJob(id: string): Promise<DeadLetterClearRes
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/ops/dead-letter-jobs/${encodeURIComponent(id)}`,
       {
         cache: "no-store",
@@ -175,7 +176,7 @@ export async function loadDeadLetterReplayPlan(id: string): Promise<DeadLetterRe
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/ops/dead-letter-jobs/${encodeURIComponent(id)}/replay-plan`,
       {
         cache: "no-store",

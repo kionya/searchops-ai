@@ -13,6 +13,7 @@ import {
   type SchemaRecommendationStatus
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
@@ -178,7 +179,7 @@ export async function loadSchemaRecommendationDashboard(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/schema-recommendations`,
       {
         cache: "no-store"
@@ -219,7 +220,7 @@ export async function convertSchemaRecommendationToWorkOrder(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendationId)}/work-order`,
       {
         cache: "no-store",
@@ -267,7 +268,7 @@ export async function recheckSchemaRecommendationWithDraft(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendation.id)}/recheck`,
       {
         body: JSON.stringify({ snapshot }),
@@ -320,7 +321,7 @@ export async function queueSchemaRichResultValidation(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/schema-recommendations/${encodeURIComponent(recommendationId)}/rich-result-validation-jobs`,
       {
         body: JSON.stringify({}),

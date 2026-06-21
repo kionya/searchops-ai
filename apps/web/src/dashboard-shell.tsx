@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { productName, SiteSchema, type Site } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatIndustryLabel } from "./korean-labels";
 import { resolveSiteFromRegistrationId } from "./site-registry";
@@ -115,7 +116,7 @@ export async function loadDashboardSite(siteId: string): Promise<Site> {
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}`, {
       cache: "no-store"
     });
     if (!response.ok) {
