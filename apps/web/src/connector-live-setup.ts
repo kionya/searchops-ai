@@ -6,6 +6,7 @@ import {
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
+import { apiFetch } from "./api-client";
 
 export type ConnectorLiveSetupSource = "api" | "fixture";
 export type ConnectorLiveSetupTone = "missing" | "ready" | "risk" | "warning";
@@ -23,7 +24,7 @@ export async function loadConnectorLiveSetupData(): Promise<ConnectorLiveSetupDa
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/connector-live-setup`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/connector-live-setup`, {
       cache: "no-store"
     });
     if (!response.ok) {

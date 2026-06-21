@@ -27,6 +27,8 @@ import {
   type ObservabilityAlertTone,
 } from "../../../src/observability-dashboard";
 
+export const dynamic = "force-dynamic";
+
 export default async function ObservabilityPage() {
   const dashboard = await loadObservabilityDashboard();
 

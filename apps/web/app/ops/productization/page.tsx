@@ -25,6 +25,8 @@ import {
   type ProductizationTone,
 } from "../../../src/productization-dashboard";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProductizationPage() {
   const dashboard = await loadProductizationDashboard();
   const { productization } = dashboard;

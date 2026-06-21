@@ -10,6 +10,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
@@ -376,7 +377,7 @@ async function fetchWithTimeout(input: string, init: RequestInit): Promise<Respo
   const timeout = setTimeout(() => controller.abort(), connectorSyncHistoryFetchTimeoutMs);
 
   try {
-    return await fetch(input, {
+    return await apiFetch(input, {
       ...init,
       signal: controller.signal
     });

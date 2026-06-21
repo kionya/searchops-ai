@@ -6,6 +6,7 @@ import {
   type MigrationDeploymentGatePlan,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
 export type OperationsHardeningSource = "api" | "fixture";
@@ -172,7 +173,7 @@ export async function runBackupRestoreDrill(input: {
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/backup-restore-drill-runs`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/backup-restore-drill-runs`, {
       body: JSON.stringify(input),
       cache: "no-store",
       headers: {
@@ -274,7 +275,7 @@ function fetchPlan<T>(
   url: string,
   schema: { parse(input: unknown): T },
 ): Promise<T> {
-  return fetch(url, { cache: "no-store" }).then(async (response) => {
+  return apiFetch(url, { cache: "no-store" }).then(async (response) => {
     if (!response.ok) {
       throw new Error(`운영 hardening 계획 요청 실패: ${response.status}`);
     }

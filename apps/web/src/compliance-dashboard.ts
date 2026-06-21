@@ -9,6 +9,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
@@ -153,7 +154,7 @@ export async function loadComplianceDashboard(site: Site): Promise<ComplianceDas
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/compliance-flags`,
       {
         cache: "no-store"
@@ -192,7 +193,7 @@ export async function createComplianceReviewFromFixture(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/compliance-reviews`,
       {
         body: JSON.stringify({
@@ -251,7 +252,7 @@ export async function convertComplianceFlagToWorkOrder(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/compliance-flags/${encodeURIComponent(flagId)}/work-order`,
       {
         cache: "no-store",
@@ -296,7 +297,7 @@ export async function updateComplianceFlagStatus(
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/compliance-flags/${encodeURIComponent(flagId)}`, {
+    const response = await apiFetch(`${apiBaseUrl}/compliance-flags/${encodeURIComponent(flagId)}`, {
       body: JSON.stringify({ status }),
       cache: "no-store",
       headers: {
@@ -342,7 +343,7 @@ export async function recheckComplianceFlagWithFixtureRevision(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/compliance-flags/${encodeURIComponent(flagId)}/recheck`,
       {
         body: JSON.stringify({

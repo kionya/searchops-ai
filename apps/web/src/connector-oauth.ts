@@ -5,6 +5,7 @@ import {
   type ConnectorOAuthProvider,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { demoSite } from "./work-order-board";
 
@@ -48,7 +49,7 @@ export async function loadConnectorOAuthData(siteId: string): Promise<ConnectorO
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connectors/oauth`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connectors/oauth`, {
       cache: "no-store"
     });
     if (!response.ok) {

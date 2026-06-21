@@ -15,6 +15,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { scopeDemoFixtureToSite } from "./site-fixture-scope";
@@ -217,7 +218,7 @@ export async function loadGeoVisibilityDashboard(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/geo-visibility-reports`,
       {
         cache: "no-store"
@@ -256,7 +257,7 @@ export async function createGeoVisibilityReportFromFixture(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/geo-visibility-reports`,
       {
         body: JSON.stringify({
@@ -312,7 +313,7 @@ export async function queueGeoAnswerMonitorJob(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/geo-answer-monitor-jobs`,
       {
         body: JSON.stringify(request),
@@ -366,7 +367,7 @@ export async function convertGeoVisibilityReportToWorkOrder(
   }
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `${apiBaseUrl}/geo-visibility-reports/${encodeURIComponent(reportId)}/work-order`,
       {
         cache: "no-store",

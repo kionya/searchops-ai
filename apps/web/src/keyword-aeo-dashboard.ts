@@ -14,6 +14,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import type { ConnectorSyncHistoryData } from "./connector-sync-history";
 import { formatStatusLabel } from "./korean-labels";
@@ -227,10 +228,10 @@ export async function loadKeywordAeoDashboard(siteOrId: Site | string): Promise<
 
   try {
     const [readinessResponse, discoveryResponse] = await Promise.all([
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/aeo-readiness-reports`, {
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/aeo-readiness-reports`, {
         cache: "no-store"
       }),
-      fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
+      apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
         cache: "no-store"
       })
     ]);
@@ -321,7 +322,7 @@ export async function createKeywordDiscoveryFromConnectorRun(
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
+    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/keyword-discoveries`, {
       body: JSON.stringify(input),
       cache: "no-store",
       headers: {

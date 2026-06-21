@@ -8,6 +8,7 @@ import {
   type Site
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { demoSite } from "./work-order-board";
 
@@ -169,7 +170,7 @@ export async function loadSiteRegistry(searchParams?: SiteRegistrationSearchPara
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/organizations/${defaultOrganizationId}/sites`, {
+    const response = await apiFetch(`${apiBaseUrl}/organizations/${defaultOrganizationId}/sites`, {
       cache: "no-store"
     });
 
@@ -209,7 +210,7 @@ export async function createSiteInRegistry(formData: FormData): Promise<{
     return { mode: "fixture", redirectPath: null, site: draft };
   }
 
-  const response = await fetch(`${apiBaseUrl}/organizations/${defaultOrganizationId}/sites/register`, {
+  const response = await apiFetch(`${apiBaseUrl}/organizations/${defaultOrganizationId}/sites/register`, {
     body: JSON.stringify(registrationRequest),
     cache: "no-store",
     headers: {

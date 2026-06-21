@@ -6,6 +6,7 @@ import {
   type ProductizationReadinessResponse,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
 export type ProductizationDashboardSource = "api" | "fixture";
@@ -181,7 +182,7 @@ export async function loadProductizationDashboard(): Promise<ProductizationDashb
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/productization`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/productization`, {
       cache: "no-store",
     });
     if (!response.ok) {

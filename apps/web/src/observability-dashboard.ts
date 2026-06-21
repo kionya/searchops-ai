@@ -4,6 +4,7 @@ import {
   type OperationalMetricsExportResponse,
 } from "@searchops/types";
 
+import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
 export type ObservabilityDashboardSource = "api" | "fixture";
@@ -73,7 +74,7 @@ export async function loadObservabilityDashboard(): Promise<ObservabilityDashboa
   }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/ops/metrics-export`, {
+    const response = await apiFetch(`${apiBaseUrl}/ops/metrics-export`, {
       cache: "no-store",
     });
     if (!response.ok) {
