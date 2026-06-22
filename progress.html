@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SearchOps AI 진행 현황</title>
+    <title>SearchOps AI 운영 배포 진행 현황</title>
     <style>
       :root {
         color-scheme: light;
@@ -16,291 +16,194 @@
         --accent-soft: #e7f1fb;
         --done: #16805d;
         --warn: #a15c00;
+        --defer: #5c6672;
       }
-
-      * {
-        box-sizing: border-box;
-      }
-
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         background: var(--bg);
         color: var(--ink);
-        font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         line-height: 1.55;
       }
-
-      main {
-        width: min(1180px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 36px 0 56px;
-      }
-
-      h1,
-      h2,
-      h3 {
-        margin: 0;
-        line-height: 1.2;
-      }
-
-      h1 {
-        font-size: 34px;
-        letter-spacing: 0;
-      }
-
-      h2 {
-        margin-top: 28px;
-        font-size: 22px;
-      }
-
-      h3 {
-        margin-bottom: 10px;
-        font-size: 16px;
-      }
-
-      p {
-        margin: 8px 0 0;
-      }
-
-      ul,
-      ol {
-        margin: 10px 0 0;
-        padding-left: 22px;
-      }
-
-      li {
-        margin: 5px 0;
-      }
-
+      main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 56px; }
+      h1, h2, h3 { margin: 0; line-height: 1.2; }
+      h1 { font-size: 32px; }
+      h2 { margin-top: 30px; font-size: 22px; }
+      h3 { margin-bottom: 10px; font-size: 16px; }
+      p { margin: 8px 0 0; }
+      ul, ol { margin: 10px 0 0; padding-left: 22px; }
+      li { margin: 5px 0; }
       code {
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: #f1f4f8;
-        padding: 1px 5px;
-        font-family: "SFMono-Regular", Consolas, monospace;
-        font-size: 0.92em;
+        border: 1px solid var(--line); border-radius: 6px; background: #f1f4f8;
+        padding: 1px 5px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.9em;
       }
-
-      .meta,
-      .small {
-        color: var(--muted);
-        font-size: 14px;
+      .meta, .small { color: var(--muted); font-size: 14px; }
+      .summary, .grid { display: grid; gap: 12px; margin-top: 18px; }
+      .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stat, .phase, .plan, .guardrails, .card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px;
       }
-
-      .summary,
-      .grid {
-        display: grid;
-        gap: 12px;
-        margin-top: 18px;
-      }
-
-      .summary {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
-
-      .grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .stat,
-      .phase,
-      .plan,
-      .guardrails {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 16px;
-      }
-
-      .stat strong {
-        display: block;
-        font-size: 22px;
-      }
-
-      .stat span {
-        color: var(--muted);
-        font-size: 13px;
-      }
-
+      .stat strong { display: block; font-size: 26px; }
+      .stat span { color: var(--muted); font-size: 13px; }
       .status {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 3px 9px;
-        background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 12px;
-        font-weight: 700;
+        display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px;
+        background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
       }
-
-      .done {
-        background: #e8f6f0;
-        color: var(--done);
-      }
-
-      .partial {
-        background: #fff4df;
-        color: var(--warn);
-      }
-
-      .plan-list {
-        display: grid;
-        gap: 10px;
-        margin-top: 14px;
-      }
-
-      .plan {
-        display: grid;
-        grid-template-columns: 86px 1fr;
-        gap: 12px;
-        align-items: start;
-      }
-
-      .ticket {
-        color: var(--accent);
-        font-weight: 800;
-      }
-
+      .done { background: #e8f6f0; color: var(--done); }
+      .partial { background: #fff4df; color: var(--warn); }
+      .defer { background: #eef1f5; color: var(--defer); }
+      table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+      th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 13px; }
+      .plan-list { display: grid; gap: 10px; margin-top: 14px; }
+      .plan { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
+      .tag { color: var(--accent); font-weight: 800; font-size: 18px; }
+      .lead { font-size: 15px; color: var(--muted); margin-top: 6px; }
+      s { color: var(--muted); }
+      a { color: var(--accent); }
       @media (max-width: 900px) {
-        .summary,
-        .grid,
-        .plan {
-          grid-template-columns: 1fr;
-        }
+        .summary, .grid, .plan { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
     <main>
       <header>
-        <h1>SearchOps AI 진행 현황</h1>
-        <p class="meta">Updated: 2026-05-26 · Branch: <code>main</code></p>
-        <div class="summary">
-          <div class="stat">
-            <strong>CDX-142</strong>
-            <span>출시 준비도와 제품화 문서 추가</span>
-          </div>
-          <div class="stat">
-            <strong>Passed</strong>
-            <span>최근 웹 typecheck, lint, test 통과</span>
-          </div>
-          <div class="stat">
-            <strong>READY</strong>
-            <span>Vercel production 배포 확인</span>
-          </div>
-          <div class="stat">
-            <strong>Draft-only</strong>
-            <span>CMS 자동 게시와 LLM truth source 없음</span>
-          </div>
-        </div>
+        <h1>SearchOps AI — 운영 배포 진행 현황</h1>
+        <p class="meta">Updated: 2026-06-22 · Branch: <code>main</code></p>
+        <p class="lead">
+          Live · Web <a href="https://searchops.totopapa.com/ops/readiness">searchops.totopapa.com</a>
+          (+ <a href="https://searchops-ai-web.vercel.app/ops/readiness">searchops-ai-web.vercel.app</a>)
+          · API <code>searchops-api-production.up.railway.app</code>
+        </p>
       </header>
 
-      <section>
-        <h2>Phase Progress</h2>
+      <section aria-label="readiness 요약">
+        <h2>운영 준비도 (실측 · 2026-06-22)</h2>
+        <div class="summary">
+          <div class="stat"><strong>41</strong><span>전체 항목</span></div>
+          <div class="stat"><strong>25</strong><span>설정됨</span></div>
+          <div class="stat"><strong>6</strong><span>프로비저닝 필요</span></div>
+          <div class="stat"><strong>10</strong><span>수동 후속</span></div>
+        </div>
+        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A안(alert-routing·error-monitoring-uptime) + B안(production-domain) configured 반영 (22→25)</p>
+      </section>
+
+      <section aria-label="스택 상태">
+        <h2>현재 운영 상태</h2>
+        <table>
+          <thead><tr><th>구성요소</th><th>상태</th><th>비고</th></tr></thead>
+          <tbody>
+            <tr><td>DB (Supabase, 서울)</td><td><span class="status done">연결</span></td><td>마이그레이션 15개 적용 + seed</td></tr>
+            <tr><td>Redis (Railway)</td><td><span class="status done">연결</span></td><td>noeviction</td></tr>
+            <tr><td>API 엔진 (Railway)</td><td><span class="status done">가동</span></td><td><code>/health</code> 200</td></tr>
+            <tr><td>Worker 엔진 (Railway)</td><td><span class="status done">가동</span></td><td>Active</td></tr>
+            <tr><td>웹사이트 (Vercel)</td><td><span class="status done">연결</span></td><td>API 실시간 데이터 · 커스텀 도메인 <code>searchops.totopapa.com</code> (HTTPS)</td></tr>
+            <tr><td>인증/보안</td><td><span class="status done">잠금</span></td><td>NODE_ENV=production + HS256 IdP → 익명/사칭 차단</td></tr>
+            <tr><td>알림/가동 모니터링</td><td><span class="status done">가동</span></td><td>GH Actions 5분 폴러(<code>/health</code> + <code>/ops/metrics-export</code>) + 인증 sink</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section aria-label="완료 작업">
+        <h2>완료한 작업 (이번 배포 사이클)</h2>
+        <ol>
+          <li><strong>Phase 0 — DB</strong>: Supabase 연결 + <code>prisma migrate deploy</code>(15) + seed. 로컬 Docker로 동일 파이프라인 리허설 후 적용.</li>
+          <li><strong>Phase 1 — Redis</strong>: Railway Redis(noeviction) 연결, API·Worker 부팅 확인.</li>
+          <li><strong>인증/보안</strong>: <code>NODE_ENV=production</code> + <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> → mock/trusted fallback 차단(<code>/ops/*</code> 401).</li>
+          <li><strong>웹↔API (PR #75)</strong>: <code>api-client.ts</code>(apiFetch + HS256 토큰 자동 발급), 16개 모듈 37곳 <code>fetch→apiFetch</code>, ops 3화면 force-dynamic. typecheck/lint/build 통과.</li>
+          <li><strong>Vercel env</strong>: <code>SEARCHOPS_API_BASE_URL</code> + <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 설정 (잘못 넣은 <code>NODE_ENV</code>/<code>DATABASE_URL</code> 제거 → 빌드 복구).</li>
+          <li><strong>결과</strong>: /ops/readiness "데모" → "API 데이터" 전환 확인.</li>
+          <li>
+            <strong>A안 — 알림 + 에러/가동 모니터링 (PR #76)</strong>:
+            인증 sink <code>/api/ops/alert-sink</code>(Bearer 검증·로깅) + <code>.github/workflows/ops-heartbeat.yml</code>(5분: <code>/health</code> 다운감지 + HS256 토큰으로 <code>/ops/metrics-export</code> fire-on-read 구동).
+            env: Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> / Railway <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>(+<code>_TOKEN</code>) / GH secret <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>.
+            <code>alert-routing</code>·<code>error-monitoring-uptime</code> configured. 보너스: Vercel 클린빌드 실패 잠복버그(<code>next/script</code> 타입) 함께 수정.
+            <span class="status partial">실알림 1회 토큰일치 미검증 (불일치 시 워크플로 실패로 드러남 = self-detecting)</span>
+          </li>
+          <li>
+            <strong>B안 — 커스텀 도메인 (2026-06-22)</strong>:
+            <code>https://searchops.totopapa.com</code> 연결 (Cloudflare <code>CNAME searchops→cname.vercel-dns.com</code>, DNS only + Vercel 도메인 추가 + HTTPS 자동 발급).
+            <code>SEARCHOPS_PUBLIC_APP_URL</code>을 Vercel+Railway 양쪽 설정 → 웹 재배포로 적용. <code>production-domain</code> configured.
+            API는 변경 불필요(웹→API 서버-투-서버, CORS 없음; <code>SEARCHOPS_API_BASE_URL</code>·Google OAuth redirect 불변).
+          </li>
+        </ol>
+      </section>
+
+      <section aria-label="환경변수 위치">
+        <h2>환경변수 위치</h2>
         <div class="grid">
-          <article class="phase">
-            <span class="status done">기반 완료</span>
-            <h3>Phase 0-5</h3>
-            <p>모노레포, 핵심 SaaS 셸, 크롤러, SEO 이슈 엔진, 작업 지시서, 대시보드 라우트 기반이 준비되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status done">기반 완료</span>
-            <h3>Phase 6 커넥터</h3>
-            <p>커넥터 계약, fixture adapter, 동기화 작업, 저장, 이력 API, 대시보드 이력, 트리거 UI가 연결되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status partial">MVP 완료</span>
-            <h3>Phase 7 키워드/AEO</h3>
-            <p>결정론적 준비도 규칙, 콘텐츠 브리프 초안, FAQ gap 생성, 키워드 발견 저장, API 이력, 대시보드가 연결되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status partial">MVP + 런타임</span>
-            <h3>Phase 8 스키마(JSON-LD)</h3>
-            <p>JSON-LD 추천, 스키마 작업 지시서, 재검수 크롤링 handoff, 오프라인 검증, rich result 검증 job이 준비되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status partial">MVP + adapter</span>
-            <h3>Phase 9 GEO</h3>
-            <p>GEO 노출 점수, 리포트 이력, 대시보드, 작업 지시서 변환, answer monitor adapter, runtime job handoff가 연결되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status partial">폐쇄 루프 MVP</span>
-            <h3>Phase 10 컴플라이언스</h3>
-            <p>컴플라이언스 flag, rule pack, 한국 의료광고 refinement, CMS webhook 재검수, 서명 검증, audit log가 준비되었습니다.</p>
-          </article>
-
-          <article class="phase">
-            <span class="status partial">진행 중</span>
-            <h3>Phase 11 운영 안정화</h3>
-            <p>CI, rate limit, auth context mapping, metrics export, observability adapter, dead-letter dashboard, runtime operation dispatcher, runbook이 준비되었습니다.</p>
-          </article>
+          <div class="card">
+            <h3>🟩 Railway · API</h3>
+            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>NODE_ENV=production</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>, <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>(+<code>_TOKEN</code>), <code>SEARCHOPS_PUBLIC_APP_URL</code>, Google OAuth quad 등</p>
+          </div>
+          <div class="card">
+            <h3>🟩 Railway · Worker</h3>
+            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code> (+ 커넥터 키)</p>
+          </div>
+          <div class="card">
+            <h3>🟦 Vercel · Web</h3>
+            <p class="small"><code>SEARCHOPS_API_BASE_URL</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>, <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code></p>
+            <p class="small">⚠️ <code>NODE_ENV</code>/<code>DATABASE_URL</code>은 절대 넣지 말 것 (Vercel 빌드 실패)</p>
+          </div>
+          <div class="card">
+            <h3>⬛ GitHub · repo secret</h3>
+            <p class="small"><code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> (searchops-ai) — ops-heartbeat 워크플로 토큰 발급용.</p>
+            <p class="small">⚠️ Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> = Railway <code>..._WEBHOOK_TOKEN</code> 동일값이어야 함.</p>
+          </div>
         </div>
       </section>
 
-      <section>
-        <h2>Next Implementation Plan</h2>
+      <section aria-label="다음 작업">
+        <h2>다음 작업 — 남은 6개 (env 기준)</h2>
         <div class="plan-list">
-          <article class="plan">
-            <div class="ticket">CDX-137</div>
+          <div class="plan">
+            <div class="tag">A ✅</div>
             <div>
-              <h3>한국어 metadata/not-found 마무리</h3>
-              <p class="small">웹 HTML 언어, metadata, 404 화면, progress 문서를 한국어 기준으로 유지합니다.</p>
+              <strong>알림 + 에러/가동 모니터링</strong> <span class="status done">완료 (PR #76)</span>
+              <p class="small">alert-routing · error-monitoring-uptime configured. 선택 후속: 외부 uptime 모니터(UptimeRobot/Better Stack) 이중화 → SMS/전화 알림.</p>
             </div>
-          </article>
-          <article class="plan">
-            <div class="ticket">CDX-138</div>
+          </div>
+          <div class="plan">
+            <div class="tag">B ✅</div>
             <div>
-              <h3>Web/API env 연결 안정화</h3>
-              <p class="small"><code>SEARCHOPS_API_BASE_URL</code>에 <code>https://</code>가 없어도 런타임 fetch URL을 안전하게 정규화합니다.</p>
+              <strong>커스텀 도메인</strong> <span class="status done">완료 (2026-06-22)</span>
+              <p class="small"><code>https://searchops.totopapa.com</code> + <code>SEARCHOPS_PUBLIC_APP_URL</code>(Vercel+Railway). production-domain configured.</p>
             </div>
-          </article>
-          <article class="plan">
-            <div class="ticket">CDX-139</div>
+          </div>
+          <div class="plan">
+            <div class="tag">C 💤</div>
             <div>
-              <h3>Railway API/worker 운영 점검</h3>
-              <p class="small">API health, worker queue, Redis/BullMQ 운영 조건을 확인하고 문서화합니다.</p>
+              <strong>나중에 / 선택</strong> <span class="status defer">defer</span>
+              <p class="small">
+                외부 uptime 모니터 이중화 · CMS 읽기(<code>SEARCHOPS_CMS_WEBHOOK_SECRETS</code>) · Observability log drain(<code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>) · Restore drill / Secret rotation 웹훅 ·
+                <strong>엔지니어링 필요</strong>: GEO live providers, Rich result live validator ·
+                <strong>코드 작업</strong>: organization-invite(<code>canLaunch</code> 차단 중)
+              </p>
             </div>
-          </article>
-          <article class="plan">
-            <div class="ticket">CDX-140</div>
-            <div>
-              <h3>RS256/JWKS IdP 검증</h3>
-              <p class="small">IdP가 HS256 대신 RS256/JWKS만 제공해도 API bearer token을 검증할 수 있게 합니다.</p>
-            </div>
-          </article>
-          <article class="plan">
-            <div class="ticket">CDX-141</div>
-            <div>
-              <h3>출시 준비도 API/대시보드</h3>
-              <p class="small">Phase 6-11과 제품화 잔여 항목을 설정됨, 프로비저닝 필요, 수동 후속 상태로 추적합니다.</p>
-            </div>
-          </article>
-          <article class="plan">
-            <div class="ticket">CDX-142</div>
-            <div>
-              <h3>제품화 문서 초안</h3>
-              <p class="small">billing, onboarding, privacy, terms, security 문서를 추가하고 법무/계정 설정이 필요한 항목을 명확히 분리합니다.</p>
-            </div>
-          </article>
+          </div>
         </div>
       </section>
 
-      <section class="guardrails">
-        <h2>Guardrails</h2>
-        <ul>
-          <li>SEO/AEO/GEO/컴플라이언스 판정의 truth source로 LLM을 사용하지 않습니다.</li>
-          <li>테스트에서 live external API를 호출하지 않습니다.</li>
-          <li>CMS 자동 게시를 하지 않습니다.</li>
-          <li>의료 콘텐츠는 draft-only로 유지합니다.</li>
-          <li>live provider client는 기본 동작이 아니라 명시적 runtime wiring으로만 연결합니다.</li>
-        </ul>
+      <section aria-label="재개 가이드">
+        <h2>재시작 후 빠른 재개 ("껐다 켜도 바로")</h2>
+        <div class="guardrails">
+          <p>다음 세션에서 이렇게 말하면 즉시 이어서 진행합니다:</p>
+          <ul>
+            <li><s>"알림 설정 해줘" → A</s> ✅ 완료 (PR #76)</li>
+            <li><s>"도메인 연결해줘" → B</s> ✅ 완료 — <code>searchops.totopapa.com</code></li>
+            <li><strong>"외부 uptime 모니터 붙여줘"</strong> → UptimeRobot/Better Stack 이중화</li>
+            <li><strong>"남은 프로비저닝 ◯◯ 해줘"</strong> → 해당 항목 (C)</li>
+          </ul>
+          <p class="small">
+            상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 + 수치) ·
+            상세 절차서: <code>docs/PROVISIONING_RUNBOOK.md</code> ·
+            토큰 수동 발급: <code>SEARCHOPS_IDP_JWT_HS256_SECRET='&lt;값&gt;' node issue-token.mjs</code>
+          </p>
+        </div>
+        <p class="small">제품 빌드(Phase 0–11) 상세 로그는 <code>progress.md</code> 하단을 참조.</p>
       </section>
     </main>
   </body>
