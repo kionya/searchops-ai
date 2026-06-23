@@ -49,7 +49,7 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
    - **#78 log-drain**: `apps/web/app/api/ops/log-drain-sink` 인증 self-host sink. (`SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`=Railway `..._LOG_DRAIN_TOKEN`.)
    - **#79 GEO**: 4 provider client(OpenAI호환=ChatGPT+Perplexity, Gemini, Anthropic raw HTTP) + per-provider fixture fallback + worker 배선. `SEARCHOPS_GEO_{CHATGPT,CLAUDE,GEMINI,PERPLEXITY}_{API_KEY,MODEL}`. Copilot은 공개 API 없어 fixture 유지.
    - **#80 org-invite Tier C**: Invitation 모델+추가전용 마이그레이션 + 라우트 4종(create/list/revoke admin·owner, accept=token capability) + repository(memory+prisma) + env-gated 이메일(`SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL`/`_TOKEN`, 미설정 시 서버로그). organization-invite readiness→configured. **canLaunch는 billing-subscription이 manual_followup이라 여전히 false.**
-   - ⚠️ **#80 마이그레이션 수동 적용 필요**(상단 ACTION REQUIRED). 공통 교훈: dead-env 3종(env스키마 미존재/client 미구현/worker fixture 폴백)은 셋 다 고쳐야 실동작. Railway는 마이그레이션 자동 적용 안 함.
+   - ✅ **#80 마이그레이션 적용 완료**(2026-06-23, 수동 `db:migrate:deploy`). 공통 교훈: dead-env 3종(env스키마 미존재/client 미구현/worker fixture 폴백)은 셋 다 고쳐야 실동작. **Railway는 마이그레이션 자동 적용 안 함 → 스키마 PR 머지 후 수동 적용 필수**.
 
 ### 환경변수 위치 (어디에 무엇이)
 
