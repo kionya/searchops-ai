@@ -1,6 +1,8 @@
 import {
   createGeoAnswerMonitorBatchRunner,
-  createLiveGeoAnswerMonitorAdaptersFromKeys
+  createHttpSchemaRichResultValidatorClient,
+  createLiveGeoAnswerMonitorAdaptersFromKeys,
+  createLiveSchemaRichResultValidatorAdapter
 } from "@searchops/connectors";
 import { parseSearchOpsEnv } from "@searchops/types";
 
@@ -25,6 +27,7 @@ const connectorSyncRuntime = createConnectorSyncWorker({
     pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY
   }
 });
+
 // Live GEO answer monitoring for any provider whose API key is set (ChatGPT,
 // Perplexity, Gemini, Claude). Providers without a key — and Copilot, which has
 // no public API — fall back to fixture per-provider inside the batch runner.
@@ -51,9 +54,29 @@ const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker(
       }
     : { redisUrl: env.REDIS_URL },
 );
-const schemaRichResultValidationRuntime = createSchemaRichResultValidationWorker({
-  redisUrl: env.REDIS_URL
-});
+
+// Live rich-result validation only when an operator-supplied validator endpoint is
+// configured (SEARCHOPS_RICH_RESULT_VALIDATOR_URL must be set on the WORKER too, not
+// just the API where readiness is evaluated). Otherwise the job falls back to the
+// offline schema-core field-presence validator.
+const richResultValidatorAdapter = env.SEARCHOPS_RICH_RESULT_VALIDATOR_URL
+  ? createLiveSchemaRichResultValidatorAdapter({
+      client: createHttpSchemaRichResultValidatorClient({
+        token: env.SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN,
+        url: env.SEARCHOPS_RICH_RESULT_VALIDATOR_URL
+      })
+    })
+  : undefined;
+const schemaRichResultValidationRuntime = createSchemaRichResultValidationWorker(
+  richResultValidatorAdapter
+    ? {
+        redisUrl: env.REDIS_URL,
+        processorOptions: {
+          validateRichResult: (input) => richResultValidatorAdapter.validate(input)
+        }
+      }
+    : { redisUrl: env.REDIS_URL },
+);
 
 for (const runtime of [
   crawlRuntime,

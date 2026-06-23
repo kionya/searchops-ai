@@ -1019,6 +1019,64 @@ export function createLiveSchemaRichResultValidatorAdapter({
   };
 }
 
+export interface CreateHttpSchemaRichResultValidatorClientOptions {
+  readonly url: string;
+  readonly token?: string | undefined;
+  readonly fetchImpl?: typeof fetch | undefined;
+}
+
+/**
+ * Concrete {@link LiveSchemaRichResultValidatorClient} that POSTs a JSON-LD
+ * validation request to an operator-supplied HTTP validator endpoint
+ * (SEARCHOPS_RICH_RESULT_VALIDATOR_URL) and returns its JSON response. Wrap it
+ * with {@link createLiveSchemaRichResultValidatorAdapter} to expose it through
+ * the connector boundary.
+ *
+ * Request body (application/json):
+ *   { jsonLd, type, url, requiredFields, recommendedFields, requestedAt }
+ * Expected response body ({@link LiveSchemaRichResultValidatorClientResponse}):
+ *   { status, eligible, issues?, missingRequiredFields?, missingRecommendedFields?,
+ *     recommendedFields?, requiredFields? }
+ *
+ * `fetchImpl` is injectable for tests only; production uses the global fetch.
+ * A non-2xx response throws so the worker job lands in the dead-letter queue
+ * instead of silently persisting an empty/invalid validation.
+ */
+export function createHttpSchemaRichResultValidatorClient(
+  options: CreateHttpSchemaRichResultValidatorClientOptions,
+): LiveSchemaRichResultValidatorClient {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  return {
+    async validate(input) {
+      const headers: Record<string, string> = {
+        "content-type": "application/json"
+      };
+      if (options.token) {
+        headers.authorization = `Bearer ${options.token}`;
+      }
+
+      const response = await fetchImpl(options.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonLd: input.jsonLd,
+          recommendedFields: input.recommendedFields ?? [],
+          requestedAt: input.requestedAt,
+          requiredFields: input.requiredFields,
+          type: input.type,
+          url: input.url
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Rich result validator responded with HTTP ${response.status}`);
+      }
+
+      return (await response.json()) as LiveSchemaRichResultValidatorClientResponse;
+    }
+  };
+}
+
 export const fixtureConnectorAdapters = {
   bing: createFixtureConnectorAdapter({
     fixture: mockBingUrlInspectionFixture,

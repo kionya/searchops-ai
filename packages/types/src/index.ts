@@ -317,6 +317,8 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_RATE_LIMIT_WINDOW_MS: PositiveIntegerStringSchema.optional(),
   SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL: HttpUrlSchema.optional(),
+  SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_RICH_RESULT_VALIDATOR_URL: HttpUrlSchema.optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
