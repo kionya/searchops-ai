@@ -4274,4 +4274,120 @@ describe("api foundation", () => {
     expect(recheckResponse.statusCode).toBe(404);
     expect(resolveResponse.statusCode).toBe(404);
   });
+
+  it("creates, lists, and accepts organization invitations with RBAC", async () => {
+    const sent: Array<{ to: string; token: string; role: string }> = [];
+    const clock = new Date("2026-06-23T00:00:00.000Z");
+    const server = buildApiServer({
+      currentTime: () => clock,
+      inviteEmailSender: {
+        async send(request) {
+          sent.push({ role: request.role, to: request.to, token: request.token });
+        },
+      },
+      repository: createMemoryRepository({ organizations: [seededOrganization] }),
+    });
+
+    const denied = await server.inject({
+      method: "POST",
+      url: "/organizations/org_demo/invites",
+      headers: { "x-mock-user-role": "viewer" },
+      payload: { email: "newmember@example.com", role: "editor" },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/organizations/org_demo/invites",
+      payload: { email: "newmember@example.com", role: "editor" },
+    });
+    expect(created.statusCode).toBe(201);
+    const invitation = created.json();
+    expect(invitation).toMatchObject({
+      email: "newmember@example.com",
+      organizationId: "org_demo",
+      role: "editor",
+      status: "pending",
+    });
+    expect(invitation.token).toBeUndefined();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ role: "editor", to: "newmember@example.com" });
+    const token = sent[0]!.token;
+
+    const listed = await server.inject({ method: "GET", url: "/organizations/org_demo/invites" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().invitations).toHaveLength(1);
+
+    const accepted = await server.inject({ method: "POST", url: `/invites/${token}/accept` });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toMatchObject({
+      invitation: { organizationId: "org_demo", status: "accepted" },
+      user: { email: "newmember@example.com", organizationId: "org_demo", role: "editor" },
+    });
+
+    const reAccept = await server.inject({ method: "POST", url: `/invites/${token}/accept` });
+    expect(reAccept.statusCode).toBe(409);
+  });
+
+  it("returns 404 when accepting an unknown invitation token", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({ organizations: [seededOrganization] }),
+    });
+    const response = await server.inject({ method: "POST", url: "/invites/does-not-exist/accept" });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("rejects an expired invitation on accept", async () => {
+    const sent: Array<{ token: string }> = [];
+    let clock = new Date("2026-06-23T00:00:00.000Z");
+    const server = buildApiServer({
+      currentTime: () => clock,
+      inviteEmailSender: {
+        async send(request) {
+          sent.push({ token: request.token });
+        },
+      },
+      repository: createMemoryRepository({ organizations: [seededOrganization] }),
+    });
+    const created = await server.inject({
+      method: "POST",
+      url: "/organizations/org_demo/invites",
+      payload: { email: "late@example.com" },
+    });
+    expect(created.statusCode).toBe(201);
+
+    clock = new Date("2026-07-05T00:00:00.000Z");
+    const accepted = await server.inject({ method: "POST", url: `/invites/${sent[0]!.token}/accept` });
+    expect(accepted.statusCode).toBe(409);
+    expect(accepted.json().message).toMatch(/expired/i);
+  });
+
+  it("revokes an organization invitation and blocks its acceptance", async () => {
+    const sent: Array<{ token: string }> = [];
+    const server = buildApiServer({
+      inviteEmailSender: {
+        async send(request) {
+          sent.push({ token: request.token });
+        },
+      },
+      repository: createMemoryRepository({ organizations: [seededOrganization] }),
+    });
+    const created = await server.inject({
+      method: "POST",
+      url: "/organizations/org_demo/invites",
+      payload: { email: "revoke@example.com" },
+    });
+    const invitationId = created.json().id;
+
+    const revoked = await server.inject({
+      method: "POST",
+      url: `/organizations/org_demo/invites/${invitationId}/revoke`,
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toMatchObject({ id: invitationId, status: "revoked" });
+
+    const accepted = await server.inject({ method: "POST", url: `/invites/${sent[0]!.token}/accept` });
+    expect(accepted.statusCode).toBe(409);
+  });
 });

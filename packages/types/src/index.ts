@@ -298,6 +298,8 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_CMS_API_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWT_HS256_SECRET: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWKS_JSON: JsonObjectStringSchema.optional(),
+  SEARCHOPS_INVITE_EMAIL_WEBHOOK_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL: HttpUrlSchema.optional(),
   SEARCHOPS_IDP_ISSUER: z.string().min(1).optional(),
   SEARCHOPS_IDP_AUDIENCE: z.string().min(1).optional(),
   SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN: z.string().min(1).optional(),
@@ -528,6 +530,48 @@ export const UserSchema = z.object({
 });
 
 export type User = z.infer<typeof UserSchema>;
+
+// Organization invitations. Role is constrained to the assignable subset (no
+// `system`, which is reserved for service contexts).
+export const InvitationRoleSchema = z.enum(["admin", "editor", "owner", "viewer"]);
+export type InvitationRole = z.infer<typeof InvitationRoleSchema>;
+
+export const InvitationStatusSchema = z.enum(["pending", "accepted", "revoked", "expired"]);
+export type InvitationStatus = z.infer<typeof InvitationStatusSchema>;
+
+export const InvitationSchema = z.object({
+  id: IdSchema,
+  organizationId: IdSchema,
+  email: z.string().email(),
+  role: InvitationRoleSchema,
+  status: InvitationStatusSchema,
+  invitedByUserId: IdSchema.nullable(),
+  createdAt: IsoDateTimeSchema,
+  expiresAt: IsoDateTimeSchema,
+  acceptedAt: IsoDateTimeSchema.nullable(),
+});
+
+export type Invitation = z.infer<typeof InvitationSchema>;
+
+export const CreateInvitationRequestSchema = z.object({
+  email: z.string().email(),
+  role: InvitationRoleSchema.default("viewer"),
+});
+
+export type CreateInvitationRequest = z.infer<typeof CreateInvitationRequestSchema>;
+
+export const InvitationListResponseSchema = z.object({
+  invitations: z.array(InvitationSchema),
+});
+
+export type InvitationListResponse = z.infer<typeof InvitationListResponseSchema>;
+
+export const AcceptInvitationResponseSchema = z.object({
+  invitation: InvitationSchema,
+  user: UserSchema,
+});
+
+export type AcceptInvitationResponse = z.infer<typeof AcceptInvitationResponseSchema>;
 
 export const SiteSchema = z.object({
   id: IdSchema,

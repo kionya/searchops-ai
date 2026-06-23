@@ -360,9 +360,9 @@ const readinessInputs: readonly ReadinessInput[] = [
     category: "productization",
     id: "organization-invite-user-management",
     title: "Organization invite/user management",
-    summary: "초대 lifecycle과 역할 정책은 productization report에 정리되어 있고 IdP provider 연결은 남아 있습니다.",
-    nextAction: "외부 IdP 확정 후 email invite delivery와 role assignment webhook을 연결하세요.",
-    status: "manual_followup",
+    summary: "조직 초대/역할 관리(생성·수락·철회) API가 RBAC와 함께 구현되었고, 이메일 발송만 env로 선택 연결합니다.",
+    nextAction: "이메일 발송을 켜려면 SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL(+_TOKEN)을 설정하세요(미설정 시 서버 로그로 초대 링크 확인).",
+    status: "configured",
   },
   {
     category: "productization",

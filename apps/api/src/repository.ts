@@ -1,4 +1,5 @@
 import type {
+  AcceptInvitationResponse,
   AeoReadinessReport,
   AeoReadinessReportRecord,
   ClosedLoopAuditEvent,
@@ -15,12 +16,14 @@ import type {
   CrawlerPageSnapshot,
   CreateOrganizationRequest,
   CreateCrawlRunRequest,
+  CreateInvitationRequest,
   CreateSiteRequest,
   GeoVisibilityReport,
   GeoVisibilityReportRecord,
   JsonLdRecommendationSet,
   KeywordDiscoveryCandidateRecord,
   KeywordDiscoverySet,
+  Invitation,
   Organization,
   RecheckSchemaRecommendationResponse,
   ResolveWorkOrderIssueResponse,
@@ -32,6 +35,7 @@ import type {
   UpdateSiteRequest,
   UpdateWorkOrderRequest,
   UrlRecord,
+  User,
   WorkOrder,
   WorkOrderDraft
 } from "@searchops/types";
@@ -150,10 +154,28 @@ export interface RecheckSchemaRecommendationInput {
   snapshot: CrawlerPageSnapshot;
 }
 
+export interface CreateInvitationMeta {
+  readonly token: string;
+  readonly expiresAt: string;
+  readonly invitedByUserId: string | null;
+}
+
+export type AcceptInvitationOutcome =
+  | { readonly ok: true; readonly result: AcceptInvitationResponse }
+  | { readonly ok: false; readonly reason: "not_found" | "expired" | "not_pending" };
+
 export interface SearchOpsRepository {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(input: CreateOrganizationRequest): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | null>;
+  createInvitation(
+    organizationId: string,
+    input: CreateInvitationRequest,
+    meta: CreateInvitationMeta,
+  ): Promise<Invitation | null>;
+  listInvitations(organizationId: string): Promise<Invitation[]>;
+  revokeInvitation(organizationId: string, invitationId: string): Promise<Invitation | null>;
+  acceptInvitation(token: string, now: Date): Promise<AcceptInvitationOutcome>;
   listSites(organizationId: string): Promise<Site[]>;
   createSite(organizationId: string, input: CreateSiteRequest): Promise<Site | null>;
   getSite(id: string): Promise<Site | null>;
@@ -311,6 +333,11 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   const seoIssues = new Map<string, SeoIssue>();
   const urlRecords = new Map<string, UrlRecord>();
   const workOrders = new Map<string, WorkOrder>();
+  const invitations = new Map<string, Invitation>();
+  const invitationTokens = new Map<string, string>();
+  const users = new Map<string, User>();
+  let invitationCounter = 1;
+  let userCounter = 1;
   let organizationCounter = 1;
   let siteCounter = 1;
   let crawlRunCounter = 1;
@@ -429,6 +456,78 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
     async getOrganization(id) {
       return organizations.get(id) ?? null;
+    },
+
+    async createInvitation(organizationId, input, meta) {
+      if (!organizations.has(organizationId)) {
+        return null;
+      }
+      const invitation: Invitation = {
+        id: createId("invite", invitationCounter),
+        organizationId,
+        email: input.email,
+        role: input.role,
+        status: "pending",
+        invitedByUserId: meta.invitedByUserId,
+        createdAt: nowIso(),
+        expiresAt: meta.expiresAt,
+        acceptedAt: null
+      };
+      invitationCounter += 1;
+      invitations.set(invitation.id, invitation);
+      invitationTokens.set(meta.token, invitation.id);
+      return invitation;
+    },
+
+    async listInvitations(organizationId) {
+      return [...invitations.values()]
+        .filter((invitation) => invitation.organizationId === organizationId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
+    async revokeInvitation(organizationId, invitationId) {
+      const existing = invitations.get(invitationId);
+      if (!existing || existing.organizationId !== organizationId) {
+        return null;
+      }
+      const revoked: Invitation = { ...existing, status: "revoked" };
+      invitations.set(invitationId, revoked);
+      return revoked;
+    },
+
+    async acceptInvitation(token, now) {
+      const invitationId = invitationTokens.get(token);
+      const existing = invitationId ? invitations.get(invitationId) : undefined;
+      if (!existing) {
+        return { ok: false, reason: "not_found" };
+      }
+      if (existing.status !== "pending") {
+        return { ok: false, reason: "not_pending" };
+      }
+      if (new Date(existing.expiresAt).getTime() < now.getTime()) {
+        invitations.set(existing.id, { ...existing, status: "expired" });
+        return { ok: false, reason: "expired" };
+      }
+
+      const accepted: Invitation = { ...existing, status: "accepted", acceptedAt: now.toISOString() };
+      invitations.set(existing.id, accepted);
+
+      const userKey = `${existing.organizationId}::${existing.email}`;
+      const user: User = users.get(userKey) ?? {
+        id: createId("user", userCounter),
+        organizationId: existing.organizationId,
+        email: existing.email,
+        name: null,
+        role: existing.role,
+        createdAt: nowIso()
+      };
+      if (!users.has(userKey)) {
+        userCounter += 1;
+      }
+      const persistedUser: User = { ...user, role: existing.role };
+      users.set(userKey, persistedUser);
+
+      return { ok: true, result: { invitation: accepted, user: persistedUser } };
     },
 
     async listSites(organizationId) {
