@@ -1225,6 +1225,298 @@ export async function monitorFixtureGeoAnswersBatch({
   };
 }
 
+// ---------------------------------------------------------------------------
+// Live GEO answer monitor provider clients
+//
+// Concrete LiveGeoAnswerProviderClient implementations for the answer engines
+// that expose an API: ChatGPT (OpenAI), Perplexity (OpenAI-compatible + native
+// citations), Gemini (Google), and Claude (Anthropic). Copilot has no public
+// API and stays fixture-only. All use injected `fetchImpl` for tests (default
+// global fetch in production), matching the rest of this package's adapters.
+// Wrap with createLiveGeoAnswerMonitorAdapter to expose through the connector
+// boundary.
+// ---------------------------------------------------------------------------
+
+const GEO_URL_REGEX = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+
+/** Best-effort extraction of cited URLs from free-text answers (deduped, trailing punctuation trimmed). */
+export function extractGeoCitedUrls(text: string): string[] {
+  const matches = text.match(GEO_URL_REGEX) ?? [];
+  const cleaned = matches.map((url) => url.replace(/[.,;:]+$/, ""));
+  return [...new Set(cleaned)];
+}
+
+function buildGeoAnswerPrompt(input: LiveGeoAnswerProviderClientInput): string {
+  return [
+    `You are a general-knowledge answer engine responding to a user in locale ${input.queryLocale} (market ${input.target.market}).`,
+    `Question: ${input.query}`,
+    "Answer concisely and factually. When you reference specific organizations, clinics, products, or sources, include their full https:// URLs inline so they can be cited."
+  ].join("\n");
+}
+
+export interface CreateOpenAiCompatibleGeoAnswerClientOptions {
+  readonly provider: GeoAnswerMonitorProvider;
+  readonly apiKey: string;
+  readonly model: string;
+  /** Full chat-completions endpoint URL (OpenAI or any OpenAI-compatible host). */
+  readonly endpoint: string;
+  readonly fetchImpl?: typeof fetch | undefined;
+}
+
+interface OpenAiChatCompletionResponse {
+  readonly choices?: ReadonlyArray<{ readonly message?: { readonly content?: string | null } }>;
+  /** Perplexity extension: native source citations. */
+  readonly citations?: readonly string[];
+}
+
+/**
+ * OpenAI Chat Completions client, also usable for any OpenAI-compatible host
+ * (e.g. Perplexity at https://api.perplexity.ai/chat/completions, which adds a
+ * top-level `citations` array). Auth is `Authorization: Bearer <apiKey>`.
+ */
+export function createOpenAiCompatibleGeoAnswerClient(
+  options: CreateOpenAiCompatibleGeoAnswerClientOptions,
+): LiveGeoAnswerProviderClient {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  return {
+    provider: options.provider,
+    async ask(input) {
+      const response = await fetchImpl(options.endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${options.apiKey}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          messages: [{ content: buildGeoAnswerPrompt(input), role: "user" }],
+          model: options.model
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`${options.provider} GEO answer API responded with HTTP ${response.status}`);
+      }
+      const json = (await response.json()) as OpenAiChatCompletionResponse;
+      const answerText = json.choices?.[0]?.message?.content ?? "";
+      const citedUrls =
+        json.citations && json.citations.length > 0
+          ? [...new Set(json.citations)]
+          : extractGeoCitedUrls(answerText);
+      return { answerText, citedUrls, observedAt: input.observedAt };
+    }
+  };
+}
+
+export interface CreateGeminiGeoAnswerClientOptions {
+  readonly apiKey: string;
+  readonly model: string;
+  readonly fetchImpl?: typeof fetch | undefined;
+  /** Override the Generative Language API base (default v1beta). */
+  readonly baseUrl?: string | undefined;
+}
+
+interface GeminiGenerateContentResponse {
+  readonly candidates?: ReadonlyArray<{
+    readonly content?: { readonly parts?: ReadonlyArray<{ readonly text?: string }> };
+  }>;
+}
+
+/** Google Gemini (Generative Language API) client. Auth via `x-goog-api-key`. */
+export function createGeminiGeoAnswerClient(
+  options: CreateGeminiGeoAnswerClientOptions,
+): LiveGeoAnswerProviderClient {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = options.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta";
+  return {
+    provider: "gemini",
+    async ask(input) {
+      const response = await fetchImpl(`${baseUrl}/models/${options.model}:generateContent`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": options.apiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildGeoAnswerPrompt(input) }] }]
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`gemini GEO answer API responded with HTTP ${response.status}`);
+      }
+      const json = (await response.json()) as GeminiGenerateContentResponse;
+      const answerText = (json.candidates?.[0]?.content?.parts ?? [])
+        .map((part) => part.text ?? "")
+        .join("");
+      return { answerText, citedUrls: extractGeoCitedUrls(answerText), observedAt: input.observedAt };
+    }
+  };
+}
+
+export interface CreateAnthropicGeoAnswerClientOptions {
+  readonly apiKey: string;
+  readonly model: string;
+  readonly maxTokens?: number | undefined;
+  readonly fetchImpl?: typeof fetch | undefined;
+  readonly baseUrl?: string | undefined;
+}
+
+interface AnthropicMessagesResponse {
+  readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>;
+  readonly stop_reason?: string | null;
+}
+
+/**
+ * Anthropic (Claude) client via the Messages API. Raw HTTP (injected fetch) to
+ * match this package's adapter house pattern rather than pulling in the SDK.
+ * Headers: `x-api-key` + `anthropic-version: 2023-06-01`. Body omits sampling
+ * params (temperature/top_p/top_k 400 on current Opus). A `stop_reason:
+ * "refusal"` yields empty content, surfaced here as an empty answer (not an
+ * error) so a refused query records a blank observation instead of failing.
+ */
+export function createAnthropicGeoAnswerClient(
+  options: CreateAnthropicGeoAnswerClientOptions,
+): LiveGeoAnswerProviderClient {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = options.baseUrl ?? "https://api.anthropic.com";
+  return {
+    provider: "claude",
+    async ask(input) {
+      const response = await fetchImpl(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": options.apiKey
+        },
+        body: JSON.stringify({
+          max_tokens: options.maxTokens ?? 1024,
+          messages: [{ content: buildGeoAnswerPrompt(input), role: "user" }],
+          model: options.model
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`claude GEO answer API responded with HTTP ${response.status}`);
+      }
+      const json = (await response.json()) as AnthropicMessagesResponse;
+      const answerText = (json.content ?? [])
+        .filter((block) => block.type === "text")
+        .map((block) => block.text ?? "")
+        .join("");
+      return { answerText, citedUrls: extractGeoCitedUrls(answerText), observedAt: input.observedAt };
+    }
+  };
+}
+
+/** Default model ids per provider; override via the SEARCHOPS_GEO_*_MODEL env keys. */
+export const defaultGeoAnswerProviderModels = {
+  chatgpt: "gpt-4o",
+  claude: "claude-opus-4-8",
+  gemini: "gemini-2.0-flash",
+  perplexity: "sonar"
+} as const;
+
+export interface LiveGeoAnswerClientKeys {
+  readonly chatgptApiKey?: string | undefined;
+  readonly chatgptModel?: string | undefined;
+  readonly perplexityApiKey?: string | undefined;
+  readonly perplexityModel?: string | undefined;
+  readonly geminiApiKey?: string | undefined;
+  readonly geminiModel?: string | undefined;
+  readonly claudeApiKey?: string | undefined;
+  readonly claudeModel?: string | undefined;
+  readonly fetchImpl?: typeof fetch | undefined;
+}
+
+/**
+ * Builds live GEO answer monitor adapters for each provider whose API key is
+ * present. Providers without a key are omitted, so the batch runner falls back
+ * to fixture for them. Copilot is never built (no public API).
+ */
+export function createLiveGeoAnswerMonitorAdaptersFromKeys(
+  keys: LiveGeoAnswerClientKeys,
+): Partial<Record<GeoAnswerMonitorProvider, GeoAnswerMonitorAdapter>> {
+  const adapters: Partial<Record<GeoAnswerMonitorProvider, GeoAnswerMonitorAdapter>> = {};
+  const fetchImpl = keys.fetchImpl;
+  if (keys.chatgptApiKey) {
+    adapters.chatgpt = createLiveGeoAnswerMonitorAdapter({
+      client: createOpenAiCompatibleGeoAnswerClient({
+        apiKey: keys.chatgptApiKey,
+        endpoint: "https://api.openai.com/v1/chat/completions",
+        fetchImpl,
+        model: keys.chatgptModel ?? defaultGeoAnswerProviderModels.chatgpt,
+        provider: "chatgpt"
+      })
+    });
+  }
+  if (keys.perplexityApiKey) {
+    adapters.perplexity = createLiveGeoAnswerMonitorAdapter({
+      client: createOpenAiCompatibleGeoAnswerClient({
+        apiKey: keys.perplexityApiKey,
+        endpoint: "https://api.perplexity.ai/chat/completions",
+        fetchImpl,
+        model: keys.perplexityModel ?? defaultGeoAnswerProviderModels.perplexity,
+        provider: "perplexity"
+      })
+    });
+  }
+  if (keys.geminiApiKey) {
+    adapters.gemini = createLiveGeoAnswerMonitorAdapter({
+      client: createGeminiGeoAnswerClient({
+        apiKey: keys.geminiApiKey,
+        fetchImpl,
+        model: keys.geminiModel ?? defaultGeoAnswerProviderModels.gemini
+      })
+    });
+  }
+  if (keys.claudeApiKey) {
+    adapters.claude = createLiveGeoAnswerMonitorAdapter({
+      client: createAnthropicGeoAnswerClient({
+        apiKey: keys.claudeApiKey,
+        fetchImpl,
+        model: keys.claudeModel ?? defaultGeoAnswerProviderModels.claude
+      })
+    });
+  }
+  return adapters;
+}
+
+export interface CreateGeoAnswerMonitorBatchRunnerOptions {
+  readonly onProviderError?: (provider: GeoAnswerMonitorProvider, error: unknown) => void;
+}
+
+/**
+ * Batch runner mirroring monitorFixtureGeoAnswersBatch, but using a per-provider
+ * live adapter when one exists. Per-provider fallback: a provider with no adapter
+ * — or whose live call throws — degrades to fixture for that provider only, so a
+ * single outage never fails the whole batch. Drop-in for
+ * ProcessGeoAnswerMonitorJobOptions.monitorGeoAnswers.
+ */
+export function createGeoAnswerMonitorBatchRunner(
+  adapters: Partial<Record<GeoAnswerMonitorProvider, GeoAnswerMonitorAdapter>>,
+  options: CreateGeoAnswerMonitorBatchRunnerOptions = {},
+): (request: GeoAnswerMonitorBatchRequest) => Promise<GeoAnswerMonitorBatchResult> {
+  return async ({ providers = geoAnswerMonitorProviders, ...request }: GeoAnswerMonitorBatchRequest) => {
+    const orderedProviders = orderGeoAnswerMonitorProviders(providers);
+    const results = await Promise.all(
+      orderedProviders.map(async (provider) => {
+        const adapter = adapters[provider];
+        if (adapter === undefined) {
+          return monitorFixtureGeoAnswers(provider, request);
+        }
+        try {
+          return await adapter.monitor(request);
+        } catch (error) {
+          options.onProviderError?.(provider, error);
+          return monitorFixtureGeoAnswers(provider, request);
+        }
+      }),
+    );
+    return {
+      observations: results.flatMap((result) => result.observations),
+      results
+    };
+  };
+}
+
 export function summarizeConnectorRunResults(
   results: readonly ConnectorRunResult[],
 ): ConnectorBatchSyncSummary {

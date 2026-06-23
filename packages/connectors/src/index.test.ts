@@ -4,16 +4,22 @@ import {
   connectorAuthModes,
   connectorProviders,
   connectorsPackage,
+  createAnthropicGeoAnswerClient,
   createConnectorRunResult,
   createFixtureConnectorAdapter,
+  createGeminiGeoAnswerClient,
+  createGeoAnswerMonitorBatchRunner,
   createHttpSchemaRichResultValidatorClient,
   createLiveBingConnectorAdapter,
   createLiveGa4ConnectorAdapter,
   createLiveGeoAnswerMonitorAdapter,
+  createLiveGeoAnswerMonitorAdaptersFromKeys,
   createLiveGscConnectorAdapter,
   createLivePageSpeedConnectorAdapter,
   createLiveSchemaRichResultValidatorAdapter,
+  createOpenAiCompatibleGeoAnswerClient,
   discoverKeywordTargetsFromConnectorResults,
+  extractGeoCitedUrls,
   fixtureConnectorAdapters,
   fixtureGeoAnswerMonitorAdapters,
   getFixtureConnectorAdapter,
@@ -384,6 +390,206 @@ describe("connectors foundation", () => {
       "chatgpt",
       "perplexity"
     ]);
+  });
+
+  const geoClientInput = {
+    observedAt: "2026-06-22T00:00:00.000Z",
+    query: "best seo clinic in seoul",
+    queryLocale: "ko-KR",
+    target: {
+      brandName: "Example Clinic",
+      domain: "example-clinic.com",
+      locale: "ko-KR",
+      market: "KR",
+      siteId: "site_1"
+    }
+  } as const;
+
+  it("extracts and dedupes cited URLs from answer text", () => {
+    expect(
+      extractGeoCitedUrls("See https://a.com/x, https://a.com/x and https://b.com/y."),
+    ).toEqual(["https://a.com/x", "https://b.com/y"]);
+  });
+
+  it("calls an OpenAI-compatible chat completions endpoint with bearer auth", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const client = createOpenAiCompatibleGeoAnswerClient({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+      model: "gpt-4o",
+      provider: "chatgpt",
+      fetchImpl: async (url, init) => {
+        calls.push({ init, url: String(url) });
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "Try https://example-clinic.com/seo for details." } }]
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        );
+      }
+    });
+
+    const result = await client.ask(geoClientInput);
+
+    expect(result.answerText).toContain("example-clinic.com/seo");
+    expect(result.citedUrls).toEqual(["https://example-clinic.com/seo"]);
+    expect(calls[0]?.url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(new Headers(calls[0]?.init?.headers).get("authorization")).toBe("Bearer sk-test");
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { model: string };
+    expect(body.model).toBe("gpt-4o");
+  });
+
+  it("prefers Perplexity native citations over text extraction", async () => {
+    const client = createOpenAiCompatibleGeoAnswerClient({
+      apiKey: "pplx-test",
+      endpoint: "https://api.perplexity.ai/chat/completions",
+      model: "sonar",
+      provider: "perplexity",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "Mentions https://ignored.com inline." } }],
+            citations: ["https://cited-1.com", "https://cited-2.com", "https://cited-1.com"]
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        )
+    });
+
+    const result = await client.ask(geoClientInput);
+
+    expect(result.citedUrls).toEqual(["https://cited-1.com", "https://cited-2.com"]);
+  });
+
+  it("calls the Gemini generateContent endpoint with the api-key header", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const client = createGeminiGeoAnswerClient({
+      apiKey: "gem-test",
+      model: "gemini-2.0-flash",
+      fetchImpl: async (url, init) => {
+        calls.push({ init, url: String(url) });
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "Visit https://example-clinic.com now." }] } }]
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        );
+      }
+    });
+
+    const result = await client.ask(geoClientInput);
+
+    expect(result.answerText).toContain("example-clinic.com");
+    expect(result.citedUrls).toEqual(["https://example-clinic.com"]);
+    expect(calls[0]?.url).toContain("gemini-2.0-flash:generateContent");
+    expect(new Headers(calls[0]?.init?.headers).get("x-goog-api-key")).toBe("gem-test");
+  });
+
+  it("calls the Anthropic messages endpoint and concatenates text blocks", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const client = createAnthropicGeoAnswerClient({
+      apiKey: "ant-test",
+      model: "claude-opus-4-8",
+      fetchImpl: async (url, init) => {
+        calls.push({ init, url: String(url) });
+        return new Response(
+          JSON.stringify({
+            content: [
+              { type: "text", text: "Example Clinic — " },
+              { type: "text", text: "see https://example-clinic.com/about." }
+            ],
+            stop_reason: "end_turn"
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        );
+      }
+    });
+
+    const result = await client.ask(geoClientInput);
+
+    expect(result.answerText).toBe("Example Clinic — see https://example-clinic.com/about.");
+    expect(result.citedUrls).toEqual(["https://example-clinic.com/about"]);
+    expect(calls[0]?.url).toBe("https://api.anthropic.com/v1/messages");
+    const headers = new Headers(calls[0]?.init?.headers);
+    expect(headers.get("x-api-key")).toBe("ant-test");
+    expect(headers.get("anthropic-version")).toBe("2023-06-01");
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { temperature?: number; max_tokens: number };
+    expect(body.temperature).toBeUndefined();
+    expect(body.max_tokens).toBe(1024);
+  });
+
+  it("treats an Anthropic refusal (empty content) as an empty answer, not an error", async () => {
+    const client = createAnthropicGeoAnswerClient({
+      apiKey: "ant-test",
+      model: "claude-opus-4-8",
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ content: [], stop_reason: "refusal" }), {
+          headers: { "content-type": "application/json" },
+          status: 200
+        })
+    });
+
+    const result = await client.ask(geoClientInput);
+
+    expect(result.answerText).toBe("");
+    expect(result.citedUrls).toEqual([]);
+  });
+
+  it("throws when a GEO answer provider returns a non-2xx response", async () => {
+    const client = createOpenAiCompatibleGeoAnswerClient({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+      model: "gpt-4o",
+      provider: "chatgpt",
+      fetchImpl: async () => new Response("rate limited", { status: 429 })
+    });
+
+    await expect(client.ask(geoClientInput)).rejects.toThrow(/HTTP 429/);
+  });
+
+  it("builds live GEO adapters only for providers whose API key is present", () => {
+    const adapters = createLiveGeoAnswerMonitorAdaptersFromKeys({
+      claudeApiKey: "ant-test",
+      geminiApiKey: "gem-test"
+    });
+
+    expect(Object.keys(adapters).sort()).toEqual(["claude", "gemini"]);
+    expect(adapters.chatgpt).toBeUndefined();
+  });
+
+  it("falls back to fixture per-provider when a live adapter is missing or throws", async () => {
+    const errors: string[] = [];
+    const throwingAdapter = createLiveGeoAnswerMonitorAdapter({
+      client: {
+        provider: "claude",
+        async ask() {
+          throw new Error("upstream boom");
+        }
+      }
+    });
+
+    const runBatch = createGeoAnswerMonitorBatchRunner(
+      { claude: throwingAdapter },
+      { onProviderError: (provider) => errors.push(provider) },
+    );
+
+    const batch = await runBatch({
+      observedAt: "2026-06-22T00:00:00.000Z",
+      providers: ["claude", "gemini"],
+      queries: [{ query: "best seo clinic" }],
+      target: {
+        brandName: "Example Clinic",
+        domain: "example-clinic.com",
+        locale: "ko-KR",
+        market: "KR",
+        siteId: "site_1"
+      }
+    });
+
+    // gemini has no adapter, claude's adapter throws → both degrade to fixture.
+    expect(errors).toEqual(["claude"]);
+    expect(batch.results.map((result) => result.provider)).toEqual(["gemini", "claude"]);
+    expect(batch.results.every((result) => result.generatedBy === "fixture")).toBe(true);
+    expect(batch.observations).toHaveLength(2);
   });
 
   it("keeps direct GEO answer fixture monitors deterministic", async () => {
