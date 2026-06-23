@@ -39,9 +39,14 @@ export default async function OperationsHubPage() {
   return (
     <AppWorkspaceFrame
       actions={
-        <Link className="searchops-button secondary" href="/sites">
-          사이트 목록으로
-        </Link>
+        <>
+          <Link className="searchops-button secondary" href="/ops/invites">
+            초대 관리
+          </Link>
+          <Link className="searchops-button secondary" href="/sites">
+            사이트 목록으로
+          </Link>
+        </>
       }
       description="배포 전후 운영자가 확인해야 하는 readiness, metrics, failed jobs, hardening, productization 신호를 한 화면에서 스캔합니다."
       eyebrow="Operations"
