@@ -1,3 +1,7 @@
+import {
+  createGeoAnswerMonitorBatchRunner,
+  createLiveGeoAnswerMonitorAdaptersFromKeys
+} from "@searchops/connectors";
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
@@ -21,7 +25,32 @@ const connectorSyncRuntime = createConnectorSyncWorker({
     pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY
   }
 });
-const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker({ redisUrl: env.REDIS_URL });
+// Live GEO answer monitoring for any provider whose API key is set (ChatGPT,
+// Perplexity, Gemini, Claude). Providers without a key — and Copilot, which has
+// no public API — fall back to fixture per-provider inside the batch runner.
+const geoLiveAdapters = createLiveGeoAnswerMonitorAdaptersFromKeys({
+  chatgptApiKey: env.SEARCHOPS_GEO_CHATGPT_API_KEY,
+  chatgptModel: env.SEARCHOPS_GEO_CHATGPT_MODEL,
+  claudeApiKey: env.SEARCHOPS_GEO_CLAUDE_API_KEY,
+  claudeModel: env.SEARCHOPS_GEO_CLAUDE_MODEL,
+  geminiApiKey: env.SEARCHOPS_GEO_GEMINI_API_KEY,
+  geminiModel: env.SEARCHOPS_GEO_GEMINI_MODEL,
+  perplexityApiKey: env.SEARCHOPS_GEO_PERPLEXITY_API_KEY,
+  perplexityModel: env.SEARCHOPS_GEO_PERPLEXITY_MODEL
+});
+const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker(
+  Object.keys(geoLiveAdapters).length > 0
+    ? {
+        redisUrl: env.REDIS_URL,
+        processorOptions: {
+          monitorGeoAnswers: createGeoAnswerMonitorBatchRunner(geoLiveAdapters, {
+            onProviderError: (provider, error) =>
+              console.error(`GEO live provider ${provider} failed; using fixture fallback`, error)
+          })
+        }
+      }
+    : { redisUrl: env.REDIS_URL },
+);
 const schemaRichResultValidationRuntime = createSchemaRichResultValidationWorker({
   redisUrl: env.REDIS_URL
 });
