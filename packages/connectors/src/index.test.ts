@@ -6,6 +6,7 @@ import {
   connectorsPackage,
   createConnectorRunResult,
   createFixtureConnectorAdapter,
+  createHttpSchemaRichResultValidatorClient,
   createLiveBingConnectorAdapter,
   createLiveGa4ConnectorAdapter,
   createLiveGeoAnswerMonitorAdapter,
@@ -479,6 +480,74 @@ describe("connectors foundation", () => {
         provider: "perplexity"
       }),
     ).toThrow(/provider mismatch/);
+  });
+
+  it("posts JSON-LD validation requests to the configured rich-result validator endpoint", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const client = createHttpSchemaRichResultValidatorClient({
+      url: "https://validator.example.com/validate",
+      token: "secret-token",
+      fetchImpl: async (url, init) => {
+        calls.push({ init, url: String(url) });
+        return new Response(
+          JSON.stringify({
+            eligible: true,
+            issues: [],
+            missingRecommendedFields: ["description"],
+            missingRequiredFields: [],
+            status: "eligible"
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        );
+      }
+    });
+
+    const response = await client.validate({
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: "SEO service",
+        url: "https://example-clinic.com/service/seo"
+      },
+      recommendedFields: ["description"],
+      requestedAt: "2026-06-22T00:00:00.000Z",
+      requiredFields: ["@context", "@type", "name", "url"],
+      type: "Service",
+      url: "https://example-clinic.com/service/seo"
+    });
+
+    expect(response.status).toBe("eligible");
+    expect(response.eligible).toBe(true);
+    expect(response.missingRecommendedFields).toEqual(["description"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://validator.example.com/validate");
+    const sentHeaders = new Headers(calls[0]?.init?.headers);
+    expect(sentHeaders.get("authorization")).toBe("Bearer secret-token");
+    const sentBody = JSON.parse(String(calls[0]?.init?.body)) as { type: string; url: string };
+    expect(sentBody.type).toBe("Service");
+    expect(sentBody.url).toBe("https://example-clinic.com/service/seo");
+  });
+
+  it("throws when the rich-result validator returns a non-2xx response", async () => {
+    const client = createHttpSchemaRichResultValidatorClient({
+      url: "https://validator.example.com/validate",
+      fetchImpl: async () => new Response("upstream down", { status: 502 })
+    });
+
+    await expect(
+      client.validate({
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Service",
+          name: "SEO service",
+          url: "https://example-clinic.com/service/seo"
+        },
+        requestedAt: "2026-06-22T00:00:00.000Z",
+        requiredFields: ["@context"],
+        type: "Service",
+        url: "https://example-clinic.com/service/seo"
+      }),
+    ).rejects.toThrow(/HTTP 502/);
   });
 
   it("wraps injected live rich-result validator clients behind the connector boundary", async () => {
