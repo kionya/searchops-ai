@@ -72,7 +72,7 @@
     <main>
       <header>
         <h1>SearchOps AI — 운영 배포 진행 현황</h1>
-        <p class="meta">Updated: 2026-06-22 · Branch: <code>main</code></p>
+        <p class="meta">Updated: 2026-06-23 · Branch: <code>main</code></p>
         <p class="lead">
           Live · Web <a href="https://searchops.totopapa.com/ops/readiness">searchops.totopapa.com</a>
           (+ <a href="https://searchops-ai-web.vercel.app/ops/readiness">searchops-ai-web.vercel.app</a>)
@@ -80,15 +80,24 @@
         </p>
       </header>
 
+      <section aria-label="조치 필요">
+        <div class="guardrails" style="border-color:#a15c00;background:#fff4df">
+          <h3 style="color:#a15c00;margin-bottom:6px">🔴 ACTION REQUIRED — invite 마이그레이션 수동 적용</h3>
+          <p class="small">PR #80(org-invite) 머지로 코드는 배포됐으나 <strong>운영 DB에 Invitation 테이블 미생성</strong> → 초대 라우트 4종 현재 500. Railway는 마이그레이션을 <strong>자동 적용하지 않음</strong>(확정). 나머지 API·기능은 정상.</p>
+          <p class="small">수정: <code>DATABASE_URL='&lt;Railway API의 DATABASE_URL, Supabase session pooler :5432&gt;' corepack pnpm db:migrate:deploy</code></p>
+          <p class="small">검증: <code>POST /invites/&lt;아무token&gt;/accept</code> → 404(<code>Invitation not found</code>)면 성공.</p>
+        </div>
+      </section>
+
       <section aria-label="readiness 요약">
-        <h2>운영 준비도 (실측 · 2026-06-22)</h2>
+        <h2>운영 준비도 (실측 · 2026-06-23)</h2>
         <div class="summary">
           <div class="stat"><strong>41</strong><span>전체 항목</span></div>
-          <div class="stat"><strong>25</strong><span>설정됨</span></div>
+          <div class="stat"><strong>26</strong><span>설정됨</span></div>
           <div class="stat"><strong>6</strong><span>프로비저닝 필요</span></div>
-          <div class="stat"><strong>10</strong><span>수동 후속</span></div>
+          <div class="stat"><strong>9</strong><span>수동 후속</span></div>
         </div>
-        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A안(alert-routing·error-monitoring-uptime) + B안(production-domain) configured 반영 (22→25)</p>
+        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A(alert-routing·error-monitoring-uptime) + B(production-domain) + C(organization-invite) configured (22→26). C의 rich-result/GEO/log-drain은 코드 배선 완료, 운영 env 설정 시 배지 전환(현재 6개 프로비저닝필요에 포함).</p>
       </section>
 
       <section aria-label="스택 상태">
@@ -129,6 +138,11 @@
             <code>SEARCHOPS_PUBLIC_APP_URL</code>을 Vercel+Railway 양쪽 설정 → 웹 재배포로 적용. <code>production-domain</code> configured.
             API는 변경 불필요(웹→API 서버-투-서버, CORS 없음; <code>SEARCHOPS_API_BASE_URL</code>·Google OAuth redirect 불변).
           </li>
+          <li>
+            <strong>C안 — 나머지 프로비저닝 dead-env 제거 (PR #77·#78·#79·#80, 2026-06-23)</strong>:
+            <strong>#77</strong> rich-result(env 스키마+HTTP client+worker 배선) · <strong>#78</strong> log-drain self-host sink(<code>/api/ops/log-drain-sink</code>) · <strong>#79</strong> GEO 4-provider(ChatGPT/Perplexity/Gemini/Claude + per-provider fixture fallback, Copilot은 API 없어 fixture) · <strong>#80</strong> org-invite Tier C(Invitation 모델+추가전용 마이그레이션+라우트4+RBAC+env-gated 이메일, organization-invite configured).
+            <span class="status partial">#80 마이그레이션 수동 적용 필요(상단) · rich-result/GEO/log-drain은 provider env 설정 시 실동작 · canLaunch는 billing-subscription 때문에 여전히 false</span>
+          </li>
         </ol>
       </section>
 
@@ -153,34 +167,54 @@
             <p class="small"><code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> (searchops-ai) — ops-heartbeat 워크플로 토큰 발급용.</p>
             <p class="small">⚠️ Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> = Railway <code>..._WEBHOOK_TOKEN</code> 동일값이어야 함.</p>
           </div>
+          <div class="card">
+            <h3>🟨 C 기능 활성 env (선택 · 미설정=off, 폴백 안전)</h3>
+            <p class="small">rich-result: API+Worker <code>SEARCHOPS_RICH_RESULT_VALIDATOR_URL</code>(+<code>_TOKEN</code>) · GEO: API+Worker <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>(+<code>_MODEL</code>) · log-drain: Railway <code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>(+<code>_TOKEN</code>=Vercel <code>SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN</code>) · invite 이메일: <code>SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL</code>(+<code>_TOKEN</code>, 미설정 시 서버로그).</p>
+          </div>
         </div>
       </section>
 
       <section aria-label="다음 작업">
-        <h2>다음 작업 — 남은 6개 (env 기준)</h2>
+        <h2>다음 작업 — A·B·C 코드 완료, 남은 항목</h2>
         <div class="plan-list">
           <div class="plan">
             <div class="tag">A ✅</div>
-            <div>
-              <strong>알림 + 에러/가동 모니터링</strong> <span class="status done">완료 (PR #76)</span>
-              <p class="small">alert-routing · error-monitoring-uptime configured. 선택 후속: 외부 uptime 모니터(UptimeRobot/Better Stack) 이중화 → SMS/전화 알림.</p>
-            </div>
+            <div><strong>알림 + 에러/가동 모니터링</strong> <span class="status done">완료 (PR #76)</span></div>
           </div>
           <div class="plan">
             <div class="tag">B ✅</div>
+            <div><strong>커스텀 도메인</strong> <span class="status done">완료</span> <code>https://searchops.totopapa.com</code></div>
+          </div>
+          <div class="plan">
+            <div class="tag">C ✅</div>
             <div>
-              <strong>커스텀 도메인</strong> <span class="status done">완료 (2026-06-22)</span>
-              <p class="small"><code>https://searchops.totopapa.com</code> + <code>SEARCHOPS_PUBLIC_APP_URL</code>(Vercel+Railway). production-domain configured.</p>
+              <strong>나머지 dead-env 제거</strong> <span class="status done">코드 완료 (PR #77·#78·#79·#80)</span>
+              <p class="small">rich-result · log-drain · GEO 4-provider · org-invite. 활성화는 env 설정 + #80 마이그레이션 적용.</p>
             </div>
           </div>
           <div class="plan">
-            <div class="tag">C 💤</div>
+            <div class="tag">1 🔴</div>
             <div>
-              <strong>나중에 / 선택</strong> <span class="status defer">defer</span>
+              <strong>invite 마이그레이션 수동 적용</strong> <span class="status partial">지금 필요</span>
+              <p class="small">상단 ACTION REQUIRED. 적용 전까지 초대 라우트 4종 500.</p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">2 ⚙️</div>
+            <div>
+              <strong>C 기능 활성화 (선택)</strong> <span class="status defer">env 설정 시</span>
+              <p class="small">provider env 설정 시 rich-result/GEO/log-drain 실동작(현재 off, 폴백 안전). env 매트릭스는 위 참조.</p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">3 💤</div>
+            <div>
+              <strong>defer / 제품 결정 / 선택 후속</strong> <span class="status defer">defer</span>
               <p class="small">
-                외부 uptime 모니터 이중화 · CMS 읽기(<code>SEARCHOPS_CMS_WEBHOOK_SECRETS</code>) · Observability log drain(<code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>) · Restore drill / Secret rotation 웹훅 ·
-                <strong>엔지니어링 필요</strong>: GEO live providers, Rich result live validator ·
-                <strong>코드 작업</strong>: organization-invite(<code>canLaunch</code> 차단 중)
+                <strong>billing-subscription</strong>(canLaunch=true의 마지막 차단, Stripe 등 결정) ·
+                restore-drill/secret-rotation 웹훅(수신 리시버 없음 → 수동 절차) ·
+                외부 uptime 모니터 이중화 · invite <strong>web UI</strong>(백엔드 완비) ·
+                Railway release에 <code>db:migrate:deploy</code> 추가(자동화).
               </p>
             </div>
           </div>
@@ -194,8 +228,9 @@
           <ul>
             <li><s>"알림 설정 해줘" → A</s> ✅ 완료 (PR #76)</li>
             <li><s>"도메인 연결해줘" → B</s> ✅ 완료 — <code>searchops.totopapa.com</code></li>
-            <li><strong>"외부 uptime 모니터 붙여줘"</strong> → UptimeRobot/Better Stack 이중화</li>
-            <li><strong>"남은 프로비저닝 ◯◯ 해줘"</strong> → 해당 항목 (C)</li>
+            <li><s>"남은 C 항목 진행" → C</s> ✅ 코드 완료 (PR #77·#78·#79·#80)</li>
+            <li>🔴 <strong>"invite 마이그레이션 적용했어"</strong> → 초대 라우트 동작 검증 (현재 미적용 = 500)</li>
+            <li><strong>"C 기능 켜줘 ◯◯"</strong> → rich-result/GEO/log-drain provider env 설정 안내</li>
           </ul>
           <p class="small">
             상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 + 수치) ·

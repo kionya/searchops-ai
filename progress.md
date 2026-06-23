@@ -6,8 +6,15 @@
 
 ## 🚀 운영 배포 · 프로비저닝 진행상황
 
-Updated: 2026-06-22
+Updated: 2026-06-23
 Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.app) · api = https://searchops-api-production.up.railway.app
+
+> 🔴 **ACTION REQUIRED (2026-06-23)**: PR #80(org-invite) 머지로 코드는 배포됐으나 **운영 DB에 Invitation 테이블 미생성** → 초대 라우트 4종 현재 500. Railway는 마이그레이션을 **자동 적용하지 않음**(확정). 수동 적용 필요:
+> ```bash
+> cd ~/searchops-ai
+> DATABASE_URL='<Railway API의 DATABASE_URL, Supabase session pooler :5432>' corepack pnpm db:migrate:deploy
+> ```
+> 검증: `POST /invites/<아무token>/accept` → 404(`Invitation not found`)면 성공. (나머지 API·기능은 정상; 초대 라우트만 영향.)
 
 ### 현재 운영 상태 (한눈에)
 
@@ -20,7 +27,7 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 | 웹사이트 (Vercel) | ✅ 가동 + API 실시간 연결 |
 | 인증/보안 | ✅ `NODE_ENV=production` + HS256 IdP → 익명/사칭 차단(fail-open 닫힘) |
 
-**/ops/readiness 실측 (2026-06-22):** 전체 **41** / 설정됨 **25** / 프로비저닝 필요 **6** / 수동 후속 **10** — 배지 "API 데이터". (A안: `alert-routing`·`error-monitoring-uptime` configured(22→24) · B안: `production-domain` configured(24→25))
+**/ops/readiness 실측 (2026-06-23):** 전체 **41** / 설정됨 **26** / 프로비저닝 필요 **6** / 수동 후속 **9** — 배지 "API 데이터". (A: alert-routing·error-monitoring-uptime(22→24) · B: production-domain(24→25) · C: organization-invite(25→26, manual_followup→configured)) — C의 rich-result/GEO/log-drain은 코드 배선 완료지만 readiness 배지는 **운영 env 설정 시** configured로 전환(현재 6개 프로비저닝필요에 포함).
 
 ### 완료한 작업 (이번 배포 사이클)
 
@@ -41,6 +48,12 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
    - `SEARCHOPS_PUBLIC_APP_URL=https://searchops.totopapa.com`을 **Vercel + Railway 양쪽** 설정 → 웹 재배포로 적용.
    - 검증: HTTPS(HTTP/2, 유효 인증서, icn1 서울 엣지) · `/api/ops/alert-sink` 200 · `/ops/readiness` 200, readiness `production-domain` **configured**(24→25).
    - API는 도메인 변경 불필요 확인(웹→API 서버-투-서버, CORS 없음; `SEARCHOPS_API_BASE_URL`·Google OAuth redirect 불변).
+9. **C안 — 나머지 프로비저닝 dead-env 제거 (PR #77·#78·#79·#80 머지, 2026-06-23)**:
+   - **#77 rich-result**: `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`) env 스키마 + connectors `createHttpSchemaRichResultValidatorClient` + worker 배선. (배포 시 URL을 API+Worker 양쪽 필수.)
+   - **#78 log-drain**: `apps/web/app/api/ops/log-drain-sink` 인증 self-host sink. (`SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`=Railway `..._LOG_DRAIN_TOKEN`.)
+   - **#79 GEO**: 4 provider client(OpenAI호환=ChatGPT+Perplexity, Gemini, Anthropic raw HTTP) + per-provider fixture fallback + worker 배선. `SEARCHOPS_GEO_{CHATGPT,CLAUDE,GEMINI,PERPLEXITY}_{API_KEY,MODEL}`. Copilot은 공개 API 없어 fixture 유지.
+   - **#80 org-invite Tier C**: Invitation 모델+추가전용 마이그레이션 + 라우트 4종(create/list/revoke admin·owner, accept=token capability) + repository(memory+prisma) + env-gated 이메일(`SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL`/`_TOKEN`, 미설정 시 서버로그). organization-invite readiness→configured. **canLaunch는 billing-subscription이 manual_followup이라 여전히 false.**
+   - ⚠️ **#80 마이그레이션 수동 적용 필요**(상단 ACTION REQUIRED). 공통 교훈: dead-env 3종(env스키마 미존재/client 미구현/worker fixture 폴백)은 셋 다 고쳐야 실동작. Railway는 마이그레이션 자동 적용 안 함.
 
 ### 환경변수 위치 (어디에 무엇이)
 
@@ -49,27 +62,35 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 - **Vercel Web**: `SEARCHOPS_API_BASE_URL`, `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`(알림 sink 검증 — Railway `_TOKEN`과 **동일값**), `SEARCHOPS_PUBLIC_APP_URL`(=`https://searchops.totopapa.com`, OAuth 복귀 URL용)
 - **GitHub repo secret (searchops-ai)**: `SEARCHOPS_IDP_JWT_HS256_SECRET` (ops-heartbeat 워크플로 토큰 발급용)
 - ⚠️ Web에는 `NODE_ENV`/`DATABASE_URL`을 **넣지 말 것** (Vercel 빌드 실패; 이 둘은 Railway 전용)
+- **C 기능 활성 env (선택 — 미설정 시 dead-env 아닌 "off" 상태, 코드 폴백 안전)**:
+  - rich-result: Railway **API+Worker** `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`)
+  - GEO: Railway **API+Worker** `SEARCHOPS_GEO_<provider>_API_KEY`(chatgpt/claude/gemini/perplexity, 모델 override `_MODEL`)
+  - log-drain: Railway API `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`(+`_TOKEN`=`<T>`) + Vercel `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`=`<T>`
+  - invite 이메일: Railway API `SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL`(+`_TOKEN`) — 미설정 시 초대 링크가 서버 로그로 출력
 
-### 다음 작업 (남은 6개 · 우선순위)
+### 다음 작업 (우선순위)
 
-> 다음 권장: **외부 uptime 모니터(UptimeRobot/Better Stack) 이중화**(SMS/전화 알림 + GH Actions `/health` 폴러와 이중화), 또는 아래 **C 항목** 중 필요한 것.
+**A·B·C 코드 전부 완료/머지.** 남은 것:
 
-**A. ✅ 완료 (PR #76, 2026-06-22)** — 알림 + 에러/가동 모니터링. `alert-routing`·`error-monitoring-uptime` configured. (외부 uptime 모니터 이중화는 선택 후속.)
+1. 🔴 **[지금] invite 마이그레이션 수동 적용** — 상단 ACTION REQUIRED. 적용 전까지 초대 라우트 4종 500.
+2. **C 기능 활성화(선택)** — provider env 설정 시 rich-result/GEO/log-drain이 실동작(현재는 코드 배선만, off 상태). env 매트릭스는 위 "환경변수 위치" 참조.
+3. **billing-subscription** — `canLaunch=true`를 막는 마지막 manual_followup. 결제 provider(Stripe 등) 결정·연동 필요(제품 결정).
+4. **defer (수신 리시버 없음)**: restore-drill / secret-rotation 웹훅 — 출시는 RUNBOOKS.md 수동 절차.
+5. **선택 후속**: 외부 uptime 모니터(UptimeRobot/Better Stack) 이중화 · invite **web UI**(백엔드 API는 완비) · A안 실알림 1회 토큰일치 확인 · Railway release에 `corepack pnpm db:migrate:deploy` 추가(마이그레이션 자동화).
 
-**B. ✅ 완료 (2026-06-22)** — 커스텀 도메인 `https://searchops.totopapa.com` 연결 + `SEARCHOPS_PUBLIC_APP_URL`(Vercel+Railway). `production-domain` configured. 상세는 위 "완료한 작업 8".
-
-**C. 💤 나중에 / 선택 (지금 불필요)**
-- CMS 읽기(`SEARCHOPS_CMS_WEBHOOK_SECRETS`), Observability log drain(`SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`), Restore drill 웹훅(`SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`), Secret rotation 웹훅(`SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL`)
-- **엔지니어링 필요(env만으로 안 됨)**: GEO live providers, Rich result live validator
-- **코드 작업**: organization-invite (하드코딩 manual_followup → `canLaunch`를 막고 있음)
+**A. ✅ 완료 (PR #76)** — 알림 + 에러/가동 모니터링.
+**B. ✅ 완료 (PR 도메인)** — `https://searchops.totopapa.com`.
+**C. ✅ 코드 완료 (PR #77·#78·#79·#80)** — rich-result·log-drain·GEO 4-provider·org-invite. dead-env 제거. (활성화는 env 설정 + #80 마이그레이션 적용.)
 
 ### 재시작 후 빠른 재개 ("껐다 켜도 바로")
 
 다음 세션에서 아래처럼 말하면 즉시 이어서 진행:
-- ~~"알림 설정 해줘" → A~~ ✅ **완료 (PR #76)** — 남은 선택: 외부 uptime 모니터 이중화 / 실알림 1회 토큰일치 확인
+- ~~"알림 설정 해줘" → A~~ ✅ **완료 (PR #76)**
 - ~~"도메인 연결해줘" → B~~ ✅ **완료** — https://searchops.totopapa.com
-- **"남은 프로비저닝 ◯◯ 해줘"** → 해당 항목 (남은 6개: 외부 uptime 이중화 · CMS · log drain · restore/secret 웹훅 · GEO/Rich live · organization-invite)
-- 상태 확인: https://searchops.totopapa.com/ops/readiness 또는 https://searchops-ai-web.vercel.app/ops/readiness ("API 데이터" 배지 + 수치)
+- ~~"남은 C 항목 진행" → C~~ ✅ **코드 완료 (PR #77·#78·#79·#80)**
+- 🔴 **"invite 마이그레이션 적용했어"** → 제가 초대 라우트 동작 검증 (현재 미적용 = 초대 라우트 500, 상단 ACTION REQUIRED)
+- **"C 기능 켜줘 ◯◯"** → rich-result/GEO/log-drain provider env 설정 안내
+- 상태 확인: https://searchops.totopapa.com/ops/readiness ("API 데이터" 배지 + 수치)
 - 상세 절차서: `docs/PROVISIONING_RUNBOOK.md` (서비스별 env 키 매트릭스 + 단계)
 - 토큰 수동 발급: `SEARCHOPS_IDP_JWT_HS256_SECRET='<값>' node issue-token.mjs`
 
