@@ -75,13 +75,14 @@ const productizationInputs: readonly ProductizationInput[] = [
   {
     area: "invites",
     evidence: [
-      "Invite lifecycle is documented as provider-owned until external IdP is selected.",
-      "Roles are constrained to the shared AuthRole contract.",
+      "Invitation model + create/list/revoke/accept API routes are implemented with RBAC (admin/owner/system).",
+      "Accept upserts the org member with the invited role; tokens expire and are single-use.",
+      "Email delivery is env-gated (SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL); unset = logs the accept link.",
     ],
     id: "organization-invite-user-management",
-    nextAction: "IdP provider 확정 후 email invite delivery와 role assignment webhook을 연결하세요.",
-    status: "manual_followup",
-    summary: "초대/역할 정책은 정의되어 있으나 이메일 발송과 IdP user provisioning은 provider 선택 후 연결합니다.",
+    nextAction: "이메일 발송을 켜려면 SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL(+_TOKEN)을 설정하세요(미설정 시 서버 로그로 초대 링크 확인).",
+    status: "configured",
+    summary: "조직 초대/역할 관리(생성·수락·철회)가 구현되었고, 이메일 발송만 provider env로 선택 연결합니다.",
     title: "Organization invite/user management",
   },
   {

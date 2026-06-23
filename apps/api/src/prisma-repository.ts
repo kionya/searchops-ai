@@ -12,12 +12,14 @@ import {
   ContentBriefSchema,
   CrawlRunSchema,
   GeoVisibilityReportRecordSchema,
+  InvitationSchema,
   KeywordDiscoveryCandidateRecordSchema,
   OrganizationSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueSchema,
   SiteSchema,
   UrlRecordSchema,
+  UserSchema,
   WorkOrderSchema,
   type AeoReadinessReport,
   type AeoReadinessReportRecord,
@@ -31,6 +33,7 @@ import {
   type CrawlRun,
   type GeoVisibilityReport,
   type GeoVisibilityReportRecord,
+  type Invitation,
   type JsonLdRecommendation,
   type JsonLdRecommendationSet,
   type KeywordDiscoveryCandidateRecord,
@@ -39,6 +42,7 @@ import {
   type SeoIssue,
   type Site,
   type UrlRecord,
+  type User,
   type WorkOrder,
   type WorkOrderDraft
 } from "@searchops/types";
@@ -124,6 +128,79 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           where: { id }
         }),
       );
+    },
+
+    async createInvitation(organizationId, input, meta) {
+      const organization = await prisma.organization.findUnique({
+        select: { id: true },
+        where: { id: organizationId }
+      });
+      if (organization === null) {
+        return null;
+      }
+
+      return toInvitation(
+        await prisma.invitation.create({
+          data: {
+            email: input.email,
+            expiresAt: new Date(meta.expiresAt),
+            invitedByUserId: meta.invitedByUserId,
+            organizationId,
+            role: input.role,
+            status: "pending",
+            token: meta.token
+          }
+        }),
+      );
+    },
+
+    async listInvitations(organizationId) {
+      const invitations = await prisma.invitation.findMany({
+        orderBy: { createdAt: "desc" },
+        where: { organizationId }
+      });
+      return invitations.map(toInvitation);
+    },
+
+    async revokeInvitation(organizationId, invitationId) {
+      const existing = await prisma.invitation.findUnique({ where: { id: invitationId } });
+      if (existing === null || existing.organizationId !== organizationId) {
+        return null;
+      }
+      return toInvitation(
+        await prisma.invitation.update({
+          data: { status: "revoked" },
+          where: { id: invitationId }
+        }),
+      );
+    },
+
+    async acceptInvitation(token, now) {
+      const existing = await prisma.invitation.findUnique({ where: { token } });
+      if (existing === null) {
+        return { ok: false, reason: "not_found" };
+      }
+      if (existing.status !== "pending") {
+        return { ok: false, reason: "not_pending" };
+      }
+      if (existing.expiresAt.getTime() < now.getTime()) {
+        await prisma.invitation.update({ data: { status: "expired" }, where: { id: existing.id } });
+        return { ok: false, reason: "expired" };
+      }
+
+      const accepted = await prisma.invitation.update({
+        data: { acceptedAt: now, status: "accepted" },
+        where: { id: existing.id }
+      });
+      const user = await prisma.user.upsert({
+        create: { email: existing.email, organizationId: existing.organizationId, role: existing.role },
+        update: { role: existing.role },
+        where: {
+          organizationId_email: { email: existing.email, organizationId: existing.organizationId }
+        }
+      });
+
+      return { ok: true, result: { invitation: toInvitation(accepted), user: toUser(user) } };
     },
 
     async listSites(organizationId) {
@@ -1510,6 +1587,34 @@ function toOrganization(record: NonNullable<OrganizationRecord>): Organization {
 
 function toNullableOrganization(record: OrganizationRecord): Organization | null {
   return record === null ? null : toOrganization(record);
+}
+
+type InvitationRecord = Awaited<ReturnType<SearchOpsPrismaClient["invitation"]["findFirst"]>>;
+type UserRecord = Awaited<ReturnType<SearchOpsPrismaClient["user"]["findFirst"]>>;
+
+function toInvitation(record: NonNullable<InvitationRecord>): Invitation {
+  return InvitationSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    email: record.email,
+    role: record.role,
+    status: record.status,
+    invitedByUserId: record.invitedByUserId,
+    createdAt: record.createdAt.toISOString(),
+    expiresAt: record.expiresAt.toISOString(),
+    acceptedAt: record.acceptedAt === null ? null : record.acceptedAt.toISOString()
+  });
+}
+
+function toUser(record: NonNullable<UserRecord>): User {
+  return UserSchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    email: record.email,
+    name: record.name,
+    role: record.role,
+    createdAt: record.createdAt.toISOString()
+  });
 }
 
 function toSite(record: NonNullable<SiteRecord>): Site {

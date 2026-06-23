@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { ZodError, z } from "zod";
 import {
@@ -24,8 +26,12 @@ import {
 } from "@searchops/workorders";
 
 import {
+  AcceptInvitationResponseSchema,
   ApiMetricsResponseSchema,
   AeoReadinessReportListResponseSchema,
+  CreateInvitationRequestSchema,
+  InvitationListResponseSchema,
+  InvitationSchema,
   ClosedLoopAuditEventListResponseSchema,
   CmsContentUpdatedEventRequestSchema,
   CmsContentUpdatedEventResponseSchema,
@@ -137,6 +143,7 @@ import {
   type SearchOpsRepository,
   createMemoryRepository,
 } from "./repository.js";
+import { createInviteEmailSender, type InviteEmailSender } from "./invite-email.js";
 import {
   parseCmsWebhookSecrets,
   verifyCmsWebhookRequest,
@@ -169,6 +176,12 @@ import { createOperationalReadiness } from "./readiness.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
+const InvitationRevokeParamsSchema = z.object({
+  invitationId: z.string().min(1),
+  organizationId: z.string().min(1),
+});
+const InvitationAcceptParamsSchema = z.object({ token: z.string().min(1) });
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CmsWebhookParamsSchema = z.object({
   cmsType: CmsWebhookProviderSchema,
   id: z.string().min(1),
@@ -202,6 +215,7 @@ export interface BuildApiServerOptions {
   readonly authContextResolver?: AuthContextResolver | undefined;
   readonly backupRestoreDrillScheduler?: BackupRestoreDrillScheduler | undefined;
   readonly secretRotationExecutor?: SecretRotationExecutor | undefined;
+  readonly inviteEmailSender?: InviteEmailSender | undefined;
 }
 
 export interface ApiRateLimitOptions {
@@ -289,6 +303,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.backupRestoreDrillScheduler ?? createNoopBackupRestoreDrillScheduler();
   const secretRotationExecutor =
     options.secretRotationExecutor ?? createNoopSecretRotationExecutor();
+  const inviteEmailSender = options.inviteEmailSender ?? createInviteEmailSender(process.env);
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -405,6 +420,11 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       routeUrl === "/organizations/:organizationId/sites" ||
       routeUrl === "/organizations/:organizationId/sites/register"
     ) {
+      const { organizationId } = OrganizationParamsSchema.parse(request.params);
+      return ensureOrganizationAccess({ organizationId, reply, request });
+    }
+
+    if (routeUrl.startsWith("/organizations/:organizationId/invites")) {
       const { organizationId } = OrganizationParamsSchema.parse(request.params);
       return ensureOrganizationAccess({ organizationId, reply, request });
     }
@@ -998,6 +1018,101 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(SiteSchema.parse(site));
+  });
+
+  server.get("/organizations/:organizationId/invites", async (request, reply) => {
+    const { organizationId } = OrganizationParamsSchema.parse(request.params);
+    const organization = await repository.getOrganization(organizationId);
+    if (!organization) {
+      reply.status(404).send(notFound("Organization not found"));
+      return;
+    }
+
+    reply.send(
+      InvitationListResponseSchema.parse({
+        invitations: await repository.listInvitations(organizationId),
+      }),
+    );
+  });
+
+  server.post("/organizations/:organizationId/invites", async (request, reply) => {
+    const { organizationId } = OrganizationParamsSchema.parse(request.params);
+    const userContext = resolveRequestUserContext(request);
+    if (!canManageOperations(userContext.role)) {
+      reply.status(403).send(forbidden("User role cannot manage invitations"));
+      return;
+    }
+
+    const input = CreateInvitationRequestSchema.parse(request.body);
+    const token = randomUUID();
+    const expiresAt = new Date(currentTime().getTime() + INVITE_TTL_MS).toISOString();
+    const invitation = await repository.createInvitation(organizationId, input, {
+      expiresAt,
+      invitedByUserId: userContext.userId,
+      token,
+    });
+    if (!invitation) {
+      reply.status(404).send(notFound("Organization not found"));
+      return;
+    }
+
+    const publicAppUrl = process.env.SEARCHOPS_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? null;
+    try {
+      await inviteEmailSender.send({
+        acceptUrl: publicAppUrl ? `${publicAppUrl}/invites/${token}` : null,
+        expiresAt,
+        organizationId,
+        role: invitation.role,
+        to: invitation.email,
+        token,
+      });
+    } catch (error) {
+      // Email delivery is best-effort: the invitation persists even if delivery fails.
+      console.error("[invite] email delivery failed; invitation still created", error);
+    }
+
+    reply.status(201).send(InvitationSchema.parse(invitation));
+  });
+
+  server.post(
+    "/organizations/:organizationId/invites/:invitationId/revoke",
+    async (request, reply) => {
+      const { invitationId, organizationId } = InvitationRevokeParamsSchema.parse(request.params);
+      const userContext = resolveRequestUserContext(request);
+      if (!canManageOperations(userContext.role)) {
+        reply.status(403).send(forbidden("User role cannot manage invitations"));
+        return;
+      }
+
+      const revoked = await repository.revokeInvitation(organizationId, invitationId);
+      if (!revoked) {
+        reply.status(404).send(notFound("Invitation not found"));
+        return;
+      }
+
+      reply.send(InvitationSchema.parse(revoked));
+    },
+  );
+
+  server.post("/invites/:token/accept", async (request, reply) => {
+    const { token } = InvitationAcceptParamsSchema.parse(request.params);
+    const outcome = await repository.acceptInvitation(token, currentTime());
+    if (!outcome.ok) {
+      if (outcome.reason === "not_found") {
+        reply.status(404).send(notFound("Invitation not found"));
+        return;
+      }
+      reply.status(409).send({
+        error: "invitation_not_acceptable",
+        message:
+          outcome.reason === "expired"
+            ? "Invitation has expired."
+            : "Invitation is no longer pending.",
+      });
+      return;
+    }
+
+    reply.status(200).send(AcceptInvitationResponseSchema.parse(outcome.result));
   });
 
   server.post("/organizations/:organizationId/sites/register", async (request, reply) => {
