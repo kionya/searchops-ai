@@ -80,12 +80,11 @@
         </p>
       </header>
 
-      <section aria-label="조치 필요">
-        <div class="guardrails" style="border-color:#a15c00;background:#fff4df">
-          <h3 style="color:#a15c00;margin-bottom:6px">🔴 ACTION REQUIRED — invite 마이그레이션 수동 적용</h3>
-          <p class="small">PR #80(org-invite) 머지로 코드는 배포됐으나 <strong>운영 DB에 Invitation 테이블 미생성</strong> → 초대 라우트 4종 현재 500. Railway는 마이그레이션을 <strong>자동 적용하지 않음</strong>(확정). 나머지 API·기능은 정상.</p>
-          <p class="small">수정: <code>DATABASE_URL='&lt;Railway API의 DATABASE_URL, Supabase session pooler :5432&gt;' corepack pnpm db:migrate:deploy</code></p>
-          <p class="small">검증: <code>POST /invites/&lt;아무token&gt;/accept</code> → 404(<code>Invitation not found</code>)면 성공.</p>
+      <section aria-label="조치 완료">
+        <div class="guardrails" style="border-color:#16805d;background:#e8f6f0">
+          <h3 style="color:#16805d;margin-bottom:6px">✅ org-invite 마이그레이션 적용 완료 (2026-06-23)</h3>
+          <p class="small"><code>Invitation</code> 테이블 운영 DB 생성 확인 — accept 404(정상), create/list 401(인증 게이트 정상). 초대 기능 라이브.</p>
+          <p class="small">⚠️ 교훈: Railway는 마이그레이션을 <strong>자동 적용하지 않음</strong>(확정). 스키마 변경 PR은 머지 후 수동 <code>DATABASE_URL='&lt;운영, session pooler :5432&gt;' corepack pnpm db:migrate:deploy</code> 필요(자동화 후속 권장).</p>
         </div>
       </section>
 
@@ -188,26 +187,19 @@
           <div class="plan">
             <div class="tag">C ✅</div>
             <div>
-              <strong>나머지 dead-env 제거</strong> <span class="status done">코드 완료 (PR #77·#78·#79·#80)</span>
-              <p class="small">rich-result · log-drain · GEO 4-provider · org-invite. 활성화는 env 설정 + #80 마이그레이션 적용.</p>
+              <strong>나머지 dead-env 제거</strong> <span class="status done">완료 (PR #77·#78·#79·#80 + 마이그레이션)</span>
+              <p class="small">rich-result · log-drain · GEO 4-provider · org-invite. org-invite 라이브. rich-result/GEO/log-drain 실동작은 provider env 설정 시.</p>
             </div>
           </div>
           <div class="plan">
-            <div class="tag">1 🔴</div>
-            <div>
-              <strong>invite 마이그레이션 수동 적용</strong> <span class="status partial">지금 필요</span>
-              <p class="small">상단 ACTION REQUIRED. 적용 전까지 초대 라우트 4종 500.</p>
-            </div>
-          </div>
-          <div class="plan">
-            <div class="tag">2 ⚙️</div>
+            <div class="tag">1 ⚙️</div>
             <div>
               <strong>C 기능 활성화 (선택)</strong> <span class="status defer">env 설정 시</span>
               <p class="small">provider env 설정 시 rich-result/GEO/log-drain 실동작(현재 off, 폴백 안전). env 매트릭스는 위 참조.</p>
             </div>
           </div>
           <div class="plan">
-            <div class="tag">3 💤</div>
+            <div class="tag">2 💤</div>
             <div>
               <strong>defer / 제품 결정 / 선택 후속</strong> <span class="status defer">defer</span>
               <p class="small">
@@ -228,9 +220,9 @@
           <ul>
             <li><s>"알림 설정 해줘" → A</s> ✅ 완료 (PR #76)</li>
             <li><s>"도메인 연결해줘" → B</s> ✅ 완료 — <code>searchops.totopapa.com</code></li>
-            <li><s>"남은 C 항목 진행" → C</s> ✅ 코드 완료 (PR #77·#78·#79·#80)</li>
-            <li>🔴 <strong>"invite 마이그레이션 적용했어"</strong> → 초대 라우트 동작 검증 (현재 미적용 = 500)</li>
+            <li><s>"남은 C 항목 진행" → C</s> ✅ 완료 (PR #77·#78·#79·#80 + 마이그레이션 적용)</li>
             <li><strong>"C 기능 켜줘 ◯◯"</strong> → rich-result/GEO/log-drain provider env 설정 안내</li>
+            <li><strong>"billing 연동하자"</strong> → canLaunch=true의 마지막 차단(Stripe 등 제품 결정)</li>
           </ul>
           <p class="small">
             상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 + 수치) ·

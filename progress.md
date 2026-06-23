@@ -9,12 +9,8 @@
 Updated: 2026-06-23
 Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.app) · api = https://searchops-api-production.up.railway.app
 
-> 🔴 **ACTION REQUIRED (2026-06-23)**: PR #80(org-invite) 머지로 코드는 배포됐으나 **운영 DB에 Invitation 테이블 미생성** → 초대 라우트 4종 현재 500. Railway는 마이그레이션을 **자동 적용하지 않음**(확정). 수동 적용 필요:
-> ```bash
-> cd ~/searchops-ai
-> DATABASE_URL='<Railway API의 DATABASE_URL, Supabase session pooler :5432>' corepack pnpm db:migrate:deploy
-> ```
-> 검증: `POST /invites/<아무token>/accept` → 404(`Invitation not found`)면 성공. (나머지 API·기능은 정상; 초대 라우트만 영향.)
+> ✅ **org-invite 마이그레이션 적용 완료 (2026-06-23)**: `Invitation` 테이블 운영 DB 생성 확인 — `POST /invites/<token>/accept` → 404(정상), create/list → 401(인증 게이트 정상). 초대 기능 라이브.
+> ⚠️ **교훈**: Railway는 마이그레이션을 **자동 적용하지 않음**(확정). 스키마 변경 PR은 머지 후 반드시 수동 `DATABASE_URL='<운영, Supabase session pooler :5432>' corepack pnpm db:migrate:deploy`. (자동화 후속 권장: Railway release command.)
 
 ### 현재 운영 상태 (한눈에)
 
@@ -70,26 +66,25 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 
 ### 다음 작업 (우선순위)
 
-**A·B·C 코드 전부 완료/머지.** 남은 것:
+**A·B·C 코드 전부 완료/머지 + org-invite 마이그레이션 적용 완료.** 남은 것:
 
-1. 🔴 **[지금] invite 마이그레이션 수동 적용** — 상단 ACTION REQUIRED. 적용 전까지 초대 라우트 4종 500.
-2. **C 기능 활성화(선택)** — provider env 설정 시 rich-result/GEO/log-drain이 실동작(현재는 코드 배선만, off 상태). env 매트릭스는 위 "환경변수 위치" 참조.
-3. **billing-subscription** — `canLaunch=true`를 막는 마지막 manual_followup. 결제 provider(Stripe 등) 결정·연동 필요(제품 결정).
-4. **defer (수신 리시버 없음)**: restore-drill / secret-rotation 웹훅 — 출시는 RUNBOOKS.md 수동 절차.
-5. **선택 후속**: 외부 uptime 모니터(UptimeRobot/Better Stack) 이중화 · invite **web UI**(백엔드 API는 완비) · A안 실알림 1회 토큰일치 확인 · Railway release에 `corepack pnpm db:migrate:deploy` 추가(마이그레이션 자동화).
+1. **C 기능 활성화(선택)** — provider env 설정 시 rich-result/GEO/log-drain이 실동작(현재는 코드 배선만, off 상태). env 매트릭스는 위 "환경변수 위치" 참조.
+2. **billing-subscription** — `canLaunch=true`를 막는 마지막 manual_followup. 결제 provider(Stripe 등) 결정·연동 필요(제품 결정).
+3. **defer (수신 리시버 없음)**: restore-drill / secret-rotation 웹훅 — 출시는 RUNBOOKS.md 수동 절차.
+4. **선택 후속**: 외부 uptime 모니터(UptimeRobot/Better Stack) 이중화 · invite **web UI**(백엔드 API는 완비) · A안 실알림 1회 토큰일치 확인 · Railway release에 `corepack pnpm db:migrate:deploy` 추가(마이그레이션 자동화).
 
 **A. ✅ 완료 (PR #76)** — 알림 + 에러/가동 모니터링.
 **B. ✅ 완료 (PR 도메인)** — `https://searchops.totopapa.com`.
-**C. ✅ 코드 완료 (PR #77·#78·#79·#80)** — rich-result·log-drain·GEO 4-provider·org-invite. dead-env 제거. (활성화는 env 설정 + #80 마이그레이션 적용.)
+**C. ✅ 완료 (PR #77·#78·#79·#80 + 마이그레이션 적용)** — rich-result·log-drain·GEO 4-provider·org-invite. dead-env 제거. (rich-result/GEO/log-drain 실동작은 provider env 설정 시.)
 
 ### 재시작 후 빠른 재개 ("껐다 켜도 바로")
 
 다음 세션에서 아래처럼 말하면 즉시 이어서 진행:
 - ~~"알림 설정 해줘" → A~~ ✅ **완료 (PR #76)**
 - ~~"도메인 연결해줘" → B~~ ✅ **완료** — https://searchops.totopapa.com
-- ~~"남은 C 항목 진행" → C~~ ✅ **코드 완료 (PR #77·#78·#79·#80)**
-- 🔴 **"invite 마이그레이션 적용했어"** → 제가 초대 라우트 동작 검증 (현재 미적용 = 초대 라우트 500, 상단 ACTION REQUIRED)
+- ~~"남은 C 항목 진행" → C~~ ✅ **완료 (PR #77·#78·#79·#80 + 마이그레이션 적용)**
 - **"C 기능 켜줘 ◯◯"** → rich-result/GEO/log-drain provider env 설정 안내
+- **"billing 연동하자"** → canLaunch=true의 마지막 차단(Stripe 등 제품 결정)
 - 상태 확인: https://searchops.totopapa.com/ops/readiness ("API 데이터" 배지 + 수치)
 - 상세 절차서: `docs/PROVISIONING_RUNBOOK.md` (서비스별 env 키 매트릭스 + 단계)
 - 토큰 수동 발급: `SEARCHOPS_IDP_JWT_HS256_SECRET='<값>' node issue-token.mjs`
