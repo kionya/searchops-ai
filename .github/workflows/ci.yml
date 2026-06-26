@@ -61,6 +61,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://searchops:searchops@localhost:5432/searchops_ci?schema=public
+      # CI postgres is a direct connection, so directUrl == url here.
+      DIRECT_DATABASE_URL: postgresql://searchops:searchops@localhost:5432/searchops_ci?schema=public
 
     steps:
       - name: Checkout
