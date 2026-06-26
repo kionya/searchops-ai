@@ -5,7 +5,14 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime client uses the pooled connection (DATABASE_URL).
   url      = env("DATABASE_URL")
+  // Migrations/introspection use a direct (non-transaction-pooler) connection.
+  // prisma migrate deploy fails over Supabase's transaction pooler (:6543) due to
+  // prepared statements, so point DIRECT_DATABASE_URL at the session pooler (:5432)
+  // or a direct connection. Set it equal to DATABASE_URL where the runtime URL is
+  // already migrate-compatible (local dev, CI).
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model Organization {
