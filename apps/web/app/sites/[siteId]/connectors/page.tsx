@@ -489,7 +489,9 @@ function GoogleOAuthPanel({
 
   const oauthUrl = (providers: string) => {
     if (!apiBaseUrl) return null;
-    const base = `${apiBaseUrl}/sites/${siteId}/connectors/google/oauth/start?providers=${providers}`;
+    // 웹 라우트 핸들러 경유 — 서버사이드에서 owner 토큰으로 인증 URL을 받아 Google로
+    // 리다이렉트한다. (API start는 인증 게이트라 브라우저 직접 접근 시 401.)
+    const base = `/sites/${siteId}/connectors/google/oauth/start?providers=${providers}`;
     return returnTo ? `${base}&returnTo=${encodeURIComponent(returnTo)}` : base;
   };
 
