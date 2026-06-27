@@ -1061,24 +1061,38 @@ describe("web foundation", () => {
       observedAt: "2026-05-24T00:00:00.000Z",
       providers: ["chatgpt", "gemini"],
       queries: [
-        {
-          locale: "ko-KR",
-          query: "답변엔진 최적화 클리닉"
-        },
-        {
-          locale: "ko-KR",
-          query: "의료 SEO 체크리스트"
-        },
-        {
-          locale: "ko-KR",
-          query: "강남 SEO 클리닉"
-        }
+        { locale: "ko-KR", query: "예시 클리닉 후기" },
+        { locale: "ko-KR", query: "예시 클리닉 어떤가요" },
+        { locale: "ko-KR", query: "강남 피부과 추천" },
+        { locale: "ko-KR", query: "강남역 피부과 잘하는 곳" },
+        { locale: "ko-KR", query: "강남 리프팅 잘하는 병원" },
+        { locale: "ko-KR", query: "강남 보톡스 잘하는 곳" },
+        { locale: "ko-KR", query: "강남 필러 추천 병원" }
       ],
       target: {
         domain: demoSite.domain,
         siteId: demoSite.id
       }
     });
+  });
+
+  it("uses operator-entered queries (one per line) over the defaults, deduped and capped", () => {
+    const formData = new FormData();
+    formData.append("providers", "chatgpt");
+    formData.append(
+      "queries",
+      "  강남 리쥬엘 후기 \n강남 물광주사 잘하는 곳\n강남 리쥬엘 후기\n\n강남 울쎄라 후기",
+    );
+
+    const request = createGeoAnswerMonitorRequestFromForm(demoSite, formData, {
+      observedAt: "2026-05-24T00:00:00.000Z"
+    });
+
+    expect(request.queries).toEqual([
+      { locale: "ko-KR", query: "강남 리쥬엘 후기" },
+      { locale: "ko-KR", query: "강남 물광주사 잘하는 곳" },
+      { locale: "ko-KR", query: "강남 울쎄라 후기" }
+    ]);
   });
 
   it("queues GEO answer monitor jobs through the API response contract", async () => {
@@ -1098,7 +1112,7 @@ describe("web foundation", () => {
             siteId: demoSite.id
           }
         });
-        expect(body.queries).toHaveLength(3);
+        expect(body.queries).toHaveLength(7);
 
         return Response.json({
           job: {
@@ -1123,7 +1137,7 @@ describe("web foundation", () => {
       jobId: "job_geo_answer_monitor",
       providerCount: 2,
       providers: ["chatgpt", "perplexity"],
-      queryCount: 3,
+      queryCount: 7,
       source: "api",
       status: "queued"
     });

@@ -422,27 +422,64 @@ export function createGeoAnswerMonitorRequestFromForm(
   return QueueGeoAnswerMonitorRequestSchema.parse({
     observedAt: options.observedAt ?? new Date().toISOString(),
     providers: selectedProviders,
-    queries: createGeoAnswerMonitorQueries(site),
+    queries: parseGeoAnswerMonitorQueriesFromForm(site, formData),
     target: createGeoTarget(site)
   });
 }
 
+export const GEO_ANSWER_MONITOR_QUERY_LIMIT = 12;
+
+/**
+ * Editable starter set of REAL patient-intent queries for GEO answer monitoring
+ * (브랜드 × 지역 × 시술 × 의도). 운영자는 병원의 실제 타겟 키워드 — 가능하면 GSC 검색어
+ * 데이터 — 로 교체해야 합니다. 데모 fixture 질의가 아닙니다.
+ *
+ * ⚠️ 의료광고법: 질의 자체는 환자 검색어라 무방하나, GEO 결과를 마케팅 표면에 노출할 때는
+ * 효과 보장·비교(타 병원 우위) 표현이 없는지 컴플라이언스 게이트를 거쳐야 합니다.
+ */
+export function buildDefaultGeoQueryStrings(site: Site): string[] {
+  const brand = site.name ?? site.domain;
+  return [
+    `${brand} 후기`,
+    `${brand} 어떤가요`,
+    "강남 피부과 추천",
+    "강남역 피부과 잘하는 곳",
+    "강남 리프팅 잘하는 병원",
+    "강남 보톡스 잘하는 곳",
+    "강남 필러 추천 병원",
+  ];
+}
+
 export function createGeoAnswerMonitorQueries(site: Site): GeoAnswerMonitorQuery[] {
   const locale = `${site.language}-${site.country}`;
-  const uniqueQueries = new Set<string>();
+  return buildDefaultGeoQueryStrings(site).map((query) => ({ locale, query }));
+}
 
-  return createDemoGeoObservations(site)
-    .filter((observation) => {
-      if (uniqueQueries.has(observation.query)) {
+/**
+ * Parse operator-entered queries (한 줄에 하나) from the monitor form. 비어있으면
+ * buildDefaultGeoQueryStrings로 폴백. 공백 제거·중복 제거·최대 GEO_ANSWER_MONITOR_QUERY_LIMIT개
+ * (질의 × provider = API 호출 = 과금이라 상한).
+ */
+export function parseGeoAnswerMonitorQueriesFromForm(
+  site: Site,
+  formData: FormData | undefined,
+): GeoAnswerMonitorQuery[] {
+  const locale = `${site.language}-${site.country}`;
+  const seen = new Set<string>();
+  const entered = String(formData?.get("queries") ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (line.length === 0 || seen.has(line)) {
         return false;
       }
-      uniqueQueries.add(observation.query);
+      seen.add(line);
       return true;
     })
-    .map((observation) => ({
-      locale,
-      query: observation.query
-    }));
+    .slice(0, GEO_ANSWER_MONITOR_QUERY_LIMIT)
+    .map((query) => ({ locale, query }));
+
+  return entered.length > 0 ? entered : createGeoAnswerMonitorQueries(site);
 }
 
 export function summarizeGeoVisibilityDashboard(

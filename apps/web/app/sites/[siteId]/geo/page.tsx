@@ -16,6 +16,7 @@ import {
   thStyle
 } from "../../../../src/dashboard-table-styles";
 import {
+  buildDefaultGeoQueryStrings,
   defaultGeoAnswerMonitorProviders,
   formatGeoDate,
   formatGeoProvider,
@@ -91,6 +92,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
       </div>
       <GeoCreatePanel
         siteId={siteId}
+        defaultQueries={buildDefaultGeoQueryStrings(site).join("\n")}
         createFeedback={createFeedback}
         monitorFeedback={monitorFeedback}
         workOrderPreview={workOrderPreview}
@@ -228,13 +230,15 @@ function GeoCreatePanel({
   monitorFeedback,
   workOrderPreview,
   workOrderFeedback,
-  siteId
+  siteId,
+  defaultQueries
 }: {
   readonly createFeedback: ReturnType<typeof getGeoVisibilityCreateFeedback>;
   readonly monitorFeedback: ReturnType<typeof getGeoAnswerMonitorQueueFeedback>;
   readonly workOrderPreview: ReturnType<typeof summarizeGeoWorkOrderBatchPreview>;
   readonly workOrderFeedback: ReturnType<typeof getGeoVisibilityWorkOrderFeedback>;
   readonly siteId: string;
+  readonly defaultQueries: string;
 }) {
   const createAction = createGeoVisibilityReportAction.bind(null, siteId);
   const monitorAction = queueGeoAnswerMonitorAction.bind(null, siteId);
@@ -275,6 +279,19 @@ function GeoCreatePanel({
         </form>
         <form action={monitorAction} style={monitorFormStyle}>
           <strong style={panelActionTitleStyle}>Provider 배치 관측</strong>
+          <label style={queryFieldLabelStyle}>
+            타겟 질의 — 환자가 AI 답변엔진에 실제로 묻는 검색어 (한 줄에 하나, 최대 12개)
+            <textarea
+              defaultValue={defaultQueries}
+              name="queries"
+              rows={7}
+              style={queryTextareaStyle}
+            />
+          </label>
+          <span style={queryHelpStyle}>
+            시술 × 지역 × 의도로 작성. 예시는 이 병원 실제 키워드(가능하면 Search Console 검색어)로 교체하세요.
+            ⚠️ 질의 × provider = OpenAI 호출(과금) · 의료광고법: 결과의 마케팅 노출 전 컴플라이언스 점검.
+          </span>
           <div style={providerGridStyle}>
             {geoAnswerMonitorProviderOptions.map((provider) => (
               <label key={provider} style={providerOptionStyle}>
@@ -426,6 +443,32 @@ const panelActionTitleStyle = {
 const panelActionDescriptionStyle = {
   color: "#64748b",
   fontSize: 13
+} as const;
+
+const queryFieldLabelStyle = {
+  color: "#172033",
+  display: "grid",
+  fontSize: 13,
+  fontWeight: 600,
+  gap: 6
+} as const;
+
+const queryTextareaStyle = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
+  fontFamily: "inherit",
+  fontSize: 13,
+  fontWeight: 400,
+  lineHeight: 1.5,
+  padding: "8px 10px",
+  resize: "vertical",
+  width: "100%"
+} as const;
+
+const queryHelpStyle = {
+  color: "#64748b",
+  fontSize: 12,
+  lineHeight: 1.5
 } as const;
 
 const providerGridStyle = {
