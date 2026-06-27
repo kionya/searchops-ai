@@ -51,7 +51,7 @@ import {
 } from "../../../../src/connector-sync-history";
 import { getApiBaseUrl } from "../../../../src/api-base-url";
 import { runConnectorSyncAction } from "./actions";
-import { ConnectorSyncSubmitButton } from "./submit-button";
+import { ConnectorSyncSubmitButton, ProviderSyncSubmitButton } from "./submit-button";
 
 interface ConnectorsPageProps {
   readonly params: Promise<{
@@ -398,9 +398,7 @@ function ConnectorOperationsPanel({
             </p>
             <form action={action} style={{ marginTop: 14 }}>
               <input name="providers" type="hidden" value={item.provider} />
-              <button style={providerCardButtonStyle} type="submit">
-                {item.retryLabel}
-              </button>
+              <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
             </form>
           </article>
         ))}
@@ -602,9 +600,10 @@ function ConnectorSyncTriggerPanel({
         {connectorProviderOptions.map((provider) => (
           <form action={action} key={provider}>
             <input name="providers" type="hidden" value={provider} />
-            <button style={quickProviderButtonStyle} type="submit">
-              {formatConnectorProvider(provider)}만 실행
-            </button>
+            <ProviderSyncSubmitButton
+              label={`${formatConnectorProvider(provider)}만 실행`}
+              style={quickProviderButtonStyle}
+            />
           </form>
         ))}
       </div>
