@@ -36,8 +36,7 @@ export function LegalDocument({
         <h1 style={titleStyle}>{title}</h1>
         <p style={metaStyle}>시행일: {effectiveDate}</p>
         <div style={noticeStyle}>
-          ⚠️ 본 문서는 <strong>표준 템플릿</strong>입니다. 운영 게시 전 회사 정보(상호·사업자등록번호·주소·
-          개인정보보호책임자 연락처) 기입과 <strong>법무 검토</strong>가 필요합니다.
+          ⚠️ 본 문서는 표준 템플릿을 기반으로 작성되었습니다. 운영 게시 전 <strong>법무 검토</strong>를 권장합니다.
         </div>
         <div style={introStyle}>{intro}</div>
         {sections.map((section, index) => (
