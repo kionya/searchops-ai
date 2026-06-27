@@ -128,9 +128,19 @@ export function createGoogleConnectorOAuthClient({
         },
         method: "POST",
       });
-      const tokenResponse = (await response.json()) as GoogleTokenResponse;
+      const tokenResponse = (await response.json()) as GoogleTokenResponse & {
+        readonly error?: unknown;
+        readonly error_description?: unknown;
+      };
       if (!response.ok) {
-        throw new Error("Google OAuth token exchange failed.");
+        const detail = [tokenResponse.error, tokenResponse.error_description]
+          .filter((part): part is string => typeof part === "string" && part.length > 0)
+          .join(": ");
+        throw new Error(
+          detail.length > 0
+            ? `Google OAuth token exchange failed: ${detail}`
+            : "Google OAuth token exchange failed.",
+        );
       }
 
       return parseGoogleTokenResponse(tokenResponse, currentTime());
