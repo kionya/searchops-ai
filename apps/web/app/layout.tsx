@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import Script from "next/script";
 import type { ReactNode } from "react";
 
@@ -59,6 +60,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </>
         ) : null}
         {children}
+        <footer
+          style={{
+            borderTop: "1px solid #e2e8f0",
+            color: "#64748b",
+            display: "flex",
+            flexWrap: "wrap",
+            fontSize: 13,
+            gap: 16,
+            justifyContent: "center",
+            padding: "20px 16px",
+          }}
+        >
+          <span>© SearchOps AI</span>
+          <Link href="/privacy" style={{ color: "#475569", textDecoration: "none" }}>
+            개인정보처리방침
+          </Link>
+          <Link href="/terms" style={{ color: "#475569", textDecoration: "none" }}>
+            이용약관
+          </Link>
+        </footer>
       </body>
     </html>
   );
