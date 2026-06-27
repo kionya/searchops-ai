@@ -13,6 +13,7 @@ export interface LegalDocumentProps {
   readonly sections: readonly LegalSection[];
   readonly relatedHref: string;
   readonly relatedLabel: string;
+  readonly showNotice?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export function LegalDocument({
   sections,
   relatedHref,
   relatedLabel,
+  showNotice = true,
 }: LegalDocumentProps) {
   return (
     <main style={pageStyle}>
@@ -35,9 +37,11 @@ export function LegalDocument({
         </Link>
         <h1 style={titleStyle}>{title}</h1>
         <p style={metaStyle}>시행일: {effectiveDate}</p>
-        <div style={noticeStyle}>
-          ⚠️ 본 문서는 표준 템플릿을 기반으로 작성되었습니다. 운영 게시 전 <strong>법무 검토</strong>를 권장합니다.
-        </div>
+        {showNotice ? (
+          <div style={noticeStyle}>
+            ⚠️ 본 문서는 표준 템플릿을 기반으로 작성되었습니다. 운영 게시 전 <strong>법무 검토</strong>를 권장합니다.
+          </div>
+        ) : null}
         <div style={introStyle}>{intro}</div>
         {sections.map((section, index) => (
           <section key={section.heading} style={sectionStyle}>

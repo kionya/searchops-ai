@@ -134,6 +134,7 @@ export default function PrivacyPolicyPage() {
       sections={SECTIONS}
       relatedHref="/terms"
       relatedLabel="이용약관 보기"
+      showNotice={false}
     />
   );
 }
