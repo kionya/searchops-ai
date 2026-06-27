@@ -83,7 +83,7 @@ export interface ConnectorCommandCenterSummary {
   readonly totalProviders: number;
 }
 
-const connectorSyncHistoryFetchTimeoutMs = 4_000;
+const connectorSyncHistoryFetchTimeoutMs = 8_000;
 const connectorSyncDetailFetchLimit = 8;
 const fixtureStartedAt = "2026-05-22T00:00:00.000Z";
 const fixtureEndedAt = "2026-05-22T00:01:00.000Z";
