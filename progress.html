@@ -72,7 +72,7 @@
     <main>
       <header>
         <h1>SearchOps AI — 운영 배포 진행 현황</h1>
-        <p class="meta">Updated: 2026-06-23 · Branch: <code>main</code></p>
+        <p class="meta">Updated: 2026-06-27 · Branch: <code>main</code></p>
         <p class="lead">
           Live · Web <a href="https://searchops.totopapa.com/ops/readiness">searchops.totopapa.com</a>
           (+ <a href="https://searchops-ai-web.vercel.app/ops/readiness">searchops-ai-web.vercel.app</a>)
@@ -82,21 +82,22 @@
 
       <section aria-label="조치 완료">
         <div class="guardrails" style="border-color:#16805d;background:#e8f6f0">
-          <h3 style="color:#16805d;margin-bottom:6px">✅ org-invite 마이그레이션 적용 완료 (2026-06-23)</h3>
-          <p class="small"><code>Invitation</code> 테이블 운영 DB 생성 확인 — accept 404(정상), create/list 401(인증 게이트 정상). 초대 기능 라이브.</p>
-          <p class="small">⚠️ 교훈: Railway는 마이그레이션을 <strong>자동 적용하지 않음</strong>(확정). 스키마 변경 PR은 머지 후 수동 <code>DATABASE_URL='&lt;운영, session pooler :5432&gt;' corepack pnpm db:migrate:deploy</code> 필요(자동화 후속 권장).</p>
+          <h3 style="color:#16805d;margin-bottom:6px">✅ 운영 하드닝 사이클 2 완료 (2026-06-27)</h3>
+          <p class="small"><strong>마이그레이션 자동화 (#82)</strong>: Prisma <code>directUrl</code>(<code>DIRECT_DATABASE_URL</code>=session pooler :5432) + Railway <code>searchops-api</code> Pre-Deploy Command <code>corepack pnpm db:migrate:deploy</code>. 배포 로그로 검증(<code>No pending migrations to apply</code>) → 스키마 PR 머지 시 <strong>자동 적용</strong>(과거 "Railway 자동 적용 안 함" 교훈을 이 설정으로 해결).</p>
+          <p class="small"><strong>시크릿 로테이션</strong>: 노출된 <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳(Railway API·Vercel prod+preview·GitHub) 교체·검증, 옛 값 무효화.</p>
+          <p class="small"><strong>GEO live (OpenAI)</strong> · <strong>log-drain</strong> 활성 · <strong>invite web UI (#81)</strong> <code>/ops/invites</code> · <strong>dead-letter 0건</strong> · 버그수정 #83(GEO/compliance 액션 도메인 폴백).</p>
         </div>
       </section>
 
       <section aria-label="readiness 요약">
-        <h2>운영 준비도 (실측 · 2026-06-23)</h2>
+        <h2>운영 준비도 (실측 · 2026-06-27)</h2>
         <div class="summary">
           <div class="stat"><strong>41</strong><span>전체 항목</span></div>
-          <div class="stat"><strong>26</strong><span>설정됨</span></div>
-          <div class="stat"><strong>6</strong><span>프로비저닝 필요</span></div>
+          <div class="stat"><strong>28</strong><span>설정됨</span></div>
+          <div class="stat"><strong>4</strong><span>프로비저닝 필요</span></div>
           <div class="stat"><strong>9</strong><span>수동 후속</span></div>
         </div>
-        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A(alert-routing·error-monitoring-uptime) + B(production-domain) + C(organization-invite) configured (22→26). C의 rich-result/GEO/log-drain은 코드 배선 완료, 운영 env 설정 시 배지 전환(현재 6개 프로비저닝필요에 포함).</p>
+        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A + B + C(organization-invite) + 이번 사이클 <strong>observability-drain</strong>(log-drain) + <strong>geo-live-providers</strong>(OpenAI 키) configured → 26→28. <strong>rich-result는 보류</strong>(의미 있는 외부 validator 부재 — 오프라인 검증이 제품, dead-env는 이미 제거).</p>
       </section>
 
       <section aria-label="스택 상태">
@@ -110,7 +111,10 @@
             <tr><td>Worker 엔진 (Railway)</td><td><span class="status done">가동</span></td><td>Active</td></tr>
             <tr><td>웹사이트 (Vercel)</td><td><span class="status done">연결</span></td><td>API 실시간 데이터 · 커스텀 도메인 <code>searchops.totopapa.com</code> (HTTPS)</td></tr>
             <tr><td>인증/보안</td><td><span class="status done">잠금</span></td><td>NODE_ENV=production + HS256 IdP → 익명/사칭 차단</td></tr>
-            <tr><td>알림/가동 모니터링</td><td><span class="status done">가동</span></td><td>GH Actions 5분 폴러(<code>/health</code> + <code>/ops/metrics-export</code>) + 인증 sink</td></tr>
+            <tr><td>알림/가동 모니터링</td><td><span class="status done">가동</span></td><td>GH Actions 5분 폴러(<code>/health</code> + <code>/ops/metrics-export</code>) + 인증 sink · log-drain sink 활성</td></tr>
+            <tr><td>마이그레이션 자동화</td><td><span class="status done">자동</span></td><td>Railway Pre-Deploy <code>db:migrate:deploy</code> + Prisma <code>directUrl</code> (#82, 배포 로그 검증)</td></tr>
+            <tr><td>GEO live (AI 답변 모니터)</td><td><span class="status done">활성</span></td><td>OpenAI <code>gpt-4o-mini</code> — <code>geo-answer-monitor</code> job 라이브 검증(호출당 과금)</td></tr>
+            <tr><td>초대(invite) UI</td><td><span class="status done">라이브</span></td><td><code>/ops/invites</code> 생성·목록·철회 (#81)</td></tr>
           </tbody>
         </table>
       </section>
@@ -140,7 +144,18 @@
           <li>
             <strong>C안 — 나머지 프로비저닝 dead-env 제거 (PR #77·#78·#79·#80, 2026-06-23)</strong>:
             <strong>#77</strong> rich-result(env 스키마+HTTP client+worker 배선) · <strong>#78</strong> log-drain self-host sink(<code>/api/ops/log-drain-sink</code>) · <strong>#79</strong> GEO 4-provider(ChatGPT/Perplexity/Gemini/Claude + per-provider fixture fallback, Copilot은 API 없어 fixture) · <strong>#80</strong> org-invite Tier C(Invitation 모델+추가전용 마이그레이션+라우트4+RBAC+env-gated 이메일, organization-invite configured).
-            <span class="status partial">#80 마이그레이션 수동 적용 필요(상단) · rich-result/GEO/log-drain은 provider env 설정 시 실동작 · canLaunch는 billing-subscription 때문에 여전히 false</span>
+            <span class="status partial">#80 마이그레이션 적용 완료 · canLaunch는 billing-subscription 때문에 여전히 false</span>
+          </li>
+          <li>
+            <strong>D안 — 운영 하드닝 사이클 2 (2026-06-27)</strong>:
+            <strong>시크릿 로테이션</strong>(<code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳 교체·검증) ·
+            <strong>log-drain 활성화</strong>(self-host sink + env, observability-drain configured) ·
+            <strong>invite web UI (#81)</strong>(<code>/ops/invites</code> page+actions+client, 운영 콘솔 링크) ·
+            <strong>마이그레이션 자동화 (#82)</strong>(Prisma <code>directUrl</code> + Railway Pre-Deploy, 배포 로그 검증) ·
+            <strong>dead-letter 정리</strong>(9→0) ·
+            <strong>GEO live (#79 활성)</strong>(OpenAI <code>gpt-4o-mini</code>, <code>geo-answer-monitor</code> job completed=라이브 성공) ·
+            <strong>버그 #83</strong>(GEO/compliance 서버 액션이 실제 사이트를 demoSite 도메인으로 폴백 → API 도메인 검사 400 유발 → <code>loadDashboardSite</code>로 수정).
+            <span class="status partial">API <code>Fastify({logger:false})</code>라 에러 미로깅 → 로컬 스키마 재현으로 #83 특정</span>
           </li>
         </ol>
       </section>
@@ -150,15 +165,16 @@
         <div class="grid">
           <div class="card">
             <h3>🟩 Railway · API</h3>
-            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>NODE_ENV=production</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>, <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>(+<code>_TOKEN</code>), <code>SEARCHOPS_PUBLIC_APP_URL</code>, Google OAuth quad 등</p>
+            <p class="small"><code>DATABASE_URL</code>, <code>DIRECT_DATABASE_URL</code>(session pooler :5432, migrate 전용), <code>REDIS_URL</code>, <code>NODE_ENV=production</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션), <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>·<code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>(+<code>_TOKEN</code>), <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code>, Google OAuth quad 등</p>
+            <p class="small">+ Pre-Deploy Command <code>corepack pnpm db:migrate:deploy</code></p>
           </div>
           <div class="card">
             <h3>🟩 Railway · Worker</h3>
-            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code> (+ 커넥터 키)</p>
+            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>(+<code>_MODEL=gpt-4o-mini</code>) (+ 커넥터 키)</p>
           </div>
           <div class="card">
-            <h3>🟦 Vercel · Web</h3>
-            <p class="small"><code>SEARCHOPS_API_BASE_URL</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>, <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code></p>
+            <h3>🟦 Vercel · Web (Prod+Preview)</h3>
+            <p class="small"><code>SEARCHOPS_API_BASE_URL</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션), <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code>, <code>SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code></p>
             <p class="small">⚠️ <code>NODE_ENV</code>/<code>DATABASE_URL</code>은 절대 넣지 말 것 (Vercel 빌드 실패)</p>
           </div>
           <div class="card">
@@ -167,14 +183,14 @@
             <p class="small">⚠️ Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> = Railway <code>..._WEBHOOK_TOKEN</code> 동일값이어야 함.</p>
           </div>
           <div class="card">
-            <h3>🟨 C 기능 활성 env (선택 · 미설정=off, 폴백 안전)</h3>
-            <p class="small">rich-result: API+Worker <code>SEARCHOPS_RICH_RESULT_VALIDATOR_URL</code>(+<code>_TOKEN</code>) · GEO: API+Worker <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>(+<code>_MODEL</code>) · log-drain: Railway <code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>(+<code>_TOKEN</code>=Vercel <code>SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN</code>) · invite 이메일: <code>SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL</code>(+<code>_TOKEN</code>, 미설정 시 서버로그).</p>
+            <h3>🟨 C 기능 활성 env</h3>
+            <p class="small"><span class="status done">log-drain ✅</span> 활성 · <span class="status done">GEO ✅</span> chatgpt(gpt-4o-mini) 활성, 추가 provider는 <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>로(과금) · <span class="status defer">rich-result ⏸️</span> 보류(validator URL 부재, 오프라인 검증 사용) · invite 이메일(선택): <code>SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL</code>(미설정 시 서버로그).</p>
           </div>
         </div>
       </section>
 
       <section aria-label="다음 작업">
-        <h2>다음 작업 — A·B·C 코드 완료, 남은 항목</h2>
+        <h2>다음 작업 — A·B·C·D 완료, 남은 항목</h2>
         <div class="plan-list">
           <div class="plan">
             <div class="tag">A ✅</div>
@@ -188,25 +204,26 @@
             <div class="tag">C ✅</div>
             <div>
               <strong>나머지 dead-env 제거</strong> <span class="status done">완료 (PR #77·#78·#79·#80 + 마이그레이션)</span>
-              <p class="small">rich-result · log-drain · GEO 4-provider · org-invite. org-invite 라이브. rich-result/GEO/log-drain 실동작은 provider env 설정 시.</p>
+              <p class="small">rich-result · log-drain · GEO · org-invite. dead-env 제거.</p>
             </div>
           </div>
           <div class="plan">
-            <div class="tag">1 ⚙️</div>
+            <div class="tag">D ✅</div>
             <div>
-              <strong>C 기능 활성화 (선택)</strong> <span class="status defer">env 설정 시</span>
-              <p class="small">provider env 설정 시 rich-result/GEO/log-drain 실동작(현재 off, 폴백 안전). env 매트릭스는 위 참조.</p>
+              <strong>운영 하드닝 사이클 2</strong> <span class="status done">완료 (2026-06-27)</span>
+              <p class="small">시크릿 로테이션 · log-drain 활성 · invite web UI(#81) · 마이그레이션 자동화(#82) · dead-letter 0건 · GEO live(OpenAI) · 버그수정(#83).</p>
             </div>
           </div>
           <div class="plan">
-            <div class="tag">2 💤</div>
+            <div class="tag">1 💤</div>
             <div>
-              <strong>defer / 제품 결정 / 선택 후속</strong> <span class="status defer">defer</span>
+              <strong>billing / uptime / GEO 확장 / rich-result</strong> <span class="status defer">결정·선택</span>
               <p class="small">
-                <strong>billing-subscription</strong>(canLaunch=true의 마지막 차단, Stripe 등 결정) ·
-                restore-drill/secret-rotation 웹훅(수신 리시버 없음 → 수동 절차) ·
-                외부 uptime 모니터 이중화 · invite <strong>web UI</strong>(백엔드 완비) ·
-                Railway release에 <code>db:migrate:deploy</code> 추가(자동화).
+                <strong>billing-subscription</strong>(canLaunch=true의 마지막 차단, Stripe 등 제품 결정) ·
+                외부 uptime 모니터 이중화(본인 계정, <code>/health</code>) ·
+                GEO 추가 provider(perplexity/gemini/claude 키, 과금) ·
+                <strong>rich-result 보류</strong>(validator URL 부재) ·
+                restore-drill/secret-rotation 웹훅(수동 절차).
               </p>
             </div>
           </div>
@@ -221,13 +238,15 @@
             <li><s>"알림 설정 해줘" → A</s> ✅ 완료 (PR #76)</li>
             <li><s>"도메인 연결해줘" → B</s> ✅ 완료 — <code>searchops.totopapa.com</code></li>
             <li><s>"남은 C 항목 진행" → C</s> ✅ 완료 (PR #77·#78·#79·#80 + 마이그레이션 적용)</li>
-            <li><strong>"C 기능 켜줘 ◯◯"</strong> → rich-result/GEO/log-drain provider env 설정 안내</li>
+            <li><s>"하드닝 사이클 2" → D</s> ✅ 완료 — 로테이션·log-drain·invite UI·마이그레이션 자동화·dead-letter·GEO live</li>
             <li><strong>"billing 연동하자"</strong> → canLaunch=true의 마지막 차단(Stripe 등 제품 결정)</li>
+            <li><strong>"GEO 다른 provider 켜줘"</strong> → Railway worker+api <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>(과금 주의)</li>
           </ul>
           <p class="small">
-            상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 + 수치) ·
+            상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 · 28/4) ·
+            운영 콘솔: <a href="https://searchops.totopapa.com/ops">/ops</a> (초대 관리 <code>/ops/invites</code>) ·
             상세 절차서: <code>docs/PROVISIONING_RUNBOOK.md</code> ·
-            토큰 수동 발급: <code>SEARCHOPS_IDP_JWT_HS256_SECRET='&lt;값&gt;' node issue-token.mjs</code>
+            ⚠️ 마이그레이션은 이제 <strong>자동</strong>(Railway Pre-Deploy).
           </p>
         </div>
         <p class="small">제품 빌드(Phase 0–11) 상세 로그는 <code>progress.md</code> 하단을 참조.</p>
