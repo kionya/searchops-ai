@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ComplianceFlagStatus } from "@searchops/types";
 
-import { resolveDashboardSite } from "../../../../src/dashboard-shell";
+import { loadDashboardSite } from "../../../../src/dashboard-shell";
 import {
   convertComplianceFlagToWorkOrder,
   createComplianceReviewFromFixture,
@@ -14,7 +14,7 @@ import {
 
 export async function createComplianceReviewAction(siteId: string, _formData: FormData) {
   const searchParams = new URLSearchParams();
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
 
   try {
     const result = await createComplianceReviewFromFixture(site);
