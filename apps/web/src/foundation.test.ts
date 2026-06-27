@@ -138,6 +138,8 @@ import {
   createGeoVisibilityReportFromFixture,
   defaultGeoAnswerMonitorProviders,
   demoGeoVisibilityReports,
+  extractGscQueriesFromHistory,
+  mergeGeoQueryDefaults,
   formatGeoDate,
   formatGeoProvider,
   formatGeoStatus,
@@ -1093,6 +1095,58 @@ describe("web foundation", () => {
       { locale: "ko-KR", query: "강남 물광주사 잘하는 곳" },
       { locale: "ko-KR", query: "강남 울쎄라 후기" }
     ]);
+  });
+
+  it("extracts and merges GSC search queries into GEO defaults (impressions-ranked, deduped, capped)", () => {
+    const gscRecord = (query: string, impressions: number) => ({
+      provider: "gsc" as const,
+      siteUrl: "https://gangnam.rejuel.com/",
+      query,
+      page: "https://gangnam.rejuel.com/p",
+      country: "KR",
+      device: "mobile",
+      clicks: 1,
+      impressions,
+      ctr: 0.01,
+      position: 5,
+      startDate: "2026-05-23",
+      endDate: "2026-06-19"
+    });
+    const history = {
+      runs: [],
+      errorMessage: null,
+      source: "api" as const,
+      resultsByRunId: {
+        run_1: [
+          {
+            id: "csr_1",
+            syncRunId: "run_1",
+            provider: "gsc" as const,
+            status: "ok" as const,
+            fetchedAt: "2026-06-20T00:00:00.000Z",
+            fixture: false,
+            recordCount: 4,
+            records: [
+              gscRecord("강남 리프팅 후기", 200),
+              gscRecord("강남 보톡스 잘하는 곳", 120),
+              gscRecord("강남 리프팅 후기", 50),
+              gscRecord("희소 질의", 2)
+            ],
+            createdAt: "2026-06-20T00:00:00.000Z"
+          }
+        ]
+      }
+    };
+
+    const suggestion = extractGscQueriesFromHistory(history, { minImpressions: 5 });
+    expect(suggestion.fixture).toBe(false);
+    expect(suggestion.hasGscData).toBe(true);
+    expect(suggestion.queries).toEqual(["강남 리프팅 후기", "강남 보톡스 잘하는 곳"]);
+
+    const merged = mergeGeoQueryDefaults(demoSite, suggestion.queries);
+    expect(merged.slice(0, 2)).toEqual(["강남 리프팅 후기", "강남 보톡스 잘하는 곳"]);
+    expect(merged.length).toBeLessThanOrEqual(12);
+    expect(new Set(merged).size).toBe(merged.length);
   });
 
   it("queues GEO answer monitor jobs through the API response contract", async () => {

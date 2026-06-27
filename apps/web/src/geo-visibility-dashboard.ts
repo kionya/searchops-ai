@@ -17,6 +17,7 @@ import {
 
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { type ConnectorSyncHistoryData } from "./connector-sync-history";
 import { formatStatusLabel } from "./korean-labels";
 import { scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
@@ -480,6 +481,86 @@ export function parseGeoAnswerMonitorQueriesFromForm(
     .map((query) => ({ locale, query }));
 
   return entered.length > 0 ? entered : createGeoAnswerMonitorQueries(site);
+}
+
+export interface GscQuerySuggestion {
+  /** GSC 검색어(노출수 상위), 중복제거·상한 적용. */
+  readonly queries: readonly string[];
+  /** 사용한 최신 GSC 동기화 결과의 시각. */
+  readonly fetchedAt: string | null;
+  /** 그 동기화가 fixture(데모)였는지 — true면 실데이터 아님. */
+  readonly fixture: boolean;
+  /** 필터 통과한 GSC 질의가 1개 이상인지. */
+  readonly hasGscData: boolean;
+}
+
+/**
+ * 커넥터 동기화 기록에서 최신 GSC 결과의 검색어를 추출 — 질의별 노출수 합산 →
+ * 임계치 이상 → 노출수 내림차순 → 상한(GEO_ANSWER_MONITOR_QUERY_LIMIT). 실제 환자 검색어를
+ * GEO 모니터 기본 질의로 쓰기 위한 다리.
+ */
+export function extractGscQueriesFromHistory(
+  history: ConnectorSyncHistoryData,
+  options: { readonly minImpressions?: number; readonly limit?: number } = {},
+): GscQuerySuggestion {
+  const minImpressions = options.minImpressions ?? 5;
+  const limit = options.limit ?? GEO_ANSWER_MONITOR_QUERY_LIMIT;
+
+  const gscResults = Object.values(history.resultsByRunId)
+    .flat()
+    .filter((result) => result.provider === "gsc")
+    .sort((left, right) => right.fetchedAt.localeCompare(left.fetchedAt));
+
+  const latest = gscResults[0];
+  if (latest === undefined) {
+    return { queries: [], fetchedAt: null, fixture: false, hasGscData: false };
+  }
+
+  const impressionsByQuery = new Map<string, number>();
+  for (const record of latest.records) {
+    if (record.provider !== "gsc") {
+      continue;
+    }
+    const phrase = record.query.trim();
+    if (phrase.length === 0) {
+      continue;
+    }
+    impressionsByQuery.set(phrase, (impressionsByQuery.get(phrase) ?? 0) + record.impressions);
+  }
+
+  const queries = [...impressionsByQuery.entries()]
+    .filter(([, impressions]) => impressions >= minImpressions)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([phrase]) => phrase);
+
+  return {
+    queries,
+    fetchedAt: latest.fetchedAt,
+    fixture: latest.fixture,
+    hasGscData: queries.length > 0,
+  };
+}
+
+/**
+ * GSC 검색어를 앞에, 템플릿 기본값을 뒤에 두고 병합 — 중복제거·상한.
+ * (실 검색어 우선, 모자라면 템플릿으로 채움.)
+ */
+export function mergeGeoQueryDefaults(site: Site, gscQueries: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const candidate of [...gscQueries, ...buildDefaultGeoQueryStrings(site)]) {
+    const phrase = candidate.trim();
+    if (phrase.length === 0 || seen.has(phrase)) {
+      continue;
+    }
+    seen.add(phrase);
+    merged.push(phrase);
+    if (merged.length >= GEO_ANSWER_MONITOR_QUERY_LIMIT) {
+      break;
+    }
+  }
+  return merged;
 }
 
 export function summarizeGeoVisibilityDashboard(
