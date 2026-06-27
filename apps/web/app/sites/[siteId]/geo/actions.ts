@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { resolveDashboardSite } from "../../../../src/dashboard-shell";
+import { loadDashboardSite } from "../../../../src/dashboard-shell";
 import {
   convertGeoVisibilityReportToWorkOrder,
   createGeoVisibilityReportFromFixture,
@@ -12,7 +12,7 @@ import {
 
 export async function createGeoVisibilityReportAction(siteId: string, _formData: FormData) {
   const searchParams = new URLSearchParams();
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
 
   try {
     const result = await createGeoVisibilityReportFromFixture(site);
@@ -30,7 +30,7 @@ export async function createGeoVisibilityReportAction(siteId: string, _formData:
 
 export async function queueGeoAnswerMonitorAction(siteId: string, formData: FormData) {
   const searchParams = new URLSearchParams();
-  const site = resolveDashboardSite(siteId);
+  const site = await loadDashboardSite(siteId);
 
   try {
     const result = await queueGeoAnswerMonitorJob(site, formData);
