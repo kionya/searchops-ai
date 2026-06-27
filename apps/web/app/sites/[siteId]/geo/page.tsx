@@ -15,8 +15,11 @@ import {
   tdStyle,
   thStyle
 } from "../../../../src/dashboard-table-styles";
+import { loadConnectorSyncHistory } from "../../../../src/connector-sync-history";
 import {
   buildDefaultGeoQueryStrings,
+  extractGscQueriesFromHistory,
+  mergeGeoQueryDefaults,
   defaultGeoAnswerMonitorProviders,
   formatGeoDate,
   formatGeoProvider,
@@ -59,6 +62,20 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const createSearchParams = await searchParams;
   const site = await loadDashboardSite(siteId);
   const dashboard = await loadGeoVisibilityDashboard(site);
+  const connectorHistory = await loadConnectorSyncHistory(site);
+  const gscSuggestion = extractGscQueriesFromHistory(connectorHistory);
+  const useGscQueries = gscSuggestion.hasGscData && !gscSuggestion.fixture;
+  const defaultQueries = (
+    useGscQueries
+      ? mergeGeoQueryDefaults(site, gscSuggestion.queries)
+      : buildDefaultGeoQueryStrings(site)
+  ).join("\n");
+  const gscSyncedAt = gscSuggestion.fetchedAt ? formatGeoDate(gscSuggestion.fetchedAt) : "-";
+  const gscNote = useGscQueries
+    ? `Search Console에서 검색어 ${gscSuggestion.queries.length}개 자동 반영 (동기화: ${gscSyncedAt}). 편집 가능.`
+    : gscSuggestion.fixture
+      ? "GSC 데모 데이터 — 실제 Search Console 연결 시 실 검색어가 자동 반영됩니다. 지금은 템플릿."
+      : "GSC 미연결 — 커넥터에서 Search Console를 연결·동기화하면 실 검색어가 여기에 자동 반영됩니다. 지금은 템플릿.";
   const summary = summarizeGeoVisibilityDashboard(dashboard);
   const workOrderPreview = summarizeGeoWorkOrderBatchPreview(dashboard.reports);
   const createFeedback = getGeoVisibilityCreateFeedback(
@@ -92,7 +109,8 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
       </div>
       <GeoCreatePanel
         siteId={siteId}
-        defaultQueries={buildDefaultGeoQueryStrings(site).join("\n")}
+        defaultQueries={defaultQueries}
+        gscNote={gscNote}
         createFeedback={createFeedback}
         monitorFeedback={monitorFeedback}
         workOrderPreview={workOrderPreview}
@@ -231,7 +249,8 @@ function GeoCreatePanel({
   workOrderPreview,
   workOrderFeedback,
   siteId,
-  defaultQueries
+  defaultQueries,
+  gscNote
 }: {
   readonly createFeedback: ReturnType<typeof getGeoVisibilityCreateFeedback>;
   readonly monitorFeedback: ReturnType<typeof getGeoAnswerMonitorQueueFeedback>;
@@ -239,6 +258,7 @@ function GeoCreatePanel({
   readonly workOrderFeedback: ReturnType<typeof getGeoVisibilityWorkOrderFeedback>;
   readonly siteId: string;
   readonly defaultQueries: string;
+  readonly gscNote: string;
 }) {
   const createAction = createGeoVisibilityReportAction.bind(null, siteId);
   const monitorAction = queueGeoAnswerMonitorAction.bind(null, siteId);
@@ -288,6 +308,7 @@ function GeoCreatePanel({
               style={queryTextareaStyle}
             />
           </label>
+          <span style={gscNoteStyle}>📊 {gscNote}</span>
           <span style={queryHelpStyle}>
             시술 × 지역 × 의도로 작성. 예시는 이 병원 실제 키워드(가능하면 Search Console 검색어)로 교체하세요.
             ⚠️ 질의 × provider = OpenAI 호출(과금) · 의료광고법: 결과의 마케팅 노출 전 컴플라이언스 점검.
@@ -469,6 +490,15 @@ const queryHelpStyle = {
   color: "#64748b",
   fontSize: 12,
   lineHeight: 1.5
+} as const;
+
+const gscNoteStyle = {
+  background: "#eff6ff",
+  borderRadius: 6,
+  color: "#1d4ed8",
+  fontSize: 12,
+  lineHeight: 1.5,
+  padding: "6px 8px"
 } as const;
 
 const providerGridStyle = {
