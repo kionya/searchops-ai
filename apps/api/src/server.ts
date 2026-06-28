@@ -794,8 +794,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    // Fastify는 logger:false라 미처리 에러가 어디에도 기록되지 않았다. 서버측에 스택을
+    // 남기고(관측성), 클라이언트에는 일반 메시지만 반환한다(내부 정보 노출 차단).
     const message = error instanceof Error ? error.message : "Unknown error";
-    reply.status(500).send({ error: "internal_error", message });
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("[api] unhandled error:", message, stack ?? "");
+    reply.status(500).send({ error: "internal_error", message: "Internal server error" });
   });
 
   server.get("/health", async () =>
