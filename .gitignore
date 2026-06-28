@@ -15,3 +15,7 @@ packages/db/src/generated/
 .codex/environments/
 .vercel/
 .vercel
+# 로컬 DB 덤프/백업 — 절대 커밋 금지 (Prisma migration.sql은 영향 없음)
+backup_*.sql
+/*.sql
+.lazyweb/
