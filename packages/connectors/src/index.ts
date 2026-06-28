@@ -704,7 +704,7 @@ export function createFixtureConnectorAdapter({
 export function createLiveGscConnectorAdapter({
   credential,
   fetch: fetchImpl = fetch,
-  rowLimit = 25,
+  rowLimit = connectorPageSize,
   siteDomain
 }: LiveGscConnectorAdapterConfig): ConnectorAdapter {
   assertGoogleCredential("gsc", credential);
@@ -719,28 +719,40 @@ export function createLiveGscConnectorAdapter({
       const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(
         siteUrl,
       )}/searchAnalytics/query`;
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${credential.accessToken}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          dataState: "final",
-          dimensions: ["query", "page", "country", "device"],
-          rowLimit,
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate
-        })
-      });
 
-      await assertFetchOk(response, "Google Search Console");
-      const json = (await response.json()) as GscSearchAnalyticsApiResponse;
+      // startRow 페이지네이션 — GSC는 첫 페이지만 읽으면 키워드가 잘린다.
+      const rawRows: NonNullable<GscSearchAnalyticsApiResponse["rows"]>[number][] = [];
+      for (let startRow = 0; rawRows.length < connectorMaxRows; startRow += rowLimit) {
+        const response = await fetchWithResilience(fetchImpl, endpoint, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${credential.accessToken}`,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            dataState: "final",
+            dimensions: ["query", "page", "country", "device"],
+            rowLimit,
+            startRow,
+            startDate: dateRange.startDate,
+            endDate: dateRange.endDate
+          })
+        });
+
+        await assertFetchOk(response, "Google Search Console");
+        const json = (await response.json()) as GscSearchAnalyticsApiResponse;
+        const pageRows = json.rows ?? [];
+        rawRows.push(...pageRows);
+        if (pageRows.length < rowLimit) {
+          break;
+        }
+      }
+
       const records = normalizeGscSearchAnalytics({
         siteUrl,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
-        rows: (json.rows ?? []).map((row) => ({
+        rows: rawRows.map((row) => ({
           keys: toGscKeys(row.keys),
           clicks: toNonNegativeNumber(row.clicks),
           impressions: toNonNegativeNumber(row.impressions),
@@ -773,9 +785,13 @@ export function createLiveGa4ConnectorAdapter({
     provider: "ga4",
     async sync(request) {
       const dateRange = getConnectorDateRange(request.fetchedAt);
-      const response = await fetchImpl(
-        `https://analyticsdata.googleapis.com/v1beta/${normalizedPropertyId}:runReport`,
-        {
+      const endpoint = `https://analyticsdata.googleapis.com/v1beta/${normalizedPropertyId}:runReport`;
+
+      // limit/offset 페이지네이션 — GA4는 첫 페이지만 읽으면 행이 잘린다.
+      const rawRows: NonNullable<Ga4RunReportApiResponse["rows"]>[number][] = [];
+      let rowCount = Number.POSITIVE_INFINITY;
+      for (let offset = 0; rawRows.length < connectorMaxRows && offset < rowCount; offset += connectorPageSize) {
+        const response = await fetchWithResilience(fetchImpl, endpoint, {
           method: "POST",
           headers: {
             authorization: `Bearer ${credential.accessToken}`,
@@ -790,25 +806,33 @@ export function createLiveGa4ConnectorAdapter({
               { name: "conversions" },
               { name: "totalUsers" }
             ],
-            limit: 25
+            limit: connectorPageSize,
+            offset
           })
-        },
-      );
+        });
 
-      if (response.status === 403) {
-        throw new ConnectorProviderDiagnosticError(
-          "Google Analytics Data API request failed with status 403",
-          createGa4AccessDeniedDiagnosticWithEmail(credential.externalAccountEmail ?? null),
-        );
+        if (response.status === 403) {
+          throw new ConnectorProviderDiagnosticError(
+            "Google Analytics Data API request failed with status 403",
+            createGa4AccessDeniedDiagnosticWithEmail(credential.externalAccountEmail ?? null),
+          );
+        }
+
+        await assertFetchOk(response, "Google Analytics Data API");
+        const json = (await response.json()) as Ga4RunReportApiResponse;
+        rowCount = json.rowCount ?? (json.rows?.length ?? 0);
+        const pageRows = json.rows ?? [];
+        rawRows.push(...pageRows);
+        if (pageRows.length < connectorPageSize) {
+          break;
+        }
       }
 
-      await assertFetchOk(response, "Google Analytics Data API");
-      const json = (await response.json()) as Ga4RunReportApiResponse;
       const records = normalizeGa4Report({
         propertyId: normalizedPropertyId,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
-        rows: (json.rows ?? []).map((row) => ({
+        rows: rawRows.map((row) => ({
           dimensionValues: [{ value: row.dimensionValues?.[0]?.value ?? "/" }],
           metricValues: [
             { value: row.metricValues?.[0]?.value ?? "0" },
@@ -850,7 +874,8 @@ export function createLivePageSpeedConnectorAdapter({
       url.searchParams.append("category", "accessibility");
       url.searchParams.append("category", "seo");
 
-      const response = await fetchImpl(url);
+      // PageSpeed(Lighthouse)는 느리고 간헐 실패(terminated/429/5xx)가 잦아 타임아웃을 길게 잡고 재시도.
+      const response = await fetchWithResilience(fetchImpl, url, {}, { timeoutMs: pageSpeedRequestTimeoutMs });
       await assertFetchOk(response, "PageSpeed Insights");
       const json = (await response.json()) as PageSpeedFixture;
       const records = normalizePageSpeed({
@@ -891,7 +916,7 @@ export function createLiveBingConnectorAdapter({
           endpoint.searchParams.set("siteUrl", siteUrl);
           endpoint.searchParams.set("url", urlToInspect);
 
-          const response = await fetchImpl(endpoint);
+          const response = await fetchWithResilience(fetchImpl, endpoint, {});
           await assertFetchOk(response, "Bing Webmaster");
           const json = (await response.json()) as BingUrlInfoApiResponse;
           const info = unwrapBingUrlInfo(json);
@@ -1877,6 +1902,7 @@ interface GscSearchAnalyticsApiResponse {
 }
 
 interface Ga4RunReportApiResponse {
+  readonly rowCount?: number;
   readonly rows?: readonly {
     readonly dimensionValues?: readonly { readonly value?: string }[];
     readonly metricValues?: readonly { readonly value?: string }[];
@@ -1958,6 +1984,85 @@ function toGscKeys(keys: readonly string[] | undefined): [string, string, string
     keys?.[2] ?? "ZZ",
     keys?.[3] ?? "unknown"
   ];
+}
+
+export const connectorRequestTimeoutMs = 30_000;
+export const pageSpeedRequestTimeoutMs = 90_000;
+export const connectorPageSize = 1_000;
+export const connectorMaxRows = 5_000;
+const defaultRetryableStatuses = [429, 500, 502, 503, 504] as const;
+
+export interface ResilientFetchOptions {
+  readonly retries?: number;
+  readonly timeoutMs?: number;
+  readonly retryableStatuses?: readonly number[];
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly random?: () => number;
+}
+
+/**
+ * 라이브 커넥터 fetch 공용 래퍼: (1) AbortSignal 타임아웃으로 멈춤 방지, (2) 429/5xx·네트워크
+ * 오류 시 지수 백오프+지터로 재시도(Retry-After 존중). PageSpeed/Bing 등 간헐 실패를 흡수한다.
+ */
+export async function fetchWithResilience(
+  fetchImpl: typeof fetch,
+  input: string | URL,
+  init: RequestInit,
+  options: ResilientFetchOptions = {},
+): Promise<Response> {
+  const retries = options.retries ?? 3;
+  const timeoutMs = options.timeoutMs ?? connectorRequestTimeoutMs;
+  const retryable = options.retryableStatuses ?? defaultRetryableStatuses;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const random = options.random ?? Math.random;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(input, { ...init, signal: controller.signal });
+      if (attempt >= retries || !retryable.includes(response.status)) {
+        return response;
+      }
+      await sleep(connectorBackoffDelayMs(attempt, response, random));
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) {
+        throw error;
+      }
+      await sleep(connectorBackoffDelayMs(attempt, undefined, random));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("fetchWithResilience: retries exhausted");
+}
+
+function connectorBackoffDelayMs(
+  attempt: number,
+  response: Response | undefined,
+  random: () => number,
+): number {
+  const retryAfterMs = response ? parseRetryAfterMs(response) : null;
+  if (retryAfterMs !== null) {
+    return retryAfterMs;
+  }
+  const base = 500 * 2 ** attempt;
+  return base + Math.floor(random() * 250);
+}
+
+function parseRetryAfterMs(response: Response): number | null {
+  const header = response.headers.get("retry-after");
+  if (header === null) {
+    return null;
+  }
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+  const dateMs = Date.parse(header);
+  return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
 }
 
 async function assertFetchOk(response: Response, serviceName: string) {

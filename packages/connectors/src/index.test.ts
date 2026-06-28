@@ -20,6 +20,7 @@ import {
   createOpenAiCompatibleGeoAnswerClient,
   discoverKeywordTargetsFromConnectorResults,
   extractGeoCitedUrls,
+  fetchWithResilience,
   fixtureConnectorAdapters,
   fixtureGeoAnswerMonitorAdapters,
   getFixtureConnectorAdapter,
@@ -1376,5 +1377,97 @@ describe("connectors foundation", () => {
     expect(discoverySet.candidates.map((candidate) => candidate.keyword.phrase)).toEqual([
       "seo clinic"
     ]);
+  });
+
+  it("fetchWithResilience retries on 429 then returns 200", async () => {
+    let attempts = 0;
+    const fakeFetch = (async () => {
+      attempts += 1;
+      return attempts === 1
+        ? new Response("rate limited", { status: 429 })
+        : new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const response = await fetchWithResilience(fakeFetch, "https://x.test", {}, { sleep: async () => {} });
+    expect(attempts).toBe(2);
+    expect(response.status).toBe(200);
+  });
+
+  it("fetchWithResilience does not retry non-retryable statuses", async () => {
+    let attempts = 0;
+    const fakeFetch = (async () => {
+      attempts += 1;
+      return new Response("bad request", { status: 400 });
+    }) as typeof fetch;
+
+    const response = await fetchWithResilience(fakeFetch, "https://x.test", {}, { sleep: async () => {} });
+    expect(attempts).toBe(1);
+    expect(response.status).toBe(400);
+  });
+
+  it("fetchWithResilience retries on a network error then succeeds", async () => {
+    let attempts = 0;
+    const fakeFetch = (async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("ECONNRESET");
+      }
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const response = await fetchWithResilience(fakeFetch, "https://x.test", {}, { sleep: async () => {} });
+    expect(attempts).toBe(2);
+    expect(response.status).toBe(200);
+  });
+
+  it("GSC adapter paginates via startRow until a short page", async () => {
+    const startRows: number[] = [];
+    const gscRow = (query: string) => ({
+      keys: [query, "https://ex.test/", "kor", "mobile"],
+      clicks: 1,
+      impressions: 10,
+      ctr: 0.1,
+      position: 2
+    });
+    const adapter = createLiveGscConnectorAdapter({
+      credential: { accessToken: "gsc_token", provider: "gsc", status: "connected" },
+      rowLimit: 2,
+      fetch: (async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { startRow: number };
+        startRows.push(body.startRow);
+        const rows = body.startRow === 0 ? [gscRow("a"), gscRow("b")] : [gscRow("c")];
+        return new Response(JSON.stringify({ rows }), { status: 200 });
+      }) as typeof fetch,
+      siteDomain: "ex.test"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+    expect(startRows).toEqual([0, 2]);
+    expect(result.records).toHaveLength(3);
+  });
+
+  it("GA4 adapter paginates via offset using rowCount", async () => {
+    const offsets: number[] = [];
+    const ga4Row = (pagePath: string) => ({
+      dimensionValues: [{ value: pagePath }],
+      metricValues: [{ value: "1" }, { value: "1" }, { value: "0" }, { value: "1" }]
+    });
+    const adapter = createLiveGa4ConnectorAdapter({
+      credential: { accessToken: "ga4_token", provider: "ga4", status: "connected" },
+      fetch: (async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { offset: number };
+        offsets.push(body.offset);
+        const rows =
+          body.offset === 0
+            ? Array.from({ length: 1000 }, (_value, index) => ga4Row(`/p${index}`))
+            : [ga4Row("/last")];
+        return new Response(JSON.stringify({ rowCount: 1001, rows }), { status: 200 });
+      }) as typeof fetch,
+      propertyId: "123456"
+    });
+
+    const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
+    expect(offsets).toEqual([0, 1000]);
+    expect(result.records).toHaveLength(1001);
   });
 });
