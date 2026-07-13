@@ -112,6 +112,10 @@ export interface ProviderCredentialStorePrismaTransactionPort {
       readonly where: ProviderAccountMetadataUpdateWhere;
       readonly data: ProviderAccountMetadataUpdateData;
     }): Promise<{ readonly count: number }>;
+    create(args: {
+      readonly data: ProviderAccountCreateData;
+      readonly select: typeof providerAccountMetadataSelect;
+    }): Promise<ProviderAccountMetadataRow>;
   };
 }
 
@@ -345,30 +349,35 @@ export function createPrismaProviderCredentialStore(
     },
 
     async createApiKeyAccount(input) {
-      const row = await prisma.providerAccount.create({
-        data: {
-          id: input.providerAccountId,
-          organizationId: input.organizationId,
-          provider: input.provider,
-          authType: input.authType,
-          externalAccountId: input.externalAccountId,
-          accountEmail: input.accountEmail,
-          displayName: input.displayName,
-          status: "connected",
-          scopes: [],
-          tokenExpiresAt: null,
-          credentialCiphertext: input.encryptedCredential.credentialCiphertext,
-          credentialIv: input.encryptedCredential.credentialIv,
-          credentialAuthTag: input.encryptedCredential.credentialAuthTag,
-          encryptionKeyId: input.encryptedCredential.encryptionKeyId,
-          encryptionVersion: input.encryptedCredential.encryptionVersion,
-          isDefault: input.isDefault,
-          connectedByUserId: input.connectedByUserId
-        },
-        select: providerAccountMetadataSelect
-      });
+      const data = providerAccountCreateData(input);
+      try {
+        const row = input.isDefault
+          ? await prisma.$transaction(async (transaction) => {
+            await transaction.providerAccount.updateMany({
+              where: {
+                organizationId: input.organizationId,
+                provider: input.provider,
+                isDefault: true
+              },
+              data: { isDefault: false }
+            });
+            return transaction.providerAccount.create({
+              data,
+              select: providerAccountMetadataSelect
+            });
+          })
+          : await prisma.providerAccount.create({
+            data,
+            select: providerAccountMetadataSelect
+          });
 
-      return toProviderAccountMetadata(row);
+        return toProviderAccountMetadata(row);
+      } catch (error) {
+        if (hasPrismaErrorCode(error, "P2002")) {
+          throw new ProviderCredentialStoreError("provider_account_identity_conflict");
+        }
+        throw error;
+      }
     },
 
     async updateAccountMetadata(input) {
@@ -642,6 +651,11 @@ type ProviderAccountMetadataUpdateWhere =
       readonly provider: string;
       readonly id: { readonly not: string };
       readonly isDefault: true;
+    }
+  | {
+      readonly organizationId: string;
+      readonly provider: string;
+      readonly isDefault: true;
     };
 
 interface ProviderAccountMetadataUpdateData {
@@ -706,6 +720,28 @@ function encryptedCredentialUpdateData(
     credentialAuthTag: encryptedCredential.credentialAuthTag,
     encryptionKeyId: encryptedCredential.encryptionKeyId,
     encryptionVersion: encryptedCredential.encryptionVersion
+  };
+}
+
+function providerAccountCreateData(input: CreateApiKeyAccountStoreInput): ProviderAccountCreateData {
+  return {
+    id: input.providerAccountId,
+    organizationId: input.organizationId,
+    provider: input.provider,
+    authType: input.authType,
+    externalAccountId: input.externalAccountId,
+    accountEmail: input.accountEmail,
+    displayName: input.displayName,
+    status: "connected",
+    scopes: [],
+    tokenExpiresAt: null,
+    credentialCiphertext: input.encryptedCredential.credentialCiphertext,
+    credentialIv: input.encryptedCredential.credentialIv,
+    credentialAuthTag: input.encryptedCredential.credentialAuthTag,
+    encryptionKeyId: input.encryptedCredential.encryptionKeyId,
+    encryptionVersion: input.encryptedCredential.encryptionVersion,
+    isDefault: input.isDefault,
+    connectedByUserId: input.connectedByUserId
   };
 }
 

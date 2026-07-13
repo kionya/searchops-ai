@@ -259,11 +259,26 @@ describe("provider credential store", () => {
     expect(prisma.accounts.find((row) => row.id === "pa_google_other")?.isDefault).toBe(true);
   });
 
-  it("creates and replaces encrypted API-key accounts without raw credential inputs", async () => {
-    const prisma = fakePrisma();
+  it("atomically creates a default API-key account with a secret-free result", async () => {
+    const defaultUpdatedAt = new Date("2026-07-13T00:00:06.000Z");
+    const falseUpdatedAt = new Date("2026-07-13T00:00:07.000Z");
+    const otherProviderUpdatedAt = new Date("2026-07-13T00:00:08.000Z");
+    const otherOrganizationUpdatedAt = new Date("2026-07-13T00:00:09.000Z");
+    const prisma = fakePrisma({
+      accounts: [
+        account({ id: "pa_chatgpt_default", provider: "geo_chatgpt", authType: "api_key", isDefault: true, updatedAt: defaultUpdatedAt }),
+        account({ id: "pa_chatgpt_false", provider: "geo_chatgpt", authType: "api_key", updatedAt: falseUpdatedAt }),
+        account({ id: "pa_bing_default", provider: "bing", isDefault: true, updatedAt: otherProviderUpdatedAt }),
+        account({ id: "pa_org_b_default", organizationId: "org_b", provider: "geo_chatgpt", authType: "api_key", isDefault: true, updatedAt: otherOrganizationUpdatedAt }),
+      ],
+    });
     const store = createPrismaProviderCredentialStore(prisma);
     const providerAccountId = "pa_task6_api_key";
     const context = credentialContext({ providerAccountId, provider: "geo_chatgpt" });
+    const encryptedCredential = encryptProviderCredential(keyring, context, {
+      kind: "api_key",
+      apiKey: "created-secret"
+    });
 
     const created = await store.createApiKeyAccount({
       providerAccountId,
@@ -275,25 +290,40 @@ describe("provider credential store", () => {
       displayName: "Primary ChatGPT",
       isDefault: true,
       connectedByUserId: "user_a",
-      encryptedCredential: encryptProviderCredential(keyring, context, {
-        kind: "api_key",
-        apiKey: "created-secret"
-      })
-    });
-    const replaced = await store.replaceCredential({
-      organizationId: "org_a",
-      providerAccountId: created.id,
-      encryptedCredential: encryptProviderCredential(keyring, context, {
-        kind: "api_key",
-        apiKey: "replacement-secret"
-      })
+      encryptedCredential
     });
 
-    const persistedCreate = prisma.calls.providerAccount.create[0]!.data;
     expect(created).toMatchObject({ provider: "geo_chatgpt", authType: "api_key", credentialSource: "encrypted" });
     expect(created.id).toBe(providerAccountId);
-    expect(replaced).toMatchObject({ id: created.id });
-    expect(persistedCreate.id).toBe(providerAccountId);
+    expect(prisma.calls.$transaction).toHaveLength(1);
+    expect(prisma.calls.providerAccount.create).toHaveLength(0);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toEqual([
+      {
+        where: { organizationId: "org_a", provider: "geo_chatgpt", isDefault: true },
+        data: { isDefault: false },
+      },
+    ]);
+    expect(prisma.calls.transactionProviderAccount.create).toEqual([
+      {
+        data: {
+          id: providerAccountId,
+          organizationId: "org_a",
+          provider: "geo_chatgpt",
+          authType: "api_key",
+          externalAccountId: null,
+          accountEmail: null,
+          displayName: "Primary ChatGPT",
+          status: "connected",
+          scopes: [],
+          tokenExpiresAt: null,
+          ...encryptedCredential,
+          isDefault: true,
+          connectedByUserId: "user_a",
+        },
+        select: metadataSelect,
+      },
+    ]);
+    const persistedCreate = prisma.calls.transactionProviderAccount.create[0]!.data;
     expect(decryptProviderCredential(
       keyring,
       { ...context, providerAccountId: created.id },
@@ -304,12 +334,147 @@ describe("provider credential store", () => {
       { ...context, providerAccountId: "pa_another_account" },
       envelopeFromCredentialData(persistedCreate),
     )).toThrow(CredentialDecryptionError);
+    expect(prisma.calls.transactionProviderAccount.create[0]?.select).not.toHaveProperty("credentialCiphertext");
+    expect(prisma.accounts.find((row) => row.id === "pa_chatgpt_default")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_chatgpt_default")?.updatedAt).toBe(now);
+    expect(prisma.accounts.find((row) => row.id === "pa_chatgpt_false")?.updatedAt).toBe(falseUpdatedAt);
+    expect(prisma.accounts.find((row) => row.id === "pa_bing_default")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_bing_default")?.updatedAt).toBe(otherProviderUpdatedAt);
+    expect(prisma.accounts.find((row) => row.id === "pa_org_b_default")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_org_b_default")?.updatedAt).toBe(otherOrganizationUpdatedAt);
+    expect(JSON.stringify(prisma.calls)).not.toContain("apiKey");
+  });
+
+  it("keeps non-default API-key account creation direct and tenant scoped", async () => {
+    const prisma = fakePrisma();
+    const providerAccountId = "pa_task6_non_default";
+    const encryptedCredential = encryptProviderCredential(
+      keyring,
+      credentialContext({ providerAccountId, provider: "geo_perplexity" }),
+      { kind: "api_key", apiKey: "non-default-secret" },
+    );
+
+    await expect(createPrismaProviderCredentialStore(prisma).createApiKeyAccount({
+      providerAccountId,
+      organizationId: "org_a",
+      provider: "geo_perplexity",
+      authType: "api_key",
+      externalAccountId: null,
+      accountEmail: null,
+      displayName: "Perplexity",
+      isDefault: false,
+      connectedByUserId: "user_a",
+      encryptedCredential,
+    })).resolves.toMatchObject({ id: providerAccountId, isDefault: false });
+
+    expect(prisma.calls.$transaction).toHaveLength(0);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toHaveLength(0);
+    expect(prisma.calls.providerAccount.create).toEqual([
+      {
+        data: {
+          id: providerAccountId,
+          organizationId: "org_a",
+          provider: "geo_perplexity",
+          authType: "api_key",
+          externalAccountId: null,
+          accountEmail: null,
+          displayName: "Perplexity",
+          status: "connected",
+          scopes: [],
+          tokenExpiresAt: null,
+          ...encryptedCredential,
+          isDefault: false,
+          connectedByUserId: "user_a",
+        },
+        select: metadataSelect,
+      },
+    ]);
+  });
+
+  it("replaces encrypted API-key credentials without raw credential inputs", async () => {
+    const providerAccountId = "pa_task6_replace";
+    const context = credentialContext({ providerAccountId, provider: "geo_chatgpt" });
+    const prisma = fakePrisma({
+      accounts: [account({ id: providerAccountId, provider: "geo_chatgpt", authType: "api_key" })],
+    });
+
+    await expect(createPrismaProviderCredentialStore(prisma).replaceCredential({
+      organizationId: "org_a",
+      providerAccountId,
+      encryptedCredential: encryptProviderCredential(keyring, context, {
+        kind: "api_key",
+        apiKey: "replacement-secret"
+      })
+    })).resolves.toMatchObject({ id: providerAccountId, credentialSource: "encrypted" });
+
     expect(decryptProviderCredential(keyring, context, envelopeFromAccount(prisma.accounts[0]!))).toEqual({
       kind: "api_key",
       apiKey: "replacement-secret"
     });
     expect(JSON.stringify(prisma.calls)).not.toContain("apiKey");
-    expect(prisma.calls.providerAccount.updateMany[0]?.where).toEqual({ id: created.id, organizationId: "org_a" });
+    expect(prisma.calls.providerAccount.updateMany[0]?.where).toEqual({ id: providerAccountId, organizationId: "org_a" });
+  });
+
+  it("rolls back cleared defaults when default API-key account creation throws", async () => {
+    const defaultUpdatedAt = new Date("2026-07-13T00:00:10.000Z");
+    const prisma = fakePrisma({
+      accounts: [account({ id: "pa_chatgpt_default", provider: "geo_chatgpt", authType: "api_key", isDefault: true, updatedAt: defaultUpdatedAt })],
+      providerAccountCreateError: new Error("synthetic create failure"),
+    });
+
+    await expect(createPrismaProviderCredentialStore(prisma).createApiKeyAccount({
+      providerAccountId: "pa_task6_create_failure",
+      organizationId: "org_a",
+      provider: "geo_chatgpt",
+      authType: "api_key",
+      externalAccountId: null,
+      accountEmail: null,
+      displayName: "Primary ChatGPT",
+      isDefault: true,
+      connectedByUserId: "user_a",
+      encryptedCredential: encryptProviderCredential(
+        keyring,
+        credentialContext({ providerAccountId: "pa_task6_create_failure", provider: "geo_chatgpt" }),
+        { kind: "api_key", apiKey: "created-secret" },
+      ),
+    })).rejects.toThrow("synthetic create failure");
+
+    expect(prisma.accounts).toEqual([
+      expect.objectContaining({ id: "pa_chatgpt_default", isDefault: true, updatedAt: defaultUpdatedAt }),
+    ]);
+  });
+
+  it("rolls back defaults and redacts unique conflicts from default API-key creation", async () => {
+    const prisma = fakePrisma({
+      accounts: [account({ id: "pa_chatgpt_default", provider: "geo_chatgpt", authType: "api_key", isDefault: true })],
+      providerAccountCreateError: { code: "P2002", message: "sensitive prisma create details" },
+    });
+
+    let caught: unknown;
+    try {
+      await createPrismaProviderCredentialStore(prisma).createApiKeyAccount({
+        providerAccountId: "pa_task6_unique_conflict",
+        organizationId: "org_a",
+        provider: "geo_chatgpt",
+        authType: "api_key",
+        externalAccountId: null,
+        accountEmail: null,
+        displayName: "Duplicate ChatGPT",
+        isDefault: true,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptProviderCredential(
+          keyring,
+          credentialContext({ providerAccountId: "pa_task6_unique_conflict", provider: "geo_chatgpt" }),
+          { kind: "api_key", apiKey: "created-secret" },
+        ),
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toEqual(new ProviderCredentialStoreError("provider_account_identity_conflict"));
+    expect(String(caught)).not.toContain("sensitive prisma create details");
+    expect(prisma.accounts).toEqual([expect.objectContaining({ id: "pa_chatgpt_default", isDefault: true })]);
   });
 
   it("upserts canonical Google accounts only within their organization", async () => {
@@ -685,6 +850,7 @@ function fakePrisma(seed: {
   sites?: SiteRow[];
   connectors?: ConnectorRow[];
   providerAccountDeleteError?: unknown;
+  providerAccountCreateError?: unknown;
   providerAccountMetadataUpdateError?: unknown;
   providerAccountMetadataUpdateCountZero?: boolean;
 } = {}) {
@@ -710,6 +876,7 @@ function fakePrisma(seed: {
     transactionProviderAccount: {
       findFirst: [] as Parameters<TransactionProviderAccountPort["findFirst"]>[0][],
       updateMany: [] as Parameters<TransactionProviderAccountPort["updateMany"]>[0][],
+      create: [] as Parameters<TransactionProviderAccountPort["create"]>[0][],
     },
     site: { findFirst: [] as Parameters<SitePort["findFirst"]>[0][] },
     siteConnector: {
@@ -721,6 +888,23 @@ function fakePrisma(seed: {
   };
   let nextId = 1;
 
+  async function createProviderAccount(
+    args: Parameters<ProviderAccountPort["create"]>[0],
+    callsFor: "providerAccount" | "transactionProviderAccount",
+  ) {
+    calls[callsFor].create.push(args);
+    if (seed.providerAccountCreateError !== undefined) throw seed.providerAccountCreateError;
+    const row = account({
+      ...args.data,
+      scopes: [...args.data.scopes],
+      connectedAt: now,
+      createdAt: now,
+      updatedAt: now
+    });
+    accounts.push(row);
+    return select(row, args.select);
+  }
+
   const transactionProviderAccount: TransactionProviderAccountPort = {
     async findFirst(args) {
       calls.transactionProviderAccount.findFirst.push(args);
@@ -730,6 +914,7 @@ function fakePrisma(seed: {
     async updateMany(args) {
       calls.transactionProviderAccount.updateMany.push(args);
       const isTargetUpdate =
+        "id" in args.where &&
         typeof args.where.id === "string" &&
         args.where.organizationId !== undefined;
       if (isTargetUpdate && seed.providerAccountMetadataUpdateError !== undefined) {
@@ -746,6 +931,9 @@ function fakePrisma(seed: {
         }
       }
       return { count };
+    },
+    async create(args) {
+      return createProviderAccount(args, "transactionProviderAccount");
     },
   };
 
@@ -774,16 +962,7 @@ function fakePrisma(seed: {
         return row === undefined ? null : select(row, args.select);
       },
       async create(args) {
-        calls.providerAccount.create.push(args);
-        const row = account({
-          ...args.data,
-          scopes: [...args.data.scopes],
-          connectedAt: now,
-          createdAt: now,
-          updatedAt: now
-        });
-        accounts.push(row);
-        return select(row, args.select);
+        return createProviderAccount(args, "providerAccount");
       },
       async updateMany(args) {
         calls.providerAccount.updateMany.push(args);
