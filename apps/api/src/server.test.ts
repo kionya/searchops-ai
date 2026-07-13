@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   AeoReadinessReportRecord,
@@ -4484,7 +4484,10 @@ describe("api foundation", () => {
       };
     }
 
-    function expectNoCredentialFields(value: unknown) {
+    function expectNoCredentialFields(
+      value: unknown,
+      forbiddenValues: readonly string[] = [],
+    ) {
       const forbiddenKeys = new Set([
         "apikey",
         "accesstoken",
@@ -4513,6 +4516,10 @@ describe("api foundation", () => {
       }
 
       visit(value);
+      const serialized = JSON.stringify(value);
+      forbiddenValues.forEach((forbiddenValue) => {
+        expect(serialized).not.toContain(forbiddenValue);
+      });
     }
 
     it("allows viewer metadata reads and keeps the response credential-free", async () => {
@@ -4621,7 +4628,7 @@ describe("api foundation", () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json()).toMatchObject({ error: "provider_mismatch" });
+      expect(response.json()).toMatchObject({ error: "validation_error" });
       expect(calls).toBe(0);
       expectNoCredentialFields(response.json());
     });
@@ -4646,6 +4653,258 @@ describe("api foundation", () => {
       expect(replaceResponse.statusCode).toBe(200);
       expectNoCredentialFields(patchResponse.json());
       expectNoCredentialFields(replaceResponse.json());
+    });
+
+    it("forwards exact tenant and resource identifiers through all eight routes", async () => {
+      const calls: Array<{ method: string; input: unknown }> = [];
+      const server = buildProviderServer(
+        providerService({
+          async listAccounts(input) {
+            calls.push({ method: "listAccounts", input });
+            return [providerAccount];
+          },
+          async createApiKeyAccount(input) {
+            calls.push({ method: "createApiKeyAccount", input });
+            return providerAccount;
+          },
+          async updateAccountMetadata(input) {
+            calls.push({ method: "updateAccountMetadata", input });
+            return providerAccount;
+          },
+          async replaceApiKeyCredential(input) {
+            calls.push({ method: "replaceApiKeyCredential", input });
+            return providerAccount;
+          },
+          async deleteAccount(input) {
+            calls.push({ method: "deleteAccount", input });
+          },
+          async listSiteConnectors(input) {
+            calls.push({ method: "listSiteConnectors", input });
+            return [siteConnector];
+          },
+          async upsertSiteConnector(input) {
+            calls.push({ method: "upsertSiteConnector", input });
+            return siteConnector;
+          },
+          async deleteSiteConnector(input) {
+            calls.push({ method: "deleteSiteConnector", input });
+          },
+        }),
+      );
+
+      const responses = [
+        await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts",
+          headers: authHeaders("viewer"),
+        }),
+        await server.inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          headers: authHeaders("owner"),
+          payload: {
+            apiKey: "route-create-secret",
+            displayName: "Bing primary",
+            provider: "bing",
+          },
+        }),
+        await server.inject({
+          method: "PATCH",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key",
+          headers: authHeaders("admin"),
+          payload: { displayName: "Renamed" },
+        }),
+        await server.inject({
+          method: "PUT",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+          headers: authHeaders("owner"),
+          payload: { apiKey: "route-replace-secret" },
+        }),
+        await server.inject({
+          method: "DELETE",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key",
+          headers: authHeaders("owner"),
+        }),
+        await server.inject({
+          method: "GET",
+          url: "/sites/site_seed/connectors",
+          headers: authHeaders("viewer"),
+        }),
+        await server.inject({
+          method: "PUT",
+          url: "/sites/site_seed/connectors/ga4",
+          headers: authHeaders("owner"),
+          payload: {
+            externalResourceId: "123456789",
+            providerAccountId: "pa_google_foreign_check",
+          },
+        }),
+        await server.inject({
+          method: "DELETE",
+          url: "/sites/site_seed/connectors/ga4",
+          headers: authHeaders("owner"),
+        }),
+      ];
+
+      expect(responses.map((response) => response.statusCode)).toEqual([
+        200, 201, 200, 200, 204, 200, 200, 204,
+      ]);
+      expect(calls).toEqual([
+        { method: "listAccounts", input: { organizationId: "org_demo" } },
+        {
+          method: "createApiKeyAccount",
+          input: {
+            accountEmail: null,
+            actorUserId: "user_owner",
+            apiKey: "route-create-secret",
+            displayName: "Bing primary",
+            externalAccountId: null,
+            isDefault: false,
+            organizationId: "org_demo",
+            provider: "bing",
+          },
+        },
+        {
+          method: "updateAccountMetadata",
+          input: {
+            organizationId: "org_demo",
+            providerAccountId: "pa_api_key",
+            update: { displayName: "Renamed" },
+          },
+        },
+        {
+          method: "replaceApiKeyCredential",
+          input: {
+            apiKey: "route-replace-secret",
+            organizationId: "org_demo",
+            providerAccountId: "pa_api_key",
+          },
+        },
+        {
+          method: "deleteAccount",
+          input: { organizationId: "org_demo", providerAccountId: "pa_api_key" },
+        },
+        {
+          method: "listSiteConnectors",
+          input: { organizationId: "org_demo", siteId: "site_seed" },
+        },
+        {
+          method: "upsertSiteConnector",
+          input: {
+            externalResourceId: "123456789",
+            organizationId: "org_demo",
+            provider: "ga4",
+            providerAccountId: "pa_google_foreign_check",
+            siteId: "site_seed",
+          },
+        },
+        {
+          method: "deleteSiteConnector",
+          input: { organizationId: "org_demo", provider: "ga4", siteId: "site_seed" },
+        },
+      ]);
+      responses.forEach((response) => {
+        if (response.body.length > 0) {
+          expectNoCredentialFields(response.json(), [
+            "route-create-secret",
+            "route-replace-secret",
+          ]);
+        }
+      });
+    });
+
+    it("maps same-site foreign-account binding rejection without changing route tenant IDs", async () => {
+      let received: Parameters<ProviderAccountService["upsertSiteConnector"]>[0] | undefined;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector(input) {
+            received = input;
+            throw new ProviderAccountServiceError("provider_account_not_in_organization");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/gsc",
+        headers: authHeaders("owner"),
+        payload: {
+          externalResourceId: "sc-domain:example.com",
+          providerAccountId: "pa_other_tenant",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: "provider_account_not_in_organization",
+      });
+      expect(received).toEqual({
+        externalResourceId: "sc-domain:example.com",
+        organizationId: "org_demo",
+        provider: "gsc",
+        providerAccountId: "pa_other_tenant",
+        siteId: "site_seed",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("maps rejected Bing default PATCH to validation_error without a mutation response", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async updateAccountMetadata() {
+            throw new ProviderAccountServiceError("validation_error");
+          },
+        }),
+      ).inject({
+        method: "PATCH",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("owner"),
+        payload: { isDefault: true },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: "validation_error",
+        message: "Provider account request is invalid",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("maps credential decryption failures to a redacted stable 500 without logging details", async () => {
+      const rawSentinel = "raw-replacement-sentinel";
+      const encryptedSentinels = [
+        "ciphertext-sentinel",
+        "iv-sentinel",
+        "tag-sentinel",
+        "key-id-sentinel",
+      ];
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      try {
+        const response = await buildProviderServer(
+          providerService({
+            async replaceApiKeyCredential() {
+              throw new ProviderAccountServiceError("credential_decryption_failed");
+            },
+          }),
+        ).inject({
+          method: "PUT",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+          headers: authHeaders("owner"),
+          payload: { apiKey: rawSentinel },
+        });
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json()).toEqual({
+          error: "credential_decryption_failed",
+          message: "Stored provider credential could not be read",
+        });
+        expectNoCredentialFields(response.json(), [rawSentinel, ...encryptedSentinels]);
+        expect(JSON.stringify(consoleError.mock.calls)).not.toContain(rawSentinel);
+        encryptedSentinels.forEach((sentinel) => {
+          expect(JSON.stringify(consoleError.mock.calls)).not.toContain(sentinel);
+        });
+        expect(consoleError).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
 
     it("maps in-use account deletion to 409 without credential fields", async () => {
@@ -4781,5 +5040,121 @@ describe("api foundation", () => {
       });
       expectNoCredentialFields(response.json());
     });
+  });
+});
+
+function installApiEntrypointMocks(options: {
+  readonly credentialStorageMode?: "encrypted";
+  readonly keyringError?: Error;
+}) {
+  vi.resetModules();
+  vi.restoreAllMocks();
+
+  const parseSearchOpsEnv = vi.fn(() => ({
+    DATABASE_URL: "postgresql://localhost/searchops_test",
+    NODE_ENV: "test",
+    REDIS_URL: "redis://localhost:6379",
+    SEARCHOPS_CREDENTIAL_STORAGE_MODE: options.credentialStorageMode,
+    SEARCHOPS_RATE_LIMIT_ENABLED: false,
+  }));
+  const parseCredentialKeyring = vi.fn(() => {
+    if (options.keyringError !== undefined) {
+      throw options.keyringError;
+    }
+    return { activeKeyId: "test-key", keys: new Map() };
+  });
+  const prisma = { $disconnect: vi.fn().mockResolvedValue(undefined) };
+  const createSearchOpsPrismaClient = vi.fn(() => prisma);
+  const providerStore = { kind: "provider-store" };
+  const createPrismaProviderCredentialStore = vi.fn(() => providerStore);
+  const providerAccountService = { kind: "provider-account-service" };
+  const createProviderAccountService = vi.fn(() => providerAccountService);
+  const repository = { kind: "repository" };
+  const createPrismaRepository = vi.fn(() => repository);
+  const closeable = () => ({ close: vi.fn().mockResolvedValue(undefined) });
+  const server = {
+    addHook: vi.fn(),
+    listen: vi.fn().mockResolvedValue(undefined),
+  };
+  const buildApiServer = vi.fn(() => server);
+
+  vi.doMock("@searchops/types", () => ({ parseSearchOpsEnv }));
+  vi.doMock("@searchops/db", () => ({
+    createPrismaProviderCredentialStore,
+    createSearchOpsPrismaClient,
+    parseCredentialKeyring,
+  }));
+  vi.doMock("./bullmq-queue.js", () => ({
+    createBullMqConnectorSyncQueue: vi.fn(closeable),
+    createBullMqCrawlRunQueue: vi.fn(closeable),
+    createBullMqGeoAnswerMonitorQueue: vi.fn(closeable),
+    createBullMqSchemaRichResultValidationQueue: vi.fn(closeable),
+  }));
+  vi.doMock("./auth.js", () => ({
+    createHmacJwtIdpTokenVerifier: vi.fn(),
+    createJwksRs256IdpTokenVerifier: vi.fn(),
+    createRequestAuthContextResolver: vi.fn(),
+    parseJwksJson: vi.fn(),
+  }));
+  vi.doMock("./dead-letter-store.js", () => ({
+    createBullMqDeadLetterJobStore: vi.fn(closeable),
+  }));
+  vi.doMock("./observability.js", () => ({
+    createHttpOperationalAlertRouter: vi.fn(),
+    createHttpOperationalLogDrain: vi.fn(),
+  }));
+  vi.doMock("./operations-hardening.js", () => ({
+    createHttpBackupRestoreDrillScheduler: vi.fn(),
+    createHttpSecretRotationExecutor: vi.fn(),
+  }));
+  vi.doMock("./redis-rate-limit.js", () => ({
+    createIoredisApiRateLimitStore: vi.fn(),
+  }));
+  vi.doMock("./google-oauth.js", () => ({
+    createGoogleConnectorOAuthClientFromEnv: vi.fn(),
+  }));
+  vi.doMock("./prisma-repository.js", () => ({ createPrismaRepository }));
+  vi.doMock("./provider-account-service.js", () => ({ createProviderAccountService }));
+  vi.doMock("./server.js", () => ({ buildApiServer }));
+  vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+  return {
+    buildApiServer,
+    createPrismaProviderCredentialStore,
+    createProviderAccountService,
+    parseCredentialKeyring,
+    server,
+  };
+}
+
+describe.sequential("provider credential startup wiring", () => {
+  it("keeps local startup disabled without parsing a keyring when storage mode is unset", async () => {
+    const mocks = installApiEntrypointMocks({});
+
+    await import("./index.js");
+
+    expect(mocks.parseCredentialKeyring).not.toHaveBeenCalled();
+    expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
+    expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
+    expect(mocks.buildApiServer).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountService: undefined }),
+    );
+    expect(mocks.server.listen).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before server construction when configured keyring parsing fails", async () => {
+    const keyringError = new Error("malformed credential keyring");
+    const mocks = installApiEntrypointMocks({
+      credentialStorageMode: "encrypted",
+      keyringError,
+    });
+
+    await expect(import("./index.js")).rejects.toBe(keyringError);
+
+    expect(mocks.parseCredentialKeyring).toHaveBeenCalledOnce();
+    expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
+    expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
+    expect(mocks.buildApiServer).not.toHaveBeenCalled();
+    expect(mocks.server.listen).not.toHaveBeenCalled();
   });
 });

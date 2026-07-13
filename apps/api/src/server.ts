@@ -276,13 +276,15 @@ function requireProviderAccountService(
 
 function providerAccountServiceErrorResponse(code: ProviderAccountServiceError["code"]): {
   readonly message: string;
-  readonly statusCode: 400 | 404 | 409;
+  readonly statusCode: 400 | 404 | 409 | 500;
 } {
   switch (code) {
     case "account_not_found":
       return { message: "Provider account not found", statusCode: 404 };
     case "account_in_use":
       return { message: "Provider account is in use", statusCode: 409 };
+    case "credential_decryption_failed":
+      return { message: "Stored provider credential could not be read", statusCode: 500 };
     case "provider_account_default_conflict":
       return { message: "Provider account default conflicts with an existing account", statusCode: 409 };
     case "provider_account_identity_conflict":
@@ -1177,7 +1179,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       const input = CreateApiKeyProviderAccountRequestSchema.parse(request.body);
       if (input.provider !== provider) {
         reply.status(400).send({
-          error: "provider_mismatch",
+          error: "validation_error",
           message: "Request provider must match the route provider",
         });
         return;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  CredentialDecryptionError,
   decryptProviderCredential,
   deriveCanonicalProviderAccountId,
   encryptProviderCredential,
@@ -24,6 +25,12 @@ import { z, ZodError } from "zod";
 const IdSchema = z.string().min(1);
 const ApiKeyProviderSchema = z.enum([
   "bing",
+  "geo_chatgpt",
+  "geo_claude",
+  "geo_gemini",
+  "geo_perplexity",
+]);
+const GeoProviderSchema = z.enum([
   "geo_chatgpt",
   "geo_claude",
   "geo_gemini",
@@ -74,6 +81,7 @@ const GoogleAccountInputSchema = z
     organizationId: IdSchema,
     refreshToken: z.string().min(1).nullable(),
     scopes: z.array(z.string().min(1)),
+    selectedProviders: z.array(GoogleConnectorProviderSchema),
     status: z.enum(["connected", "expired", "revoked", "invalid"]).default("connected"),
     tokenExpiresAt: z.union([z.date(), z.string().datetime({ offset: true })]).nullable(),
     tokenType: z.string().min(1).nullable(),
@@ -82,7 +90,6 @@ const GoogleAccountInputSchema = z
   })
   .strict();
 const PrepareGoogleConnectorsInputSchema = AccountLookupInputSchema.extend({
-  alreadyAttachedProviders: z.array(GoogleConnectorProviderSchema),
   grantedScopes: z.array(z.string().min(1)),
   selectedProviders: z.array(GoogleConnectorProviderSchema),
 });
@@ -90,6 +97,7 @@ const PrepareGoogleConnectorsInputSchema = AccountLookupInputSchema.extend({
 export type ProviderAccountServiceErrorCode =
   | "account_in_use"
   | "account_not_found"
+  | "credential_decryption_failed"
   | "provider_account_default_conflict"
   | "provider_account_identity_conflict"
   | "provider_account_identity_mismatch"
@@ -169,6 +177,9 @@ export function createProviderAccountService({
     async createApiKeyAccount(input) {
       const parsed = parseBoundary(CreateApiKeyAccountInputSchema, input);
       const provider = parseBoundary(ApiKeyProviderSchema, parsed.provider);
+      if (parsed.isDefault === true && !GeoProviderSchema.safeParse(provider).success) {
+        throw new ProviderAccountServiceError("validation_error");
+      }
       const providerAccountId = parseBoundary(IdSchema, generateProviderAccountId());
       const encryptedCredential = encryptProviderCredential(
         keyring,
@@ -194,6 +205,20 @@ export function createProviderAccountService({
 
     async updateAccountMetadata(input) {
       const parsed = parseBoundary(UpdateAccountMetadataInputSchema, input);
+      if (parsed.update.isDefault === true) {
+        const account = await mapStoreErrors(() =>
+          store.getAccountMetadata({
+            organizationId: parsed.organizationId,
+            providerAccountId: parsed.providerAccountId,
+          }),
+        );
+        if (account === null) {
+          throw new ProviderAccountServiceError("account_not_found");
+        }
+        if (!GeoProviderSchema.safeParse(account.provider).success) {
+          throw new ProviderAccountServiceError("validation_error");
+        }
+      }
       const metadataUpdate =
         parsed.update.displayName === undefined
           ? { isDefault: parsed.update.isDefault as boolean }
@@ -260,6 +285,13 @@ export function createProviderAccountService({
         provider: "google",
         externalAccountId: parsed.verifiedExternalAccountId,
       });
+      await validateGoogleConnectorScopes({
+        grantedScopes: parsed.scopes,
+        organizationId: parsed.organizationId,
+        providerAccountId,
+        selectedProviders: parsed.selectedProviders,
+        store,
+      });
       const existing = await mapStoreErrors(() =>
         store.getAccountSecretRecord({
           organizationId: parsed.organizationId,
@@ -271,15 +303,23 @@ export function createProviderAccountService({
         if (existing.provider !== "google" || existing.authType !== "oauth2") {
           throw new ProviderAccountServiceError("provider_account_identity_mismatch");
         }
-        const existingSecret = decryptProviderCredential(
-          keyring,
-          {
-            organizationId: existing.organizationId,
-            providerAccountId: existing.id,
-            provider: existing.provider,
-          },
-          existing,
-        );
+        let existingSecret;
+        try {
+          existingSecret = decryptProviderCredential(
+            keyring,
+            {
+              organizationId: existing.organizationId,
+              providerAccountId: existing.id,
+              provider: existing.provider,
+            },
+            existing,
+          );
+        } catch (error) {
+          if (error instanceof CredentialDecryptionError) {
+            throw new ProviderAccountServiceError("credential_decryption_failed");
+          }
+          throw error;
+        }
         if (existingSecret.kind !== "oauth2") {
           throw new ProviderAccountServiceError("provider_account_identity_mismatch");
         }
@@ -305,6 +345,7 @@ export function createProviderAccountService({
           displayName: parsed.displayName,
           status: parsed.status ?? "connected",
           scopes: [...new Set(parsed.scopes)].sort(),
+          allowedConnectorProviders: googleConnectorProvidersAllowedByScopes(parsed.scopes),
           tokenExpiresAt:
             typeof parsed.tokenExpiresAt === "string"
               ? new Date(parsed.tokenExpiresAt)
@@ -317,29 +358,7 @@ export function createProviderAccountService({
 
     async prepareGoogleConnectors(input) {
       const parsed = parseBoundary(PrepareGoogleConnectorsInputSchema, input);
-      const account = await mapStoreErrors(() =>
-        store.getAccountMetadata({
-          organizationId: parsed.organizationId,
-          providerAccountId: parsed.providerAccountId,
-        }),
-      );
-      if (account === null) {
-        throw new ProviderAccountServiceError("account_not_found");
-      }
-      if (account.provider !== "google" || account.authType !== "oauth2") {
-        throw new ProviderAccountServiceError("provider_account_provider_mismatch");
-      }
-
-      const connectorScopes = [
-        ...parsed.alreadyAttachedProviders,
-        ...parsed.selectedProviders,
-      ].map((provider) => GoogleScopeByProvider[provider]);
-      const requiredScopes = [...new Set([...account.scopes, ...connectorScopes])].sort();
-      const grantedScopes = new Set(parsed.grantedScopes);
-      if (requiredScopes.some((scope) => !grantedScopes.has(scope))) {
-        throw new ProviderAccountServiceError("scope_missing");
-      }
-      return { requiredScopes };
+      return validateGoogleConnectorScopes({ ...parsed, store });
     },
 
     async listAccounts(input) {
@@ -386,7 +405,7 @@ export function createProviderAccountService({
 
 function normalizeExternalResource(provider: SiteConnectorProvider, value: string): string {
   if (provider === "ga4") {
-    const match = /^(?:properties\/)?([0-9]+)$/.exec(value);
+    const match = /^(?:properties\/)?([1-9][0-9]*)$/.exec(value);
     if (match === null) {
       throw new ProviderAccountServiceError("validation_error");
     }
@@ -402,6 +421,59 @@ function normalizeExternalResource(provider: SiteConnectorProvider, value: strin
   }
 
   return normalizeHttpUrl(value);
+}
+
+async function validateGoogleConnectorScopes(input: {
+  readonly grantedScopes: readonly string[];
+  readonly organizationId: string;
+  readonly providerAccountId: string;
+  readonly selectedProviders: readonly z.infer<typeof GoogleConnectorProviderSchema>[];
+  readonly store: ProviderCredentialStore;
+}): Promise<{ readonly requiredScopes: readonly string[] }> {
+  const account = await mapStoreErrors(() =>
+    input.store.getAccountMetadata({
+      organizationId: input.organizationId,
+      providerAccountId: input.providerAccountId,
+    }),
+  );
+  if (account !== null && (account.provider !== "google" || account.authType !== "oauth2")) {
+    throw new ProviderAccountServiceError("provider_account_provider_mismatch");
+  }
+
+  const attachedProviders = await mapStoreErrors(() =>
+    input.store.listAccountConnectorProviders({
+      organizationId: input.organizationId,
+      providerAccountId: input.providerAccountId,
+    }),
+  );
+  if (account === null && attachedProviders.length > 0) {
+    throw new ProviderAccountServiceError("account_not_found");
+  }
+  if (attachedProviders.some((provider) => !GoogleConnectorProviderSchema.safeParse(provider).success)) {
+    throw new ProviderAccountServiceError("provider_account_provider_mismatch");
+  }
+
+  const connectorProviders = [
+    ...(attachedProviders as z.infer<typeof GoogleConnectorProviderSchema>[]),
+    ...input.selectedProviders,
+  ];
+  const requiredScopes = [
+    ...new Set(connectorProviders.map((provider) => GoogleScopeByProvider[provider])),
+  ].sort();
+  const grantedScopes = new Set(input.grantedScopes);
+  if (requiredScopes.some((scope) => !grantedScopes.has(scope))) {
+    throw new ProviderAccountServiceError("scope_missing");
+  }
+  return { requiredScopes };
+}
+
+function googleConnectorProvidersAllowedByScopes(
+  scopes: readonly string[],
+): z.infer<typeof GoogleConnectorProviderSchema>[] {
+  const grantedScopes = new Set(scopes);
+  return GoogleConnectorProviderSchema.options.filter((provider) =>
+    grantedScopes.has(GoogleScopeByProvider[provider]),
+  );
 }
 
 function normalizeHttpUrl(value: string): string {
