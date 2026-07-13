@@ -6,6 +6,7 @@ import {
   connectorsPackage,
   createAnthropicGeoAnswerClient,
   createConnectorRunResult,
+  createFailedConnectorRunResult,
   createFixtureConnectorAdapter,
   createGeminiGeoAnswerClient,
   createGeoAnswerMonitorBatchRunner,
@@ -1281,6 +1282,50 @@ describe("connectors foundation", () => {
     expect(JSON.stringify(result)).not.toContain("Permission denied for property");
   });
 
+  it("does not expose arbitrary external error messages in results or summaries", () => {
+    const secret = "https://provider.test/path?api_key=tenant-secret";
+    const result = createFailedConnectorRunResult(
+      "pagespeed",
+      "2026-05-27T00:00:00.000Z",
+      new Error(secret),
+    );
+    const summary = summarizeConnectorRunResults([result]);
+
+    expect(result.error).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(JSON.stringify({ result, summary })).not.toContain("tenant-secret");
+    expect(JSON.stringify({ result, summary })).not.toContain("api_key");
+  });
+
+  it("normalizes malformed provider JSON without persisting response content", async () => {
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () =>
+        new Response("client_secret=tenant-secret", {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        })) as typeof fetch,
+      providerConfigs: {
+        gsc: {
+          credential: { accessToken: "gsc_token", provider: "gsc", status: "connected" },
+          propertyId: "sc-domain:example.com",
+        },
+      },
+      providers: ["gsc"],
+    });
+
+    expect(result.results[0]).toMatchObject({
+      error: { code: "provider_rate_limited" },
+      fixture: false,
+      provider: "gsc",
+      status: "failed",
+    });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    expect(JSON.stringify(result)).not.toContain("client_secret");
+  });
+
   it("diagnoses GA4 property id format separately from OAuth permission failures", async () => {
     const invalidPropertyResult = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
@@ -1366,7 +1411,7 @@ describe("connectors foundation", () => {
     expect(JSON.stringify(result)).not.toContain("InvalidApiKey");
   });
 
-  it("diagnoses Bing 5xx HTML responses as temporary service availability issues", async () => {
+  it("normalizes Bing 5xx HTML responses as a safe transient provider failure", async () => {
     const result = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
       fetch: (async () =>
@@ -1387,8 +1432,8 @@ describe("connectors foundation", () => {
       provider: "bing",
       status: "failed",
       error: {
-        code: "bing_service_unavailable",
-        operatorMessage: expect.stringContaining("Bing Webmaster API")
+        code: "provider_rate_limited",
+        message: "Connector provider request could not be completed safely."
       }
     });
     expect(result.summary).toMatchObject({

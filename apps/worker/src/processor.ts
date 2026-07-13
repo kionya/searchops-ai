@@ -29,6 +29,7 @@ import {
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
   persistSchemaRecommendationRecheck,
+  verifyConnectorSyncRunOwnership,
   type CredentialKeyring,
   type CrawlAnalysisPersistenceClient,
   type ConnectorSyncPersistenceClient,
@@ -49,6 +50,7 @@ import {
   SchemaRichResultValidationJobResultSchema,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
+  type ConnectorRunResult,
   type CredentialStorageMode,
   type CrawlJobPageInput,
   type CrawlJobPayload,
@@ -85,6 +87,10 @@ export interface ProcessConnectorSyncJobOptions {
   readonly now?: () => Date;
   readonly pagespeedApiKey?: string | undefined;
   readonly refreshLock?: ProviderAccountRefreshLock | undefined;
+  readonly recordConnectorProviderOutcomes?: (
+    input: ConnectorSyncJobPayload,
+    results: readonly ConnectorRunResult[],
+  ) => Promise<void>;
   readonly resolveConnectorProviderConfigs?: (
     input: ConnectorSyncJobPayload,
   ) => Promise<ResolvedConnectorProviderConfigs>;
@@ -155,6 +161,9 @@ export async function processConnectorSyncJob(
     fetchedAt: payload.fetchedAt,
     providers: payload.providers
   });
+  if (liveExternalApis === "enabled") {
+    await options.recordConnectorProviderOutcomes?.(payload, result.results);
+  }
 
   return ConnectorSyncJobResultSchema.parse({
     connectorSyncRunId: payload.connectorSyncRunId,
@@ -174,30 +183,68 @@ export async function processAndPersistConnectorSyncJob(
   options: ProcessConnectorSyncJobOptions = {},
 ): Promise<ConnectorSyncJobResult> {
   const payload = ConnectorSyncJobPayloadSchema.parse(input);
+  let ownedRun: boolean;
+  try {
+    ownedRun = await verifyConnectorSyncRunOwnership(persistenceClient, {
+      connectorSyncRunId: payload.connectorSyncRunId,
+      organizationId: payload.organizationId,
+      siteId: payload.siteId,
+    });
+  } catch {
+    throw new Error("worker_job_failed");
+  }
+  if (!ownedRun) {
+    throw new Error("connector_sync_run_ownership_mismatch");
+  }
   try {
     const liveExternalApis = LiveExternalApiModeSchema.parse(
       options.liveExternalApis ?? "disabled",
     );
+    const runtimeResolver =
+      options.resolveConnectorProviderConfigs === undefined &&
+      liveExternalApis === "enabled" &&
+      options.syncConnectors === undefined
+        ? createRuntimeProviderCredentialResolver(persistenceClient, options)
+        : undefined;
     const resolveConnectorProviderConfigs =
       options.resolveConnectorProviderConfigs ??
-      (liveExternalApis === "enabled" && options.syncConnectors === undefined
-        ? createRuntimeProviderCredentialResolver(persistenceClient, options)
-        : undefined);
+      runtimeResolver?.resolveConnectorProviderConfigs.bind(runtimeResolver);
+    const recordConnectorProviderOutcomes =
+      options.recordConnectorProviderOutcomes ??
+      runtimeResolver?.recordConnectorProviderOutcomes.bind(runtimeResolver);
     const result = await processConnectorSyncJob(payload, {
       ...options,
       ...(resolveConnectorProviderConfigs === undefined
         ? {}
         : { resolveConnectorProviderConfigs }),
+      ...(recordConnectorProviderOutcomes === undefined
+        ? {}
+        : { recordConnectorProviderOutcomes }),
     });
     await persistConnectorSyncJobResult(persistenceClient, result);
     return result;
   } catch (error) {
     await markConnectorSyncRunFailed(persistenceClient, {
       connectorSyncRunId: payload.connectorSyncRunId,
-      error
-    });
-    throw error;
+      error,
+      organizationId: payload.organizationId,
+      siteId: payload.siteId,
+    }).catch(() => undefined);
+    throw normalizeConnectorWorkerFailure(error);
   }
+}
+
+const safeConnectorWorkerFailureCodes = new Set([
+  "connector_sync_run_ownership_changed",
+  "connector_sync_run_ownership_mismatch",
+  "credential_keyring_invalid",
+  "worker_job_failed",
+]);
+
+function normalizeConnectorWorkerFailure(error: unknown) {
+  return error instanceof Error && safeConnectorWorkerFailureCodes.has(error.message)
+    ? error
+    : new Error("worker_job_failed");
 }
 
 function createRuntimeProviderCredentialResolver(
@@ -220,7 +267,7 @@ function createRuntimeProviderCredentialResolver(
     storageMode: options.credentialStorageMode ?? "dual",
     store: createDbProviderCredentialResolverStore(persistenceClient),
   });
-  return resolver.resolveConnectorProviderConfigs.bind(resolver);
+  return resolver;
 }
 
 function missingLiveProviderConfigs(

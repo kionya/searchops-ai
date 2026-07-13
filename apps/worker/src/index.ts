@@ -12,7 +12,8 @@ import {
   createConnectorSyncWorker,
   createCrawlWorker,
   createGeoAnswerMonitorWorker,
-  createSchemaRichResultValidationWorker
+  createSchemaRichResultValidationWorker,
+  formatWorkerFailureLog
 } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
@@ -68,8 +69,8 @@ const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker(
         redisUrl: env.REDIS_URL,
         processorOptions: {
           monitorGeoAnswers: createGeoAnswerMonitorBatchRunner(geoLiveAdapters, {
-            onProviderError: (provider, error) =>
-              console.error(`GEO live provider ${provider} failed; using fixture fallback`, error)
+            onProviderError: (provider) =>
+              console.error(`GEO live provider ${provider} failed code=provider_request_failed`)
           })
         }
       }
@@ -109,11 +110,8 @@ for (const runtime of [
     console.log(`SearchOps worker completed ${job.name} job ${job.id}`);
   });
 
-  runtime.worker.on("failed", (job, error) => {
-    console.error(
-      `SearchOps worker failed ${job?.name ?? "unknown"} job ${job?.id ?? "unknown"}`,
-      error,
-    );
+  runtime.worker.on("failed", (_job, error) => {
+    console.error(formatWorkerFailureLog(error));
   });
 }
 

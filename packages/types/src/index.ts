@@ -2647,23 +2647,49 @@ export const ConnectorCredentialSourcesSchema = z
 
 export type ConnectorCredentialSources = z.infer<typeof ConnectorCredentialSourcesSchema>;
 
-export const ConnectorBatchSyncSummarySchema = z.object({
-  credentialSources: ConnectorCredentialSourcesSchema.optional(),
-  failedProviders: NonNegativeIntegerSchema,
-  okProviders: NonNegativeIntegerSchema,
-  partialProviders: NonNegativeIntegerSchema,
-  providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
-  recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
-  setupRequiredProviders: NonNegativeIntegerSchema.default(0),
-  totalProviders: NonNegativeIntegerSchema,
-  totalRecords: NonNegativeIntegerSchema,
-});
+export const ConnectorBatchSyncSummarySchema = z
+  .object({
+    credentialSources: ConnectorCredentialSourcesSchema.optional(),
+    failedProviders: NonNegativeIntegerSchema,
+    okProviders: NonNegativeIntegerSchema,
+    partialProviders: NonNegativeIntegerSchema,
+    providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
+    recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
+    setupRequiredProviders: NonNegativeIntegerSchema.default(0),
+    totalProviders: NonNegativeIntegerSchema,
+    totalRecords: NonNegativeIntegerSchema,
+  })
+  .strict();
 
 export type ConnectorBatchSyncSummary = z.infer<typeof ConnectorBatchSyncSummarySchema>;
 
+export const ConnectorSyncFailedRunSummarySchema = z
+  .object({
+    version: z.literal(1),
+    error: z
+      .object({
+        code: z.literal("worker_job_failed"),
+        message: z.literal("Worker job failed."),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ConnectorSyncLegacyFailedRunSummarySchema = z
+  .object({
+    error: z
+      .object({
+        message: z.string().min(1).max(256),
+        name: z.string().min(1).max(64),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const ConnectorSyncRunSummarySchema = z.union([
   ConnectorBatchSyncSummarySchema,
-  z.record(z.unknown()),
+  ConnectorSyncFailedRunSummarySchema,
+  ConnectorSyncLegacyFailedRunSummarySchema,
 ]);
 
 export type ConnectorSyncRunSummary = z.infer<typeof ConnectorSyncRunSummarySchema>;
@@ -2697,28 +2723,32 @@ export const ConnectorSyncRunSchema = z.object({
 
 export type ConnectorSyncRun = z.infer<typeof ConnectorSyncRunSchema>;
 
-export const ConnectorSyncJobPayloadSchema = z.object({
-  connectorSyncRunId: IdSchema,
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  fetchedAt: IsoDateTimeSchema,
-  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
-});
+export const ConnectorSyncJobPayloadSchema = z
+  .object({
+    connectorSyncRunId: IdSchema,
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    fetchedAt: IsoDateTimeSchema,
+    providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
+  })
+  .strict();
 
 export type ConnectorSyncJobPayload = z.infer<typeof ConnectorSyncJobPayloadSchema>;
 
-export const ConnectorSyncJobResultSchema = z.object({
-  connectorSyncRunId: IdSchema,
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  fetchedAt: IsoDateTimeSchema,
-  results: z.array(ConnectorRunResultSchema),
-  summary: ConnectorBatchSyncSummarySchema,
-});
+export const ConnectorSyncJobResultSchema = z
+  .object({
+    connectorSyncRunId: IdSchema,
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    fetchedAt: IsoDateTimeSchema,
+    results: z.array(ConnectorRunResultSchema),
+    summary: ConnectorBatchSyncSummarySchema,
+  })
+  .strict();
 
 export type ConnectorSyncJobResult = z.infer<typeof ConnectorSyncJobResultSchema>;
 

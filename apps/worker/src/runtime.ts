@@ -100,6 +100,10 @@ export interface CreateSchemaRichResultValidationWorkerOptions {
   readonly queueName?: string;
 }
 
+export function formatWorkerFailureLog(_error: unknown) {
+  return "SearchOps worker job failed code=worker_job_failed";
+}
+
 function createDeadLetterQueue(
   queueName: string,
   redisUrl: string,

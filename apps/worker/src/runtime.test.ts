@@ -12,7 +12,8 @@ import {
   createConnectorSyncJobProcessor,
   createCrawlJobProcessor,
   createGeoAnswerMonitorJobProcessor,
-  createSchemaRichResultValidationJobProcessor
+  createSchemaRichResultValidationJobProcessor,
+  formatWorkerFailureLog
 } from "./runtime.js";
 
 const html = `
@@ -80,6 +81,7 @@ describe("worker runtime", () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -151,6 +153,7 @@ describe("worker runtime", () => {
   it("forwards the connector job tenant context to live credential resolution", async () => {
     const resolvedJobs: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort([], []),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -361,7 +364,7 @@ describe("worker runtime", () => {
   it("builds deterministic dead-letter payloads for failed worker jobs", () => {
     expect(
       buildDeadLetterJobPayload({
-        error: new Error("Fetch timed out"),
+        error: new Error("https://provider.test?access_token=tenant-secret"),
         failedAt: new Date("2026-05-25T00:00:00.000Z"),
         job: {
           attemptsMade: 3,
@@ -374,9 +377,38 @@ describe("worker runtime", () => {
       originalQueue: "searchops-crawl",
       originalJobName: "crawl",
       originalJobId: "42",
-      failedReason: "Fetch timed out",
+      failedReason: "worker_job_failed",
       attemptsMade: 3,
       failedAt: "2026-05-25T00:00:00.000Z"
     });
   });
+
+  it("formats worker failure logs without external error details", () => {
+    const message = formatWorkerFailureLog(
+      new Error("https://provider.test?client_secret=tenant-secret"),
+    );
+
+    expect(message).toBe("SearchOps worker job failed code=worker_job_failed");
+    expect(message).not.toContain("tenant-secret");
+  });
 });
+
+function createOwnedConnectorSyncPort(
+  runUpdates: unknown[],
+  resultUpserts: unknown[],
+): ConnectorSyncPersistenceClient["connectorSyncOwnership"] {
+  return {
+    async markFailed(input) {
+      runUpdates.push(input);
+      return true;
+    },
+    async persist(input) {
+      resultUpserts.push(...input.result.results);
+      runUpdates.push(input);
+      return true;
+    },
+    async verify() {
+      return true;
+    }
+  };
+}

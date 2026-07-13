@@ -22,6 +22,7 @@ import type {
   LiveConnectorProviderConfigs,
 } from "@searchops/connectors";
 import type {
+  ConnectorRunResult,
   ConnectorCredentialSources,
   ConnectorProvider,
   ConnectorSyncJobPayload,
@@ -65,12 +66,14 @@ export interface ProviderCredentialResolverStore {
     readonly providerAccountId: string;
     readonly status: "connected";
     readonly tokenExpiresAt: Date;
-  }): Promise<boolean>;
+  }): Promise<{ readonly updatedAt: string } | null>;
   updateProviderAccountStatus(input: {
+    readonly expectedStatus: "connected";
+    readonly expectedUpdatedAt: string;
     readonly organizationId: string;
     readonly providerAccountId: string;
     readonly status: ProviderAccountStatus;
-  }): Promise<void>;
+  }): Promise<boolean>;
   updateSiteConnectorStatus(input: {
     readonly lastCheckedAt: Date;
     readonly lastErrorCode: ProviderCredentialFailureCode | null;
@@ -137,8 +140,12 @@ export function createRedisProviderAccountRefreshLock(
         throw new ProviderAccountRefreshLockError();
       }
 
+      let operationFailed = false;
       try {
         return await operation();
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
         try {
           await client.eval(
@@ -148,7 +155,9 @@ export function createRedisProviderAccountRefreshLock(
             token,
           );
         } catch {
-          throw new ProviderAccountRefreshLockError();
+          if (!operationFailed) {
+            throw new ProviderAccountRefreshLockError();
+          }
         }
       }
     },
@@ -162,6 +171,10 @@ export interface ResolvedConnectorProviderConfigs {
 }
 
 export interface ProviderCredentialResolver {
+  recordConnectorProviderOutcomes(
+    job: ConnectorSyncJobPayload,
+    results: readonly ConnectorRunResult[],
+  ): Promise<void>;
   resolveConnectorProviderConfigs(
     job: ConnectorSyncJobPayload,
   ): Promise<ResolvedConnectorProviderConfigs>;
@@ -202,7 +215,17 @@ export function createDbProviderCredentialResolverStore(
 export function createProviderCredentialResolver(
   options: CreateProviderCredentialResolverOptions,
 ): ProviderCredentialResolver {
+  const outcomeBindings = new Map<string, ProviderOutcomeBinding>();
   return {
+    async recordConnectorProviderOutcomes(job, results) {
+      try {
+        await recordConnectorProviderOutcomes(options.store, job, results, outcomeBindings);
+      } finally {
+        for (const provider of job.providers) {
+          outcomeBindings.delete(providerOutcomeBindingKey(job, provider));
+        }
+      }
+    },
     async resolveConnectorProviderConfigs(job) {
       const configs: MutableLiveConnectorProviderConfigs = {};
       const credentialSources: MutableConnectorCredentialSources = {};
@@ -220,6 +243,7 @@ export function createProviderCredentialResolver(
       }
 
       for (const provider of job.providers) {
+        outcomeBindings.delete(providerOutcomeBindingKey(job, provider));
         if (provider === "cms") {
           failures.cms = "connector_missing";
           continue;
@@ -244,6 +268,10 @@ export function createProviderCredentialResolver(
         });
 
         if (connector !== null) {
+          if (connector.provider !== provider) {
+            failures[provider] = "connector_missing";
+            continue;
+          }
           const resolution = await resolveEncryptedConnector({
             connector,
             job,
@@ -252,9 +280,20 @@ export function createProviderCredentialResolver(
           if (resolution.ok) {
             assignProviderConfig(configs, provider, resolution.config);
             credentialSources[provider] = "encrypted";
+            outcomeBindings.set(
+              providerOutcomeBindingKey(job, provider),
+              resolution.binding,
+            );
           } else {
+            outcomeBindings.delete(providerOutcomeBindingKey(job, provider));
             failures[provider] = resolution.code;
-            await recordResolutionFailure(options.store, job, connector, resolution.code);
+            await recordResolutionFailure(
+              options.store,
+              job,
+              connector,
+              resolution.code,
+              resolution.account,
+            );
           }
           continue;
         }
@@ -307,13 +346,13 @@ async function resolveEncryptedConnector(input: {
 
   const accountFailure = validateAccountStatus(account);
   if (accountFailure !== null) {
-    return failure(accountFailure);
+    return failure(accountFailure, account);
   }
   if (
     isGoogleConnectorProvider(connector.provider) &&
     !account.scopes.includes(googleRequiredScopes[connector.provider])
   ) {
-    return failure("scope_missing");
+    return failure("scope_missing", account);
   }
 
   try {
@@ -322,36 +361,52 @@ async function resolveEncryptedConnector(input: {
       if (secret.kind !== "api_key" || connector.externalResourceId === null) {
         return failure("connector_missing");
       }
-      return success({ apiKey: secret.apiKey, siteUrl: connector.externalResourceId });
+      return success(
+        { apiKey: secret.apiKey, siteUrl: connector.externalResourceId },
+        providerOutcomeBinding(account),
+      );
     }
 
     const propertyId = normalizeGoogleResource(connector, job.siteDomain);
     if (propertyId === null) {
       return failure("connector_missing");
     }
-    const credential = await resolveGoogleCredential(account, options);
-    return success({ credential: toGoogleCredential(connector.provider, credential, account), propertyId });
+    const credential = await resolveGoogleCredential(account, connector.provider, options);
+    return success(
+      {
+        credential: toGoogleCredential(connector.provider, credential.secret, account),
+        propertyId,
+      },
+      {
+        accountUpdatedAt: credential.accountUpdatedAt,
+        providerAccountId: account.id,
+      },
+    );
   } catch (error) {
     if (error instanceof ProviderCredentialResolutionError) {
-      return failure(error.code);
+      return failure(error.code, account);
     }
     if (error instanceof CredentialDecryptionError) {
-      return failure("credential_decryption_failed");
+      return failure("credential_decryption_failed", account);
     }
     if (error instanceof ProviderAccountRefreshLockError) {
-      return failure("provider_rate_limited");
+      return failure("provider_rate_limited", account);
     }
-    return failure("credential_decryption_failed");
+    return failure("credential_decryption_failed", account);
   }
 }
 
 async function resolveGoogleCredential(
   initialAccount: ProviderAccountSecretRecord,
+  requestedProvider: "gsc" | "ga4",
   options: CreateProviderCredentialResolverOptions,
 ) {
   const now = options.now?.() ?? new Date();
   if (!shouldRefresh(initialAccount.tokenExpiresAt, now)) {
-    return decryptOAuthCredential(initialAccount, options.keyring);
+    return {
+      accountUpdatedAt: initialAccount.updatedAt,
+      secret: decryptOAuthCredential(initialAccount, options.keyring),
+    };
   }
   if (options.refreshLock === undefined) {
     throw new ProviderCredentialResolutionError("credential_expired");
@@ -364,13 +419,11 @@ async function resolveGoogleCredential(
         organizationId: initialAccount.organizationId,
         providerAccountId: initialAccount.id,
       });
-      if (!isSameGoogleAccount(account, initialAccount)) {
-        throw new ProviderCredentialResolutionError("account_missing");
-      }
+      assertValidGoogleAccountReread(account, initialAccount, requestedProvider);
       const lockedNow = options.now?.() ?? new Date();
       const currentSecret = decryptOAuthCredential(account, options.keyring);
       if (!shouldRefresh(account.tokenExpiresAt, lockedNow)) {
-        return currentSecret;
+        return { accountUpdatedAt: account.updatedAt, secret: currentSecret };
       }
       if (
         currentSecret.refreshToken === null ||
@@ -410,17 +463,24 @@ async function resolveGoogleCredential(
           organizationId: account.organizationId,
           providerAccountId: account.id,
         });
-        if (!isSameGoogleAccount(latest, account) || shouldRefresh(latest.tokenExpiresAt, lockedNow)) {
+        assertValidGoogleAccountReread(latest, account, requestedProvider);
+        if (shouldRefresh(latest.tokenExpiresAt, lockedNow)) {
           throw new ProviderCredentialResolutionError("credential_expired");
         }
-        return decryptOAuthCredential(latest, options.keyring);
+        return {
+          accountUpdatedAt: latest.updatedAt,
+          secret: decryptOAuthCredential(latest, options.keyring),
+        };
       }
 
       return {
-        accessToken: refreshed.accessToken,
-        kind: "oauth2" as const,
-        refreshToken: currentSecret.refreshToken,
-        tokenType: refreshed.tokenType,
+        accountUpdatedAt: updated.updatedAt,
+        secret: {
+          accessToken: refreshed.accessToken,
+          kind: "oauth2" as const,
+          refreshToken: currentSecret.refreshToken,
+          tokenType: refreshed.tokenType,
+        },
       };
     },
   );
@@ -433,33 +493,43 @@ async function refreshGoogleCredential(input: {
   readonly now: Date;
   readonly refreshToken: string;
 }) {
-  const response = await input.fetchImpl("https://oauth2.googleapis.com/token", {
-    body: new URLSearchParams({
-      client_id: input.clientId,
-      client_secret: input.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: input.refreshToken,
-    }),
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
+  let response: Response;
+  try {
+    response = await input.fetchImpl("https://oauth2.googleapis.com/token", {
+      body: new URLSearchParams({
+        client_id: input.clientId,
+        client_secret: input.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: input.refreshToken,
+      }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+  } catch {
+    throw new ProviderCredentialResolutionError("provider_rate_limited");
+  }
 
   if (!response.ok) {
     if (response.status === 400 || response.status === 401) {
       throw new ProviderCredentialResolutionError("credential_revoked");
     }
-    if (response.status === 429) {
+    if (response.status === 429 || response.status >= 500) {
       throw new ProviderCredentialResolutionError("provider_rate_limited");
     }
-    throw new ProviderCredentialResolutionError("credential_expired");
+    throw new ProviderCredentialResolutionError("resource_access_denied");
   }
-  const payload = (await response.json()) as {
+  let payload: {
     readonly access_token?: unknown;
     readonly expires_in?: unknown;
     readonly token_type?: unknown;
   };
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    throw new ProviderCredentialResolutionError("provider_rate_limited");
+  }
   if (typeof payload.access_token !== "string" || payload.access_token.length === 0) {
-    throw new ProviderCredentialResolutionError("credential_expired");
+    throw new ProviderCredentialResolutionError("provider_rate_limited");
   }
   const expiresIn =
     typeof payload.expires_in === "number" && payload.expires_in > 0 ? payload.expires_in : 3600;
@@ -504,14 +574,10 @@ async function recordResolutionFailure(
   job: ConnectorSyncJobPayload,
   connector: SiteConnector,
   code: ProviderCredentialFailureCode,
+  account?: ProviderAccountSecretRecord,
 ) {
   const metadata = failureStatusMetadata(code);
-  await Promise.allSettled([
-    store.updateProviderAccountStatus({
-      organizationId: job.organizationId,
-      providerAccountId: connector.providerAccountId,
-      status: metadata.accountStatus,
-    }),
+  const writes: Promise<unknown>[] = [
     store.updateSiteConnectorStatus({
       lastCheckedAt: new Date(job.fetchedAt),
       lastErrorCode: code,
@@ -520,11 +586,27 @@ async function recordResolutionFailure(
       siteId: job.siteId,
       status: metadata.connectorStatus,
     }),
-  ]);
+  ];
+  if (
+    metadata.accountStatus !== null &&
+    account !== undefined &&
+    account.status === "connected"
+  ) {
+    writes.push(
+      store.updateProviderAccountStatus({
+        expectedStatus: "connected",
+        expectedUpdatedAt: account.updatedAt,
+        organizationId: job.organizationId,
+        providerAccountId: connector.providerAccountId,
+        status: metadata.accountStatus,
+      }),
+    );
+  }
+  await Promise.allSettled(writes);
 }
 
 function failureStatusMetadata(code: ProviderCredentialFailureCode): {
-  readonly accountStatus: ProviderAccountStatus;
+  readonly accountStatus: ProviderAccountStatus | null;
   readonly connectorStatus: SiteConnectorStatus;
 } {
   switch (code) {
@@ -535,8 +617,132 @@ function failureStatusMetadata(code: ProviderCredentialFailureCode): {
     case "credential_decryption_failed":
       return { accountStatus: "invalid", connectorStatus: "error" };
     default:
-      return { accountStatus: "connected", connectorStatus: "error" };
+      return { accountStatus: null, connectorStatus: "error" };
   }
+}
+
+async function recordConnectorProviderOutcomes(
+  store: ProviderCredentialResolverStore,
+  job: ConnectorSyncJobPayload,
+  results: readonly ConnectorRunResult[],
+  bindings: ReadonlyMap<string, ProviderOutcomeBinding>,
+) {
+  for (const result of results) {
+    if (
+      result.fixture ||
+      !job.providers.includes(result.provider) ||
+      !isSiteConnectorProvider(result.provider)
+    ) {
+      continue;
+    }
+    const binding = bindings.get(providerOutcomeBindingKey(job, result.provider));
+    if (binding === undefined) {
+      continue;
+    }
+    const connector = await store.getSiteConnector({
+      organizationId: job.organizationId,
+      provider: result.provider,
+      siteId: job.siteId,
+    });
+    if (
+      connector === null ||
+      connector.organizationId !== job.organizationId ||
+      connector.siteId !== job.siteId ||
+      connector.provider !== result.provider ||
+      connector.providerAccountId !== binding.providerAccountId
+    ) {
+      continue;
+    }
+    const account = await store.getProviderAccount({
+      organizationId: job.organizationId,
+      providerAccountId: binding.providerAccountId,
+    });
+    if (
+      !isCompatibleAccount(account, connector, job.organizationId) ||
+      account.status !== "connected" ||
+      account.updatedAt !== binding.accountUpdatedAt
+    ) {
+      continue;
+    }
+
+    if (result.status === "ok") {
+      await store.updateSiteConnectorStatus({
+        lastCheckedAt: new Date(result.fetchedAt),
+        lastErrorCode: null,
+        organizationId: job.organizationId,
+        provider: connector.provider,
+        siteId: job.siteId,
+        status: "connected",
+      });
+      continue;
+    }
+
+    const code = parseProviderCredentialFailureCode(result.error?.code);
+    if (code === null) {
+      continue;
+    }
+    const metadata = failureStatusMetadata(code);
+    const writes: Promise<unknown>[] = [
+      store.updateSiteConnectorStatus({
+        lastCheckedAt: new Date(result.fetchedAt),
+        lastErrorCode: code,
+        organizationId: job.organizationId,
+        provider: connector.provider,
+        siteId: job.siteId,
+        status: metadata.connectorStatus,
+      }),
+    ];
+    if (metadata.accountStatus === "expired" || metadata.accountStatus === "revoked") {
+      writes.push(
+        store.updateProviderAccountStatus({
+          expectedStatus: "connected",
+          expectedUpdatedAt: account.updatedAt,
+          organizationId: job.organizationId,
+          providerAccountId: account.id,
+          status: metadata.accountStatus,
+        }),
+      );
+    }
+    await Promise.allSettled(writes);
+  }
+}
+
+interface ProviderOutcomeBinding {
+  readonly accountUpdatedAt: string;
+  readonly providerAccountId: string;
+}
+
+function providerOutcomeBinding(account: ProviderAccountSecretRecord): ProviderOutcomeBinding {
+  return {
+    accountUpdatedAt: account.updatedAt,
+    providerAccountId: account.id,
+  };
+}
+
+function providerOutcomeBindingKey(
+  job: ConnectorSyncJobPayload,
+  provider: ConnectorProvider,
+) {
+  return `${job.connectorSyncRunId}:${provider}`;
+}
+
+const providerCredentialFailureCodes = new Set<ProviderCredentialFailureCode>([
+  "account_missing",
+  "connector_missing",
+  "scope_missing",
+  "credential_expired",
+  "credential_revoked",
+  "resource_access_denied",
+  "provider_rate_limited",
+  "credential_decryption_failed",
+]);
+
+function parseProviderCredentialFailureCode(
+  code: string | undefined,
+): ProviderCredentialFailureCode | null {
+  return code !== undefined && providerCredentialFailureCodes.has(code as ProviderCredentialFailureCode)
+    ? (code as ProviderCredentialFailureCode)
+    : null;
 }
 
 function validateAccountStatus(
@@ -582,6 +788,23 @@ function isSameGoogleAccount(
     account.provider === "google" &&
     account.authType === "oauth2"
   );
+}
+
+function assertValidGoogleAccountReread(
+  account: ProviderAccountSecretRecord | null,
+  expected: ProviderAccountSecretRecord,
+  requestedProvider: "gsc" | "ga4",
+): asserts account is ProviderAccountSecretRecord {
+  if (!isSameGoogleAccount(account, expected)) {
+    throw new ProviderCredentialResolutionError("account_missing");
+  }
+  const statusFailure = validateAccountStatus(account);
+  if (statusFailure !== null) {
+    throw new ProviderCredentialResolutionError(statusFailure);
+  }
+  if (!account.scopes.includes(googleRequiredScopes[requestedProvider])) {
+    throw new ProviderCredentialResolutionError("scope_missing");
+  }
 }
 
 function normalizeGoogleResource(connector: SiteConnector, siteDomain: string) {
@@ -666,6 +889,12 @@ function isGoogleConnectorProvider(
   return provider === "gsc" || provider === "ga4";
 }
 
+function isSiteConnectorProvider(
+  provider: ConnectorProvider,
+): provider is SiteConnectorProvider {
+  return provider === "gsc" || provider === "ga4" || provider === "bing";
+}
+
 type ProviderConfig = NonNullable<LiveConnectorProviderConfigs[keyof LiveConnectorProviderConfigs]>;
 type MutableLiveConnectorProviderConfigs = {
   -readonly [P in keyof LiveConnectorProviderConfigs]?: LiveConnectorProviderConfigs[P];
@@ -689,15 +918,29 @@ function assignProviderConfig(
 }
 
 type ProviderResolution =
-  | { readonly ok: true; readonly config: ProviderConfig }
-  | { readonly ok: false; readonly code: ProviderCredentialFailureCode };
+  | {
+      readonly binding: ProviderOutcomeBinding;
+      readonly ok: true;
+      readonly config: ProviderConfig;
+    }
+  | {
+      readonly account?: ProviderAccountSecretRecord;
+      readonly ok: false;
+      readonly code: ProviderCredentialFailureCode;
+    };
 
-function success(config: ProviderConfig): ProviderResolution {
-  return { config, ok: true };
+function success(
+  config: ProviderConfig,
+  binding: ProviderOutcomeBinding,
+): ProviderResolution {
+  return { binding, config, ok: true };
 }
 
-function failure(code: ProviderCredentialFailureCode): ProviderResolution {
-  return { code, ok: false };
+function failure(
+  code: ProviderCredentialFailureCode,
+  account?: ProviderAccountSecretRecord,
+): ProviderResolution {
+  return { ...(account === undefined ? {} : { account }), code, ok: false };
 }
 
 class ProviderCredentialResolutionError extends Error {

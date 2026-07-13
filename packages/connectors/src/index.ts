@@ -283,6 +283,13 @@ class ConnectorProviderDiagnosticError extends Error {
   }
 }
 
+class ConnectorHttpError extends Error {
+  constructor(readonly status: number) {
+    super("connector_provider_http_error");
+    this.name = "ConnectorHttpError";
+  }
+}
+
 export interface GeoAnswerMonitorAdapter {
   readonly liveExternalApis: LiveExternalApiMode;
   readonly provider: GeoAnswerMonitorProvider;
@@ -1607,34 +1614,20 @@ function summarizeConnectorProviderErrors(results: readonly ConnectorRunResult[]
 }
 
 function normalizeConnectorSyncError(
-  provider: ConnectorProvider,
+  _provider: ConnectorProvider,
   error: unknown,
 ): ConnectorSyncProviderError {
-  if (error instanceof Error) {
-    const diagnostic =
-      readConnectorProviderDiagnostic(error) ??
-      classifyConnectorProviderError(provider, error.message);
-
-    return {
-      ...(diagnostic ? { code: diagnostic.code } : {}),
-      message: error.message,
-      name: error.name,
-      ...(diagnostic ? { nextAction: diagnostic.nextAction } : {}),
-      ...(diagnostic ? { operatorMessage: diagnostic.operatorMessage } : {}),
-      ...(diagnostic?.setupRequired ? { setupRequired: true } : {})
-    };
-  }
-
-  const message = String(error);
-  const diagnostic = classifyConnectorProviderError(provider, message);
+  const diagnostic =
+    error instanceof Error ? readConnectorProviderDiagnostic(error) : null;
+  const safeDiagnostic = diagnostic ?? transientProviderDiagnostic;
 
   return {
-    ...(diagnostic ? { code: diagnostic.code } : {}),
-    message,
-    name: "Error",
-    ...(diagnostic ? { nextAction: diagnostic.nextAction } : {}),
-    ...(diagnostic ? { operatorMessage: diagnostic.operatorMessage } : {}),
-    ...(diagnostic?.setupRequired ? { setupRequired: true } : {})
+    code: safeDiagnostic.code,
+    message: safeConnectorErrorMessage(safeDiagnostic.code),
+    name: diagnostic === null ? "ConnectorProviderError" : "ConnectorProviderDiagnosticError",
+    nextAction: safeDiagnostic.nextAction,
+    operatorMessage: safeDiagnostic.operatorMessage,
+    ...(safeDiagnostic.setupRequired ? { setupRequired: true } : {})
   };
 }
 
@@ -1653,82 +1646,50 @@ function readConnectorProviderDiagnostic(
   };
 }
 
+const transientProviderDiagnostic: ConnectorProviderDiagnosticMetadata = {
+  code: "provider_rate_limited",
+  nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+  operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다."
+};
+
+const safeConnectorErrorMessages: Readonly<Record<string, string>> = {
+  account_missing: "account_missing",
+  bing_api_key_missing: "Bing Webmaster API key is missing in the worker runtime.",
+  bing_invalid_api_key: "Bing Webmaster credential is invalid.",
+  bing_service_unavailable: "Bing Webmaster provider is temporarily unavailable.",
+  cms_live_connector_not_configured:
+    "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.",
+  connector_missing: "connector_missing",
+  credential_decryption_failed: "credential_decryption_failed",
+  credential_expired: "credential_expired",
+  credential_revoked: "credential_revoked",
+  ga4_oauth_missing: "GA4 OAuth credential is missing for this site.",
+  ga4_property_access_denied: "GA4 property access is denied.",
+  ga4_property_id_invalid: "GA4 property ID is invalid.",
+  ga4_property_id_missing: "GA4 property ID is missing for this site.",
+  gsc_oauth_missing: "GSC OAuth credential is missing for this site.",
+  pagespeed_api_key_missing: "PageSpeed API key is missing in the worker runtime.",
+  provider_rate_limited: "Connector provider request could not be completed safely.",
+  resource_access_denied: "resource_access_denied",
+  scope_missing: "scope_missing"
+};
+
+function safeConnectorErrorMessage(code: string) {
+  return safeConnectorErrorMessages[code] ?? "Connector provider request failed safely.";
+}
+
 function isConnectorSetupRequiredError(error: unknown) {
   return error instanceof ConnectorProviderDiagnosticError && error.setupRequired;
 }
 
-function classifyConnectorProviderError(
-  provider: ConnectorProvider,
-  message: string,
-): ConnectorProviderDiagnosticMetadata | null {
-  const normalized = message.toLowerCase();
-
-  if (
-    provider === "bing" &&
-    (normalized.includes("invalidapikey") ||
-      normalized.includes("invalid api key") ||
-      normalized.includes('"errorcode":3'))
-  ) {
-    return {
-      code: "bing_invalid_api_key",
-      nextAction:
-        "Railway worker 환경변수 SEARCHOPS_BING_API_KEY를 Bing Webmaster Tools에서 재발급한 API Key로 교체한 뒤 Bing만 다시 실행하세요.",
-      operatorMessage: "Bing Webmaster API Key가 유효하지 않습니다."
-    };
-  }
-
-  if (
-    provider === "bing" &&
-    (normalized.includes("status 502") ||
-      normalized.includes("status 503") ||
-      normalized.includes("status 504") ||
-      normalized.includes("service unavailable") ||
-      normalized.includes("gateway") ||
-      normalized.includes("<!doctype html") ||
-      normalized.includes("<!doctype html public") ||
-      normalized.includes("<html"))
-  ) {
-    return {
-      code: "bing_service_unavailable",
-      nextAction:
-        "API Key 문제가 아니라 Bing Webmaster API 또는 중간 게이트웨이의 일시 장애일 수 있습니다. 5-10분 뒤 Bing만 다시 실행하고, 반복되면 Bing Webmaster Tools 상태와 Railway outbound 네트워크를 확인하세요.",
-      operatorMessage:
-        "Bing Webmaster API가 일시적으로 HTML 오류 페이지 또는 5xx 응답을 반환했습니다."
-    };
-  }
-
-  if (provider === "ga4" && normalized.includes("sufficient permissions")) {
-    return createGa4AccessDeniedDiagnostic();
-  }
-
-  if (provider === "ga4" && normalized.includes("status 403")) {
-    return createGa4AccessDeniedDiagnostic();
-  }
-
-  if (
-    provider === "ga4" &&
-    (normalized.includes("property id must be numeric") ||
-      normalized.includes("invalid property") ||
-      normalized.includes("property id") ||
-      normalized.includes("status 400") ||
-      normalized.includes("status 404"))
-  ) {
-    return createGa4PropertyIdDiagnostic();
-  }
-
-  return null;
-}
-
-function createGa4AccessDeniedDiagnostic(): ConnectorProviderDiagnosticMetadata {
-  return createGa4AccessDeniedDiagnosticWithEmail(null);
-}
-
-function createGa4AccessDeniedDiagnosticWithEmail(email: string | null): ConnectorProviderDiagnosticMetadata {
-  const accountRef = email ? `"${email}" 계정` : "OAuth로 연결한 Google 계정";
+function createGa4AccessDeniedDiagnosticWithEmail(
+  _email: string | null,
+): ConnectorProviderDiagnosticMetadata {
   return {
     code: "ga4_property_access_denied",
-    nextAction: `GA4 관리 > 속성 액세스 관리에서 ${accountRef}을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.`,
-    operatorMessage: `OAuth Google 계정${email ? `(${email})` : ""}이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다.`
+    nextAction:
+      "GA4 관리 > 속성 액세스 관리에서 OAuth로 연결한 Google 계정을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.",
+    operatorMessage: "OAuth Google 계정이 현재 GA4 속성에 접근할 권한이 없습니다."
   };
 }
 
@@ -1939,22 +1900,26 @@ function normalizeLiveProviderCredentialFailure(
   provider: ConnectorProvider,
   error: unknown,
 ): ProviderCredentialFailureCode | null {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-
-  if (normalized.includes("status 429")) {
-    return "provider_rate_limited";
+  if (error instanceof ConnectorProviderDiagnosticError) {
+    return error.code === "ga4_property_access_denied"
+      ? "resource_access_denied"
+      : null;
   }
-  if (normalized.includes("status 403")) {
-    return "resource_access_denied";
+  if (error instanceof ConnectorHttpError) {
+    if (error.status === 401) {
+      return "credential_expired";
+    }
+    if (error.status === 403) {
+      return "resource_access_denied";
+    }
+    if (provider === "bing" && error.status === 400) {
+      return "credential_revoked";
+    }
+    if (error.status === 429 || error.status >= 500) {
+      return "provider_rate_limited";
+    }
   }
-  if (normalized.includes("status 401")) {
-    return "credential_expired";
-  }
-  if (provider === "bing" && normalized.includes("status 400")) {
-    return "credential_revoked";
-  }
-  return null;
+  return "provider_rate_limited";
 }
 
 function isCredentialSetupRequired(code: ProviderCredentialFailureCode) {
@@ -2128,9 +2093,9 @@ function parseRetryAfterMs(response: Response): number | null {
   return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
 }
 
-function assertFetchOk(response: Response, serviceName: string) {
+function assertFetchOk(response: Response, _serviceName: string) {
   if (!response.ok) {
-    throw new Error(`${serviceName} request failed with status ${response.status}`);
+    throw new ConnectorHttpError(response.status);
   }
 }
 

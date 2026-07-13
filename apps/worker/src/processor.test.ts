@@ -711,6 +711,7 @@ describe("processCrawlJob", () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -764,6 +765,7 @@ describe("processCrawlJob", () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorOAuthCredential: {
         async findMany(args) {
           expect(args.where).toMatchObject({
@@ -931,6 +933,7 @@ describe("processCrawlJob", () => {
   it("uses the account-scoped resolver output for live connector sync", async () => {
     const credentialUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort([], []),
       connectorOAuthCredential: {
         async findMany() {
           return [
@@ -1057,6 +1060,7 @@ describe("processCrawlJob", () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorOAuthCredential: {
         async findMany() {
           return [
@@ -1182,6 +1186,7 @@ describe("processCrawlJob", () => {
   it("marks connector sync runs failed when connector processing fails", async () => {
     const runUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, []),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -1216,19 +1221,148 @@ describe("processCrawlJob", () => {
           }
         },
       ),
-    ).rejects.toThrow(/connector failed/);
+    ).rejects.toThrow("worker_job_failed");
 
     expect(runUpdates[0]).toMatchObject({
       where: { id: "sync_failed" },
       data: {
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "connector failed"
+            code: "worker_job_failed",
+            message: "Worker job failed."
           }
         }
       }
     });
+    expect(JSON.stringify(runUpdates)).not.toContain("connector failed");
+  });
+
+  it("rejects a foreign connector sync run before provider resolution or writes", async () => {
+    let providerCalls = 0;
+    let persistenceWrites = 0;
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: {
+        async markFailed() { persistenceWrites += 1; return false; },
+        async persist() { persistenceWrites += 1; return false; },
+        async verify() { return false; }
+      },
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { persistenceWrites += 1; return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { persistenceWrites += 1; return args; }
+      }
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_foreign",
+          organizationId: "org_attacker",
+          siteId: "site_attacker",
+          siteDomain: "example.net",
+          requestedByUserId: "user_attacker",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+        {
+          liveExternalApis: "enabled",
+          async resolveConnectorProviderConfigs() {
+            providerCalls += 1;
+            return { configs: {}, credentialSources: {}, failures: {} };
+          }
+        },
+      ),
+    ).rejects.toThrow("connector_sync_run_ownership_mismatch");
+    expect(providerCalls).toBe(0);
+    expect(persistenceWrites).toBe(0);
+  });
+
+  it("sanitizes connector sync ownership lookup failures before they reach the queue", async () => {
+    let persistenceWrites = 0;
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: {
+        async markFailed() { persistenceWrites += 1; return false; },
+        async persist() { persistenceWrites += 1; return false; },
+        async verify() {
+          throw new Error("postgres://user:tenant-secret@db.example.test/searchops");
+        }
+      },
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { persistenceWrites += 1; return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { persistenceWrites += 1; return args; }
+      }
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_lookup_failed",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+      ),
+    ).rejects.toThrow("worker_job_failed");
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_lookup_failed",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+      ),
+    ).rejects.not.toThrow("tenant-secret");
+    expect(persistenceWrites).toBe(0);
+  });
+
+  it("fails encrypted live startup closed when the credential keyring is missing", async () => {
+    const runUpdates: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, []),
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { return args; }
+      },
+      providerCredentials: createEmptyProviderCredentialPort()
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_no_keyring",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+        { credentialStorageMode: "encrypted", liveExternalApis: "enabled" },
+      ),
+    ).rejects.toThrow("credential_keyring_invalid");
+    expect(runUpdates).toHaveLength(1);
+    expect(JSON.stringify(runUpdates)).not.toContain("credential_keyring_invalid");
   });
 
   it("processes GEO answer monitor jobs through an injected monitor adapter", async () => {
@@ -1544,6 +1678,46 @@ describe("processConnectorSyncJob live credential resolution", () => {
       setupRequiredProviders: 1,
     });
   });
+
+  it("feeds normalized live provider outcomes back to the credential resolver", async () => {
+    const writes: unknown[] = [];
+    const payload = {
+      connectorSyncRunId: "sync_outcome",
+      organizationId: "org_a",
+      siteId: "site_a",
+      siteDomain: "example.com",
+      requestedByUserId: "user_a",
+      fetchedAt: "2026-07-14T00:00:00.000Z",
+      providers: ["ga4" as const],
+    };
+
+    await processConnectorSyncJob(payload, {
+      liveExternalApis: "enabled",
+      async recordConnectorProviderOutcomes(job, results) {
+        writes.push({ job, results });
+      },
+      async resolveConnectorProviderConfigs() {
+        return {
+          configs: {},
+          credentialSources: {},
+          failures: { ga4: "credential_expired" },
+        };
+      },
+    });
+
+    expect(writes).toEqual([
+      {
+        job: payload,
+        results: [
+          expect.objectContaining({
+            error: expect.objectContaining({ code: "credential_expired" }),
+            provider: "ga4",
+            status: "setup_required",
+          }),
+        ],
+      },
+    ]);
+  });
 });
 
 function createEmptyProviderCredentialPort(): NonNullable<
@@ -1560,9 +1734,45 @@ function createEmptyProviderCredentialPort(): NonNullable<
       return null;
     },
     async updateProviderAccountCredential() {
-      return false;
+      return null;
     },
-    async updateProviderAccountStatus() {},
+    async updateProviderAccountStatus() {
+      return true;
+    },
     async updateSiteConnectorStatus() {},
+  };
+}
+
+function createOwnedConnectorSyncPort(
+  runUpdates: unknown[],
+  resultUpserts: unknown[],
+): ConnectorSyncPersistenceClient["connectorSyncOwnership"] {
+  return {
+    async markFailed(input) {
+      runUpdates.push({
+        data: {
+          endedAt: input.endedAt,
+          status: "failed",
+          summary: input.summary
+        },
+        where: { id: input.connectorSyncRunId }
+      });
+      return true;
+    },
+    async persist(input) {
+      resultUpserts.push(...input.result.results);
+      runUpdates.push({
+        data: {
+          endedAt: input.endedAt,
+          status: input.status,
+          summary: input.result.summary
+        },
+        where: { id: input.result.connectorSyncRunId }
+      });
+      return true;
+    },
+    async verify() {
+      return true;
+    }
   };
 }

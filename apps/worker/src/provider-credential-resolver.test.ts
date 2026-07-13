@@ -4,9 +4,14 @@ import {
   decryptProviderCredential,
   encryptProviderCredential,
   parseCredentialKeyring,
+  type CredentialKeyring,
   type ProviderAccountSecretRecord,
 } from "@searchops/db";
-import type { ConnectorSyncJobPayload, SiteConnector } from "@searchops/types";
+import type {
+  ConnectorRunResult,
+  ConnectorSyncJobPayload,
+  SiteConnector,
+} from "@searchops/types";
 
 import {
   createProviderCredentialResolver,
@@ -56,6 +61,23 @@ describe("provider credential resolver", () => {
       "provider-account-refresh:pa_google",
       "lock-token",
     ]);
+  });
+
+  it("preserves an operation failure when Redis unlock also fails", async () => {
+    const lock = createRedisProviderAccountRefreshLock(async () => ({
+      async eval() {
+        throw new Error("redis://secret-host");
+      },
+      async set() {
+        return "OK";
+      },
+    }));
+
+    await expect(
+      lock.withLock("provider-account-refresh:pa_google", async () => {
+        throw new Error("credential_revoked");
+      }),
+    ).rejects.toThrow("credential_revoked");
   });
 
   it("returns different GA4 resources for two sites sharing one Google account", async () => {
@@ -293,6 +315,432 @@ describe("provider credential resolver", () => {
     expect(result.configs.gsc?.credential.accessToken).toBe("fresh-access");
   });
 
+  it("rereads under the lock and skips refresh when another worker already refreshed", async () => {
+    const expiring = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+    const fresh = encryptedAccount({
+      tokenExpiresAt: "2026-07-14T01:00:00.000Z",
+      updatedAt: "2026-07-14T00:00:01.000Z",
+    });
+    let fetchCount = 0;
+    let updateCount = 0;
+    const resolver = createProviderCredentialResolver({
+      fetch: (async () => {
+        fetchCount += 1;
+        throw new Error("refresh must be skipped");
+      }) as typeof fetch,
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accountReads: [expiring, fresh],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        onUpdateAccount() { updateCount += 1; },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    const result = await resolver.resolveConnectorProviderConfigs(
+      connectorJob("site_a", ["gsc"]),
+    );
+
+    expect(result.credentialSources).toEqual({ gsc: "encrypted" });
+    expect(fetchCount).toBe(0);
+    expect(updateCount).toBe(0);
+  });
+
+  it.each([
+    ["revoked", { status: "revoked" as const }, "credential_revoked" as const],
+    ["scope-lost", { scopes: [] }, "scope_missing" as const],
+  ])("revalidates a %s account reread before decrypting or refreshing", async (_name, change, code) => {
+    const expiring = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+    const reread = { ...expiring, ...change, updatedAt: "2026-07-14T00:00:01.000Z" };
+    let fetchCount = 0;
+    let credentialUpdateCount = 0;
+    const resolver = createProviderCredentialResolver({
+      fetch: (async () => {
+        fetchCount += 1;
+        throw new Error("provider must not be called");
+      }) as typeof fetch,
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accountReads: [expiring, reread],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        onUpdateAccount() { credentialUpdateCount += 1; },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    await expect(
+      resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["gsc"])),
+    ).resolves.toMatchObject({ configs: {}, failures: { gsc: code } });
+    expect(fetchCount).toBe(0);
+    expect(credentialUpdateCount).toBe(0);
+  });
+
+  it("does not reactivate an optimistic-refresh loser whose account was revoked", async () => {
+    const expiring = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+    const revokedWinner = encryptedAccount({
+      status: "revoked",
+      tokenExpiresAt: "2026-07-14T01:00:00.000Z",
+      updatedAt: "2026-07-14T00:00:02.000Z",
+    });
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulRefreshFetch("loser-access"),
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accountReads: [expiring, expiring, revokedWinner],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+        updateAccountResult: false,
+      }),
+    });
+
+    await expect(
+      resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["gsc"])),
+    ).resolves.toMatchObject({ configs: {}, failures: { gsc: "credential_revoked" } });
+  });
+
+  it("uses the optimistic refresh winner after revalidating its rotated credential", async () => {
+    const expiring = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+    const winnerEnvelope = encryptProviderCredential(
+      keyring,
+      { organizationId: "org_a", provider: "google", providerAccountId: "pa_google" },
+      {
+        accessToken: "winner-access",
+        kind: "oauth2",
+        refreshToken: "winner-refresh",
+        tokenType: "Bearer",
+      },
+    );
+    const winner = {
+      ...expiring,
+      ...winnerEnvelope,
+      tokenExpiresAt: "2026-07-14T01:00:00.000Z",
+      updatedAt: "2026-07-14T00:00:02.000Z",
+    };
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulRefreshFetch("loser-access"),
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accountReads: [expiring, expiring, winner],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+        updateAccountResult: false,
+      }),
+    });
+
+    const result = await resolver.resolveConnectorProviderConfigs(
+      connectorJob("site_a", ["gsc"]),
+    );
+
+    expect(result.configs.gsc?.credential.accessToken).toBe("winner-access");
+  });
+
+  it("re-encrypts a refreshed previous-key credential with the active key", async () => {
+    const oldKey = Buffer.alloc(32, 7).toString("base64");
+    const activeKey = Buffer.alloc(32, 8).toString("base64");
+    const oldKeyring = parseCredentialKeyring({
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "v1",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: oldKey,
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: "{}",
+    });
+    const rotatedKeyring = parseCredentialKeyring({
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "v2",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: activeKey,
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: JSON.stringify({ v1: oldKey }),
+    });
+    const account = encryptedAccountWithKeyring(oldKeyring, {
+      tokenExpiresAt: "2026-07-14T00:01:00.000Z",
+    });
+    const updates: Parameters<ProviderCredentialResolverStore["updateProviderAccountCredential"]>[0][] = [];
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulRefreshFetch("active-key-access"),
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring: rotatedKeyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accounts: [account],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        onUpdateAccount(input) { updates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    await resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["gsc"]));
+
+    expect(updates[0]?.encryptedCredential.encryptionKeyId).toBe("v2");
+  });
+
+  it.each([
+    ["network", () => Promise.reject(new Error("https://provider.test?api_key=tenant-secret")), "provider_rate_limited", null],
+    ["malformed-2xx", () => Promise.resolve(new Response("client_secret=tenant-secret", { status: 200 })), "provider_rate_limited", null],
+    ["400", () => Promise.resolve(new Response("tenant-secret", { status: 400 })), "credential_revoked", "revoked"],
+    ["401", () => Promise.resolve(new Response("tenant-secret", { status: 401 })), "credential_revoked", "revoked"],
+    ["429", () => Promise.resolve(new Response("tenant-secret", { status: 429 })), "provider_rate_limited", null],
+    ["500", () => Promise.resolve(new Response("tenant-secret", { status: 500 })), "provider_rate_limited", null],
+  ] as const)(
+    "normalizes refresh %s failures without leaking or corrupting durable account state",
+    async (_name, responseFactory, expectedCode, expectedAccountStatus) => {
+      const account = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+      const statusUpdates: string[] = [];
+      const resolver = createProviderCredentialResolver({
+        fetch: (async () => responseFactory()) as typeof fetch,
+        googleOAuthClientId: "client-id",
+        googleOAuthClientSecret: "client-secret",
+        keyring,
+        now: () => now,
+        refreshLock: { async withLock(_key, operation) { return operation(); } },
+        storageMode: "encrypted",
+        store: createStore({
+          accounts: [account],
+          connectors: [
+            siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+          ],
+          onUpdateAccountStatus(input) { statusUpdates.push(input.status); },
+          sites: [{ id: "site_a", organizationId: "org_a" }],
+        }),
+      });
+
+      const result = await resolver.resolveConnectorProviderConfigs(
+        connectorJob("site_a", ["gsc"]),
+      );
+
+      expect(result.failures).toEqual({ gsc: expectedCode });
+      expect(statusUpdates).toEqual(expectedAccountStatus === null ? [] : [expectedAccountStatus]);
+      expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    },
+  );
+
+  it("normalizes lock timeout and unlock failures without restoring account status", async () => {
+    const account = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+    const statusUpdates: string[] = [];
+    const baseStoreInput = {
+      accounts: [account],
+      connectors: [
+        siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+      ],
+      onUpdateAccountStatus(input: Parameters<ProviderCredentialResolverStore["updateProviderAccountStatus"]>[0]) {
+        statusUpdates.push(input.status);
+      },
+      sites: [{ id: "site_a", organizationId: "org_a" }],
+    };
+    const timeoutResolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      refreshLock: createRedisProviderAccountRefreshLock(
+        async () => ({ async eval() { return 0; }, async set() { return null; } }),
+        { retryDelayMs: 1, waitTimeoutMs: 0 },
+      ),
+      storageMode: "encrypted",
+      store: createStore(baseStoreInput),
+    });
+    const fresh = encryptedAccount({ tokenExpiresAt: "2026-07-14T01:00:00.000Z" });
+    const unlockResolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      refreshLock: createRedisProviderAccountRefreshLock(async () => ({
+        async eval() { throw new Error("redis://secret-host"); },
+        async set() { return "OK"; },
+      })),
+      storageMode: "encrypted",
+      store: createStore({ ...baseStoreInput, accountReads: [account, fresh] }),
+    });
+
+    await expect(
+      timeoutResolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["gsc"])),
+    ).resolves.toMatchObject({ failures: { gsc: "provider_rate_limited" } });
+    await expect(
+      unlockResolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["gsc"])),
+    ).resolves.toMatchObject({ failures: { gsc: "provider_rate_limited" } });
+    expect(statusUpdates).toEqual([]);
+  });
+
+  it("rejects a connector whose provider does not match the requested provider", async () => {
+    const baseStore = createStore({
+      accounts: [encryptedAccount()],
+      sites: [{ id: "site_a", organizationId: "org_a" }],
+    });
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      storageMode: "encrypted",
+      store: {
+        ...baseStore,
+        async getSiteConnector() {
+          return siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" });
+        },
+      },
+    });
+
+    await expect(
+      resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["ga4"])),
+    ).resolves.toEqual({
+      configs: {},
+      credentialSources: {},
+      failures: { ga4: "connector_missing" },
+    });
+  });
+
+  it.each([
+    ["credential_expired", "expired", "expired"],
+    ["credential_revoked", "revoked", "revoked"],
+    ["resource_access_denied", null, "error"],
+    ["provider_rate_limited", null, "error"],
+  ] as const)(
+    "writes the normalized %s provider outcome without breaking shared-account state",
+    async (code, expectedAccountStatus, expectedConnectorStatus) => {
+      const accountUpdates: unknown[] = [];
+      const connectorUpdates: unknown[] = [];
+      const resolver = createProviderCredentialResolver({
+        keyring,
+        now: () => now,
+        storageMode: "encrypted",
+        store: createStore({
+          accounts: [encryptedAccount()],
+          connectors: [siteConnector()],
+          onUpdateAccountStatus(input) { accountUpdates.push(input); },
+          onUpdateSiteConnectorStatus(input) { connectorUpdates.push(input); },
+          sites: [{ id: "site_a", organizationId: "org_a" }],
+        }),
+      });
+      const result: ConnectorRunResult = {
+        error: { code, message: "safe fixed message" },
+        fetchedAt: now.toISOString(),
+        fixture: false,
+        provider: "ga4",
+        records: [],
+        status: code === "resource_access_denied" || code === "provider_rate_limited"
+          ? "failed"
+          : "setup_required",
+      };
+
+      await resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["ga4"]));
+      await resolver.recordConnectorProviderOutcomes(connectorJob("site_a", ["ga4"]), [result]);
+
+      expect(accountUpdates).toEqual(
+        expectedAccountStatus === null
+          ? []
+          : [
+              expect.objectContaining({
+                expectedStatus: "connected",
+                expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
+                organizationId: "org_a",
+                providerAccountId: "pa_google",
+                status: expectedAccountStatus,
+              }),
+            ],
+      );
+      expect(connectorUpdates).toEqual([
+        expect.objectContaining({
+          lastErrorCode: code,
+          organizationId: "org_a",
+          provider: "ga4",
+          siteId: "site_a",
+          status: expectedConnectorStatus,
+        }),
+      ]);
+    },
+  );
+
+  it("clears only the recovering site connector error on provider success", async () => {
+    const accountUpdates: unknown[] = [];
+    const connectorUpdates: unknown[] = [];
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      storageMode: "encrypted",
+      store: createStore({
+        accounts: [encryptedAccount()],
+        connectors: [siteConnector({ lastErrorCode: "credential_revoked", status: "revoked" })],
+        onUpdateAccountStatus(input) { accountUpdates.push(input); },
+        onUpdateSiteConnectorStatus(input) { connectorUpdates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    await resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["ga4"]));
+    await resolver.recordConnectorProviderOutcomes(connectorJob("site_a", ["ga4"]), [
+      {
+        fetchedAt: now.toISOString(),
+        fixture: false,
+        provider: "ga4",
+        records: [],
+        status: "ok",
+      },
+    ]);
+
+    expect(accountUpdates).toEqual([]);
+    expect(connectorUpdates).toEqual([
+      expect.objectContaining({ lastErrorCode: null, status: "connected" }),
+    ]);
+  });
+
+  it("does not apply a stale provider failure to a rotated shared account", async () => {
+    const accounts = [encryptedAccount()];
+    const accountUpdates: unknown[] = [];
+    const connectorUpdates: unknown[] = [];
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      storageMode: "encrypted",
+      store: createStore({
+        accounts,
+        connectors: [siteConnector()],
+        onUpdateAccountStatus(input) { accountUpdates.push(input); },
+        onUpdateSiteConnectorStatus(input) { connectorUpdates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+    const job = connectorJob("site_a", ["ga4"]);
+    await resolver.resolveConnectorProviderConfigs(job);
+    accounts[0] = { ...accounts[0]!, updatedAt: "2026-07-14T00:00:05.000Z" };
+
+    await resolver.recordConnectorProviderOutcomes(job, [
+      {
+        error: { code: "credential_expired", message: "safe fixed message" },
+        fetchedAt: now.toISOString(),
+        fixture: false,
+        provider: "ga4",
+        records: [],
+        status: "setup_required",
+      },
+    ]);
+
+    expect(accountUpdates).toEqual([]);
+    expect(connectorUpdates).toEqual([]);
+  });
+
   it("normalizes Redis refresh-lock failures without exposing infrastructure errors", async () => {
     const account = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
     const resolver = createProviderCredentialResolver({
@@ -370,14 +818,29 @@ function connectorJob(
   };
 }
 
+function successfulRefreshFetch(accessToken: string): typeof fetch {
+  return (async () =>
+    new Response(
+      JSON.stringify({ access_token: accessToken, expires_in: 3600, token_type: "Bearer" }),
+      { status: 200 },
+    )) as typeof fetch;
+}
+
 function encryptedAccount(
+  overrides: Partial<ProviderAccountSecretRecord> = {},
+): ProviderAccountSecretRecord {
+  return encryptedAccountWithKeyring(keyring, overrides);
+}
+
+function encryptedAccountWithKeyring(
+  credentialKeyring: CredentialKeyring,
   overrides: Partial<ProviderAccountSecretRecord> = {},
 ): ProviderAccountSecretRecord {
   const organizationId = overrides.organizationId ?? "org_a";
   const id = overrides.id ?? "pa_google";
   const provider = overrides.provider ?? "google";
   const envelope = encryptProviderCredential(
-    keyring,
+    credentialKeyring,
     { organizationId, provider, providerAccountId: id },
     {
       accessToken: "access-token",
@@ -423,21 +886,31 @@ function siteConnector(overrides: Partial<SiteConnector> = {}): SiteConnector {
 }
 
 function createStore(input: {
+  readonly accountReads?: readonly (ProviderAccountSecretRecord | null)[];
   readonly accounts?: readonly ProviderAccountSecretRecord[];
   readonly connectors?: readonly SiteConnector[];
   readonly legacyCredentials?: Awaited<
     ReturnType<ProviderCredentialResolverStore["listLegacyGoogleCredentials"]>
   >;
-  readonly onUpdateAccount?: Parameters<
-    ProviderCredentialResolverStore["updateProviderAccountCredential"]
-  >[0] extends infer T
-    ? (input: T) => void
-    : never;
+  readonly onUpdateAccount?: (
+    input: Parameters<ProviderCredentialResolverStore["updateProviderAccountCredential"]>[0],
+  ) => void;
+  readonly onUpdateAccountStatus?: (
+    input: Parameters<ProviderCredentialResolverStore["updateProviderAccountStatus"]>[0],
+  ) => void;
+  readonly onUpdateSiteConnectorStatus?: (
+    input: Parameters<ProviderCredentialResolverStore["updateSiteConnectorStatus"]>[0],
+  ) => void;
   readonly onListLegacyCredentials?: () => void;
   readonly sites?: readonly { readonly id: string; readonly organizationId: string }[];
+  readonly updateAccountResult?: boolean;
 }): ProviderCredentialResolverStore {
+  let accountReadIndex = 0;
   return {
     async getProviderAccount(inputArgs) {
+      if (input.accountReads !== undefined && accountReadIndex < input.accountReads.length) {
+        return input.accountReads[accountReadIndex++] ?? null;
+      }
       return (
         input.accounts?.find(
           (account) =>
@@ -474,9 +947,16 @@ function createStore(input: {
     },
     async updateProviderAccountCredential(inputArgs) {
       input.onUpdateAccount?.(inputArgs);
+      return input.updateAccountResult === false
+        ? null
+        : { updatedAt: inputArgs.expectedUpdatedAt };
+    },
+    async updateProviderAccountStatus(inputArgs) {
+      input.onUpdateAccountStatus?.(inputArgs);
       return true;
     },
-    async updateProviderAccountStatus() {},
-    async updateSiteConnectorStatus() {},
+    async updateSiteConnectorStatus(inputArgs) {
+      input.onUpdateSiteConnectorStatus?.(inputArgs);
+    },
   };
 }

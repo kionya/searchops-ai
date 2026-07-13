@@ -14,6 +14,7 @@ import {
   updateProviderAccountCredentialForConnectorSync,
   updateProviderAccountStatusForConnectorSync,
   updateSiteConnectorStatusForConnectorSync,
+  verifyConnectorSyncRunOwnership,
   type ConnectorSyncPersistenceClient
 } from "./connector-sync.js";
 
@@ -223,7 +224,9 @@ describe("connector sync persistence helpers", () => {
 
     const output = await markConnectorSyncRunFailed(client, {
       connectorSyncRunId: "sync_1",
-      error: new Error("connector failed")
+      error: new Error("https://provider.test?client_secret=tenant-secret"),
+      organizationId: "org_1",
+      siteId: "site_1"
     });
 
     expect(output).toEqual({ connectorSyncRunId: "sync_1", status: "failed" });
@@ -232,13 +235,52 @@ describe("connector sync persistence helpers", () => {
       data: {
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "connector failed",
-            name: "Error"
+            code: "worker_job_failed",
+            message: "Worker job failed."
           }
         }
       }
     });
+    expect(JSON.stringify(updates)).not.toContain("tenant-secret");
+  });
+
+  it("rejects foreign connector sync runs before result or summary writes", async () => {
+    const writes: unknown[] = [];
+    const client = createMockClient({
+      verifyOwnedRun(input) {
+        expect(input).toEqual({
+          connectorSyncRunId: "sync_foreign",
+          organizationId: "org_1",
+          siteId: "site_1"
+        });
+        return false;
+      },
+      updateRun(args) { writes.push(["run", args]); },
+      upsertResult(args) { writes.push(["result", args]); }
+    });
+
+    await expect(
+      verifyConnectorSyncRunOwnership(client, {
+        connectorSyncRunId: "sync_foreign",
+        organizationId: "org_1",
+        siteId: "site_1"
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      persistConnectorSyncJobResult(client, {
+        connectorSyncRunId: "sync_foreign",
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        results: [providerResult],
+        summary
+      }),
+    ).rejects.toThrow("connector_sync_run_ownership_mismatch");
+    expect(writes).toEqual([]);
   });
 
   it("lists and updates OAuth credentials for live connector sync", async () => {
@@ -352,10 +394,11 @@ describe("connector sync persistence helpers", () => {
         },
         async updateProviderAccountCredential(input) {
           calls.push(["account-credential", input]);
-          return true;
+          return { updatedAt: "2026-07-14T00:00:01.000Z" };
         },
         async updateProviderAccountStatus(input) {
           calls.push(["account-status", input]);
+          return true;
         },
         async updateSiteConnectorStatus(input) {
           calls.push(["connector-status", input]);
@@ -394,8 +437,10 @@ describe("connector sync persistence helpers", () => {
         status: "connected",
         tokenExpiresAt: new Date("2026-07-14T01:00:00.000Z")
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ updatedAt: "2026-07-14T00:00:01.000Z" });
     await updateProviderAccountStatusForConnectorSync(client, {
+      expectedStatus: "connected",
+      expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
       organizationId: "org_1",
       providerAccountId: "pa_1",
       status: "expired"
@@ -421,7 +466,16 @@ describe("connector sync persistence helpers", () => {
           providerAccountId: "pa_1"
         })
       ],
-      ["account-status", { organizationId: "org_1", providerAccountId: "pa_1", status: "expired" }],
+      [
+        "account-status",
+        {
+          expectedStatus: "connected",
+          expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
+          organizationId: "org_1",
+          providerAccountId: "pa_1",
+          status: "expired"
+        }
+      ],
       [
         "connector-status",
         expect.objectContaining({ organizationId: "org_1", provider: "ga4", siteId: "site_1" })
@@ -475,11 +529,61 @@ describe("connector sync persistence helpers", () => {
 function createMockClient(overrides: {
   createRun?: (args: unknown) => void;
   findCredentials?: (args: unknown) => void;
+  verifyOwnedRun?: (input: unknown) => boolean;
   updateRun?: (args: unknown) => void;
   updateCredential?: (args: unknown) => void;
   upsertResult?: (args: unknown) => void;
 }): ConnectorSyncPersistenceClient {
   return {
+    connectorSyncOwnership: {
+      async markFailed(input) {
+        if (overrides.verifyOwnedRun?.({
+          connectorSyncRunId: input.connectorSyncRunId,
+          organizationId: input.organizationId,
+          siteId: input.siteId
+        }) === false) {
+          return false;
+        }
+        overrides.updateRun?.({
+          data: {
+            endedAt: input.endedAt,
+            status: "failed",
+            summary: input.summary
+          },
+          where: { id: input.connectorSyncRunId }
+        });
+        return true;
+      },
+      async persist(input) {
+        if (overrides.verifyOwnedRun?.({
+          connectorSyncRunId: input.result.connectorSyncRunId,
+          organizationId: input.result.organizationId,
+          siteId: input.result.siteId
+        }) === false) {
+          return false;
+        }
+        for (const result of input.result.results) {
+          overrides.upsertResult?.(
+            buildConnectorSyncResultUpsertArgs({
+              providerResult: result,
+              syncRunId: input.result.connectorSyncRunId
+            }),
+          );
+        }
+        overrides.updateRun?.({
+          data: {
+            endedAt: input.endedAt,
+            status: input.status,
+            summary: input.result.summary
+          },
+          where: { id: input.result.connectorSyncRunId }
+        });
+        return true;
+      },
+      async verify(input) {
+        return overrides.verifyOwnedRun?.(input) ?? true;
+      }
+    },
     connectorOAuthCredential: {
       async findMany(args) {
         overrides.findCredentials?.(args);

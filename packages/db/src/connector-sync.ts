@@ -155,7 +155,27 @@ export interface ConnectorSyncPersistenceClient {
   connectorSyncResult: {
     upsert(args: ConnectorSyncResultUpsertArgs): Promise<unknown>;
   };
+  connectorSyncOwnership: ConnectorSyncOwnershipPort;
   providerCredentials?: ConnectorSyncProviderCredentialPort;
+}
+
+export interface ConnectorSyncRunOwnershipInput {
+  readonly connectorSyncRunId: string;
+  readonly organizationId: string;
+  readonly siteId: string;
+}
+
+export interface ConnectorSyncOwnershipPort {
+  verify(input: ConnectorSyncRunOwnershipInput): Promise<boolean>;
+  persist(input: {
+    readonly endedAt: Date;
+    readonly result: ConnectorSyncJobResult;
+    readonly status: ConnectorSyncRunStatus;
+  }): Promise<boolean>;
+  markFailed(input: ConnectorSyncRunOwnershipInput & {
+    readonly endedAt: Date;
+    readonly summary: Prisma.InputJsonValue;
+  }): Promise<boolean>;
 }
 
 export interface ProviderAccountForConnectorSync extends EncryptedProviderCredential {
@@ -173,8 +193,10 @@ export interface ConnectorSyncProviderCredentialPort {
   getSite(input: ConnectorSyncSiteLookupInput): Promise<ConnectorSyncSiteRecord | null>;
   getSiteConnector(input: ConnectorSyncSiteConnectorLookupInput): Promise<SiteConnector | null>;
   getProviderAccount(input: ConnectorSyncProviderAccountLookupInput): Promise<ProviderAccountForConnectorSync | null>;
-  updateProviderAccountCredential(input: ConnectorSyncProviderAccountCredentialUpdateInput): Promise<boolean>;
-  updateProviderAccountStatus(input: ConnectorSyncProviderAccountStatusUpdateInput): Promise<void>;
+  updateProviderAccountCredential(
+    input: ConnectorSyncProviderAccountCredentialUpdateInput,
+  ): Promise<{ readonly updatedAt: string } | null>;
+  updateProviderAccountStatus(input: ConnectorSyncProviderAccountStatusUpdateInput): Promise<boolean>;
   updateSiteConnectorStatus(input: ConnectorSyncSiteConnectorStatusUpdateInput): Promise<void>;
 }
 
@@ -207,6 +229,8 @@ export interface ConnectorSyncProviderAccountCredentialUpdateInput
 
 export interface ConnectorSyncProviderAccountStatusUpdateInput
   extends ConnectorSyncProviderAccountLookupInput {
+  readonly expectedStatus: "connected";
+  readonly expectedUpdatedAt: string;
   readonly status: ProviderAccountStatus;
 }
 
@@ -232,6 +256,7 @@ export interface MarkConnectorSyncRunFailedOutput {
 export function createPrismaConnectorSyncPersistenceClient(
   prisma: Pick<
     SearchOpsPrismaClient,
+    | "$transaction"
     | "connectorOAuthCredential"
     | "connectorSyncResult"
     | "connectorSyncRun"
@@ -241,6 +266,70 @@ export function createPrismaConnectorSyncPersistenceClient(
   >,
 ): ConnectorSyncPersistenceClient {
   return {
+    connectorSyncOwnership: {
+      async verify(input) {
+        const run = await prisma.connectorSyncRun.findFirst({
+          select: { id: true },
+          where: connectorSyncOwnershipWhere(input)
+        });
+        return run !== null;
+      },
+      async persist(input) {
+        return prisma.$transaction(async (transaction) => {
+          const ownership = connectorSyncOwnershipFromResult(input.result);
+          const run = await transaction.connectorSyncRun.findFirst({
+            select: { id: true },
+            where: connectorSyncOwnershipWhere(ownership)
+          });
+          if (run === null) {
+            return false;
+          }
+          for (const providerResult of input.result.results) {
+            await transaction.connectorSyncResult.upsert(
+              buildConnectorSyncResultUpsertArgs({
+                providerResult,
+                syncRunId: input.result.connectorSyncRunId
+              }),
+            );
+          }
+          const updated = await transaction.connectorSyncRun.updateMany({
+            data: {
+              endedAt: input.endedAt,
+              status: input.status,
+              summary: toJson(input.result.summary)
+            },
+            where: connectorSyncOwnershipWhere(ownership)
+          });
+          if (updated.count !== 1) {
+            throw new Error("connector_sync_run_ownership_changed");
+          }
+          return true;
+        });
+      },
+      async markFailed(input) {
+        return prisma.$transaction(async (transaction) => {
+          const run = await transaction.connectorSyncRun.findFirst({
+            select: { id: true },
+            where: connectorSyncOwnershipWhere(input)
+          });
+          if (run === null) {
+            return false;
+          }
+          const updated = await transaction.connectorSyncRun.updateMany({
+            data: {
+              endedAt: input.endedAt,
+              status: "failed",
+              summary: input.summary
+            },
+            where: connectorSyncOwnershipWhere(input)
+          });
+          if (updated.count !== 1) {
+            throw new Error("connector_sync_run_ownership_changed");
+          }
+          return true;
+        });
+      }
+    },
     connectorOAuthCredential: {
       async findMany(args) {
         const rows = await prisma.connectorOAuthCredential.findMany({
@@ -349,25 +438,43 @@ export function createPrismaConnectorSyncPersistenceClient(
         return row === null ? null : toProviderAccountForSync(row);
       },
       async updateProviderAccountCredential(input) {
+        return prisma.$transaction(async (transaction) => {
+          const updated = await transaction.providerAccount.updateMany({
+            data: {
+              ...input.encryptedCredential,
+              status: input.status,
+              tokenExpiresAt: input.tokenExpiresAt
+            },
+            where: {
+              id: input.providerAccountId,
+              organizationId: input.organizationId,
+              updatedAt: new Date(input.expectedUpdatedAt)
+            }
+          });
+          if (updated.count !== 1) {
+            return null;
+          }
+          const account = await transaction.providerAccount.findFirst({
+            select: { updatedAt: true },
+            where: {
+              id: input.providerAccountId,
+              organizationId: input.organizationId
+            }
+          });
+          return account === null ? null : { updatedAt: account.updatedAt.toISOString() };
+        });
+      },
+      async updateProviderAccountStatus(input) {
         const updated = await prisma.providerAccount.updateMany({
-          data: {
-            ...input.encryptedCredential,
-            status: input.status,
-            tokenExpiresAt: input.tokenExpiresAt
-          },
+          data: { status: input.status },
           where: {
             id: input.providerAccountId,
             organizationId: input.organizationId,
+            status: input.expectedStatus,
             updatedAt: new Date(input.expectedUpdatedAt)
           }
         });
         return updated.count === 1;
-      },
-      async updateProviderAccountStatus(input) {
-        await prisma.providerAccount.updateMany({
-          data: { status: input.status },
-          where: { id: input.providerAccountId, organizationId: input.organizationId }
-        });
       },
       async updateSiteConnectorStatus(input) {
         await prisma.siteConnector.updateMany({
@@ -460,14 +567,14 @@ export async function updateProviderAccountCredentialForConnectorSync(
   client: ConnectorSyncPersistenceClient,
   input: ConnectorSyncProviderAccountCredentialUpdateInput,
 ) {
-  return client.providerCredentials?.updateProviderAccountCredential(input) ?? false;
+  return client.providerCredentials?.updateProviderAccountCredential(input) ?? null;
 }
 
 export async function updateProviderAccountStatusForConnectorSync(
   client: ConnectorSyncPersistenceClient,
   input: ConnectorSyncProviderAccountStatusUpdateInput,
 ) {
-  await client.providerCredentials?.updateProviderAccountStatus(input);
+  return client.providerCredentials?.updateProviderAccountStatus(input) ?? false;
 }
 
 export async function updateSiteConnectorStatusForConnectorSync(
@@ -512,26 +619,14 @@ export async function persistConnectorSyncJobResult(
 ): Promise<PersistConnectorSyncJobResultOutput> {
   const result = ConnectorSyncJobResultSchema.parse(input);
   const status = classifyConnectorSyncRunStatus(result);
-
-  for (const providerResult of result.results) {
-    await client.connectorSyncResult.upsert(
-      buildConnectorSyncResultUpsertArgs({
-        providerResult,
-        syncRunId: result.connectorSyncRunId
-      }),
-    );
-  }
-
-  await client.connectorSyncRun.update({
-    where: {
-      id: result.connectorSyncRunId
-    },
-    data: {
-      status,
-      endedAt: new Date(),
-      summary: toJson(result.summary)
-    }
+  const persisted = await client.connectorSyncOwnership.persist({
+    endedAt: new Date(),
+    result,
+    status
   });
+  if (!persisted) {
+    throw new Error("connector_sync_run_ownership_mismatch");
+  }
 
   return {
     connectorSyncRunId: result.connectorSyncRunId,
@@ -546,25 +641,32 @@ export async function markConnectorSyncRunFailed(
   input: {
     connectorSyncRunId: string;
     error: unknown;
+    organizationId: string;
+    siteId: string;
   },
 ): Promise<MarkConnectorSyncRunFailedOutput> {
-  await client.connectorSyncRun.update({
-    where: {
-      id: input.connectorSyncRunId
-    },
-    data: {
-      status: "failed",
-      endedAt: new Date(),
-      summary: {
-        error: serializeError(input.error)
-      }
-    }
+  const updated = await client.connectorSyncOwnership.markFailed({
+    connectorSyncRunId: input.connectorSyncRunId,
+    endedAt: new Date(),
+    organizationId: input.organizationId,
+    siteId: input.siteId,
+    summary: toJson(safeConnectorSyncFailureSummary)
   });
+  if (!updated) {
+    throw new Error("connector_sync_run_ownership_mismatch");
+  }
 
   return {
     connectorSyncRunId: input.connectorSyncRunId,
     status: "failed"
   };
+}
+
+export async function verifyConnectorSyncRunOwnership(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncRunOwnershipInput,
+) {
+  return client.connectorSyncOwnership.verify(input);
 }
 
 export function buildConnectorSyncResultUpsertArgs(input: {
@@ -616,17 +718,29 @@ export function classifyConnectorSyncRunStatus(
   return "completed";
 }
 
-function serializeError(error: unknown) {
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      name: error.name
-    };
-  }
+const safeConnectorSyncFailureSummary = {
+  error: {
+    code: "worker_job_failed",
+    message: "Worker job failed."
+  },
+  version: 1
+} as const;
 
+function connectorSyncOwnershipFromResult(
+  result: ConnectorSyncJobResult,
+): ConnectorSyncRunOwnershipInput {
   return {
-    message: String(error),
-    name: "Error"
+    connectorSyncRunId: result.connectorSyncRunId,
+    organizationId: result.organizationId,
+    siteId: result.siteId
+  };
+}
+
+function connectorSyncOwnershipWhere(input: ConnectorSyncRunOwnershipInput) {
+  return {
+    id: input.connectorSyncRunId,
+    organizationId: input.organizationId,
+    siteId: input.siteId
   };
 }
 

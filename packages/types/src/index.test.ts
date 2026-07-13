@@ -16,12 +16,14 @@ import {
   ClosedLoopAuditEventStatusSchema,
   ClosedLoopAuditEventTypeSchema,
   CompleteConnectorOAuthResponseSchema,
+  ConnectorBatchSyncSummarySchema,
   ConnectorOAuthCredentialListResponseSchema,
   ConnectorOAuthCredentialSchema,
   ConnectorOAuthProviderListSchema,
   ConnectorProviderListSchema,
   ConnectorLiveSetupReportSchema,
   ConnectorSyncJobResultSchema,
+  ConnectorSyncRunSummarySchema,
   ContentBriefDraftSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
@@ -2055,6 +2057,51 @@ describe("types foundation", () => {
       siteDomain: "example.com",
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
     });
+  });
+
+  it("rejects unknown fields in connector sync job and summary contracts", () => {
+    const summary = {
+      failedProviders: 0,
+      okProviders: 0,
+      partialProviders: 0,
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 0,
+      totalRecords: 0,
+    };
+    const payload = {
+      connectorSyncRunId: "sync_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      providers: ["gsc"],
+    };
+
+    expect(() => ConnectorBatchSyncSummarySchema.parse({ ...summary, accessToken: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() => ConnectorSyncJobPayloadSchema.parse({ ...payload, credential: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() =>
+      ConnectorSyncJobResultSchema.parse({
+        ...payload,
+        results: [],
+        summary,
+        encryptedCredential: "secret",
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorSyncRunSummarySchema.parse({ arbitrary: { nested: "unbounded" } }),
+    ).toThrow();
   });
 
   it("validates connector sync run API contracts", () => {
