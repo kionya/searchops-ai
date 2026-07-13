@@ -20,6 +20,24 @@ export {
 } from "./credential-crypto.js";
 
 export {
+  createPrismaProviderCredentialStore,
+  ProviderCredentialStoreError,
+  type AccountLookupStoreInput,
+  type ConnectorCredentialReadinessSnapshot,
+  type CreateApiKeyAccountStoreInput,
+  type DeleteAccountStoreInput,
+  type DeleteSiteConnectorStoreInput,
+  type ProviderAccountSecretRecord,
+  type ProviderCredentialStore,
+  type ProviderCredentialStoreErrorCode,
+  type ProviderCredentialStorePrismaPort,
+  type ReplaceCredentialStoreInput,
+  type SiteConnectorLookupStoreInput,
+  type UpsertGoogleAccountStoreInput,
+  type UpsertSiteConnectorStoreInput
+} from "./provider-credential-store.js";
+
+export {
   buildUrlRecordUpsertArgs,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
