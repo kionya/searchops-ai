@@ -52,3 +52,41 @@ Exit behavior:
 - exits `0` when fixture mode is safe or live setup has only provisioning follow-ups
 - exits `1` when malformed or partial env would make live connector sync unsafe
 - exits `1` with `--require-live` unless at least one live provider is ready
+
+## Local always-on API and worker
+
+The local launch wrappers keep API and worker runtime configuration inside this repository's
+boundary. They never read credentials or configuration from another project.
+
+- `caio-launch-api.sh` loads the ignored root file `.env.api.local`.
+- `caio-launch-worker.sh` loads the ignored root file `.env.worker.local`.
+- `launch-common.sh` validates required values, build outputs, PostgreSQL, and Redis before start.
+- `api.env.example` and `worker.env.example` document safe key names without real secrets.
+
+The actual `.env.*.local` files are already excluded by the repository's `.gitignore`. Keep their
+permissions at `600` and never commit them.
+
+Required in both local runtime files:
+
+- `DATABASE_URL`
+- `DIRECT_DATABASE_URL`
+- `REDIS_URL`
+
+The worker runs in fixture/crawl-only mode when live connector keys are absent. To enable a live
+provider, add SearchOps-owned values directly to `.env.worker.local`; do not load them from another
+repository or customer system. Google live sync requires both OAuth client values, while GA4 also
+requires a numeric `SEARCHOPS_GA4_PROPERTY_ID`.
+
+Build and validate before restarting the launch agents:
+
+```bash
+corepack pnpm --filter @searchops/api build
+corepack pnpm --filter @searchops/worker build
+bash -n scripts/dev/launch-common.sh
+bash -n scripts/dev/caio-launch-api.sh
+bash -n scripts/dev/caio-launch-worker.sh
+```
+
+The wrapper paths intentionally remain unchanged so existing SearchOps launch agents can continue
+to invoke them. Renaming the external launch agent labels or plist files is a separate machine-level
+change outside this repository.
