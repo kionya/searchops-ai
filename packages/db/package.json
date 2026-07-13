@@ -18,6 +18,8 @@
     "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "db:migrate:status": "prisma migrate status --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
+    "credentials:migrate": "tsx scripts/migrate-provider-credentials.ts",
+    "credentials:rotate": "tsx scripts/rotate-provider-credentials.ts",
     "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" \"scripts/**/*.ts\" --max-warnings=0",
     "prebuild": "tsx scripts/generate-prisma.ts",
     "pretest": "tsx scripts/generate-prisma.ts",

@@ -25,7 +25,9 @@
     "db:migrate": "corepack pnpm --filter @searchops/db db:migrate",
     "db:migrate:deploy": "corepack pnpm --filter @searchops/db db:migrate:deploy",
     "db:migrate:status": "corepack pnpm --filter @searchops/db db:migrate:status",
-    "db:seed": "corepack pnpm --filter @searchops/db db:seed"
+    "db:seed": "corepack pnpm --filter @searchops/db db:seed",
+    "credentials:migrate": "corepack pnpm --filter @searchops/db credentials:migrate",
+    "credentials:rotate": "corepack pnpm --filter @searchops/db credentials:rotate"
   },
   "dependencies": {
     "@eslint/js": "^9.27.0",

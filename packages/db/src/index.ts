@@ -39,6 +39,17 @@ export {
 } from "./provider-credential-store.js";
 
 export {
+  createPrismaProviderCredentialMaintenanceStore,
+  migrateLegacyProviderCredentials,
+  rotateProviderCredentialEncryption,
+  type CredentialMaintenanceOptions,
+  type CredentialMaintenanceSummary,
+  type LegacyProviderCredentialMigrationOptions,
+  type ProviderCredentialMaintenanceStore,
+  type ProviderCredentialMaintenanceTransaction
+} from "./provider-credential-migration.js";
+
+export {
   buildUrlRecordUpsertArgs,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
