@@ -2218,9 +2218,14 @@ describe("api foundation", () => {
   });
 
   it("marks connector sync runs failed when queue enqueue fails", async () => {
+    const secretQueueError =
+      "redis://default:tenant-secret@cache.internal:6379/0?token=queue-secret";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const connectorSyncQueue: ConnectorSyncQueue = {
       async enqueueConnectorSync() {
-        throw new Error("redis enqueue unavailable");
+        throw new Error(secretQueueError, {
+          cause: { response: "authorization=Bearer queue-secret" },
+        });
       },
     };
     const repository = createMemoryRepository({
@@ -2241,14 +2246,17 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({
+      version: 1,
       error: "queue_enqueue_failed",
+      message: "Connector sync queue enqueue failed.",
       connectorSyncRun: {
         id: "sync_0001",
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "redis enqueue unavailable",
-            name: "Error",
+            code: "queue_enqueue_failed",
+            message: "Connector sync queue enqueue failed.",
           },
         },
       },
@@ -2257,12 +2265,26 @@ describe("api foundation", () => {
       connectorSyncRun: {
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "redis enqueue unavailable",
+            code: "queue_enqueue_failed",
+            message: "Connector sync queue enqueue failed.",
           },
         },
       },
     });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[api] connector sync enqueue failed code=queue_enqueue_failed run=sync_0001",
+    );
+    const publicAndDurableOutput = JSON.stringify({
+      logs: consoleError.mock.calls,
+      response: response.json(),
+      run: await repository.getConnectorSyncRun("sync_0001"),
+    });
+    expect(publicAndDurableOutput).not.toContain("tenant-secret");
+    expect(publicAndDurableOutput).not.toContain("queue-secret");
+    expect(publicAndDurableOutput).not.toContain("cache.internal");
+    consoleError.mockRestore();
   });
 
   it("validates connector sync provider lists", async () => {

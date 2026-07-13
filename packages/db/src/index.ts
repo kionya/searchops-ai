@@ -78,6 +78,7 @@ export {
 } from "./crawl.js";
 
 export {
+  applyProviderFeedbackForConnectorSync,
   buildConnectorSyncResultUpsertArgs,
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
@@ -90,8 +91,6 @@ export {
   persistConnectorSyncJobResult,
   updateConnectorOAuthCredentialForSync,
   updateProviderAccountCredentialForConnectorSync,
-  updateProviderAccountStatusForConnectorSync,
-  updateSiteConnectorStatusForConnectorSync,
   verifyConnectorSyncRunOwnership,
   type ConnectorOAuthCredentialUpdateArgs,
   type ConnectorOAuthCredentialFindManyArgs,
@@ -100,14 +99,13 @@ export {
   type ConnectorSyncOwnershipPort,
   type ConnectorSyncProviderAccountCredentialUpdateInput,
   type ConnectorSyncProviderAccountLookupInput,
-  type ConnectorSyncProviderAccountStatusUpdateInput,
   type ConnectorSyncProviderCredentialPort,
+  type ConnectorSyncProviderFeedbackInput,
   type ConnectorSyncResultUpsertArgs,
   type ConnectorSyncRunCreateArgs,
   type ConnectorSyncRunOwnershipInput,
   type ConnectorSyncRunUpdateArgs,
   type ConnectorSyncSiteConnectorLookupInput,
-  type ConnectorSyncSiteConnectorStatusUpdateInput,
   type ConnectorSyncSiteLookupInput,
   type ConnectorSyncSiteRecord,
   type MarkConnectorSyncRunFailedOutput,

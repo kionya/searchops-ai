@@ -1724,6 +1724,9 @@ function createEmptyProviderCredentialPort(): NonNullable<
   ConnectorSyncPersistenceClient["providerCredentials"]
 > {
   return {
+    async applyProviderFeedback() {
+      return false;
+    },
     async getProviderAccount() {
       return null;
     },
@@ -1736,10 +1739,6 @@ function createEmptyProviderCredentialPort(): NonNullable<
     async updateProviderAccountCredential() {
       return null;
     },
-    async updateProviderAccountStatus() {
-      return true;
-    },
-    async updateSiteConnectorStatus() {},
   };
 }
 

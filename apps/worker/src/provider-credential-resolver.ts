@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  applyProviderFeedbackForConnectorSync,
   CredentialDecryptionError,
   decryptProviderCredential,
   encryptProviderCredential,
@@ -9,9 +10,8 @@ import {
   getSiteForConnectorSync,
   listConnectorOAuthCredentialsForSync,
   updateProviderAccountCredentialForConnectorSync,
-  updateProviderAccountStatusForConnectorSync,
-  updateSiteConnectorStatusForConnectorSync,
   type ConnectorOAuthCredentialForSync,
+  type ConnectorSyncProviderFeedbackInput,
   type ConnectorSyncPersistenceClient,
   type CredentialKeyring,
   type EncryptedProviderCredential,
@@ -41,6 +41,7 @@ const googleRequiredScopes = {
 const googleRefreshSkewMs = 120_000;
 
 export interface ProviderCredentialResolverStore {
+  applyProviderFeedback(input: ConnectorSyncProviderFeedbackInput): Promise<boolean>;
   getSite(input: {
     readonly organizationId: string;
     readonly siteId: string;
@@ -67,21 +68,6 @@ export interface ProviderCredentialResolverStore {
     readonly status: "connected";
     readonly tokenExpiresAt: Date;
   }): Promise<{ readonly updatedAt: string } | null>;
-  updateProviderAccountStatus(input: {
-    readonly expectedStatus: "connected";
-    readonly expectedUpdatedAt: string;
-    readonly organizationId: string;
-    readonly providerAccountId: string;
-    readonly status: ProviderAccountStatus;
-  }): Promise<boolean>;
-  updateSiteConnectorStatus(input: {
-    readonly lastCheckedAt: Date;
-    readonly lastErrorCode: ProviderCredentialFailureCode | null;
-    readonly organizationId: string;
-    readonly provider: SiteConnectorProvider;
-    readonly siteId: string;
-    readonly status: SiteConnectorStatus;
-  }): Promise<void>;
 }
 
 export interface ProviderAccountRefreshLock {
@@ -198,6 +184,7 @@ export function createDbProviderCredentialResolverStore(
   client: ConnectorSyncPersistenceClient,
 ): ProviderCredentialResolverStore {
   return {
+    applyProviderFeedback: (input) => applyProviderFeedbackForConnectorSync(client, input),
     getProviderAccount: (input) => getProviderAccountForConnectorSync(client, input),
     getSite: (input) => getSiteForConnectorSync(client, input),
     getSiteConnector: (input) => getSiteConnectorForConnectorSync(client, input),
@@ -205,10 +192,6 @@ export function createDbProviderCredentialResolverStore(
       listConnectorOAuthCredentialsForSync(client, input),
     updateProviderAccountCredential: (input) =>
       updateProviderAccountCredentialForConnectorSync(client, input),
-    updateProviderAccountStatus: (input) =>
-      updateProviderAccountStatusForConnectorSync(client, input),
-    updateSiteConnectorStatus: (input) =>
-      updateSiteConnectorStatusForConnectorSync(client, input),
   };
 }
 
@@ -293,6 +276,7 @@ export function createProviderCredentialResolver(
               connector,
               resolution.code,
               resolution.account,
+              resolution.allowStatusFeedback,
             );
           }
           continue;
@@ -359,17 +343,17 @@ async function resolveEncryptedConnector(input: {
     if (connector.provider === "bing") {
       const secret = decryptProviderCredential(options.keyring, credentialContext(account), account);
       if (secret.kind !== "api_key" || connector.externalResourceId === null) {
-        return failure("connector_missing");
+        return failure("connector_missing", account);
       }
       return success(
         { apiKey: secret.apiKey, siteUrl: connector.externalResourceId },
-        providerOutcomeBinding(account),
+        providerOutcomeBinding(account, connector),
       );
     }
 
     const propertyId = normalizeGoogleResource(connector, job.siteDomain);
     if (propertyId === null) {
-      return failure("connector_missing");
+      return failure("connector_missing", account);
     }
     const credential = await resolveGoogleCredential(account, connector.provider, options);
     return success(
@@ -379,20 +363,21 @@ async function resolveEncryptedConnector(input: {
       },
       {
         accountUpdatedAt: credential.accountUpdatedAt,
+        connectorUpdatedAt: connector.updatedAt,
         providerAccountId: account.id,
       },
     );
   } catch (error) {
     if (error instanceof ProviderCredentialResolutionError) {
-      return failure(error.code, account);
+      return failure(error.code, account, error.allowStatusFeedback);
     }
     if (error instanceof CredentialDecryptionError) {
       return failure("credential_decryption_failed", account);
     }
     if (error instanceof ProviderAccountRefreshLockError) {
-      return failure("provider_rate_limited", account);
+      return failure("provider_rate_limited", account, false);
     }
-    return failure("credential_decryption_failed", account);
+    return failure("provider_rate_limited", account, false);
   }
 }
 
@@ -506,17 +491,17 @@ async function refreshGoogleCredential(input: {
       method: "POST",
     });
   } catch {
-    throw new ProviderCredentialResolutionError("provider_rate_limited");
+    throw new ProviderCredentialResolutionError("provider_rate_limited", false);
   }
 
   if (!response.ok) {
     if (response.status === 400 || response.status === 401) {
-      throw new ProviderCredentialResolutionError("credential_revoked");
+      const oauthError = await readBoundedGoogleOAuthError(response);
+      if (oauthError === "invalid_grant") {
+        throw new ProviderCredentialResolutionError("credential_revoked", true);
+      }
     }
-    if (response.status === 429 || response.status >= 500) {
-      throw new ProviderCredentialResolutionError("provider_rate_limited");
-    }
-    throw new ProviderCredentialResolutionError("resource_access_denied");
+    throw new ProviderCredentialResolutionError("provider_rate_limited", false);
   }
   let payload: {
     readonly access_token?: unknown;
@@ -526,10 +511,10 @@ async function refreshGoogleCredential(input: {
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
-    throw new ProviderCredentialResolutionError("provider_rate_limited");
+    throw new ProviderCredentialResolutionError("provider_rate_limited", false);
   }
   if (typeof payload.access_token !== "string" || payload.access_token.length === 0) {
-    throw new ProviderCredentialResolutionError("provider_rate_limited");
+    throw new ProviderCredentialResolutionError("provider_rate_limited", false);
   }
   const expiresIn =
     typeof payload.expires_in === "number" && payload.expires_in > 0 ? payload.expires_in : 3600;
@@ -542,6 +527,51 @@ async function refreshGoogleCredential(input: {
         ? payload.token_type
         : "Bearer",
   };
+}
+
+async function readBoundedGoogleOAuthError(
+  response: Response,
+): Promise<"invalid_grant" | null> {
+  const maximumBytes = 4_096;
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (response.body === null) {
+    return null;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let body = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      bytesRead += chunk.value.byteLength;
+      if (bytesRead > maximumBytes) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      body += decoder.decode(chunk.value, { stream: true });
+    }
+    body += decoder.decode();
+    const parsed = JSON.parse(body) as unknown;
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      "error" in parsed &&
+      parsed.error === "invalid_grant"
+      ? "invalid_grant"
+      : null;
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function resolveLegacyConnector(
@@ -575,34 +605,33 @@ async function recordResolutionFailure(
   connector: SiteConnector,
   code: ProviderCredentialFailureCode,
   account?: ProviderAccountSecretRecord,
+  allowStatusFeedback = true,
 ) {
+  if (
+    !allowStatusFeedback ||
+    account === undefined ||
+    account.id !== connector.providerAccountId ||
+    account.organizationId !== job.organizationId
+  ) {
+    return;
+  }
   const metadata = failureStatusMetadata(code);
-  const writes: Promise<unknown>[] = [
-    store.updateSiteConnectorStatus({
+  await store
+    .applyProviderFeedback({
+      accountStatus:
+        account.status === "connected" ? metadata.accountStatus : null,
+      expectedAccountStatus: account.status,
+      expectedAccountUpdatedAt: account.updatedAt,
+      expectedConnectorUpdatedAt: connector.updatedAt,
       lastCheckedAt: new Date(job.fetchedAt),
       lastErrorCode: code,
       organizationId: job.organizationId,
       provider: connector.provider,
+      providerAccountId: account.id,
       siteId: job.siteId,
       status: metadata.connectorStatus,
-    }),
-  ];
-  if (
-    metadata.accountStatus !== null &&
-    account !== undefined &&
-    account.status === "connected"
-  ) {
-    writes.push(
-      store.updateProviderAccountStatus({
-        expectedStatus: "connected",
-        expectedUpdatedAt: account.updatedAt,
-        organizationId: job.organizationId,
-        providerAccountId: connector.providerAccountId,
-        status: metadata.accountStatus,
-      }),
-    );
-  }
-  await Promise.allSettled(writes);
+    })
+    .catch(() => false);
 }
 
 function failureStatusMetadata(code: ProviderCredentialFailureCode): {
@@ -666,14 +695,19 @@ async function recordConnectorProviderOutcomes(
     }
 
     if (result.status === "ok") {
-      await store.updateSiteConnectorStatus({
+      await store.applyProviderFeedback({
+        accountStatus: null,
+        expectedAccountStatus: "connected",
+        expectedAccountUpdatedAt: binding.accountUpdatedAt,
+        expectedConnectorUpdatedAt: binding.connectorUpdatedAt,
         lastCheckedAt: new Date(result.fetchedAt),
         lastErrorCode: null,
         organizationId: job.organizationId,
         provider: connector.provider,
+        providerAccountId: binding.providerAccountId,
         siteId: job.siteId,
         status: "connected",
-      });
+      }).catch(() => false);
       continue;
     }
 
@@ -682,39 +716,40 @@ async function recordConnectorProviderOutcomes(
       continue;
     }
     const metadata = failureStatusMetadata(code);
-    const writes: Promise<unknown>[] = [
-      store.updateSiteConnectorStatus({
+    await store
+      .applyProviderFeedback({
+        accountStatus:
+          metadata.accountStatus === "expired" || metadata.accountStatus === "revoked"
+            ? metadata.accountStatus
+            : null,
+        expectedAccountStatus: "connected",
+        expectedAccountUpdatedAt: binding.accountUpdatedAt,
+        expectedConnectorUpdatedAt: binding.connectorUpdatedAt,
         lastCheckedAt: new Date(result.fetchedAt),
         lastErrorCode: code,
         organizationId: job.organizationId,
         provider: connector.provider,
+        providerAccountId: binding.providerAccountId,
         siteId: job.siteId,
         status: metadata.connectorStatus,
-      }),
-    ];
-    if (metadata.accountStatus === "expired" || metadata.accountStatus === "revoked") {
-      writes.push(
-        store.updateProviderAccountStatus({
-          expectedStatus: "connected",
-          expectedUpdatedAt: account.updatedAt,
-          organizationId: job.organizationId,
-          providerAccountId: account.id,
-          status: metadata.accountStatus,
-        }),
-      );
-    }
-    await Promise.allSettled(writes);
+      })
+      .catch(() => false);
   }
 }
 
 interface ProviderOutcomeBinding {
   readonly accountUpdatedAt: string;
+  readonly connectorUpdatedAt: string;
   readonly providerAccountId: string;
 }
 
-function providerOutcomeBinding(account: ProviderAccountSecretRecord): ProviderOutcomeBinding {
+function providerOutcomeBinding(
+  account: ProviderAccountSecretRecord,
+  connector: SiteConnector,
+): ProviderOutcomeBinding {
   return {
     accountUpdatedAt: account.updatedAt,
+    connectorUpdatedAt: connector.updatedAt,
     providerAccountId: account.id,
   };
 }
@@ -925,6 +960,7 @@ type ProviderResolution =
     }
   | {
       readonly account?: ProviderAccountSecretRecord;
+      readonly allowStatusFeedback: boolean;
       readonly ok: false;
       readonly code: ProviderCredentialFailureCode;
     };
@@ -939,12 +975,21 @@ function success(
 function failure(
   code: ProviderCredentialFailureCode,
   account?: ProviderAccountSecretRecord,
+  allowStatusFeedback = true,
 ): ProviderResolution {
-  return { ...(account === undefined ? {} : { account }), code, ok: false };
+  return {
+    ...(account === undefined ? {} : { account }),
+    allowStatusFeedback,
+    code,
+    ok: false,
+  };
 }
 
 class ProviderCredentialResolutionError extends Error {
-  constructor(readonly code: ProviderCredentialFailureCode) {
+  constructor(
+    readonly code: ProviderCredentialFailureCode,
+    readonly allowStatusFeedback = true,
+  ) {
     super(code);
     this.name = "ProviderCredentialResolutionError";
   }

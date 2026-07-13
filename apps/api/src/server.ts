@@ -39,6 +39,7 @@ import {
   ComplianceFlagSchema,
   CompleteGoogleOAuthResponseSchema,
   ConnectorOAuthCredentialListResponseSchema,
+  ConnectorSyncEnqueueFailureResponseSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
   CreateAeoReadinessReportRequestSchema,
@@ -150,6 +151,8 @@ import {
   type ApiRateLimitStore,
 } from "./rate-limit.js";
 import {
+  connectorSyncEnqueueFailureCode,
+  connectorSyncEnqueueFailureMessage,
   type CreateClosedLoopAuditEventInput,
   type SearchOpsRepository,
   createMemoryRepository,
@@ -339,14 +342,6 @@ function providerAccountServiceErrorResponse(code: ProviderAccountServiceError["
     case "validation_error":
       return { message: "Provider account request is invalid", statusCode: 400 };
   }
-}
-
-function serializeErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function serializeErrorName(error: unknown) {
-  return error instanceof Error ? error.name : "Error";
 }
 
 function getRateLimitKey(request: FastifyRequest) {
@@ -2155,18 +2150,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         fetchedAt: new Date().toISOString(),
         providers: input.providers,
       });
-    } catch (error) {
-      const message = serializeErrorMessage(error);
-      const failedRun = await repository.markConnectorSyncRunFailed(connectorSyncRun.id, {
-        message,
-        name: serializeErrorName(error)
-      });
-      request.log.error({ error, connectorSyncRunId: connectorSyncRun.id }, "Connector sync enqueue failed");
-      reply.status(502).send({
-        error: "queue_enqueue_failed",
-        message: `Connector sync queue enqueue failed: ${message}`,
-        connectorSyncRun: failedRun ?? connectorSyncRun
-      });
+    } catch {
+      const failedRun = await repository.markConnectorSyncRunFailed(connectorSyncRun.id);
+      console.error(
+        `[api] connector sync enqueue failed code=${connectorSyncEnqueueFailureCode} run=${connectorSyncRun.id}`,
+      );
+      reply.status(502).send(
+        ConnectorSyncEnqueueFailureResponseSchema.parse({
+          version: 1,
+          error: connectorSyncEnqueueFailureCode,
+          message: connectorSyncEnqueueFailureMessage,
+          connectorSyncRun: failedRun ?? connectorSyncRun,
+        }),
+      );
       return;
     }
 

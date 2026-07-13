@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyProviderFeedbackForConnectorSync,
   buildConnectorSyncResultUpsertArgs,
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
+  createPrismaConnectorSyncPersistenceClient,
   getProviderAccountForConnectorSync,
   getSiteConnectorForConnectorSync,
   getSiteForConnectorSync,
@@ -12,8 +14,6 @@ import {
   persistConnectorSyncJobResult,
   updateConnectorOAuthCredentialForSync,
   updateProviderAccountCredentialForConnectorSync,
-  updateProviderAccountStatusForConnectorSync,
-  updateSiteConnectorStatusForConnectorSync,
   verifyConnectorSyncRunOwnership,
   type ConnectorSyncPersistenceClient
 } from "./connector-sync.js";
@@ -380,6 +380,10 @@ describe("connector sync persistence helpers", () => {
     const client: ConnectorSyncPersistenceClient = {
       ...createMockClient({}),
       providerCredentials: {
+        async applyProviderFeedback(input) {
+          calls.push(["feedback", input]);
+          return true;
+        },
         async getProviderAccount(input) {
           calls.push(["account", input]);
           return account;
@@ -395,13 +399,6 @@ describe("connector sync persistence helpers", () => {
         async updateProviderAccountCredential(input) {
           calls.push(["account-credential", input]);
           return { updatedAt: "2026-07-14T00:00:01.000Z" };
-        },
-        async updateProviderAccountStatus(input) {
-          calls.push(["account-status", input]);
-          return true;
-        },
-        async updateSiteConnectorStatus(input) {
-          calls.push(["connector-status", input]);
         }
       }
     };
@@ -438,18 +435,16 @@ describe("connector sync persistence helpers", () => {
         tokenExpiresAt: new Date("2026-07-14T01:00:00.000Z")
       }),
     ).resolves.toEqual({ updatedAt: "2026-07-14T00:00:01.000Z" });
-    await updateProviderAccountStatusForConnectorSync(client, {
-      expectedStatus: "connected",
-      expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
-      organizationId: "org_1",
-      providerAccountId: "pa_1",
-      status: "expired"
-    });
-    await updateSiteConnectorStatusForConnectorSync(client, {
+    await applyProviderFeedbackForConnectorSync(client, {
+      accountStatus: "expired",
+      expectedAccountStatus: "connected",
+      expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+      expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
       lastCheckedAt: new Date("2026-07-14T00:00:00.000Z"),
       lastErrorCode: "credential_expired",
       organizationId: "org_1",
       provider: "ga4",
+      providerAccountId: "pa_1",
       siteId: "site_1",
       status: "expired"
     });
@@ -467,21 +462,112 @@ describe("connector sync persistence helpers", () => {
         })
       ],
       [
-        "account-status",
-        {
-          expectedStatus: "connected",
-          expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
+        "feedback",
+        expect.objectContaining({
+          expectedAccountStatus: "connected",
+          expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+          expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
           organizationId: "org_1",
           providerAccountId: "pa_1",
           status: "expired"
-        }
-      ],
-      [
-        "connector-status",
-        expect.objectContaining({ organizationId: "org_1", provider: "ga4", siteId: "site_1" })
+        })
       ]
     ]);
   });
+
+  it.each([
+    ["connector rebind", 0, 1],
+    ["account rotation", 1, 0],
+  ] as const)(
+    "rolls back atomic provider feedback after a %s precondition race",
+    async (_name, connectorCount, accountCount) => {
+      const calls: unknown[] = [];
+      let rolledBack = false;
+      const transaction = {
+        providerAccount: {
+          async updateMany(args: unknown) {
+            calls.push(["account-write", args]);
+            return { count: accountCount };
+          },
+        },
+        siteConnector: {
+          async updateMany(args: unknown) {
+            calls.push(["connector-write", args]);
+            return { count: connectorCount };
+          },
+        },
+      };
+      const prisma = {
+        async $transaction(
+          operation: (client: typeof transaction) => Promise<unknown>,
+          options: unknown,
+        ) {
+          calls.push(["transaction", options]);
+          try {
+            return await operation(transaction);
+          } catch (error) {
+            rolledBack = true;
+            throw error;
+          }
+        },
+        connectorOAuthCredential: {},
+        connectorSyncResult: {},
+        connectorSyncRun: {},
+        providerAccount: {},
+        site: {},
+        siteConnector: {},
+      } as unknown as Parameters<typeof createPrismaConnectorSyncPersistenceClient>[0];
+      const client = createPrismaConnectorSyncPersistenceClient(prisma);
+
+      await expect(
+        client.providerCredentials?.applyProviderFeedback({
+          accountStatus: "revoked",
+          expectedAccountStatus: "connected",
+          expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+          expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
+          lastCheckedAt: new Date("2026-07-14T00:02:00.000Z"),
+          lastErrorCode: "credential_revoked",
+          organizationId: "org_1",
+          provider: "ga4",
+          providerAccountId: "pa_1",
+          siteId: "site_1",
+          status: "revoked",
+        }),
+      ).resolves.toBe(false);
+
+      expect(rolledBack).toBe(true);
+      expect(calls).toContainEqual(["transaction", { isolationLevel: "Serializable" }]);
+      expect(calls).toContainEqual([
+        "account-write",
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: "pa_1",
+            organizationId: "org_1",
+            status: "connected",
+            updatedAt: new Date("2026-07-14T00:00:00.000Z"),
+          }),
+        }),
+      ]);
+      if (accountCount === 1) {
+        expect(calls).toContainEqual([
+          "connector-write",
+          expect.objectContaining({
+            where: expect.objectContaining({
+              organizationId: "org_1",
+              provider: "ga4",
+              providerAccountId: "pa_1",
+              siteId: "site_1",
+              updatedAt: new Date("2026-07-14T00:00:00.000Z"),
+            }),
+          }),
+        ]);
+      } else {
+        expect(
+          calls.some((call) => Array.isArray(call) && call[0] === "connector-write"),
+        ).toBe(false);
+      }
+    },
+  );
 
   it("persists only approved credential source values in the batch summary", async () => {
     const updates: unknown[] = [];

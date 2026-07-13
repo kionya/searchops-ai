@@ -190,14 +190,13 @@ export interface ProviderAccountForConnectorSync extends EncryptedProviderCreden
 }
 
 export interface ConnectorSyncProviderCredentialPort {
+  applyProviderFeedback(input: ConnectorSyncProviderFeedbackInput): Promise<boolean>;
   getSite(input: ConnectorSyncSiteLookupInput): Promise<ConnectorSyncSiteRecord | null>;
   getSiteConnector(input: ConnectorSyncSiteConnectorLookupInput): Promise<SiteConnector | null>;
   getProviderAccount(input: ConnectorSyncProviderAccountLookupInput): Promise<ProviderAccountForConnectorSync | null>;
   updateProviderAccountCredential(
     input: ConnectorSyncProviderAccountCredentialUpdateInput,
   ): Promise<{ readonly updatedAt: string } | null>;
-  updateProviderAccountStatus(input: ConnectorSyncProviderAccountStatusUpdateInput): Promise<boolean>;
-  updateSiteConnectorStatus(input: ConnectorSyncSiteConnectorStatusUpdateInput): Promise<void>;
 }
 
 export interface ConnectorSyncSiteLookupInput {
@@ -227,17 +226,15 @@ export interface ConnectorSyncProviderAccountCredentialUpdateInput
   readonly tokenExpiresAt: Date;
 }
 
-export interface ConnectorSyncProviderAccountStatusUpdateInput
-  extends ConnectorSyncProviderAccountLookupInput {
-  readonly expectedStatus: "connected";
-  readonly expectedUpdatedAt: string;
-  readonly status: ProviderAccountStatus;
-}
-
-export interface ConnectorSyncSiteConnectorStatusUpdateInput
+export interface ConnectorSyncProviderFeedbackInput
   extends ConnectorSyncSiteConnectorLookupInput {
+  readonly accountStatus: ProviderAccountStatus | null;
+  readonly expectedAccountStatus: ProviderAccountStatus;
+  readonly expectedAccountUpdatedAt: string;
+  readonly expectedConnectorUpdatedAt: string;
   readonly lastCheckedAt: Date;
   readonly lastErrorCode: ProviderCredentialFailureCode | null;
+  readonly providerAccountId: string;
   readonly status: SiteConnectorStatus;
 }
 
@@ -410,6 +407,53 @@ export function createPrismaConnectorSyncPersistenceClient(
       }
     },
     providerCredentials: {
+      async applyProviderFeedback(input) {
+        try {
+          return await prisma.$transaction(
+            async (transaction) => {
+              const account = await transaction.providerAccount.updateMany({
+                data:
+                  input.accountStatus === null
+                    ? { updatedAt: new Date(input.expectedAccountUpdatedAt) }
+                    : { status: input.accountStatus },
+                where: {
+                  id: input.providerAccountId,
+                  organizationId: input.organizationId,
+                  status: input.expectedAccountStatus,
+                  updatedAt: new Date(input.expectedAccountUpdatedAt)
+                }
+              });
+              if (account.count !== 1) {
+                throw new ConnectorSyncFeedbackPreconditionError();
+              }
+              const connector = await transaction.siteConnector.updateMany({
+                data: {
+                  lastCheckedAt: input.lastCheckedAt,
+                  lastErrorCode: input.lastErrorCode,
+                  status: input.status
+                },
+                where: {
+                  organizationId: input.organizationId,
+                  provider: input.provider,
+                  providerAccountId: input.providerAccountId,
+                  siteId: input.siteId,
+                  updatedAt: new Date(input.expectedConnectorUpdatedAt)
+                }
+              });
+              if (connector.count !== 1) {
+                throw new ConnectorSyncFeedbackPreconditionError();
+              }
+              return true;
+            },
+            { isolationLevel: "Serializable" },
+          );
+        } catch (error) {
+          if (error instanceof ConnectorSyncFeedbackPreconditionError) {
+            return false;
+          }
+          throw error;
+        }
+      },
       async getSite(input) {
         return prisma.site.findFirst({
           select: { id: true, organizationId: true },
@@ -464,32 +508,6 @@ export function createPrismaConnectorSyncPersistenceClient(
           return account === null ? null : { updatedAt: account.updatedAt.toISOString() };
         });
       },
-      async updateProviderAccountStatus(input) {
-        const updated = await prisma.providerAccount.updateMany({
-          data: { status: input.status },
-          where: {
-            id: input.providerAccountId,
-            organizationId: input.organizationId,
-            status: input.expectedStatus,
-            updatedAt: new Date(input.expectedUpdatedAt)
-          }
-        });
-        return updated.count === 1;
-      },
-      async updateSiteConnectorStatus(input) {
-        await prisma.siteConnector.updateMany({
-          data: {
-            lastCheckedAt: input.lastCheckedAt,
-            lastErrorCode: input.lastErrorCode,
-            status: input.status
-          },
-          where: {
-            organizationId: input.organizationId,
-            provider: input.provider,
-            siteId: input.siteId
-          }
-        });
-      }
     }
   };
 }
@@ -570,18 +588,11 @@ export async function updateProviderAccountCredentialForConnectorSync(
   return client.providerCredentials?.updateProviderAccountCredential(input) ?? null;
 }
 
-export async function updateProviderAccountStatusForConnectorSync(
+export async function applyProviderFeedbackForConnectorSync(
   client: ConnectorSyncPersistenceClient,
-  input: ConnectorSyncProviderAccountStatusUpdateInput,
+  input: ConnectorSyncProviderFeedbackInput,
 ) {
-  return client.providerCredentials?.updateProviderAccountStatus(input) ?? false;
-}
-
-export async function updateSiteConnectorStatusForConnectorSync(
-  client: ConnectorSyncPersistenceClient,
-  input: ConnectorSyncSiteConnectorStatusUpdateInput,
-) {
-  await client.providerCredentials?.updateSiteConnectorStatus(input);
+  return client.providerCredentials?.applyProviderFeedback(input) ?? false;
 }
 
 export async function updateConnectorOAuthCredentialForSync(
@@ -725,6 +736,13 @@ const safeConnectorSyncFailureSummary = {
   },
   version: 1
 } as const;
+
+class ConnectorSyncFeedbackPreconditionError extends Error {
+  constructor() {
+    super("connector_sync_feedback_precondition_failed");
+    this.name = "ConnectorSyncFeedbackPreconditionError";
+  }
+}
 
 function connectorSyncOwnershipFromResult(
   result: ConnectorSyncJobResult,

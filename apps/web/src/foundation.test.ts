@@ -2034,6 +2034,7 @@ describe("web foundation", () => {
         partialProviders: 0,
         providerErrors: {
           gsc: {
+            code: "gsc_oauth_missing",
             message: "GSC OAuth credential is missing for this site."
           }
         },

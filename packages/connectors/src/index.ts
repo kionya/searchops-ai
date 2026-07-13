@@ -1606,7 +1606,11 @@ function summarizeConnectorProviderErrors(results: readonly ConnectorRunResult[]
     }
 
     providerErrors[result.provider] = result.error ?? {
-      message: `${formatConnectorProviderName(result.provider)} connector failed.`
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+      name: "ConnectorProviderError",
+      nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+      operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다."
     };
   }
 
@@ -1701,18 +1705,6 @@ function createGa4PropertyIdDiagnostic(): ConnectorProviderDiagnosticMetadata {
     operatorMessage:
       "GA4 Property ID가 잘못되었거나 Google Analytics Data API에서 해당 속성을 찾을 수 없습니다."
   };
-}
-
-function formatConnectorProviderName(provider: ConnectorProvider) {
-  const labels = {
-    bing: "Bing",
-    cms: "CMS",
-    ga4: "GA4",
-    gsc: "GSC",
-    pagespeed: "PageSpeed"
-  } as const satisfies Record<ConnectorProvider, string>;
-
-  return labels[provider];
 }
 
 export function discoverKeywordTargetsFromConnectorResults(

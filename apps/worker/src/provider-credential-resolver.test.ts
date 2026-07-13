@@ -4,6 +4,7 @@ import {
   decryptProviderCredential,
   encryptProviderCredential,
   parseCredentialKeyring,
+  type ConnectorSyncProviderFeedbackInput,
   type CredentialKeyring,
   type ProviderAccountSecretRecord,
 } from "@searchops/db";
@@ -503,17 +504,25 @@ describe("provider credential resolver", () => {
   });
 
   it.each([
-    ["network", () => Promise.reject(new Error("https://provider.test?api_key=tenant-secret")), "provider_rate_limited", null],
-    ["malformed-2xx", () => Promise.resolve(new Response("client_secret=tenant-secret", { status: 200 })), "provider_rate_limited", null],
-    ["400", () => Promise.resolve(new Response("tenant-secret", { status: 400 })), "credential_revoked", "revoked"],
-    ["401", () => Promise.resolve(new Response("tenant-secret", { status: 401 })), "credential_revoked", "revoked"],
-    ["429", () => Promise.resolve(new Response("tenant-secret", { status: 429 })), "provider_rate_limited", null],
-    ["500", () => Promise.resolve(new Response("tenant-secret", { status: 500 })), "provider_rate_limited", null],
+    ["network", () => Promise.reject(new Error("https://provider.test?api_key=tenant-secret")), "provider_rate_limited", false],
+    ["malformed-2xx", () => Promise.resolve(new Response("client_secret=tenant-secret", { status: 200 })), "provider_rate_limited", false],
+    ["invalid-grant-400", () => Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant", error_description: "tenant-secret" }), { status: 400 })), "credential_revoked", true],
+    ["invalid-grant-401", () => Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 401 })), "credential_revoked", true],
+    ["invalid-client", () => Promise.resolve(new Response(JSON.stringify({ error: "invalid_client", client_secret: "tenant-secret" }), { status: 401 })), "provider_rate_limited", false],
+    ["invalid-request", () => Promise.resolve(new Response(JSON.stringify({ error: "invalid_request" }), { status: 400 })), "provider_rate_limited", false],
+    ["unauthorized-client", () => Promise.resolve(new Response(JSON.stringify({ error: "unauthorized_client" }), { status: 400 })), "provider_rate_limited", false],
+    ["unknown-400", () => Promise.resolve(new Response(JSON.stringify({ error: "provider_custom_error" }), { status: 400 })), "provider_rate_limited", false],
+    ["unknown-401", () => Promise.resolve(new Response(JSON.stringify({ error: "provider_custom_error" }), { status: 401 })), "provider_rate_limited", false],
+    ["malformed-401", () => Promise.resolve(new Response("client_secret=tenant-secret", { status: 401 })), "provider_rate_limited", false],
+    ["oversized-400", () => Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant", padding: "x".repeat(8_192) }), { status: 400 })), "provider_rate_limited", false],
+    ["429", () => Promise.resolve(new Response("tenant-secret", { status: 429 })), "provider_rate_limited", false],
+    ["500", () => Promise.resolve(new Response("tenant-secret", { status: 500 })), "provider_rate_limited", false],
   ] as const)(
     "normalizes refresh %s failures without leaking or corrupting durable account state",
-    async (_name, responseFactory, expectedCode, expectedAccountStatus) => {
+    async (_name, responseFactory, expectedCode, shouldRevoke) => {
       const account = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
-      const statusUpdates: string[] = [];
+      const accountStatusUpdates: string[] = [];
+      const connectorStatusUpdates: string[] = [];
       const resolver = createProviderCredentialResolver({
         fetch: (async () => responseFactory()) as typeof fetch,
         googleOAuthClientId: "client-id",
@@ -527,7 +536,10 @@ describe("provider credential resolver", () => {
           connectors: [
             siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
           ],
-          onUpdateAccountStatus(input) { statusUpdates.push(input.status); },
+          onUpdateAccountStatus(input) {
+            if (input.accountStatus !== null) accountStatusUpdates.push(input.accountStatus);
+          },
+          onUpdateSiteConnectorStatus(input) { connectorStatusUpdates.push(input.status); },
           sites: [{ id: "site_a", organizationId: "org_a" }],
         }),
       });
@@ -537,8 +549,64 @@ describe("provider credential resolver", () => {
       );
 
       expect(result.failures).toEqual({ gsc: expectedCode });
-      expect(statusUpdates).toEqual(expectedAccountStatus === null ? [] : [expectedAccountStatus]);
+      expect(accountStatusUpdates).toEqual(shouldRevoke ? ["revoked"] : []);
+      expect(connectorStatusUpdates).toEqual(shouldRevoke ? ["revoked"] : []);
       expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    },
+  );
+
+  it.each(["reread", "credential-update"] as const)(
+    "normalizes refresh %s store exceptions as non-mutating transient failures",
+    async (failurePoint) => {
+      const account = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
+      const accountStatusUpdates: unknown[] = [];
+      const connectorStatusUpdates: unknown[] = [];
+      const baseStore = createStore({
+        accounts: [account],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        onUpdateAccountStatus(input) { accountStatusUpdates.push(input); },
+        onUpdateSiteConnectorStatus(input) { connectorStatusUpdates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      });
+      let accountReads = 0;
+      const store: ProviderCredentialResolverStore = {
+        ...baseStore,
+        async getProviderAccount(input) {
+          accountReads += 1;
+          if (failurePoint === "reread" && accountReads === 2) {
+            throw new Error("postgres://user:tenant-secret@db.internal/searchops");
+          }
+          return baseStore.getProviderAccount(input);
+        },
+        async updateProviderAccountCredential(input) {
+          if (failurePoint === "credential-update") {
+            throw new Error("postgres://user:tenant-secret@db.internal/searchops");
+          }
+          return baseStore.updateProviderAccountCredential(input);
+        },
+      };
+      const resolver = createProviderCredentialResolver({
+        fetch: successfulRefreshFetch("new-access"),
+        googleOAuthClientId: "client-id",
+        googleOAuthClientSecret: "client-secret",
+        keyring,
+        now: () => now,
+        refreshLock: { async withLock(_key, operation) { return operation(); } },
+        storageMode: "encrypted",
+        store,
+      });
+
+      const result = await resolver.resolveConnectorProviderConfigs(
+        connectorJob("site_a", ["gsc"]),
+      );
+
+      expect(result.failures).toEqual({ gsc: "provider_rate_limited" });
+      expect(accountStatusUpdates).toEqual([]);
+      expect(connectorStatusUpdates).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain("tenant-secret");
+      expect(JSON.stringify(result)).not.toContain("db.internal");
     },
   );
 
@@ -550,8 +618,8 @@ describe("provider credential resolver", () => {
       connectors: [
         siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
       ],
-      onUpdateAccountStatus(input: Parameters<ProviderCredentialResolverStore["updateProviderAccountStatus"]>[0]) {
-        statusUpdates.push(input.status);
+      onUpdateAccountStatus(input: ConnectorSyncProviderFeedbackInput) {
+        if (input.accountStatus !== null) statusUpdates.push(input.accountStatus);
       },
       sites: [{ id: "site_a", organizationId: "org_a" }],
     };
@@ -653,11 +721,12 @@ describe("provider credential resolver", () => {
           ? []
           : [
               expect.objectContaining({
-                expectedStatus: "connected",
-                expectedUpdatedAt: "2026-07-14T00:00:00.000Z",
+                accountStatus: expectedAccountStatus,
+                expectedAccountStatus: "connected",
+                expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+                expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
                 organizationId: "org_a",
                 providerAccountId: "pa_google",
-                status: expectedAccountStatus,
               }),
             ],
       );
@@ -737,6 +806,106 @@ describe("provider credential resolver", () => {
       },
     ]);
 
+    expect(accountUpdates).toEqual([]);
+    expect(connectorUpdates).toEqual([]);
+  });
+
+  it("applies neither stale outcome mutation when the connector is rebound atomically", async () => {
+    const accountUpdates: unknown[] = [];
+    const connectorUpdates: unknown[] = [];
+    const feedbackAttempts: unknown[] = [];
+    const store = Object.assign(
+      createStore({
+        accounts: [encryptedAccount()],
+        connectors: [siteConnector()],
+        onUpdateAccountStatus(input) { accountUpdates.push(input); },
+        onUpdateSiteConnectorStatus(input) { connectorUpdates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+      {
+        async applyProviderFeedback(input: unknown) {
+          feedbackAttempts.push(input);
+          return false;
+        },
+      },
+    );
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      storageMode: "encrypted",
+      store,
+    });
+    const job = connectorJob("site_a", ["ga4"]);
+    await resolver.resolveConnectorProviderConfigs(job);
+
+    await resolver.recordConnectorProviderOutcomes(job, [
+      {
+        error: { code: "credential_revoked", message: "credential_revoked" },
+        fetchedAt: now.toISOString(),
+        fixture: false,
+        provider: "ga4",
+        records: [],
+        status: "setup_required",
+      },
+    ]);
+
+    expect(feedbackAttempts).toEqual([
+      expect.objectContaining({
+        expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+        expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
+        organizationId: "org_a",
+        provider: "ga4",
+        providerAccountId: "pa_google",
+        siteId: "site_a",
+      }),
+    ]);
+    expect(accountUpdates).toEqual([]);
+    expect(connectorUpdates).toEqual([]);
+  });
+
+  it("applies neither stale resolution-failure mutation when the account rotates atomically", async () => {
+    const account = encryptedAccount();
+    const accountUpdates: unknown[] = [];
+    const connectorUpdates: unknown[] = [];
+    const feedbackAttempts: unknown[] = [];
+    const store = Object.assign(
+      createStore({
+        accounts: [
+          { ...account, credentialAuthTag: Buffer.alloc(16, 9).toString("base64") },
+        ],
+        connectors: [siteConnector()],
+        onUpdateAccountStatus(input) { accountUpdates.push(input); },
+        onUpdateSiteConnectorStatus(input) { connectorUpdates.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+      {
+        async applyProviderFeedback(input: unknown) {
+          feedbackAttempts.push(input);
+          return false;
+        },
+      },
+    );
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      now: () => now,
+      storageMode: "encrypted",
+      store,
+    });
+
+    await expect(
+      resolver.resolveConnectorProviderConfigs(connectorJob("site_a", ["ga4"])),
+    ).resolves.toMatchObject({ failures: { ga4: "credential_decryption_failed" } });
+
+    expect(feedbackAttempts).toEqual([
+      expect.objectContaining({
+        expectedAccountUpdatedAt: "2026-07-14T00:00:00.000Z",
+        expectedConnectorUpdatedAt: "2026-07-14T00:00:00.000Z",
+        organizationId: "org_a",
+        provider: "ga4",
+        providerAccountId: "pa_google",
+        siteId: "site_a",
+      }),
+    ]);
     expect(accountUpdates).toEqual([]);
     expect(connectorUpdates).toEqual([]);
   });
@@ -896,10 +1065,10 @@ function createStore(input: {
     input: Parameters<ProviderCredentialResolverStore["updateProviderAccountCredential"]>[0],
   ) => void;
   readonly onUpdateAccountStatus?: (
-    input: Parameters<ProviderCredentialResolverStore["updateProviderAccountStatus"]>[0],
+    input: ConnectorSyncProviderFeedbackInput,
   ) => void;
   readonly onUpdateSiteConnectorStatus?: (
-    input: Parameters<ProviderCredentialResolverStore["updateSiteConnectorStatus"]>[0],
+    input: ConnectorSyncProviderFeedbackInput,
   ) => void;
   readonly onListLegacyCredentials?: () => void;
   readonly sites?: readonly { readonly id: string; readonly organizationId: string }[];
@@ -907,6 +1076,13 @@ function createStore(input: {
 }): ProviderCredentialResolverStore {
   let accountReadIndex = 0;
   return {
+    async applyProviderFeedback(inputArgs) {
+      if (inputArgs.accountStatus !== null) {
+        input.onUpdateAccountStatus?.(inputArgs);
+      }
+      input.onUpdateSiteConnectorStatus?.(inputArgs);
+      return true;
+    },
     async getProviderAccount(inputArgs) {
       if (input.accountReads !== undefined && accountReadIndex < input.accountReads.length) {
         return input.accountReads[accountReadIndex++] ?? null;
@@ -950,13 +1126,6 @@ function createStore(input: {
       return input.updateAccountResult === false
         ? null
         : { updatedAt: inputArgs.expectedUpdatedAt };
-    },
-    async updateProviderAccountStatus(inputArgs) {
-      input.onUpdateAccountStatus?.(inputArgs);
-      return true;
-    },
-    async updateSiteConnectorStatus(inputArgs) {
-      input.onUpdateSiteConnectorStatus?.(inputArgs);
     },
   };
 }

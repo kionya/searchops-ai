@@ -23,6 +23,7 @@ import {
   ConnectorProviderListSchema,
   ConnectorLiveSetupReportSchema,
   ConnectorSyncJobResultSchema,
+  ConnectorSyncEnqueueFailureResponseSchema,
   ConnectorSyncRunSummarySchema,
   ContentBriefDraftSchema,
   ContentBriefDetailResponseSchema,
@@ -2104,6 +2105,169 @@ describe("types foundation", () => {
     ).toThrow();
   });
 
+  it("rejects unknown fields throughout nested connector sync contracts", () => {
+    const summary = {
+      failedProviders: 1,
+      okProviders: 0,
+      partialProviders: 0,
+      providerErrors: {
+        gsc: {
+          code: "provider_rate_limited",
+          message: "Connector provider request could not be completed safely.",
+        },
+      },
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 1,
+      totalRecords: 0,
+    };
+    const result = {
+      provider: "gsc",
+      status: "failed",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: false,
+      records: [],
+      error: summary.providerErrors.gsc,
+    };
+    const payload = {
+      connectorSyncRunId: "sync_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      providers: ["gsc"],
+    };
+
+    expect(() => ConnectorRunResultSchema.parse({ ...result, accessToken: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() =>
+      ConnectorRunResultSchema.parse({
+        ...result,
+        error: { ...result.error, responseBody: "secret" },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorBatchSyncSummarySchema.parse({
+        ...summary,
+        providerErrors: { ...summary.providerErrors, unknownProvider: result.error },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorBatchSyncSummarySchema.parse({
+        ...summary,
+        recordCountsByProvider: { ...summary.recordCountsByProvider, unknownProvider: 1 },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorSyncJobResultSchema.parse({
+        ...payload,
+        results: [{ ...result, encryptedCredential: "secret" }],
+        summary,
+      }),
+    ).toThrow(/unrecognized/i);
+  });
+
+  it("redacts current and legacy connector error messages to fixed public shapes", () => {
+    const secret = "redis://default:tenant-secret@cache.internal:6379/0?token=queue-secret";
+    const currentResult = ConnectorRunResultSchema.parse({
+      provider: "gsc",
+      status: "failed",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: false,
+      records: [],
+      error: {
+        code: "provider_rate_limited",
+        message: secret,
+        name: secret,
+        nextAction: secret,
+        operatorMessage: secret,
+      },
+    });
+    const currentSummary = ConnectorBatchSyncSummarySchema.parse({
+      failedProviders: 1,
+      okProviders: 0,
+      partialProviders: 0,
+      providerErrors: {
+        gsc: {
+          code: "provider_rate_limited",
+          message: secret,
+          name: secret,
+          nextAction: secret,
+          operatorMessage: secret,
+        },
+      },
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 1,
+      totalRecords: 0,
+    });
+    const legacySummary = ConnectorSyncRunSummarySchema.parse({
+      error: { message: secret, name: "Error" },
+    });
+
+    expect(currentResult.error).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(currentSummary.providerErrors?.gsc).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(legacySummary).toEqual({
+      version: 1,
+      error: {
+        code: "legacy_connector_sync_failed",
+        message: "Connector sync failed.",
+      },
+    });
+    expect(JSON.stringify({ currentResult, currentSummary, legacySummary })).not.toContain(
+      "tenant-secret",
+    );
+    expect(() =>
+      ConnectorSyncEnqueueFailureResponseSchema.parse({
+        version: 1,
+        error: "queue_enqueue_failed",
+        message: secret,
+        connectorSyncRun: {
+          id: "sync_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          status: "failed",
+          providers: ["gsc"],
+          requestedByUserId: "user_1",
+          fixture: false,
+          startedAt: "2026-05-22T00:00:00.000Z",
+          endedAt: "2026-05-22T00:01:00.000Z",
+          summary: legacySummary,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      ConnectorRunResultSchema.parse({
+        provider: "gsc",
+        status: "failed",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: false,
+        records: [],
+        error: { code: "unknown_provider_code", message: secret },
+      }),
+    ).toThrow();
+  });
+
   it("validates connector sync run API contracts", () => {
     expect(CreateConnectorSyncRunRequestSchema.parse({}).providers).toEqual([
       "gsc",
@@ -2287,7 +2451,8 @@ describe("types foundation", () => {
       }),
     ).toMatchObject({
       error: {
-        message: "GSC OAuth credential is missing for this site.",
+        code: "legacy_connector_provider_failed",
+        message: "Connector provider failed.",
       },
     });
     expect(
@@ -2337,7 +2502,8 @@ describe("types foundation", () => {
       summary: {
         providerErrors: {
           gsc: {
-            message: "GSC OAuth credential is missing for this site.",
+            code: "legacy_connector_provider_failed",
+            message: "Connector provider failed.",
           },
         },
       },

@@ -48,7 +48,10 @@ import {
 } from "@searchops/types";
 import type { Prisma, SearchOpsPrismaClient } from "@searchops/db";
 
-import type { SearchOpsRepository } from "./repository.js";
+import {
+  connectorSyncEnqueueFailureSummary,
+  type SearchOpsRepository,
+} from "./repository.js";
 import type { ContentBriefDraft } from "@searchops/types";
 
 type OrganizationRecord = Awaited<
@@ -406,7 +409,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
       return connectorSyncRuns.map(toConnectorSyncRun);
     },
 
-    async markConnectorSyncRunFailed(id, input) {
+    async markConnectorSyncRunFailed(id) {
       const connectorSyncRun = await prisma.connectorSyncRun.findUnique({
         select: { id: true },
         where: { id }
@@ -420,12 +423,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           data: {
             endedAt: new Date(),
             status: "failed",
-            summary: toJson({
-              error: {
-                message: input.message,
-                name: input.name ?? "Error"
-              }
-            })
+            summary: toJson(connectorSyncEnqueueFailureSummary)
           },
           where: { id }
         }),
