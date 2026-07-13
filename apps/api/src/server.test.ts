@@ -4907,6 +4907,40 @@ describe("api foundation", () => {
       }
     });
 
+    it("maps provider credential concurrency exhaustion to a redacted stable 409", async () => {
+      const rawSentinel = "raw-concurrent-replacement-sentinel";
+      const response = await buildProviderServer(
+        providerService({
+          async replaceApiKeyCredential(input) {
+            expect(input).toEqual({
+              apiKey: rawSentinel,
+              organizationId: "org_demo",
+              providerAccountId: "pa_api_key",
+            });
+            throw new ProviderAccountServiceError("provider_account_concurrent_update");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+        headers: authHeaders("owner"),
+        payload: { apiKey: rawSentinel },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: "provider_account_concurrent_update",
+        message: "Provider account was updated concurrently",
+      });
+      expectNoCredentialFields(response.json(), [
+        rawSentinel,
+        "ciphertext-concurrent-sentinel",
+        "iv-concurrent-sentinel",
+        "tag-concurrent-sentinel",
+        "key-id-concurrent-sentinel",
+      ]);
+    });
+
     it("maps in-use account deletion to 409 without credential fields", async () => {
       const response = await buildProviderServer(
         providerService({

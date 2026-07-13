@@ -152,9 +152,17 @@ function createStore(
 
 describe("ProviderAccountService", () => {
   it("allocates the API-key account ID before encryption and never passes the raw key to the store", async () => {
-    const calls: unknown[] = [];
+    const calls: Parameters<ProviderCredentialStore["createApiKeyAccount"]>[0][] = [];
     const store = createStore({
       async createApiKeyAccount(input) {
+        if (
+          input.organizationId !== "org_a" ||
+          input.providerAccountId !== "pa_deterministic" ||
+          input.provider !== "geo_chatgpt" ||
+          input.connectedByUserId !== "user_a"
+        ) {
+          throw new ProviderCredentialStoreError("provider_account_identity_mismatch");
+        }
         calls.push(input);
         return account({ id: input.providerAccountId, provider: input.provider });
       },
@@ -174,15 +182,21 @@ describe("ProviderAccountService", () => {
     });
 
     expect(JSON.stringify(calls)).not.toContain("raw-secret");
-    expect(calls).toMatchObject([
+    expect(calls).toEqual([
       {
         providerAccountId: "pa_deterministic",
-        encryptedCredential: { encryptionKeyId: "v1" },
+        organizationId: "org_a",
+        provider: "geo_chatgpt",
+        authType: "api_key",
+        externalAccountId: null,
+        accountEmail: null,
+        displayName: "Primary",
+        isDefault: false,
+        connectedByUserId: "user_a",
+        encryptedCredential: expect.objectContaining({ encryptionKeyId: "v1" }),
       },
     ]);
-    const encryptedCredential = (
-      calls[0] as Parameters<ProviderCredentialStore["createApiKeyAccount"]>[0]
-    ).encryptedCredential;
+    const encryptedCredential = calls[0]!.encryptedCredential;
     expect(
       decryptProviderCredential(
         keyring(),
@@ -194,6 +208,15 @@ describe("ProviderAccountService", () => {
         encryptedCredential,
       ),
     ).toEqual({ kind: "api_key", apiKey: "raw-secret" });
+    for (const wrongContext of [
+      { organizationId: "org_wrong", providerAccountId: "pa_deterministic", provider: "geo_chatgpt" as const },
+      { organizationId: "org_a", providerAccountId: "pa_wrong", provider: "geo_chatgpt" as const },
+      { organizationId: "org_a", providerAccountId: "pa_deterministic", provider: "bing" as const },
+    ]) {
+      expect(() =>
+        decryptProviderCredential(keyring(), wrongContext, encryptedCredential),
+      ).toThrow();
+    }
   });
 
   it.each(["bing", "geo_chatgpt", "geo_claude", "geo_gemini", "geo_perplexity"] as const)(
@@ -443,6 +466,9 @@ describe("ProviderAccountService", () => {
   });
 
   it("encrypts replacement credentials against persisted account identity", async () => {
+    let metadataSelector:
+      | Parameters<ProviderCredentialStore["getAccountMetadata"]>[0]
+      | undefined;
     let replacement:
       | Parameters<ProviderCredentialStore["replaceCredential"]>[0]
       | undefined;
@@ -450,10 +476,14 @@ describe("ProviderAccountService", () => {
     const service = createProviderAccountService({
       keyring: keyring(),
       store: createStore({
-        async getAccountMetadata() {
+        async getAccountMetadata(input) {
+          metadataSelector = input;
           return persisted;
         },
         async replaceCredential(input) {
+          if (input.organizationId !== "org_a" || input.providerAccountId !== "pa_exact") {
+            throw new ProviderCredentialStoreError("provider_account_not_in_organization");
+          }
           replacement = input;
           return persisted;
         },
@@ -467,6 +497,15 @@ describe("ProviderAccountService", () => {
     });
 
     expect(JSON.stringify(replacement)).not.toContain("new-secret");
+    expect(metadataSelector).toEqual({
+      organizationId: "org_a",
+      providerAccountId: "pa_exact",
+    });
+    expect(replacement).toEqual({
+      organizationId: "org_a",
+      providerAccountId: "pa_exact",
+      encryptedCredential: expect.objectContaining({ encryptionKeyId: "v1" }),
+    });
     expect(
       decryptProviderCredential(
         keyring(),
@@ -478,6 +517,19 @@ describe("ProviderAccountService", () => {
         replacement!.encryptedCredential,
       ),
     ).toEqual({ kind: "api_key", apiKey: "new-secret" });
+    for (const wrongContext of [
+      { organizationId: "org_wrong", providerAccountId: "pa_exact", provider: "bing" as const },
+      { organizationId: "org_a", providerAccountId: "pa_wrong", provider: "bing" as const },
+      { organizationId: "org_a", providerAccountId: "pa_exact", provider: "geo_chatgpt" as const },
+    ]) {
+      expect(() =>
+        decryptProviderCredential(
+          keyring(),
+          wrongContext,
+          replacement!.encryptedCredential,
+        ),
+      ).toThrow();
+    }
   });
 
   it("preserves the existing Google refresh token when a new grant omits it", async () => {
@@ -527,6 +579,13 @@ describe("ProviderAccountService", () => {
           };
         },
         async upsertGoogleAccount(input) {
+          if (
+            input.organizationId !== "org_a" ||
+            input.providerAccountId !== providerAccountId ||
+            input.externalAccountId !== "google-sub-1"
+          ) {
+            throw new ProviderCredentialStoreError("provider_account_identity_mismatch");
+          }
           upsertCall = input;
           return account({ id: providerAccountId, provider: "google", authType: "oauth2" });
         },
@@ -551,8 +610,20 @@ describe("ProviderAccountService", () => {
       verifiedExternalAccountId: "google-sub-1",
     });
 
-    expect(upsertCall?.providerAccountId).toBe(providerAccountId);
-    expect(upsertCall?.allowedConnectorProviders).toEqual([]);
+    expect(upsertCall).toEqual({
+      providerAccountId,
+      organizationId: "org_a",
+      externalAccountId: "google-sub-1",
+      accountEmail: "owner@example.com",
+      displayName: "Google owner",
+      status: "connected",
+      scopes: ["openid"],
+      allowedConnectorProviders: [],
+      expectedUpdatedAt: now,
+      tokenExpiresAt: null,
+      connectedByUserId: "user_a",
+      encryptedCredential: expect.objectContaining({ encryptionKeyId: "v1" }),
+    });
     expect(lookups).toEqual([
       {
         method: "getAccountMetadata",
@@ -580,6 +651,65 @@ describe("ProviderAccountService", () => {
       accessToken: "new-access",
       refreshToken: "preserved-refresh",
       tokenType: "Bearer",
+    });
+    for (const wrongContext of [
+      { organizationId: "org_wrong", providerAccountId, provider: "google" as const },
+      { organizationId: "org_a", providerAccountId: "pa_wrong", provider: "google" as const },
+      { organizationId: "org_a", providerAccountId, provider: "bing" as const },
+    ]) {
+      expect(() =>
+        decryptProviderCredential(
+          keyring(),
+          wrongContext,
+          upsertCall!.encryptedCredential,
+        ),
+      ).toThrow();
+    }
+  });
+
+  it("passes a null Google version precondition only for a new canonical account", async () => {
+    const providerAccountId = deriveCanonicalProviderAccountId({
+      organizationId: "org_new",
+      provider: "google",
+      externalAccountId: "google-sub-new",
+    });
+    let upsertCall:
+      | Parameters<ProviderCredentialStore["upsertGoogleAccount"]>[0]
+      | undefined;
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertGoogleAccount(input) {
+          upsertCall = input;
+          return account({
+            id: providerAccountId,
+            organizationId: "org_new",
+            provider: "google",
+            authType: "oauth2",
+          });
+        },
+      }),
+    });
+
+    await service.upsertGoogleAccount({
+      accessToken: "new-access",
+      actorUserId: "user_new",
+      displayName: "New Google",
+      organizationId: "org_new",
+      refreshToken: "new-refresh",
+      scopes: [],
+      selectedProviders: [],
+      tokenExpiresAt: null,
+      tokenType: "Bearer",
+      verifiedAccountEmail: "new@example.com",
+      verifiedExternalAccountId: "google-sub-new",
+    });
+
+    expect(upsertCall).toMatchObject({
+      providerAccountId,
+      organizationId: "org_new",
+      externalAccountId: "google-sub-new",
+      expectedUpdatedAt: null,
     });
   });
 
@@ -1002,6 +1132,35 @@ describe("ProviderAccountService", () => {
     await expect(
       service.deleteAccount({ organizationId: "org_a", providerAccountId: "pa_test" }),
     ).rejects.toEqual(new ProviderAccountServiceError("account_in_use"));
+  });
+
+  it("maps an optimistic Google version conflict to the stable service error", async () => {
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertGoogleAccount() {
+          throw new ProviderCredentialStoreError("provider_account_concurrent_update");
+        },
+      }),
+    });
+
+    await expect(
+      service.upsertGoogleAccount({
+        accessToken: "access-concurrent",
+        actorUserId: "user_a",
+        displayName: "Google",
+        organizationId: "org_a",
+        refreshToken: "refresh-concurrent",
+        scopes: [],
+        selectedProviders: [],
+        tokenExpiresAt: null,
+        tokenType: "Bearer",
+        verifiedAccountEmail: "owner@example.com",
+        verifiedExternalAccountId: "google-sub-concurrent",
+      }),
+    ).rejects.toEqual(
+      new ProviderAccountServiceError("provider_account_concurrent_update"),
+    );
   });
 
   it("maps a false account deletion to account_not_found", async () => {

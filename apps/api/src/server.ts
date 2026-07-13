@@ -289,6 +289,8 @@ function providerAccountServiceErrorResponse(code: ProviderAccountServiceError["
       return { message: "Provider account default conflicts with an existing account", statusCode: 409 };
     case "provider_account_identity_conflict":
       return { message: "Provider account identity conflicts with an existing account", statusCode: 409 };
+    case "provider_account_concurrent_update":
+      return { message: "Provider account was updated concurrently", statusCode: 409 };
     case "scope_missing":
       return { message: "Required provider scope is missing", statusCode: 409 };
     case "site_not_in_organization":

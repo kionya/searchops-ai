@@ -87,6 +87,12 @@ const accountConnectorProviderSelect = {
   provider: true
 } as const satisfies Prisma.SiteConnectorSelect;
 
+const googleConnectorRequiredScope = {
+  ga4: "https://www.googleapis.com/auth/analytics.readonly",
+  gsc: "https://www.googleapis.com/auth/webmasters.readonly"
+} as const;
+const serializableTransactionMaxAttempts = 3;
+
 export type ProviderAccountMetadataRow = Prisma.ProviderAccountGetPayload<{
   select: typeof providerAccountMetadataSelect;
 }>;
@@ -132,6 +138,24 @@ interface AccountConnectorProviderFindManyArgs {
   readonly select: typeof accountConnectorProviderSelect;
 }
 
+interface SiteFindFirstArgs {
+  readonly where: { readonly id: string; readonly organizationId: string };
+  readonly select: { readonly id: true; readonly organizationId: true };
+}
+
+interface SiteConnectorUpsertArgs {
+  readonly where: {
+    readonly organizationId: string;
+    readonly siteId_provider: {
+      readonly siteId: string;
+      readonly provider: SiteConnectorProvider;
+    };
+  };
+  readonly create: SiteConnectorWriteData;
+  readonly update: SiteConnectorWriteData;
+  readonly select: typeof siteConnectorSelect;
+}
+
 interface ProviderCredentialTransactionOptions {
   readonly isolationLevel: "Serializable";
 }
@@ -152,8 +176,12 @@ export interface ProviderCredentialStorePrismaTransactionPort {
     }): Promise<ProviderAccountMetadataRow>;
     upsert(args: ProviderAccountUpsertArgs): Promise<ProviderAccountMetadataRow>;
   };
+  readonly site: {
+    findFirst(args: SiteFindFirstArgs): Promise<SiteRow | null>;
+  };
   readonly siteConnector: {
     findMany(args: AccountConnectorProviderFindManyArgs): Promise<AccountConnectorProviderRow[]>;
+    upsert(args: SiteConnectorUpsertArgs): Promise<SiteConnectorRow>;
   };
 }
 
@@ -186,28 +214,14 @@ export interface ProviderCredentialStorePrismaPort {
     count(args: { readonly where: { readonly organizationId: string } }): Promise<number>;
   };
   readonly site: {
-    findFirst(args: {
-      readonly where: { readonly id: string; readonly organizationId: string };
-      readonly select: { readonly id: true; readonly organizationId: true };
-    }): Promise<SiteRow | null>;
+    findFirst(args: SiteFindFirstArgs): Promise<SiteRow | null>;
   };
   readonly siteConnector: {
     findMany(args: {
       readonly where: { readonly organizationId: string; readonly siteId?: string };
       readonly select: typeof siteConnectorSelect;
     }): Promise<SiteConnectorRow[]>;
-    upsert(args: {
-      readonly where: {
-        readonly organizationId: string;
-        readonly siteId_provider: {
-          readonly siteId: string;
-          readonly provider: SiteConnectorProvider;
-        };
-      };
-      readonly create: SiteConnectorWriteData;
-      readonly update: SiteConnectorWriteData;
-      readonly select: typeof siteConnectorSelect;
-    }): Promise<SiteConnectorRow>;
+    upsert(args: SiteConnectorUpsertArgs): Promise<SiteConnectorRow>;
     deleteMany(args: {
       readonly where: {
         readonly organizationId: string;
@@ -272,6 +286,7 @@ export interface UpsertGoogleAccountStoreInput {
   readonly status: ProviderAccountStatus;
   readonly scopes: readonly string[];
   readonly allowedConnectorProviders: readonly ("gsc" | "ga4")[];
+  readonly expectedUpdatedAt: string | null;
   readonly tokenExpiresAt: Date | null;
   readonly connectedByUserId: string;
   readonly encryptedCredential: EncryptedProviderCredential;
@@ -346,6 +361,7 @@ export type ProviderCredentialStoreErrorCode =
   | "provider_account_default_conflict"
   | "provider_account_identity_conflict"
   | "provider_account_identity_mismatch"
+  | "provider_account_concurrent_update"
   | "provider_account_not_in_organization"
   | "provider_account_provider_mismatch"
   | "scope_missing"
@@ -531,7 +547,7 @@ export function createPrismaProviderCredentialStore(
           },
           select: providerAccountMetadataSelect
         };
-        const row = await prisma.$transaction(async (transaction) => {
+        const row = await runSerializableTransactionWithRetry(prisma, async (transaction) => {
           const attachedProviders = await transaction.siteConnector.findMany({
             where: {
               organizationId: input.organizationId,
@@ -541,7 +557,7 @@ export function createPrismaProviderCredentialStore(
           });
           const allowedProviders = new Set(input.allowedConnectorProviders);
           for (const attached of attachedProviders) {
-            const provider = SiteConnectorProviderSchema.parse(attached.provider);
+            const provider = parsePersistedConnectorProvider(attached.provider);
             if (provider !== "gsc" && provider !== "ga4") {
               throw new ProviderCredentialStoreError("provider_account_provider_mismatch");
             }
@@ -549,8 +565,17 @@ export function createPrismaProviderCredentialStore(
               throw new ProviderCredentialStoreError("scope_missing");
             }
           }
+
+          const current = await transaction.providerAccount.findFirst({
+            where: { id: input.providerAccountId, organizationId: input.organizationId },
+            select: providerAccountMetadataSelect
+          });
+          const currentUpdatedAt = current === null ? null : current.updatedAt.toISOString();
+          if (currentUpdatedAt !== input.expectedUpdatedAt) {
+            throw new ProviderCredentialStoreError("provider_account_concurrent_update");
+          }
           return transaction.providerAccount.upsert(upsertArgs);
-        }, { isolationLevel: "Serializable" });
+        });
 
         return toProviderAccountMetadata(row);
       } catch (error) {
@@ -590,32 +615,35 @@ export function createPrismaProviderCredentialStore(
     },
 
     async upsertSiteConnector(input) {
-      const foundSite = await prisma.site.findFirst({
-        where: { id: input.siteId, organizationId: input.organizationId },
-        select: { id: true, organizationId: true }
-      });
-      if (foundSite === null) {
-        throw new ProviderCredentialStoreError("site_not_in_organization");
-      }
-
-      const foundAccount = await prisma.providerAccount.findFirst({
-        where: { id: input.providerAccountId, organizationId: input.organizationId },
-        select: providerAccountMetadataSelect
-      });
-      if (foundAccount === null) {
-        throw new ProviderCredentialStoreError("provider_account_not_in_organization");
-      }
-
-      assertConnectorProviderAccountCompatibility(input.provider, foundAccount.provider);
       const data = siteConnectorWriteData(input);
-      const row = await prisma.siteConnector.upsert({
-        where: {
-          organizationId: input.organizationId,
-          siteId_provider: { siteId: input.siteId, provider: input.provider }
-        },
-        create: data,
-        update: data,
-        select: siteConnectorSelect
+      const row = await runSerializableTransactionWithRetry(prisma, async (transaction) => {
+        const foundSite = await transaction.site.findFirst({
+          where: { id: input.siteId, organizationId: input.organizationId },
+          select: { id: true, organizationId: true }
+        });
+        if (foundSite === null) {
+          throw new ProviderCredentialStoreError("site_not_in_organization");
+        }
+
+        const foundAccount = await transaction.providerAccount.findFirst({
+          where: { id: input.providerAccountId, organizationId: input.organizationId },
+          select: providerAccountMetadataSelect
+        });
+        if (foundAccount === null) {
+          throw new ProviderCredentialStoreError("provider_account_not_in_organization");
+        }
+
+        assertConnectorProviderAccountCompatibility(input.provider, foundAccount.provider);
+        assertConnectorRequiredScope(input.provider, foundAccount.scopes);
+        return transaction.siteConnector.upsert({
+          where: {
+            organizationId: input.organizationId,
+            siteId_provider: { siteId: input.siteId, provider: input.provider }
+          },
+          create: data,
+          update: data,
+          select: siteConnectorSelect
+        });
       });
 
       return toSiteConnector(row);
@@ -634,7 +662,7 @@ export function createPrismaProviderCredentialStore(
 
     async listAccountConnectorProviders(input) {
       const rows = await findAccountConnectorProviderRows(prisma, input);
-      return rows.map((row) => SiteConnectorProviderSchema.parse(row.provider));
+      return rows.map((row) => parsePersistedConnectorProvider(row.provider));
     },
 
     async countAccountBindings(input) {
@@ -858,6 +886,26 @@ function assertConnectorProviderAccountCompatibility(
   }
 }
 
+function assertConnectorRequiredScope(
+  connectorProvider: SiteConnectorProvider,
+  accountScopes: unknown,
+): void {
+  if (connectorProvider === "bing") {
+    return;
+  }
+  if (!parseScopes(accountScopes).includes(googleConnectorRequiredScope[connectorProvider])) {
+    throw new ProviderCredentialStoreError("scope_missing");
+  }
+}
+
+function parsePersistedConnectorProvider(value: unknown): SiteConnectorProvider {
+  const parsed = SiteConnectorProviderSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new ProviderCredentialStoreError("provider_account_provider_mismatch");
+  }
+  return parsed.data;
+}
+
 function toProviderAccountMetadata(row: ProviderAccountMetadataRow): ProviderAccountMetadata {
   return ProviderAccountMetadataSchema.parse({
     id: row.id,
@@ -942,7 +990,26 @@ export function deriveCanonicalProviderAccountId(input: {
   return `pa_${createHash("sha256").update(tuple, "utf8").digest("base64url")}`;
 }
 
-function hasPrismaErrorCode(error: unknown, code: "P2002" | "P2003"): boolean {
+async function runSerializableTransactionWithRetry<T>(
+  prisma: ProviderCredentialStorePrismaPort,
+  operation: (transaction: ProviderCredentialStorePrismaTransactionPort) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; attempt <= serializableTransactionMaxAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, { isolationLevel: "Serializable" });
+    } catch (error) {
+      if (!hasPrismaErrorCode(error, "P2034")) {
+        throw error;
+      }
+      if (attempt === serializableTransactionMaxAttempts) {
+        throw new ProviderCredentialStoreError("provider_account_concurrent_update");
+      }
+    }
+  }
+  throw new ProviderCredentialStoreError("provider_account_concurrent_update");
+}
+
+function hasPrismaErrorCode(error: unknown, code: "P2002" | "P2003" | "P2034"): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 

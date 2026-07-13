@@ -492,6 +492,7 @@ describe("provider credential store", () => {
       status: "connected",
       scopes: ["scope:b"],
       allowedConnectorProviders: [],
+      expectedUpdatedAt: now.toISOString(),
       tokenExpiresAt: new Date("2026-07-14T00:00:00.000Z"),
       connectedByUserId: "user_a",
       encryptedCredential: encryptGoogleCredential("org_a", providerAccountId)
@@ -535,6 +536,7 @@ describe("provider credential store", () => {
         status: "connected",
         scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
         allowedConnectorProviders: ["ga4"],
+        expectedUpdatedAt: now.toISOString(),
         tokenExpiresAt: null,
         connectedByUserId: "user_a",
         encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
@@ -551,6 +553,216 @@ describe("provider credential store", () => {
     expect(envelopeFromAccount(prisma.accounts[0]!)).toEqual(originalEnvelope);
   });
 
+  it("rejects a stale Google credential snapshot without replacing encrypted data", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-stale");
+    const existing = account({ id: providerAccountId, externalAccountId: "google-sub-stale" });
+    const originalEnvelope = envelopeFromAccount(existing);
+    const prisma = fakePrisma({ accounts: [existing] });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-stale",
+        accountEmail: "updated@example.com",
+        displayName: "Updated Google",
+        status: "connected",
+        scopes: ["scope:b"],
+        allowedConnectorProviders: [],
+        expectedUpdatedAt: "2026-07-12T23:59:59.000Z",
+        tokenExpiresAt: null,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_concurrent_update"),
+    );
+
+    expect(prisma.calls.transactionProviderAccount.findFirst).toEqual([
+      {
+        where: { id: providerAccountId, organizationId: "org_a" },
+        select: metadataSelect,
+      },
+    ]);
+    expect(prisma.calls.transactionProviderAccount.upsert).toHaveLength(0);
+    expect(envelopeFromAccount(prisma.accounts[0]!)).toEqual(originalEnvelope);
+  });
+
+  it("rejects a concurrent canonical account creation after a P2034 retry", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-concurrent-create");
+    const concurrentlyCreated = account({
+      id: providerAccountId,
+      externalAccountId: "google-sub-concurrent-create",
+      accountEmail: "newer@example.com",
+    });
+    const concurrentEnvelope = envelopeFromAccount(concurrentlyCreated);
+    const prisma = fakePrisma({
+      transactionCommitErrors: [{ code: "P2034" }],
+      beforeTransactionAttempt({ attempt, accounts }) {
+        if (attempt === 2) {
+          accounts.push(concurrentlyCreated);
+        }
+      },
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-concurrent-create",
+        accountEmail: "stale@example.com",
+        displayName: "Stale Google",
+        status: "connected",
+        scopes: [],
+        allowedConnectorProviders: [],
+        expectedUpdatedAt: null,
+        tokenExpiresAt: null,
+        connectedByUserId: "user_stale",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_concurrent_update"),
+    );
+
+    expect(prisma.calls.$transaction).toHaveLength(2);
+    expect(prisma.calls.transactionProviderAccount.upsert).toHaveLength(1);
+    expect(prisma.accounts).toHaveLength(1);
+    expect(prisma.accounts[0]?.accountEmail).toBe("newer@example.com");
+    expect(envelopeFromAccount(prisma.accounts[0]!)).toEqual(concurrentEnvelope);
+  });
+
+  it("retries the full Google transaction after P2034 and then succeeds", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-retry");
+    const prisma = fakePrisma({
+      accounts: [account({ id: providerAccountId, externalAccountId: "google-sub-retry" })],
+      transactionCommitErrors: [{ code: "P2034" }, { code: "P2034" }],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-retry",
+        accountEmail: "retried@example.com",
+        displayName: "Retried Google",
+        status: "connected",
+        scopes: ["scope:b"],
+        allowedConnectorProviders: [],
+        expectedUpdatedAt: now.toISOString(),
+        tokenExpiresAt: null,
+        connectedByUserId: "user_retry",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).resolves.toMatchObject({ accountEmail: "retried@example.com" });
+
+    expect(prisma.calls.$transaction).toHaveLength(3);
+    expect(prisma.calls.transactionSiteConnector.findMany).toHaveLength(3);
+    expect(prisma.calls.transactionProviderAccount.findFirst).toHaveLength(3);
+    expect(prisma.calls.transactionProviderAccount.upsert).toHaveLength(3);
+  });
+
+  it("maps exhausted Google P2034 retries and leaves the account unchanged", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-exhausted");
+    const existing = account({ id: providerAccountId, externalAccountId: "google-sub-exhausted" });
+    const originalEnvelope = envelopeFromAccount(existing);
+    const prisma = fakePrisma({
+      accounts: [existing],
+      transactionCommitErrors: [
+        { code: "P2034", message: "sensitive attempt 1" },
+        { code: "P2034", message: "sensitive attempt 2" },
+        { code: "P2034", message: "sensitive attempt 3" },
+      ],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-exhausted",
+        accountEmail: "not-committed@example.com",
+        displayName: "Not Committed",
+        status: "connected",
+        scopes: ["scope:b"],
+        allowedConnectorProviders: [],
+        expectedUpdatedAt: now.toISOString(),
+        tokenExpiresAt: null,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_concurrent_update"),
+    );
+
+    expect(prisma.calls.$transaction).toHaveLength(3);
+    expect(envelopeFromAccount(prisma.accounts[0]!)).toEqual(originalEnvelope);
+    expect(prisma.accounts[0]?.accountEmail).toBe("account@example.com");
+  });
+
+  it("rechecks bindings after a Google P2034 retry and rejects the new scope requirement", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-interleaved");
+    const existing = account({ id: providerAccountId, externalAccountId: "google-sub-interleaved" });
+    const originalEnvelope = envelopeFromAccount(existing);
+    const prisma = fakePrisma({
+      accounts: [existing],
+      transactionCommitErrors: [{ code: "P2034" }],
+      beforeTransactionAttempt({ attempt, connectors }) {
+        if (attempt === 2) {
+          connectors.push(connector({ provider: "gsc", providerAccountId }));
+        }
+      },
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-interleaved",
+        accountEmail: "updated@example.com",
+        displayName: "Updated Google",
+        status: "connected",
+        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+        allowedConnectorProviders: ["ga4"],
+        expectedUpdatedAt: now.toISOString(),
+        tokenExpiresAt: null,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(new ProviderCredentialStoreError("scope_missing"));
+
+    expect(prisma.calls.$transaction).toHaveLength(2);
+    expect(prisma.calls.transactionSiteConnector.findMany).toHaveLength(2);
+    expect(prisma.calls.transactionProviderAccount.upsert).toHaveLength(1);
+    expect(envelopeFromAccount(prisma.accounts[0]!)).toEqual(originalEnvelope);
+    expect(prisma.connectors).toHaveLength(1);
+  });
+
+  it("does not retry Google domain errors", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-domain");
+    const prisma = fakePrisma({
+      accounts: [account({ id: providerAccountId, externalAccountId: "google-sub-domain" })],
+      connectors: [connector({ provider: "gsc", providerAccountId })],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-domain",
+        accountEmail: "updated@example.com",
+        displayName: "Updated Google",
+        status: "connected",
+        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+        allowedConnectorProviders: ["ga4"],
+        expectedUpdatedAt: now.toISOString(),
+        tokenExpiresAt: null,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(new ProviderCredentialStoreError("scope_missing"));
+
+    expect(prisma.calls.$transaction).toHaveLength(1);
+  });
+
   it("creates a canonical Google account with the caller-provided AAD identity", async () => {
     const prisma = fakePrisma();
     const store = createPrismaProviderCredentialStore(prisma);
@@ -565,6 +777,7 @@ describe("provider credential store", () => {
       status: "connected",
       scopes: ["scope:a"],
       allowedConnectorProviders: [],
+      expectedUpdatedAt: null,
       tokenExpiresAt: null,
       connectedByUserId: "user_a",
       encryptedCredential: encryptGoogleCredential("org_a", providerAccountId)
@@ -607,6 +820,7 @@ describe("provider credential store", () => {
       status: "connected" as const,
       scopes: ["scope:a"],
       allowedConnectorProviders: [],
+      expectedUpdatedAt: null,
       tokenExpiresAt: null,
       connectedByUserId: "user_a",
       encryptedCredential: encryptGoogleCredential("org_a", canonicalId)
@@ -697,6 +911,49 @@ describe("provider credential store", () => {
     );
   });
 
+  it("maps corrupt persisted connector providers during account binding reads", async () => {
+    const prisma = fakePrisma({
+      connectors: [connector({ provider: "corrupt_provider" })],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).listAccountConnectorProviders({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_provider_mismatch"),
+    );
+  });
+
+  it("maps corrupt persisted connector providers inside Google replacement", async () => {
+    const providerAccountId = googleAccountId("org_a", "google-sub-corrupt");
+    const prisma = fakePrisma({
+      accounts: [account({ id: providerAccountId, externalAccountId: "google-sub-corrupt" })],
+      connectors: [connector({ provider: "corrupt_provider", providerAccountId })],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertGoogleAccount({
+        providerAccountId,
+        organizationId: "org_a",
+        externalAccountId: "google-sub-corrupt",
+        accountEmail: "updated@example.com",
+        displayName: "Updated Google",
+        status: "connected",
+        scopes: [],
+        allowedConnectorProviders: [],
+        expectedUpdatedAt: now.toISOString(),
+        tokenExpiresAt: null,
+        connectedByUserId: "user_a",
+        encryptedCredential: encryptGoogleCredential("org_a", providerAccountId),
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_provider_mismatch"),
+    );
+    expect(prisma.calls.transactionProviderAccount.upsert).toHaveLength(0);
+  });
+
   it("maps approved legacy GSC resolution metadata through connector reads", async () => {
     const prisma = fakePrisma({
       connectors: [connector({
@@ -719,7 +976,11 @@ describe("provider credential store", () => {
   it("tenant-checks both binding parents and enforces provider compatibility", async () => {
     const prisma = fakePrisma({
       sites: [site(), site({ id: "site_b", organizationId: "org_b" })],
-      accounts: [account(), account({ id: "bing_a", provider: "bing" }), account({ id: "pa_b", organizationId: "org_b" })]
+      accounts: [
+        account({ scopes: ["https://www.googleapis.com/auth/analytics.readonly"] }),
+        account({ id: "bing_a", provider: "bing" }),
+        account({ id: "pa_b", organizationId: "org_b" }),
+      ]
     });
     const store = createPrismaProviderCredentialStore(prisma);
 
@@ -752,12 +1013,158 @@ describe("provider credential store", () => {
       providerAccountId: "pa_a",
       externalResourceId: null
     })).resolves.toMatchObject({ status: "needs_configuration", externalResourceId: null });
-    expect(prisma.calls.site.findFirst[0]?.where).toEqual({ id: "site_b", organizationId: "org_a" });
-    expect(prisma.calls.providerAccount.findFirst[0]?.where).toEqual({ id: "pa_b", organizationId: "org_a" });
-    expect(prisma.calls.siteConnector.upsert[0]?.where).toEqual({
+    expect(prisma.calls.transactionSite.findFirst[0]?.where).toEqual({ id: "site_b", organizationId: "org_a" });
+    expect(prisma.calls.transactionProviderAccount.findFirst[0]?.where).toEqual({ id: "pa_b", organizationId: "org_a" });
+    expect(prisma.calls.transactionSiteConnector.upsert[0]?.where).toEqual({
       organizationId: "org_a",
       siteId_provider: { siteId: "site_a", provider: "ga4" }
     });
+  });
+
+  it.each([
+    ["gsc", "https://www.googleapis.com/auth/webmasters.readonly"],
+    ["ga4", "https://www.googleapis.com/auth/analytics.readonly"],
+  ] as const)("requires the persisted Google scope before binding %s", async (provider, requiredScope) => {
+    const missingScopePrisma = fakePrisma({ sites: [site()], accounts: [account({ scopes: [] })] });
+
+    await expect(
+      createPrismaProviderCredentialStore(missingScopePrisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider,
+        providerAccountId: "pa_a",
+        externalResourceId: provider === "gsc" ? "sc-domain:example.com" : "properties/1",
+      }),
+    ).rejects.toEqual(new ProviderCredentialStoreError("scope_missing"));
+    expect(missingScopePrisma.connectors).toHaveLength(0);
+    expect(missingScopePrisma.calls.$transaction).toHaveLength(1);
+
+    const allowedPrisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: [requiredScope] })],
+    });
+    await expect(
+      createPrismaProviderCredentialStore(allowedPrisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider,
+        providerAccountId: "pa_a",
+        externalResourceId: provider === "gsc" ? "sc-domain:example.com" : "properties/1",
+      }),
+    ).resolves.toMatchObject({ provider, providerAccountId: "pa_a" });
+    expect(allowedPrisma.calls.$transaction).toHaveLength(1);
+    expect(allowedPrisma.calls.transactionOptions).toEqual([
+      { isolationLevel: "Serializable" },
+    ]);
+  });
+
+  it("keeps Bing API-key binding compatibility without a Google scope rule", async () => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ id: "pa_bing", provider: "bing", authType: "api_key", scopes: [] })],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider: "bing",
+        providerAccountId: "pa_bing",
+        externalResourceId: "https://example.com/",
+      }),
+    ).resolves.toMatchObject({ provider: "bing", providerAccountId: "pa_bing" });
+    expect(prisma.calls.$transaction).toHaveLength(1);
+  });
+
+  it("retries every connector binding read after P2034 and then succeeds", async () => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] })],
+      transactionCommitErrors: [{ code: "P2034" }],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider: "gsc",
+        providerAccountId: "pa_a",
+        externalResourceId: "sc-domain:example.com",
+      }),
+    ).resolves.toMatchObject({ provider: "gsc" });
+
+    expect(prisma.calls.$transaction).toHaveLength(2);
+    expect(prisma.calls.transactionSite.findFirst).toHaveLength(2);
+    expect(prisma.calls.transactionProviderAccount.findFirst).toHaveLength(2);
+    expect(prisma.calls.transactionSiteConnector.upsert).toHaveLength(2);
+    expect(prisma.calls.transactionOptions).toEqual([
+      { isolationLevel: "Serializable" },
+      { isolationLevel: "Serializable" },
+    ]);
+  });
+
+  it("maps exhausted connector P2034 retries without committing a binding", async () => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] })],
+      transactionCommitErrors: [{ code: "P2034" }, { code: "P2034" }, { code: "P2034" }],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider: "gsc",
+        providerAccountId: "pa_a",
+        externalResourceId: "sc-domain:example.com",
+      }),
+    ).rejects.toEqual(
+      new ProviderCredentialStoreError("provider_account_concurrent_update"),
+    );
+    expect(prisma.calls.$transaction).toHaveLength(3);
+    expect(prisma.connectors).toHaveLength(0);
+  });
+
+  it("rechecks account scopes after a connector P2034 retry and rejects a dropped grant", async () => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] })],
+      transactionCommitErrors: [{ code: "P2034" }],
+      beforeTransactionAttempt({ attempt, accounts }) {
+        if (attempt === 2) {
+          accounts[0]!.scopes = ["https://www.googleapis.com/auth/analytics.readonly"];
+          accounts[0]!.updatedAt = new Date("2026-07-13T00:00:01.000Z");
+        }
+      },
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider: "gsc",
+        providerAccountId: "pa_a",
+        externalResourceId: "sc-domain:example.com",
+      }),
+    ).rejects.toEqual(new ProviderCredentialStoreError("scope_missing"));
+
+    expect(prisma.calls.$transaction).toHaveLength(2);
+    expect(prisma.connectors).toHaveLength(0);
+  });
+
+  it("does not retry connector domain errors", async () => {
+    const prisma = fakePrisma({ sites: [site()], accounts: [account({ scopes: [] })] });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+        organizationId: "org_a",
+        siteId: "site_a",
+        provider: "gsc",
+        providerAccountId: "pa_a",
+        externalResourceId: "sc-domain:example.com",
+      }),
+    ).rejects.toEqual(new ProviderCredentialStoreError("scope_missing"));
+    expect(prisma.calls.$transaction).toHaveLength(1);
   });
 
   it("deletes site connectors idempotently within the tenant", async () => {
@@ -925,6 +1332,12 @@ function fakePrisma(seed: {
   accounts?: AccountRow[];
   sites?: SiteRow[];
   connectors?: ConnectorRow[];
+  beforeTransactionAttempt?: (input: {
+    readonly attempt: number;
+    readonly accounts: AccountRow[];
+    readonly connectors: ConnectorRow[];
+  }) => void;
+  transactionCommitErrors?: unknown[];
   providerAccountDeleteError?: unknown;
   providerAccountCreateError?: unknown;
   providerAccountMetadataUpdateError?: unknown;
@@ -938,6 +1351,7 @@ function fakePrisma(seed: {
     ProviderCredentialStorePrismaTransactionPort["providerAccount"];
   type TransactionSiteConnectorPort =
     ProviderCredentialStorePrismaTransactionPort["siteConnector"];
+  type TransactionSitePort = ProviderCredentialStorePrismaTransactionPort["site"];
   type SitePort = ProviderCredentialStorePrismaPort["site"];
   type SiteConnectorPort = ProviderCredentialStorePrismaPort["siteConnector"];
   const calls = {
@@ -959,6 +1373,10 @@ function fakePrisma(seed: {
     },
     transactionSiteConnector: {
       findMany: [] as Parameters<TransactionSiteConnectorPort["findMany"]>[0][],
+      upsert: [] as Parameters<TransactionSiteConnectorPort["upsert"]>[0][],
+    },
+    transactionSite: {
+      findFirst: [] as Parameters<TransactionSitePort["findFirst"]>[0][],
     },
     transactionOptions: [] as Array<{ isolationLevel: "Serializable" } | undefined>,
     site: { findFirst: [] as Parameters<SitePort["findFirst"]>[0][] },
@@ -970,6 +1388,7 @@ function fakePrisma(seed: {
     }
   };
   let nextId = 1;
+  let transactionAttempt = 0;
 
   async function createProviderAccount(
     args: Parameters<ProviderAccountPort["create"]>[0],
@@ -1010,6 +1429,39 @@ function fakePrisma(seed: {
     });
     accounts.push(row);
     return select(row, args.select);
+  }
+
+  async function findSite(
+    args: Parameters<SitePort["findFirst"]>[0],
+    callsFor: "site" | "transactionSite",
+  ) {
+    calls[callsFor].findFirst.push(args);
+    const row = sites.find((candidate) => matches(candidate, args.where));
+    return row === undefined ? null : select(row, args.select);
+  }
+
+  async function upsertConnector(
+    args: Parameters<SiteConnectorPort["upsert"]>[0],
+    callsFor: "siteConnector" | "transactionSiteConnector",
+  ) {
+    calls[callsFor].upsert.push(args);
+    const existing = connectors.find((row) =>
+      row.organizationId === args.where.organizationId &&
+      row.siteId === args.where.siteId_provider.siteId &&
+      row.provider === args.where.siteId_provider.provider
+    );
+    if (existing !== undefined) {
+      Object.assign(existing, args.update, { updatedAt: now });
+      return selectConnector(existing, args.select, accounts);
+    }
+    const row = connector({
+      id: `connector_created_${nextId++}`,
+      ...args.create,
+      createdAt: now,
+      updatedAt: now,
+    });
+    connectors.push(row);
+    return selectConnector(row, args.select, accounts);
   }
 
   const transactionProviderAccount: TransactionProviderAccountPort = {
@@ -1054,21 +1506,43 @@ function fakePrisma(seed: {
         .filter((row) => matches(row, args.where))
         .map((row) => ({ provider: row.provider as SiteConnectorProvider }));
     },
+    async upsert(args) {
+      return upsertConnector(args, "transactionSiteConnector");
+    },
+  };
+
+  const transactionSite: TransactionSitePort = {
+    async findFirst(args) {
+      return findSite(args, "transactionSite");
+    },
   };
 
   const prisma: ProviderCredentialStorePrismaPort = {
     async $transaction(callback, options) {
-      const snapshot = accounts.map((row) => ({ ...row, scopes: structuredClone(row.scopes) }));
+      transactionAttempt += 1;
+      seed.beforeTransactionAttempt?.({ attempt: transactionAttempt, accounts, connectors });
+      const accountSnapshot = accounts.map((row) => ({ ...row, scopes: structuredClone(row.scopes) }));
+      const connectorSnapshot = connectors.map((row) => ({
+        ...row,
+        config: structuredClone(row.config),
+      }));
       const transactionClient: ProviderCredentialStorePrismaTransactionPort = {
         providerAccount: transactionProviderAccount,
+        site: transactionSite,
         siteConnector: transactionSiteConnector,
       };
       calls.$transaction.push(transactionClient);
       calls.transactionOptions.push(options);
       try {
-        return await callback(transactionClient);
+        const result = await callback(transactionClient);
+        const commitError = seed.transactionCommitErrors?.[transactionAttempt - 1];
+        if (commitError !== undefined) {
+          throw commitError;
+        }
+        return result;
       } catch (error) {
-        accounts.splice(0, accounts.length, ...snapshot);
+        accounts.splice(0, accounts.length, ...accountSnapshot);
+        connectors.splice(0, connectors.length, ...connectorSnapshot);
         throw error;
       }
     },
@@ -1115,9 +1589,7 @@ function fakePrisma(seed: {
     },
     site: {
       async findFirst(args) {
-        calls.site.findFirst.push(args);
-        const row = sites.find((candidate) => matches(candidate, args.where));
-        return row === undefined ? null : select(row, args.select);
+        return findSite(args, "site");
       }
     },
     siteConnector: {
@@ -1126,19 +1598,7 @@ function fakePrisma(seed: {
         return connectors.filter((row) => matches(row, args.where)).map((row) => selectConnector(row, args.select, accounts));
       },
       async upsert(args) {
-        calls.siteConnector.upsert.push(args);
-        const existing = connectors.find((row) =>
-          row.organizationId === args.where.organizationId &&
-          row.siteId === args.where.siteId_provider.siteId &&
-          row.provider === args.where.siteId_provider.provider
-        );
-        if (existing !== undefined) {
-          Object.assign(existing, args.update, { updatedAt: now });
-          return selectConnector(existing, args.select, accounts);
-        }
-        const row = connector({ id: `connector_created_${nextId++}`, ...args.create, createdAt: now, updatedAt: now });
-        connectors.push(row);
-        return selectConnector(row, args.select, accounts);
+        return upsertConnector(args, "siteConnector");
       },
       async deleteMany(args) {
         calls.siteConnector.deleteMany.push(args);

@@ -98,6 +98,7 @@ export type ProviderAccountServiceErrorCode =
   | "account_in_use"
   | "account_not_found"
   | "credential_decryption_failed"
+  | "provider_account_concurrent_update"
   | "provider_account_default_conflict"
   | "provider_account_identity_conflict"
   | "provider_account_identity_mismatch"
@@ -346,6 +347,7 @@ export function createProviderAccountService({
           status: parsed.status ?? "connected",
           scopes: [...new Set(parsed.scopes)].sort(),
           allowedConnectorProviders: googleConnectorProvidersAllowedByScopes(parsed.scopes),
+          expectedUpdatedAt: existing?.updatedAt ?? null,
           tokenExpiresAt:
             typeof parsed.tokenExpiresAt === "string"
               ? new Date(parsed.tokenExpiresAt)
