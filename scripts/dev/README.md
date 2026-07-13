@@ -31,7 +31,9 @@ What it distinguishes:
 
 `corepack pnpm check:connector-live` runs the API package's connector live setup CLI. It validates
 connector live-mode environment wiring without calling Google, GA4, PageSpeed, Bing, CMS, or any
-other external API. It reports only env key names and status, never secret values.
+other external API. It reports only env key names and status, never secret values. Local checks
+automatically load the ignored root files `.env.api.local` and `.env.worker.local`; explicit shell
+exports override file values. Deployment checks never load these local files.
 
 Run from the repo root:
 

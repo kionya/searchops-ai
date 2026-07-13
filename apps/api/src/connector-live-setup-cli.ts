@@ -1,10 +1,14 @@
 #!/usr/bin/env tsx
+import { fileURLToPath } from "node:url";
+
+import { createConnectorLiveSetupCliEnv } from "./connector-live-setup-cli-env.js";
 import { createConnectorLiveSetupReport, summarizeConnectorLiveSetupFailure } from "./connector-live-setup.js";
 
 const args = new Set(process.argv.slice(2));
 const environment = args.has("--deployment") ? "deployment" : "local";
+const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const report = createConnectorLiveSetupReport({
-  env: process.env,
+  env: createConnectorLiveSetupCliEnv({ baseEnv: process.env, environment, repoRoot }),
   environment,
   generatedAt: new Date(),
 });
