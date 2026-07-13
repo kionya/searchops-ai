@@ -5,8 +5,13 @@ import {
   type ConnectorLiveSetupReport,
   type ConnectorLiveSetupStatus,
 } from "@searchops/types";
+import {
+  parseCredentialKeyring,
+  type ConnectorCredentialReadinessSnapshot,
+} from "@searchops/db";
 
 export interface CreateConnectorLiveSetupReportInput {
+  readonly connectorCredentials?: ConnectorCredentialReadinessSnapshot;
   readonly env: NodeJS.ProcessEnv;
   readonly environment: ConnectorLiveSetupEnvironment;
   readonly generatedAt: Date;
@@ -21,6 +26,7 @@ const googleOAuthKeys = [
 ] as const;
 
 export function createConnectorLiveSetupReport({
+  connectorCredentials,
   env,
   environment,
   generatedAt,
@@ -29,16 +35,30 @@ export function createConnectorLiveSetupReport({
   const checks: ConnectorLiveSetupCheck[] = [
     evaluateRuntimeBase(env),
     evaluateApiWebBase(env, environment),
+    evaluateCredentialKeyring(env),
     googleOAuth.check,
-    evaluateGsc(env, googleOAuth.ready),
-    evaluateGa4(env, googleOAuth.ready),
+    evaluateGoogleWorkerRefresh(env),
+    evaluateGsc(connectorCredentials),
+    evaluateGa4(connectorCredentials),
     evaluatePagespeed(env),
-    evaluateBing(env),
+    evaluateBing(connectorCredentials),
     evaluateCms(env),
+    evaluateCredentialCutover(env, connectorCredentials),
     evaluateLiveModeGate(env, googleOAuth.ready),
   ];
   const summary = summarizeChecks(checks);
   const liveExternalApis = shouldEnableConnectorLiveApis(env) ? "enabled" : "disabled";
+  const cutoverReady =
+    checks.find((check) => check.id === "credential-storage-cutover")?.status !== "warning";
+  const nonGoogleProviderReady = checks.some(
+    (check) =>
+      ["pagespeed", "bing", "cms"].includes(check.area) && check.status === "ready",
+  );
+  const googleProviderReady =
+    googleOAuth.ready &&
+    checks.some(
+      (check) => ["gsc", "ga4"].includes(check.area) && check.status === "ready",
+    );
 
   return ConnectorLiveSetupReportSchema.parse({
     generatedAt: generatedAt.toISOString(),
@@ -50,10 +70,74 @@ export function createConnectorLiveSetupReport({
       liveExternalApis === "disabled",
     canRunLiveConnectorSync:
       summary.blocked === 0 &&
-      checks.some((check) => ["gsc", "ga4", "pagespeed", "bing", "cms"].includes(check.area) && check.status === "ready"),
+      cutoverReady &&
+      (nonGoogleProviderReady || googleProviderReady),
     checks,
     summary,
   });
+}
+
+function evaluateCredentialKeyring(env: NodeJS.ProcessEnv): ConnectorLiveSetupCheck {
+  const envKeys = [
+    "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID",
+    "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY",
+    "SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON",
+    "SEARCHOPS_CREDENTIAL_STORAGE_MODE",
+  ];
+
+  if (!hasEnv(env, "SEARCHOPS_CREDENTIAL_STORAGE_MODE")) {
+    return createCheck({
+      area: "runtime",
+      envKeys,
+      id: "credential-encryption-keyring",
+      nextAction: "암호화 저장을 사용할 때 Railway API와 Worker에 같은 mode와 keyring을 설정하세요.",
+      status: "configured",
+      summary: "Credential storage mode가 없어 로컬 fixture/platform 검사만 수행합니다.",
+      title: "Credential encryption keyring",
+    });
+  }
+
+  try {
+    parseCredentialKeyring({
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID,
+          }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY,
+          }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON,
+          }),
+    });
+    return createCheck({
+      area: "runtime",
+      envKeys,
+      id: "credential-encryption-keyring",
+      nextAction: "Railway API와 Worker의 active/previous keyring 값이 동일한지 배포 설정에서 대조하세요.",
+      status: "configured",
+      summary: "현재 프로세스의 encryption keyring 형식과 키 길이가 유효합니다.",
+      title: "Credential encryption keyring",
+    });
+  } catch {
+    return createCheck({
+      area: "runtime",
+      envKeys,
+      id: "credential-encryption-keyring",
+      nextAction: "32-byte base64 active key와 유효한 previous key JSON을 API와 Worker에 동일하게 설정하세요.",
+      status: "blocked",
+      summary: "설정된 encryption keyring의 의미 검증에 실패했습니다.",
+      title: "Credential encryption keyring",
+    });
+  }
 }
 
 export function summarizeConnectorLiveSetupFailure(
@@ -218,103 +302,107 @@ function evaluateGoogleOAuth(env: NodeJS.ProcessEnv) {
   };
 }
 
-function evaluateGsc(env: NodeJS.ProcessEnv, googleOAuthReady: boolean): ConnectorLiveSetupCheck {
-  if (googleOAuthReady || hasEnv(env, "SEARCHOPS_GSC_ACCESS_TOKEN") || hasEnv(env, "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON")) {
+function evaluateGoogleWorkerRefresh(env: NodeJS.ProcessEnv): ConnectorLiveSetupCheck {
+  const envKeys = [
+    "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
+    "SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET",
+  ];
+  const missing = envKeys.filter((key) => !hasEnv(env, key));
+
+  if (missing.length === envKeys.length) {
+    return createCheck({
+      area: "oauth",
+      envKeys,
+      id: "google-worker-refresh-env",
+      nextAction: "GSC/GA4를 사용할 때 Railway Worker에 Google client ID와 secret을 함께 설정하세요.",
+      status: "needs_provisioning",
+      summary: "Worker Google token refresh 앱 credential은 선택되지 않았습니다.",
+      title: "Worker Google refresh env",
+    });
+  }
+  if (missing.length > 0) {
+    return createCheck({
+      area: "oauth",
+      envKeys,
+      id: "google-worker-refresh-env",
+      nextAction: `${missing.join(", ")}를 추가하거나 두 값을 모두 제거하세요.`,
+      status: "blocked",
+      summary: "Worker Google token refresh 앱 credential이 부분 설정 상태입니다.",
+      title: "Worker Google refresh env",
+    });
+  }
+
+  return createCheck({
+    area: "oauth",
+    envKeys,
+    id: "google-worker-refresh-env",
+    nextAction: "API와 Worker가 동일한 Google OAuth client ID/secret을 사용하는지 확인하세요.",
+    status: "configured",
+    summary: "Worker token refresh에 필요한 Google OAuth client 값이 설정되어 있습니다.",
+    title: "Worker Google refresh env",
+  });
+}
+
+function evaluateGsc(
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): ConnectorLiveSetupCheck {
+  if ((connectorCredentials?.configuredByProvider.gsc ?? 0) > 0) {
     return createCheck({
       area: "gsc",
-      envKeys: [
-        "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
-        "SEARCHOPS_GSC_ACCESS_TOKEN",
-        "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
-      ],
+      envKeys: [],
       id: "gsc-live-credential",
       nextAction: "사이트 커넥터 화면에서 GSC OAuth를 완료한 뒤 GSC만 단독 동기화하세요.",
       status: "ready",
-      summary: "GSC live credential 경로가 준비되어 있습니다.",
+      summary: "조직 ProviderAccount와 사이트 GSC 속성 binding이 connected 상태입니다.",
       title: "GSC live credential",
     });
   }
 
   return createCheck({
     area: "gsc",
-    envKeys: [
-      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
-      "SEARCHOPS_GSC_ACCESS_TOKEN",
-      "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
-    ],
+    envKeys: [],
     id: "gsc-live-credential",
-    nextAction: "Google OAuth를 설정하고 Search Console 속성 권한이 있는 계정으로 사이트를 연결하세요.",
+    nextAction:
+      connectorCredentials === undefined
+        ? "DB-free CLI는 tenant 상태를 조회하지 않습니다. 로그인 후 /ops/readiness 또는 integrations 화면을 확인하세요."
+        : "조직 Google 계정을 연결하고 사이트에 정확한 GSC 속성을 선택하세요.",
     status: "needs_provisioning",
-    summary: "GSC live sync에 사용할 credential 경로가 없습니다.",
+    summary:
+      connectorCredentials === undefined
+        ? "로컬 platform 검사에는 조직별 GSC connector metadata가 포함되지 않습니다."
+        : "이 조직에는 connected 상태의 GSC 사이트 binding이 없습니다.",
     title: "GSC live credential",
   });
 }
 
-function evaluateGa4(env: NodeJS.ProcessEnv, googleOAuthReady: boolean): ConnectorLiveSetupCheck {
-  const propertyId = env.SEARCHOPS_GA4_PROPERTY_ID?.trim();
-  const credentialReady =
-    googleOAuthReady ||
-    hasEnv(env, "SEARCHOPS_GA4_ACCESS_TOKEN") ||
-    hasEnv(env, "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON");
-
-  if (!propertyId) {
+function evaluateGa4(
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): ConnectorLiveSetupCheck {
+  if ((connectorCredentials?.configuredByProvider.ga4 ?? 0) > 0) {
     return createCheck({
       area: "ga4",
-      envKeys: [
-        "SEARCHOPS_GA4_PROPERTY_ID",
-        "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
-        "SEARCHOPS_GA4_ACCESS_TOKEN",
-        "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON",
-      ],
+      envKeys: [],
       id: "ga4-live-credential",
-      nextAction: "GA4 관리 > 속성 세부정보의 숫자 Property ID를 SEARCHOPS_GA4_PROPERTY_ID에 등록하세요.",
-      status: "needs_provisioning",
-      summary: "GA4 live sync에 필요한 Property ID가 없습니다.",
-      title: "GA4 live credential",
-    });
-  }
-
-  if (!/^\d+$/.test(propertyId)) {
-    return createCheck({
-      area: "ga4",
-      envKeys: ["SEARCHOPS_GA4_PROPERTY_ID"],
-      id: "ga4-live-credential",
-      nextAction: "측정 ID(G-...)나 GTM ID가 아니라 GA4 숫자 Property ID로 교체하세요.",
-      status: "blocked",
-      summary: "SEARCHOPS_GA4_PROPERTY_ID가 숫자 Property ID 형식이 아닙니다.",
-      title: "GA4 live credential",
-    });
-  }
-
-  if (!credentialReady) {
-    return createCheck({
-      area: "ga4",
-      envKeys: [
-        "SEARCHOPS_GA4_PROPERTY_ID",
-        "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
-        "SEARCHOPS_GA4_ACCESS_TOKEN",
-        "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON",
-      ],
-      id: "ga4-live-credential",
-      nextAction: "Google OAuth 또는 GA4 전용 credential을 설정하고 GA4 속성에서 연결 계정에 뷰어 이상 권한을 부여하세요.",
-      status: "needs_provisioning",
-      summary: "GA4 Property ID는 있지만 live sync credential 경로가 없습니다.",
+      nextAction: "사이트 커넥터 화면에서 GA4 OAuth를 완료한 뒤 GA4만 단독 동기화하세요.",
+      status: "ready",
+      summary: "조직 ProviderAccount와 사이트 숫자 GA4 Property ID binding이 connected 상태입니다.",
       title: "GA4 live credential",
     });
   }
 
   return createCheck({
     area: "ga4",
-    envKeys: [
-      "SEARCHOPS_GA4_PROPERTY_ID",
-      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
-      "SEARCHOPS_GA4_ACCESS_TOKEN",
-      "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON",
-    ],
+    envKeys: [],
     id: "ga4-live-credential",
-    nextAction: "사이트 커넥터 화면에서 GA4 OAuth를 완료한 뒤 GA4만 단독 동기화하세요.",
-    status: "ready",
-    summary: "GA4 숫자 Property ID와 credential 경로가 준비되어 있습니다.",
+    nextAction:
+      connectorCredentials === undefined
+        ? "DB-free CLI는 tenant 상태를 조회하지 않습니다. 로그인 후 /ops/readiness 또는 integrations 화면을 확인하세요."
+        : "조직 Google 계정을 연결하고 사이트에 숫자 GA4 Property ID를 선택하세요.",
+    status: "needs_provisioning",
+    summary:
+      connectorCredentials === undefined
+        ? "로컬 platform 검사에는 조직별 GA4 connector metadata가 포함되지 않습니다."
+        : "이 조직에는 connected 상태의 GA4 사이트 binding이 없습니다.",
     title: "GA4 live credential",
   });
 }
@@ -336,34 +424,97 @@ function evaluatePagespeed(env: NodeJS.ProcessEnv): ConnectorLiveSetupCheck {
     area: "pagespeed",
     envKeys: ["SEARCHOPS_PAGESPEED_API_KEY"],
     id: "pagespeed-live-credential",
-    nextAction: "SEARCHOPS_PAGESPEED_API_KEY를 배포 secret에 등록하세요.",
-    status: "needs_provisioning",
-    summary: "PageSpeed live sync API key가 없습니다.",
+    nextAction: "PageSpeed live sync가 필요하면 Railway Worker에 플랫폼 API key를 등록하세요.",
+    status: "configured",
+    summary: "PageSpeed 플랫폼 key는 선택 사항이며 현재 비활성입니다.",
     title: "PageSpeed live credential",
   });
 }
 
-function evaluateBing(env: NodeJS.ProcessEnv): ConnectorLiveSetupCheck {
-  if (hasEnv(env, "SEARCHOPS_BING_API_KEY")) {
+function evaluateBing(
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): ConnectorLiveSetupCheck {
+  if ((connectorCredentials?.configuredByProvider.bing ?? 0) > 0) {
     return createCheck({
       area: "bing",
-      envKeys: ["SEARCHOPS_BING_API_KEY"],
+      envKeys: [],
       id: "bing-live-credential",
-      nextAction: "Bing만 단독 동기화해 API key 유효성과 provider 응답을 확인하세요.",
+      nextAction: "Bing만 단독 동기화해 조직 계정과 사이트 리소스 권한을 확인하세요.",
       status: "ready",
-      summary: "Bing Webmaster API key가 설정되어 있습니다.",
+      summary: "조직 Bing ProviderAccount와 사이트 리소스 binding이 connected 상태입니다.",
       title: "Bing live credential",
     });
   }
 
   return createCheck({
     area: "bing",
-    envKeys: ["SEARCHOPS_BING_API_KEY"],
+    envKeys: [],
     id: "bing-live-credential",
-    nextAction: "SEARCHOPS_BING_API_KEY를 배포 secret에 등록하세요.",
+    nextAction:
+      connectorCredentials === undefined
+        ? "DB-free CLI는 tenant 상태를 조회하지 않습니다. 로그인 후 /ops/readiness 또는 integrations 화면을 확인하세요."
+        : "조직 Bing 계정을 연결하고 사이트에 검증된 Bing 리소스를 선택하세요.",
     status: "needs_provisioning",
-    summary: "Bing live sync API key가 없습니다.",
+    summary:
+      connectorCredentials === undefined
+        ? "로컬 platform 검사에는 조직별 Bing connector metadata가 포함되지 않습니다."
+        : "이 조직에는 connected 상태의 Bing 사이트 binding이 없습니다.",
     title: "Bing live credential",
+  });
+}
+
+function evaluateCredentialCutover(
+  env: NodeJS.ProcessEnv,
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): ConnectorLiveSetupCheck {
+  const mode = env.SEARCHOPS_CREDENTIAL_STORAGE_MODE?.trim();
+  const legacyFallbacks = connectorCredentials?.legacyFallbacks;
+  const base = {
+    area: "runtime" as const,
+    envKeys: ["SEARCHOPS_CREDENTIAL_STORAGE_MODE"],
+    id: "credential-storage-cutover",
+    title: "Encrypted credential cutover",
+  };
+
+  if (mode !== "dual" && mode !== "encrypted") {
+    return createCheck({
+      ...base,
+      nextAction: "암호화 rollout 시 API와 Worker에 dual mode부터 설정하세요.",
+      status: "configured",
+      summary: "Credential storage rollout은 아직 활성화되지 않았습니다.",
+    });
+  }
+  if (legacyFallbacks === undefined) {
+    return createCheck({
+      ...base,
+      nextAction: "로컬 CLI는 DB를 조회하지 않습니다. 로그인 후 /ops/readiness에서 조직 fallback을 확인하세요.",
+      status: "warning",
+      summary: "Platform 설정만 검사했으며 조직별 legacy fallback metadata는 조회하지 않았습니다.",
+    });
+  }
+  if (legacyFallbacks > 0) {
+    return createCheck({
+      ...base,
+      nextAction:
+        mode === "encrypted"
+          ? "API와 Worker를 dual로 롤백하고 legacy fallback을 0으로 만드세요."
+          : "Backfill을 완료하고 legacy fallback이 0건이 될 때까지 dual mode를 유지하세요.",
+      status: mode === "encrypted" ? "blocked" : "warning",
+      summary:
+        mode === "encrypted"
+          ? "Encrypted mode인데 조직 sync metadata에 legacy fallback이 남아 있습니다."
+          : "Dual mode 조직 sync metadata에 legacy credential fallback이 남아 있습니다.",
+    });
+  }
+
+  return createCheck({
+    ...base,
+    nextAction:
+      mode === "dual"
+        ? "백업과 검증을 완료한 뒤 encrypted cutover를 승인하세요."
+        : "7일간 zero-legacy와 refresh/decryption 오류를 관찰하세요.",
+    status: "configured",
+    summary: "조직 sync metadata의 legacy fallback이 0건입니다.",
   });
 }
 
@@ -414,8 +565,7 @@ function evaluateLiveModeGate(
     return createCheck({
       area: "runtime",
       envKeys: [
-        "SEARCHOPS_BING_API_KEY",
-        "SEARCHOPS_GA4_PROPERTY_ID",
+        "SEARCHOPS_CREDENTIAL_STORAGE_MODE",
         "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
         "SEARCHOPS_PAGESPEED_API_KEY",
       ],
@@ -433,8 +583,7 @@ function evaluateLiveModeGate(
     return createCheck({
       area: "runtime",
       envKeys: [
-        "SEARCHOPS_BING_API_KEY",
-        "SEARCHOPS_GA4_PROPERTY_ID",
+        "SEARCHOPS_CREDENTIAL_STORAGE_MODE",
         "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
         "SEARCHOPS_PAGESPEED_API_KEY",
       ],
@@ -449,8 +598,7 @@ function evaluateLiveModeGate(
   return createCheck({
     area: "runtime",
     envKeys: [
-      "SEARCHOPS_BING_API_KEY",
-      "SEARCHOPS_GA4_PROPERTY_ID",
+      "SEARCHOPS_CREDENTIAL_STORAGE_MODE",
       "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
       "SEARCHOPS_PAGESPEED_API_KEY",
     ],
@@ -486,9 +634,7 @@ function countStatus(
 
 function shouldEnableConnectorLiveApis(env: NodeJS.ProcessEnv) {
   return Boolean(
-    hasEnv(env, "SEARCHOPS_BING_API_KEY") ||
-      hasEnv(env, "SEARCHOPS_GA4_PROPERTY_ID") ||
-      hasEnv(env, "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID") ||
+    hasEnv(env, "SEARCHOPS_CREDENTIAL_STORAGE_MODE") ||
       hasEnv(env, "SEARCHOPS_PAGESPEED_API_KEY"),
   );
 }

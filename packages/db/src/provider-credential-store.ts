@@ -222,7 +222,17 @@ export interface ProviderCredentialStorePrismaPort {
     deleteMany(args: {
       readonly where: { readonly id: string; readonly organizationId: string };
     }): Promise<{ readonly count: number }>;
-    count(args: { readonly where: { readonly organizationId: string } }): Promise<number>;
+    count(args: {
+      readonly where: {
+        readonly organizationId: string;
+        readonly legacyCredentialId?: { readonly not: null };
+      };
+    }): Promise<number>;
+  };
+  readonly connectorOAuthCredential: {
+    count(args: {
+      readonly where: { readonly organizationId: string };
+    }): Promise<number>;
   };
   readonly site: {
     findFirst(args: SiteFindFirstArgs): Promise<SiteRow | null>;
@@ -683,10 +693,15 @@ export function createPrismaProviderCredentialStore(
     },
 
     async getCredentialReadinessSnapshot(organizationId) {
-      const [encryptedAccounts, connectors] = await Promise.all([
-        prisma.providerAccount.count({ where: { organizationId } }),
-        findReadinessConnectors(prisma, organizationId)
-      ]);
+      const [encryptedAccounts, migratedLegacyAccounts, legacyCredentials, connectors] =
+        await Promise.all([
+          prisma.providerAccount.count({ where: { organizationId } }),
+          prisma.providerAccount.count({
+            where: { organizationId, legacyCredentialId: { not: null } },
+          }),
+          prisma.connectorOAuthCredential.count({ where: { organizationId } }),
+          findReadinessConnectors(prisma, organizationId)
+        ]);
       const configuredByProvider: Record<SiteConnectorProvider, number> = { gsc: 0, ga4: 0, bing: 0 };
 
       for (const connector of connectors) {
@@ -701,7 +716,11 @@ export function createPrismaProviderCredentialStore(
         }
       }
 
-      return { configuredByProvider, encryptedAccounts, legacyFallbacks: 0 };
+      return {
+        configuredByProvider,
+        encryptedAccounts,
+        legacyFallbacks: Math.max(0, legacyCredentials - migratedLegacyAccounts),
+      };
     }
   };
 }

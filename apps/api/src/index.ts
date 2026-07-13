@@ -40,25 +40,30 @@ const googleOAuthStateStore =
     ? undefined
     : createIoredisGoogleOAuthStateStore({ redisUrl: env.REDIS_URL });
 const prisma = createSearchOpsPrismaClient();
-const providerAccountService =
+const credentialKeyring =
   env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
     ? undefined
+    : parseCredentialKeyring({
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+          ? {}
+          : {
+              SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+                env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
+            })
+      });
+const providerCredentialStore = createPrismaProviderCredentialStore(prisma);
+const providerAccountService =
+  credentialKeyring === undefined
+    ? undefined
     : createProviderAccountService({
-        keyring: parseCredentialKeyring({
-          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
-            ? {}
-            : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
-          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
-            ? {}
-            : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
-          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
-            ? {}
-            : {
-                SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
-                  env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
-              })
-        }),
-        store: createPrismaProviderCredentialStore(prisma)
+        keyring: credentialKeyring,
+        store: providerCredentialStore
       });
 const crawlRunQueue = createBullMqCrawlRunQueue({ redisUrl: env.REDIS_URL });
 const connectorSyncQueue = createBullMqConnectorSyncQueue({ redisUrl: env.REDIS_URL });
@@ -138,6 +143,7 @@ const server = buildApiServer({
   operationalAlertRouter,
   operationalLogDrain,
   providerAccountService,
+  providerCredentialStore,
   rateLimit: {
     enabled: rateLimitEnabled,
     maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,

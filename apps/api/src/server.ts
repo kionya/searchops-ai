@@ -121,6 +121,10 @@ import {
   type Site,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
+import type {
+  ConnectorCredentialReadinessSnapshot,
+  ProviderCredentialStore,
+} from "@searchops/db";
 
 import {
   AuthVerificationError,
@@ -255,6 +259,10 @@ export interface BuildApiServerOptions {
   readonly secretRotationExecutor?: SecretRotationExecutor | undefined;
   readonly inviteEmailSender?: InviteEmailSender | undefined;
   readonly providerAccountService?: ProviderAccountService | undefined;
+  readonly providerCredentialStore?: Pick<
+    ProviderCredentialStore,
+    "getCredentialReadinessSnapshot"
+  > | undefined;
   readonly publicAppUrl?: string | undefined;
 }
 
@@ -447,6 +455,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.secretRotationExecutor ?? createNoopSecretRotationExecutor();
   const inviteEmailSender = options.inviteEmailSender ?? createInviteEmailSender(process.env);
   const providerAccountService = options.providerAccountService;
+  const providerCredentialStore = options.providerCredentialStore;
   const publicAppUrl = options.publicAppUrl ?? process.env.SEARCHOPS_PUBLIC_APP_URL;
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
@@ -579,6 +588,36 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     return ensureSiteAccess({ reply, request, siteId });
+  }
+
+  async function loadVerifiedUserCredentialReadiness(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<ConnectorCredentialReadinessSnapshot | null> {
+    const userContext = resolveRequestUserContext(request);
+    if (userContext.source !== "idp" || userContext.principalType !== "user") {
+      sendForbidden(reply, "Verified user authentication is required for credential readiness");
+      return null;
+    }
+    if (providerCredentialStore === undefined) {
+      reply.status(503).send({
+        error: "credential_readiness_unavailable",
+        message: "Credential readiness storage is unavailable",
+      });
+      return null;
+    }
+
+    try {
+      return await providerCredentialStore.getCredentialReadinessSnapshot(
+        userContext.organizationId,
+      );
+    } catch {
+      reply.status(503).send({
+        error: "credential_readiness_unavailable",
+        message: "Credential readiness storage is unavailable",
+      });
+      return null;
+    }
   }
 
   async function authorizeTenantAccess(request: FastifyRequest, reply: FastifyReply) {
@@ -1037,12 +1076,18 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     return exportPayload;
   });
 
-  server.get("/ops/readiness", async () =>
-    createOperationalReadiness({
+  server.get("/ops/readiness", async (request, reply) => {
+    const connectorCredentials = await loadVerifiedUserCredentialReadiness(request, reply);
+    if (connectorCredentials === null) {
+      return reply;
+    }
+
+    return createOperationalReadiness({
+      connectorCredentials,
       env: process.env,
       generatedAt: currentTime(),
-    }),
-  );
+    });
+  });
 
   server.get("/ops/productization", async () =>
     createProductizationReadiness({
@@ -1051,13 +1096,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }),
   );
 
-  server.get("/ops/connector-live-setup", async () =>
-    createConnectorLiveSetupReport({
+  server.get("/ops/connector-live-setup", async (request, reply) => {
+    const connectorCredentials = await loadVerifiedUserCredentialReadiness(request, reply);
+    if (connectorCredentials === null) {
+      return reply;
+    }
+
+    return createConnectorLiveSetupReport({
+      connectorCredentials,
       env: process.env,
       environment: process.env.NODE_ENV === "production" ? "deployment" : "local",
       generatedAt: currentTime(),
-    }),
-  );
+    });
+  });
 
   server.get("/ops/dead-letter-jobs", async (request) => {
     const query = z

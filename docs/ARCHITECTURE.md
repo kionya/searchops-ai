@@ -72,13 +72,23 @@ Runtime crawling is scoped to the registered site domain and its subdomains. Loc
 
 `packages/connectors` owns connector adapter contracts, fixture adapters, provider response normalization, and connector-specific test fixtures. Live provider calls are disabled by default and must remain behind adapter ports.
 
-`apps/api` owns connector sync HTTP routes, mock-auth scoping, and queue enqueue. It must not call GSC, GA4, PageSpeed, Bing, or CMS APIs directly.
+`apps/api` owns connector sync HTTP routes, verified tenant scoping, provider-account management, Google OAuth orchestration, and queue enqueue. It must not call GSC, GA4, PageSpeed, Bing, GEO answer, or CMS APIs directly.
 
-`apps/worker` owns connector sync job consumption. It calls connector adapter ports, then persists normalized results through `packages/db`. Re-running a provider within the same sync run must update the existing provider result rather than creating duplicate provider rows.
+`apps/worker` owns connector sync job consumption. For each job it resolves the organization `ProviderAccount` and site `SiteConnector`, decrypts only for the provider call, calls connector adapter ports, and persists normalized results plus metadata-only credential source through `packages/db`. Re-running a provider within the same sync run must update the existing provider result rather than creating duplicate provider rows.
 
 `apps/web` may trigger syncs and read sync history through `SEARCHOPS_API_BASE_URL`. If the API is unavailable in local shell views, the dashboard may render deterministic fixture-facing states, but those states must not be confused with live external provider data.
 
 Connector-derived keyword discovery lives in `packages/connectors` because it translates normalized provider records into `KeywordTarget` candidates. The discovery step remains deterministic, uses stored or fixture connector results, and does not call live provider APIs by itself.
+
+### Multi-tenant provider credential boundary
+
+`packages/db` owns AES-256-GCM envelopes, active/previous keyring parsing, canonical provider account persistence, site bindings, migration/backfill, and rotation helpers. Encryption AAD includes organization, provider-account, and provider identity. Public store methods separate metadata reads from secret-record reads.
+
+Railway API and Worker receive the same storage mode and active/previous keyring. Vercel Web never receives database, Redis, OAuth client secret/state secret, provider API, or credential-encryption secrets. The API writes encrypted organization accounts; the Worker reads/decrypts them per job. Queue payloads, API responses, logs, sync summaries, and dead-letter records contain no raw or encrypted credential fields.
+
+GSC properties, numeric GA4 Property IDs, and Bing resources are site metadata. Customer Google/Bing credentials and GEO BYOK are organization accounts. PageSpeed and optional SearchOps-funded GEO keys are Worker platform credentials. Global customer GA4/Bing/token env exists only as a temporary `dual` migration fallback and is not the readiness source after encrypted cutover.
+
+Operational readiness has two inputs. The DB-free CLI validates runtime/platform env and keyring semantics without opening Prisma. Authenticated `/ops/readiness` derives the organization only from a verified user principal and adds a metadata-only tenant snapshot. In `dual`, any legacy fallback remains a warning; encrypted cutover is not ready until fallback is zero.
 
 ## Phase 7 Keyword and AEO Boundary
 
@@ -166,7 +176,7 @@ Production hardening starts at runtime boundaries before deeper platform policy 
 
 `apps/api` owns the operational metrics export boundary. `/metrics` remains a lightweight process-local health counter, while `/ops/metrics-export` combines request counters with worker dead-letter summaries and deterministic alert signals for dashboard or log-drain collection. The export route can write to injected operational log drains and alert routers; local/test runtimes use deterministic no-op or in-memory adapters, and production can wire HTTP log drain and alert webhook adapters from validated env. It exports counts and failure metadata only; secrets, raw connector credentials, and customer payload bodies must not be included.
 
-`apps/api` also owns tenant and role enforcement at the HTTP boundary. Local development can still use mock headers, deployment middleware can pass trusted external IdP claims through `x-searchops-idp-*` headers, and production can configure HS256 JWT bearer verification directly in the API runtime. The API maps verified claims into the same typed auth context used by route handlers for organization/site scoping and write-role checks. Cross-tenant reads return `403`, viewer writes are blocked, incomplete IdP claim sets fail validation, invalid bearer tokens return `401`, and CMS webhook routes continue to rely on their signature boundary instead of user headers.
+`apps/api` also owns tenant, principal-type, and role enforcement at the HTTP boundary. Local tests can explicitly enable mock/trusted headers; production uses verified HS256 or RS256/JWKS bearer tokens and disables those fallbacks. The API maps verified claims into the typed auth context used by route handlers for organization/site scoping and write-role checks. Cross-tenant reads return `403`, viewer writes are blocked, service principals cannot mutate credentials, invalid bearer tokens return `401`, and CMS webhook routes continue to rely on their signature boundary instead of user headers.
 
 Operational runbooks live in `docs/RUNBOOKS.md`. They define backup/restore verification, Prisma migration status/deploy checks, deployment environment validation, and secret rotation procedure. GitHub Actions owns the repository migration-gate job against a temporary PostgreSQL service; production deploy pipelines must still run the same status/deploy/status sequence against the target database. These runbooks are deployment-facing process contracts; application packages must continue to expose deterministic code paths that can be tested without live provider credentials.
 

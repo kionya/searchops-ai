@@ -74,10 +74,15 @@ Required in both local runtime files:
 - `DIRECT_DATABASE_URL`
 - `REDIS_URL`
 
-The worker runs in fixture/crawl-only mode when live connector keys are absent. To enable a live
-provider, add SearchOps-owned values directly to `.env.worker.local`; do not load them from another
-repository or customer system. Google live sync requires both OAuth client values, while GA4 also
-requires a numeric `SEARCHOPS_GA4_PROPERTY_ID`.
+The worker runs in fixture/crawl-only mode while `SEARCHOPS_CREDENTIAL_STORAGE_MODE` is unset. To
+exercise encrypted connectors locally, put the same storage mode, active key ID, active key, and
+previous-key JSON in `.env.api.local` and `.env.worker.local`. Google token refresh also requires the
+same OAuth client ID and secret in the Worker. GSC properties, GA4 Property IDs, Bing customer keys,
+and organization GEO BYOK values are configured through ProviderAccount/SiteConnector UI and stored
+encrypted in the local database; do not put those per-site values in `.env.worker.local`.
+
+`corepack pnpm check:connector-live` stays DB-free. It validates runtime and platform env only; use
+authenticated `/ops/readiness` or `/ops/integrations` to inspect organization/site connector state.
 
 Build and validate before restarting the launch agents:
 

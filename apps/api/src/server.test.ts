@@ -24,6 +24,10 @@ import type {
 } from "@searchops/types";
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
 import { normalizeCmsWebhookPayload } from "@searchops/connectors";
+import type {
+  ConnectorCredentialReadinessSnapshot,
+  ProviderCredentialStore,
+} from "@searchops/db";
 
 import {
   createMemoryConnectorSyncQueue,
@@ -1117,9 +1121,29 @@ describe("api foundation", () => {
     ]);
   });
 
-  it("reports operational readiness for remaining production wiring", async () => {
+  it("loads operational readiness only for the verified user organization", async () => {
+    const organizations: string[] = [];
+    const connectorCredentials = {
+      configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
+      encryptedAccounts: 2,
+      legacyFallbacks: 0,
+      credentialCiphertext: "must-not-leak",
+    } as unknown as ConnectorCredentialReadinessSnapshot;
     const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
       currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      providerCredentialStore: readinessStore(async (organizationId) => {
+        organizations.push(organizationId);
+        return connectorCredentials;
+      }),
       repository: createMemoryRepository({
         organizations: [seededOrganization],
         sites: [seededSite],
@@ -1127,15 +1151,72 @@ describe("api foundation", () => {
     });
     const response = await server.inject({
       method: "GET",
-      url: "/ops/readiness",
+      url: "/ops/readiness?organizationId=org_other",
     });
     const payload = response.json();
 
     expect(response.statusCode).toBe(200);
+    expect(organizations).toEqual(["org_demo"]);
     expect(payload.generatedAt).toBe("2026-05-26T00:00:00.000Z");
     expect(payload.summary.total).toBeGreaterThanOrEqual(20);
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("live-gsc");
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("idp-verification");
+    expect(payload.items.find((item: { id: string }) => item.id === "live-ga4").status).toBe(
+      "configured",
+    );
+    expect(JSON.stringify(payload)).not.toContain("must-not-leak");
+    expect(JSON.stringify(payload)).not.toContain("credentialCiphertext");
+  });
+
+  it("rejects service and unverified mock principals from tenant readiness", async () => {
+    let snapshotCalls = 0;
+    const providerCredentialStore = readinessStore(async () => {
+      snapshotCalls += 1;
+      return {
+        configuredByProvider: { gsc: 0, ga4: 0, bing: 0 },
+        encryptedAccounts: 0,
+        legacyFallbacks: 0,
+      };
+    });
+
+    for (const principal of [
+      { principalType: "service" as const, source: "idp" as const },
+      { principalType: "user" as const, source: "mock" as const },
+    ]) {
+      const server = buildApiServer({
+        authContextResolver: () => ({
+          email: null,
+          organizationId: "org_demo",
+          provider: principal.source === "idp" ? "searchops" : null,
+          role: "system",
+          userId: "principal_1",
+          ...principal,
+        }),
+        providerCredentialStore,
+      });
+      const response = await server.inject({ method: "GET", url: "/ops/readiness" });
+
+      expect(response.statusCode).toBe(403);
+    }
+    expect(snapshotCalls).toBe(0);
+  });
+
+  it("does not fall back to global readiness when the credential store is unavailable", async () => {
+    const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
+    });
+    const response = await server.inject({ method: "GET", url: "/ops/readiness" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ error: "credential_readiness_unavailable" });
   });
 
   it("reports productization readiness without live provider calls", async () => {
@@ -1183,9 +1264,27 @@ describe("api foundation", () => {
       SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI: "https://api.searchops.test/connectors/google/oauth/callback",
       SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET: "super-secret-state",
       SEARCHOPS_PUBLIC_APP_URL: "http://localhost:3000",
+      SEARCHOPS_CREDENTIAL_STORAGE_MODE: "encrypted",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "v1",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: "{}",
     };
     const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
       currentTime: () => new Date("2026-06-07T00:00:00.000Z"),
+      providerCredentialStore: readinessStore(async () => ({
+        configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
+        encryptedAccounts: 2,
+        legacyFallbacks: 0,
+      })),
       repository: createMemoryRepository({
         organizations: [seededOrganization],
         sites: [seededSite],
@@ -6247,20 +6346,27 @@ function installApiEntrypointMocks(options: {
   };
 }
 
+function readinessStore(
+  getCredentialReadinessSnapshot: ProviderCredentialStore["getCredentialReadinessSnapshot"],
+): Pick<ProviderCredentialStore, "getCredentialReadinessSnapshot"> {
+  return { getCredentialReadinessSnapshot };
+}
+
 describe.sequential("provider credential startup wiring", () => {
-  it("keeps local startup disabled without parsing a keyring when storage mode is unset", async () => {
+  it("keeps metadata readiness available without enabling credential decryption", async () => {
     const mocks = installApiEntrypointMocks({});
 
     await import("./index.js");
 
     expect(mocks.parseCredentialKeyring).not.toHaveBeenCalled();
-    expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
+    expect(mocks.createPrismaProviderCredentialStore).toHaveBeenCalledOnce();
     expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
     expect(mocks.createIoredisGoogleOAuthStateStore).not.toHaveBeenCalled();
     expect(mocks.buildApiServer).toHaveBeenCalledWith(
       expect.objectContaining({
         googleOAuthStateStore: undefined,
         providerAccountService: undefined,
+        providerCredentialStore: { kind: "provider-store" },
       }),
     );
     expect(mocks.server.listen).toHaveBeenCalledOnce();

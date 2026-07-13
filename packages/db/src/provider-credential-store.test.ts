@@ -1244,7 +1244,16 @@ describe("provider credential store", () => {
 
   it("returns only tenant-scoped non-secret readiness counts and sources", async () => {
     const prisma = fakePrisma({
-      accounts: [account(), account({ id: "pa_expired", status: "expired" }), account({ id: "pa_b", organizationId: "org_b" })],
+      accounts: [
+        account({ legacyCredentialId: "legacy_migrated" }),
+        account({ id: "pa_expired", status: "expired" }),
+        account({ id: "pa_b", organizationId: "org_b" }),
+      ],
+      legacyCredentials: [
+        { id: "legacy_migrated", organizationId: "org_a" },
+        { id: "legacy_pending", organizationId: "org_a" },
+        { id: "legacy_other", organizationId: "org_b" },
+      ],
       connectors: [
         connector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
         connector({ id: "connector_ga4", provider: "ga4", externalResourceId: null }),
@@ -1257,9 +1266,16 @@ describe("provider credential store", () => {
     await expect(store.getCredentialReadinessSnapshot("org_a")).resolves.toEqual({
       configuredByProvider: { gsc: 1, ga4: 0, bing: 0 },
       encryptedAccounts: 2,
-      legacyFallbacks: 0
+      legacyFallbacks: 1
     });
     expect(prisma.calls.providerAccount.count[0]?.where).toEqual({ organizationId: "org_a" });
+    expect(prisma.calls.providerAccount.count[1]?.where).toEqual({
+      organizationId: "org_a",
+      legacyCredentialId: { not: null },
+    });
+    expect(prisma.calls.connectorOAuthCredential.count[0]?.where).toEqual({
+      organizationId: "org_a",
+    });
     expect(prisma.calls.siteConnector.findMany[0]?.where).toEqual({ organizationId: "org_a" });
     expect(prisma.calls.siteConnector.findMany[0]?.select).not.toHaveProperty("providerAccount.credentialCiphertext");
   });
@@ -1392,10 +1408,16 @@ interface ConnectorRow {
   updatedAt: Date;
 }
 
+interface LegacyCredentialRow {
+  id: string;
+  organizationId: string;
+}
+
 function fakePrisma(seed: {
   accounts?: AccountRow[];
   sites?: SiteRow[];
   connectors?: ConnectorRow[];
+  legacyCredentials?: LegacyCredentialRow[];
   beforeTransactionAttempt?: (input: {
     readonly attempt: number;
     readonly accounts: AccountRow[];
@@ -1410,6 +1432,7 @@ function fakePrisma(seed: {
   const accounts = seed.accounts ?? [];
   const sites = seed.sites ?? [];
   const connectors = seed.connectors ?? [];
+  const legacyCredentials = seed.legacyCredentials ?? [];
   type ProviderAccountPort = ProviderCredentialStorePrismaPort["providerAccount"];
   type TransactionProviderAccountPort =
     ProviderCredentialStorePrismaTransactionPort["providerAccount"];
@@ -1418,6 +1441,8 @@ function fakePrisma(seed: {
   type TransactionSitePort = ProviderCredentialStorePrismaTransactionPort["site"];
   type SitePort = ProviderCredentialStorePrismaPort["site"];
   type SiteConnectorPort = ProviderCredentialStorePrismaPort["siteConnector"];
+  type ConnectorOAuthCredentialPort =
+    ProviderCredentialStorePrismaPort["connectorOAuthCredential"];
   const calls = {
     $transaction: [] as ProviderCredentialStorePrismaTransactionPort[],
     providerAccount: {
@@ -1428,6 +1453,9 @@ function fakePrisma(seed: {
       upsert: [] as Parameters<ProviderAccountPort["upsert"]>[0][],
       deleteMany: [] as Parameters<ProviderAccountPort["deleteMany"]>[0][],
       count: [] as Parameters<ProviderAccountPort["count"]>[0][]
+    },
+    connectorOAuthCredential: {
+      count: [] as Parameters<ConnectorOAuthCredentialPort["count"]>[0][],
     },
     transactionProviderAccount: {
       findFirst: [] as Parameters<TransactionProviderAccountPort["findFirst"]>[0][],
@@ -1652,6 +1680,12 @@ function fakePrisma(seed: {
         calls.providerAccount.count.push(args);
         return accounts.filter((row) => matches(row, args.where)).length;
       }
+    },
+    connectorOAuthCredential: {
+      async count(args) {
+        calls.connectorOAuthCredential.count.push(args);
+        return legacyCredentials.filter((row) => matches(row, args.where)).length;
+      },
     },
     site: {
       async findFirst(args) {
