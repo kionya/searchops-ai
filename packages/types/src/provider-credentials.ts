@@ -42,6 +42,20 @@ export type CredentialStorageMode = z.infer<typeof CredentialStorageModeSchema>;
 export const CredentialSourceSchema = z.enum(["encrypted", "legacy", "platform"]);
 export type CredentialSource = z.infer<typeof CredentialSourceSchema>;
 
+export const ProviderCredentialFailureCodeSchema = z.enum([
+  "account_missing",
+  "connector_missing",
+  "scope_missing",
+  "credential_expired",
+  "credential_revoked",
+  "resource_access_denied",
+  "provider_rate_limited",
+  "credential_decryption_failed",
+]);
+export type ProviderCredentialFailureCode = z.infer<
+  typeof ProviderCredentialFailureCodeSchema
+>;
+
 export const SiteConnectorConfigSchema = z
   .object({
     resourceResolution: z.enum(["legacy_auto"]).optional(),

@@ -51,6 +51,10 @@ import {
   type ProcessGeoAnswerMonitorJobOptions,
   type ProcessSchemaRichResultValidationJobOptions
 } from "./processor.js";
+import {
+  createRedisProviderAccountRefreshLock,
+  type RedisProviderAccountRefreshLockClient
+} from "./provider-credential-resolver.js";
 
 export interface CreateCrawlWorkerOptions {
   readonly redisUrl: string;
@@ -249,13 +253,32 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
   const queueName = options.queueName ?? connectorQueueName;
+  const workerRef: {
+    current?: Worker<
+      ConnectorSyncJobPayload,
+      ConnectorSyncJobResult,
+      typeof connectorSyncJobName
+    >;
+  } = {};
+  const refreshLock = options.processorOptions?.refreshLock ??
+    createRedisProviderAccountRefreshLock(async () => {
+      const worker = workerRef.current;
+      if (worker === undefined) {
+        throw new Error("connector_sync_worker_not_ready");
+      }
+      return toRefreshLockClient(await worker.client);
+    });
+  const processorOptions: ProcessConnectorSyncJobOptions = {
+    ...options.processorOptions,
+    refreshLock
+  };
   const worker = new Worker<
     ConnectorSyncJobPayload,
     ConnectorSyncJobResult,
     typeof connectorSyncJobName
   >(
     queueName,
-    createConnectorSyncJobProcessor(persistenceClient, options.processorOptions),
+    createConnectorSyncJobProcessor(persistenceClient, processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {
@@ -263,6 +286,7 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
       }
     },
   );
+  workerRef.current = worker;
   const deadLetterQueue =
     options.enableDeadLetterQueue === false
       ? null
@@ -277,6 +301,18 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
       if (options.prisma === undefined) {
         await prisma.$disconnect();
       }
+    }
+  };
+}
+
+function toRefreshLockClient(
+  client: Awaited<Worker["client"]>,
+): RedisProviderAccountRefreshLockClient {
+  return {
+    eval: (script, numberOfKeys, key, token) =>
+      client.eval(script, numberOfKeys, key, token),
+    async set(key, token, px, ttlMs, nx) {
+      return (await client.set(key, token, px, ttlMs, nx)) === "OK" ? "OK" : null;
     }
   };
 }

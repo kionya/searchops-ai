@@ -148,6 +148,63 @@ describe("worker runtime", () => {
     });
   });
 
+  it("forwards the connector job tenant context to live credential resolution", async () => {
+    const resolvedJobs: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncRun: {
+        async create(args) {
+          return args;
+        },
+        async update(args) {
+          return args;
+        }
+      },
+      connectorSyncResult: {
+        async upsert(args) {
+          return args;
+        }
+      }
+    };
+    const processor = createConnectorSyncJobProcessor(persistenceClient, {
+      liveExternalApis: "enabled",
+      async resolveConnectorProviderConfigs(job) {
+        resolvedJobs.push(job);
+        return {
+          configs: {},
+          credentialSources: {},
+          failures: { ga4: "account_missing" }
+        };
+      }
+    });
+
+    const result = await processor({
+      data: {
+        connectorSyncRunId: "sync_live_1",
+        organizationId: "org_1",
+        siteId: "site_1",
+        siteDomain: "example.com",
+        requestedByUserId: "user_1",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        providers: ["ga4"]
+      }
+    });
+
+    expect(resolvedJobs).toEqual([
+      expect.objectContaining({
+        organizationId: "org_1",
+        providers: ["ga4"],
+        siteId: "site_1"
+      })
+    ]);
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        fixture: false,
+        provider: "ga4",
+        status: "setup_required"
+      })
+    ]);
+  });
+
   it("processes BullMQ GEO answer monitor job data through persistence", async () => {
     const creates: unknown[] = [];
     const persistenceClient: GeoVisibilityPersistenceClient = {

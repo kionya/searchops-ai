@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { CredentialStorageModeSchema } from "./provider-credentials.js";
+import {
+  CredentialSourceSchema,
+  CredentialStorageModeSchema,
+} from "./provider-credentials.js";
 
 export * from "./provider-credentials.js";
 
@@ -2632,7 +2635,20 @@ export const ConnectorRecordCountsByProviderSchema = z.object({
 
 export type ConnectorRecordCountsByProvider = z.infer<typeof ConnectorRecordCountsByProviderSchema>;
 
+export const ConnectorCredentialSourcesSchema = z
+  .object({
+    bing: CredentialSourceSchema.optional(),
+    cms: CredentialSourceSchema.optional(),
+    ga4: CredentialSourceSchema.optional(),
+    gsc: CredentialSourceSchema.optional(),
+    pagespeed: CredentialSourceSchema.optional(),
+  })
+  .strict();
+
+export type ConnectorCredentialSources = z.infer<typeof ConnectorCredentialSourcesSchema>;
+
 export const ConnectorBatchSyncSummarySchema = z.object({
+  credentialSources: ConnectorCredentialSourcesSchema.optional(),
   failedProviders: NonNegativeIntegerSchema,
   okProviders: NonNegativeIntegerSchema,
   partialProviders: NonNegativeIntegerSchema,

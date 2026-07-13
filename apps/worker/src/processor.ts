@@ -23,14 +23,13 @@ import {
 import {
   persistGeoAnswerMonitorJobResult,
   persistSchemaRichResultValidationJobResult,
-  listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   markCrawlRunFailed,
   persistCrawlAnalysisResult,
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
   persistSchemaRecommendationRecheck,
-  updateConnectorOAuthCredentialForSync,
+  type CredentialKeyring,
   type CrawlAnalysisPersistenceClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
@@ -50,6 +49,7 @@ import {
   SchemaRichResultValidationJobResultSchema,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
+  type CredentialStorageMode,
   type CrawlJobPageInput,
   type CrawlJobPayload,
   type CrawlJobResult,
@@ -60,6 +60,13 @@ import {
   type SchemaRichResultValidationResult
 } from "@searchops/types";
 
+import {
+  createDbProviderCredentialResolverStore,
+  createProviderCredentialResolver,
+  type ProviderAccountRefreshLock,
+  type ResolvedConnectorProviderConfigs,
+} from "./provider-credential-resolver.js";
+
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlAnalysisClient?: CrawlAnalysisPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
@@ -68,6 +75,8 @@ export interface ProcessAndPersistCrawlJobOptions {
 
 export interface ProcessConnectorSyncJobOptions {
   readonly bingApiKey?: string | undefined;
+  readonly credentialKeyring?: CredentialKeyring | undefined;
+  readonly credentialStorageMode?: CredentialStorageMode | undefined;
   readonly fetch?: typeof fetch | undefined;
   readonly googleOAuthClientId?: string | undefined;
   readonly googleOAuthClientSecret?: string | undefined;
@@ -75,6 +84,10 @@ export interface ProcessConnectorSyncJobOptions {
   readonly liveExternalApis?: "disabled" | "enabled";
   readonly now?: () => Date;
   readonly pagespeedApiKey?: string | undefined;
+  readonly refreshLock?: ProviderAccountRefreshLock | undefined;
+  readonly resolveConnectorProviderConfigs?: (
+    input: ConnectorSyncJobPayload,
+  ) => Promise<ResolvedConnectorProviderConfigs>;
   readonly syncConnectors?: (input: ConnectorBatchSyncRequest) => Promise<ConnectorBatchSyncResult>;
 }
 
@@ -118,7 +131,27 @@ export async function processConnectorSyncJob(
   options: ProcessConnectorSyncJobOptions = {},
 ): Promise<ConnectorSyncJobResult> {
   const payload = ConnectorSyncJobPayloadSchema.parse(input);
-  const result = await (options.syncConnectors ?? syncFixtureConnectors)({
+  const liveExternalApis = LiveExternalApiModeSchema.parse(
+    options.liveExternalApis ?? "disabled",
+  );
+  let syncConnectors = options.syncConnectors;
+
+  if (syncConnectors === undefined && liveExternalApis === "enabled") {
+    const resolved = options.resolveConnectorProviderConfigs
+      ? await options.resolveConnectorProviderConfigs(payload)
+      : missingLiveProviderConfigs(payload.providers);
+    syncConnectors = (request) =>
+      syncLiveConnectors({
+        credentialSources: resolved.credentialSources,
+        fetchedAt: request.fetchedAt,
+        fetch: options.fetch,
+        providerConfigs: resolved.configs,
+        providerFailures: resolved.failures,
+        providers: request.providers,
+      });
+  }
+
+  const result = await (syncConnectors ?? syncFixtureConnectors)({
     fetchedAt: payload.fetchedAt,
     providers: payload.providers
   });
@@ -142,12 +175,19 @@ export async function processAndPersistConnectorSyncJob(
 ): Promise<ConnectorSyncJobResult> {
   const payload = ConnectorSyncJobPayloadSchema.parse(input);
   try {
-    const syncConnectors =
-      options.syncConnectors ??
-      (await createRuntimeConnectorSync(payload, persistenceClient, options));
+    const liveExternalApis = LiveExternalApiModeSchema.parse(
+      options.liveExternalApis ?? "disabled",
+    );
+    const resolveConnectorProviderConfigs =
+      options.resolveConnectorProviderConfigs ??
+      (liveExternalApis === "enabled" && options.syncConnectors === undefined
+        ? createRuntimeProviderCredentialResolver(persistenceClient, options)
+        : undefined);
     const result = await processConnectorSyncJob(payload, {
       ...options,
-      syncConnectors
+      ...(resolveConnectorProviderConfigs === undefined
+        ? {}
+        : { resolveConnectorProviderConfigs }),
     });
     await persistConnectorSyncJobResult(persistenceClient, result);
     return result;
@@ -160,145 +200,38 @@ export async function processAndPersistConnectorSyncJob(
   }
 }
 
-async function createRuntimeConnectorSync(
-  payload: ConnectorSyncJobPayload,
+function createRuntimeProviderCredentialResolver(
   persistenceClient: ConnectorSyncPersistenceClient,
   options: ProcessConnectorSyncJobOptions,
 ) {
-  const liveExternalApis = LiveExternalApiModeSchema.parse(
-    options.liveExternalApis ?? "disabled",
-  );
-
-  if (liveExternalApis === "disabled") {
-    return syncFixtureConnectors;
+  if (options.credentialKeyring === undefined) {
+    throw new Error("credential_keyring_invalid");
   }
-
-  const credentials = await refreshExpiredGoogleCredentials(
-    await listConnectorOAuthCredentialsForSync(persistenceClient, payload.siteId),
-    payload.siteId,
-    persistenceClient,
-    options,
-  );
-
-  return (request: ConnectorBatchSyncRequest) =>
-    syncLiveConnectors({
-      bingApiKey: options.bingApiKey,
-      fetchedAt: request.fetchedAt,
-      fetch: options.fetch,
-      ga4PropertyId: options.ga4PropertyId,
-      googleOAuthCredentials: credentials.map((credential) => ({
-        accessToken: credential.accessToken,
-        externalAccountEmail: credential.externalAccountEmail,
-        provider: credential.provider,
-        status: credential.status,
-        tokenExpiresAt: credential.tokenExpiresAt?.toISOString() ?? null
-      })),
-      pagespeedApiKey: options.pagespeedApiKey,
-      providers: request.providers,
-      siteDomain: payload.siteDomain
-    });
-}
-
-async function refreshExpiredGoogleCredentials(
-  credentials: Awaited<ReturnType<typeof listConnectorOAuthCredentialsForSync>>,
-  siteId: string,
-  persistenceClient: ConnectorSyncPersistenceClient,
-  options: ProcessConnectorSyncJobOptions,
-) {
-  const now = options.now?.() ?? new Date();
-
-  return Promise.all(
-    credentials.map(async (credential) => {
-      if (!shouldRefreshGoogleCredential(credential.tokenExpiresAt, now)) {
-        return credential;
-      }
-
-      if (
-        !credential.refreshToken ||
-        !options.googleOAuthClientId ||
-        !options.googleOAuthClientSecret
-      ) {
-        return credential;
-      }
-
-      try {
-        const refreshed = await refreshGoogleAccessToken({
-          clientId: options.googleOAuthClientId,
-          clientSecret: options.googleOAuthClientSecret,
-          fetch: options.fetch,
-          now,
-          refreshToken: credential.refreshToken
-        });
-        const updated = await updateConnectorOAuthCredentialForSync(persistenceClient, {
-          accessToken: refreshed.accessToken,
-          provider: credential.provider,
-          siteId,
-          tokenExpiresAt: refreshed.expiresAt,
-          tokenType: refreshed.tokenType
-        });
-
-        return updated ?? {
-          ...credential,
-          accessToken: refreshed.accessToken,
-          tokenExpiresAt: refreshed.expiresAt,
-          tokenType: refreshed.tokenType
-        };
-      } catch {
-        return credential;
-      }
-    }),
-  );
-}
-
-function shouldRefreshGoogleCredential(tokenExpiresAt: Date | null, now: Date) {
-  if (tokenExpiresAt === null) {
-    return false;
-  }
-
-  return tokenExpiresAt.getTime() <= now.getTime() + 120_000;
-}
-
-async function refreshGoogleAccessToken(input: {
-  readonly clientId: string;
-  readonly clientSecret: string;
-  readonly fetch?: typeof fetch | undefined;
-  readonly now: Date;
-  readonly refreshToken: string;
-}) {
-  const fetchImpl = input.fetch ?? fetch;
-  const body = new URLSearchParams({
-    client_id: input.clientId,
-    client_secret: input.clientSecret,
-    grant_type: "refresh_token",
-    refresh_token: input.refreshToken
+  const resolver = createProviderCredentialResolver({
+    fetch: options.fetch,
+    globalBingApiKey: options.bingApiKey,
+    googleOAuthClientId: options.googleOAuthClientId,
+    googleOAuthClientSecret: options.googleOAuthClientSecret,
+    keyring: options.credentialKeyring,
+    legacyGa4PropertyId: options.ga4PropertyId,
+    now: options.now,
+    pagespeedApiKey: options.pagespeedApiKey,
+    refreshLock: options.refreshLock,
+    storageMode: options.credentialStorageMode ?? "dual",
+    store: createDbProviderCredentialResolverStore(persistenceClient),
   });
-  const response = await fetchImpl("https://oauth2.googleapis.com/token", {
-    body,
-    headers: {
-      "content-type": "application/x-www-form-urlencoded"
-    },
-    method: "POST"
-  });
+  return resolver.resolveConnectorProviderConfigs.bind(resolver);
+}
 
-  if (!response.ok) {
-    throw new Error(`Google OAuth token refresh failed with status ${response.status}`);
-  }
-
-  const json = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    token_type?: string;
-  };
-  if (!json.access_token) {
-    throw new Error("Google OAuth token refresh did not return an access token");
-  }
-
-  const expiresInSeconds = typeof json.expires_in === "number" ? json.expires_in : 3600;
-
+function missingLiveProviderConfigs(
+  providers: readonly ConnectorSyncJobPayload["providers"][number][],
+): ResolvedConnectorProviderConfigs {
   return {
-    accessToken: json.access_token,
-    expiresAt: new Date(input.now.getTime() + expiresInSeconds * 1000),
-    tokenType: json.token_type ?? "Bearer"
+    configs: {},
+    credentialSources: {},
+    failures: Object.fromEntries(
+      providers.map((provider) => [provider, "account_missing"]),
+    ) as ResolvedConnectorProviderConfigs["failures"],
   };
 }
 

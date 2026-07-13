@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  CrawlAnalysisPersistenceClient,
-  ConnectorSyncPersistenceClient,
-  CrawlPersistenceClient,
-  GeoVisibilityPersistenceClient,
-  SchemaRichResultValidationPersistenceClient,
-  SchemaRecommendationRecheckPersistenceClient
+import {
+  parseCredentialKeyring,
+  type ConnectorOAuthCredentialForSync,
+  type ConnectorSyncPersistenceClient,
+  type CrawlAnalysisPersistenceClient,
+  type CrawlPersistenceClient,
+  type GeoVisibilityPersistenceClient,
+  type SchemaRichResultValidationPersistenceClient,
+  type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 
 import {
@@ -37,6 +39,12 @@ const normalHtml = `
   </body>
 </html>
 `;
+
+const credentialKeyring = parseCredentialKeyring({
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "test-v1",
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: "{}"
+});
 
 const analysisHtml = `
 <!doctype html>
@@ -752,22 +760,20 @@ describe("processCrawlJob", () => {
   });
 
   it("reads stored OAuth credentials when live connector sync is enabled", async () => {
+    const legacyProviderQueries: string[][] = [];
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
       connectorOAuthCredential: {
         async findMany(args) {
-          expect(args).toEqual({
-            where: {
-              provider: {
-                in: ["gsc", "ga4"]
-              },
-              siteId: "site_live",
-              status: "connected"
-            }
+          expect(args.where).toMatchObject({
+            organizationId: "org_live",
+            siteId: "site_live",
+            status: "connected"
           });
+          legacyProviderQueries.push([...(args.where.provider?.in ?? [])]);
 
-          return [
+          const credentials: ConnectorOAuthCredentialForSync[] = [
             {
               accessToken: "gsc_token",
               externalAccountEmail: null,
@@ -787,6 +793,9 @@ describe("processCrawlJob", () => {
               tokenType: "Bearer"
             }
           ];
+          return credentials.filter((credential) =>
+            args.where.provider?.in.includes(credential.provider),
+          );
         },
         async update(args) {
           return {
@@ -814,7 +823,8 @@ describe("processCrawlJob", () => {
           resultUpserts.push(args);
           return args;
         }
-      }
+      },
+      providerCredentials: createEmptyProviderCredentialPort()
     };
 
     const result = await processAndPersistConnectorSyncJob(
@@ -829,6 +839,7 @@ describe("processCrawlJob", () => {
       },
       persistenceClient,
       {
+        credentialKeyring,
         fetch: (async (url) => {
           const value = String(url);
 
@@ -907,6 +918,7 @@ describe("processCrawlJob", () => {
       okProviders: 3,
       totalRecords: 3
     });
+    expect(legacyProviderQueries).toEqual([["gsc"], ["ga4"]]);
     expect(resultUpserts).toHaveLength(3);
     expect(runUpdates[0]).toMatchObject({
       data: {
@@ -916,7 +928,7 @@ describe("processCrawlJob", () => {
     });
   });
 
-  it("refreshes expired Google OAuth credentials before live connector sync", async () => {
+  it("uses the account-scoped resolver output for live connector sync", async () => {
     const credentialUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
       connectorOAuthCredential: {
@@ -977,18 +989,6 @@ describe("processCrawlJob", () => {
         fetch: (async (url, init) => {
           calls.push(String(url));
 
-          if (String(url).includes("oauth2.googleapis.com")) {
-            expect(String(init?.body)).toContain("refresh_token=gsc_refresh");
-            return new Response(
-              JSON.stringify({
-                access_token: "fresh_gsc_token",
-                expires_in: 3600,
-                token_type: "Bearer"
-              }),
-              { status: 200 }
-            );
-          }
-
           expect((init?.headers as Record<string, string>).authorization).toBe(
             "Bearer fresh_gsc_token",
           );
@@ -1015,26 +1015,36 @@ describe("processCrawlJob", () => {
         googleOAuthClientId: "client_id",
         googleOAuthClientSecret: "client_secret",
         liveExternalApis: "enabled",
-        now: () => new Date("2026-05-27T12:10:00.000Z")
+        now: () => new Date("2026-05-27T12:10:00.000Z"),
+        async resolveConnectorProviderConfigs() {
+          credentialUpdates.push({
+            expectedUpdatedAt: "2026-05-27T12:00:00.000Z",
+            providerAccountId: "pa_google"
+          });
+          return {
+            configs: {
+              gsc: {
+                credential: {
+                  accessToken: "fresh_gsc_token",
+                  provider: "gsc",
+                  status: "connected"
+                },
+                propertyId: "https://searchops-ai-web.vercel.app/"
+              }
+            },
+            credentialSources: { gsc: "encrypted" },
+            failures: {}
+          };
+        }
       },
     );
 
     expect(calls).toEqual([
-      "https://oauth2.googleapis.com/token",
       "https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fsearchops-ai-web.vercel.app%2F/searchAnalytics/query"
     ]);
     expect(credentialUpdates[0]).toMatchObject({
-      data: {
-        accessToken: "fresh_gsc_token",
-        tokenExpiresAt: new Date("2026-05-27T13:10:00.000Z"),
-        tokenType: "Bearer"
-      },
-      where: {
-        siteId_provider: {
-          provider: "gsc",
-          siteId: "site_live"
-        }
-      }
+      expectedUpdatedAt: "2026-05-27T12:00:00.000Z",
+      providerAccountId: "pa_google"
     });
     expect(result.results[0]).toMatchObject({
       fixture: false,
@@ -1043,7 +1053,7 @@ describe("processCrawlJob", () => {
     });
   });
 
-  it("scopes Google OAuth refresh failures to provider results", async () => {
+  it("scopes credential resolution failures to provider results", async () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
@@ -1133,17 +1143,31 @@ describe("processCrawlJob", () => {
         googleOAuthClientSecret: "client_secret",
         liveExternalApis: "enabled",
         now: () => new Date("2026-05-27T12:10:00.000Z"),
-        pagespeedApiKey: "pagespeed_key"
+        pagespeedApiKey: "pagespeed_key",
+        async resolveConnectorProviderConfigs() {
+          return {
+            configs: {
+              pagespeed: {
+                apiKey: "pagespeed_key",
+                siteUrl: "searchops-ai-web.vercel.app"
+              }
+            },
+            credentialSources: { pagespeed: "platform" },
+            failures: { gsc: "credential_revoked" }
+          };
+        }
       },
     );
 
     expect(result.results.map((item) => [item.provider, item.status])).toEqual([
-      ["gsc", "failed"],
+      ["gsc", "setup_required"],
       ["pagespeed", "ok"]
     ]);
     expect(result.summary).toMatchObject({
-      failedProviders: 1,
+      credentialSources: { pagespeed: "platform" },
+      failedProviders: 0,
       okProviders: 1,
+      setupRequiredProviders: 1,
       totalProviders: 2
     });
     expect(resultUpserts).toHaveLength(2);
@@ -1482,3 +1506,63 @@ describe("processCrawlJob", () => {
     });
   });
 });
+
+describe("processConnectorSyncJob live credential resolution", () => {
+  it("does not use fixtures when site credentials are missing in live mode", async () => {
+    const result = await processConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_missing_live",
+        organizationId: "org_a",
+        siteId: "site_a",
+        siteDomain: "example.com",
+        requestedByUserId: "user_a",
+        fetchedAt: "2026-07-14T00:00:00.000Z",
+        providers: ["ga4"],
+      },
+      {
+        liveExternalApis: "enabled",
+        async resolveConnectorProviderConfigs() {
+          return {
+            configs: {},
+            credentialSources: {},
+            failures: { ga4: "connector_missing" },
+          };
+        },
+      },
+    );
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        fixture: false,
+        provider: "ga4",
+        status: "setup_required",
+        error: expect.objectContaining({ code: "connector_missing" }),
+      }),
+    ]);
+    expect(result.summary).toMatchObject({
+      credentialSources: {},
+      setupRequiredProviders: 1,
+    });
+  });
+});
+
+function createEmptyProviderCredentialPort(): NonNullable<
+  ConnectorSyncPersistenceClient["providerCredentials"]
+> {
+  return {
+    async getProviderAccount() {
+      return null;
+    },
+    async getSite(input) {
+      return { id: input.siteId, organizationId: input.organizationId };
+    },
+    async getSiteConnector() {
+      return null;
+    },
+    async updateProviderAccountCredential() {
+      return false;
+    },
+    async updateProviderAccountStatus() {},
+    async updateSiteConnectorStatus() {},
+  };
+}

@@ -1,4 +1,8 @@
 import {
+  ProviderAccountAuthTypeSchema,
+  ProviderAccountProviderSchema,
+  ProviderAccountStatusSchema,
+  SiteConnectorSchema,
   ConnectorSyncJobPayloadSchema,
   ConnectorSyncJobResultSchema,
   type ConnectorProvider,
@@ -6,11 +10,55 @@ import {
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
   type ConnectorSyncRunStatus,
-  type ConnectorOAuthProvider
+  type ConnectorOAuthProvider,
+  type ProviderAccountStatus,
+  type ProviderCredentialFailureCode,
+  type SiteConnector,
+  type SiteConnectorProvider,
+  type SiteConnectorStatus
 } from "@searchops/types";
 
 import type { SearchOpsPrismaClient } from "./client.js";
+import type { EncryptedProviderCredential } from "./credential-crypto.js";
 import type { Prisma } from "./generated/prisma/index.js";
+
+const connectorSyncProviderAccountSelect = {
+  authType: true,
+  credentialAuthTag: true,
+  credentialCiphertext: true,
+  credentialIv: true,
+  encryptionKeyId: true,
+  encryptionVersion: true,
+  id: true,
+  organizationId: true,
+  provider: true,
+  scopes: true,
+  status: true,
+  tokenExpiresAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.ProviderAccountSelect;
+
+const connectorSyncSiteConnectorSelect = {
+  config: true,
+  createdAt: true,
+  externalResourceId: true,
+  id: true,
+  lastCheckedAt: true,
+  lastErrorCode: true,
+  organizationId: true,
+  provider: true,
+  providerAccountId: true,
+  siteId: true,
+  status: true,
+  updatedAt: true,
+} as const satisfies Prisma.SiteConnectorSelect;
+
+type ConnectorSyncProviderAccountRow = Prisma.ProviderAccountGetPayload<{
+  select: typeof connectorSyncProviderAccountSelect;
+}>;
+type ConnectorSyncSiteConnectorRow = Prisma.SiteConnectorGetPayload<{
+  select: typeof connectorSyncSiteConnectorSelect;
+}>;
 
 export interface ConnectorSyncRunCreateArgs {
   data: {
@@ -72,6 +120,7 @@ export interface ConnectorOAuthCredentialForSync {
 
 export interface ConnectorOAuthCredentialFindManyArgs {
   where: {
+    organizationId: string;
     provider?: {
       in: readonly ConnectorOAuthProvider[];
     };
@@ -106,6 +155,66 @@ export interface ConnectorSyncPersistenceClient {
   connectorSyncResult: {
     upsert(args: ConnectorSyncResultUpsertArgs): Promise<unknown>;
   };
+  providerCredentials?: ConnectorSyncProviderCredentialPort;
+}
+
+export interface ProviderAccountForConnectorSync extends EncryptedProviderCredential {
+  readonly authType: "oauth2" | "api_key";
+  readonly id: string;
+  readonly organizationId: string;
+  readonly provider: "google" | "bing" | "geo_chatgpt" | "geo_claude" | "geo_gemini" | "geo_perplexity";
+  readonly scopes: readonly string[];
+  readonly status: ProviderAccountStatus;
+  readonly tokenExpiresAt: string | null;
+  readonly updatedAt: string;
+}
+
+export interface ConnectorSyncProviderCredentialPort {
+  getSite(input: ConnectorSyncSiteLookupInput): Promise<ConnectorSyncSiteRecord | null>;
+  getSiteConnector(input: ConnectorSyncSiteConnectorLookupInput): Promise<SiteConnector | null>;
+  getProviderAccount(input: ConnectorSyncProviderAccountLookupInput): Promise<ProviderAccountForConnectorSync | null>;
+  updateProviderAccountCredential(input: ConnectorSyncProviderAccountCredentialUpdateInput): Promise<boolean>;
+  updateProviderAccountStatus(input: ConnectorSyncProviderAccountStatusUpdateInput): Promise<void>;
+  updateSiteConnectorStatus(input: ConnectorSyncSiteConnectorStatusUpdateInput): Promise<void>;
+}
+
+export interface ConnectorSyncSiteLookupInput {
+  readonly organizationId: string;
+  readonly siteId: string;
+}
+
+export interface ConnectorSyncSiteRecord {
+  readonly id: string;
+  readonly organizationId: string;
+}
+
+export interface ConnectorSyncSiteConnectorLookupInput extends ConnectorSyncSiteLookupInput {
+  readonly provider: SiteConnectorProvider;
+}
+
+export interface ConnectorSyncProviderAccountLookupInput {
+  readonly organizationId: string;
+  readonly providerAccountId: string;
+}
+
+export interface ConnectorSyncProviderAccountCredentialUpdateInput
+  extends ConnectorSyncProviderAccountLookupInput {
+  readonly encryptedCredential: EncryptedProviderCredential;
+  readonly expectedUpdatedAt: string;
+  readonly status: "connected";
+  readonly tokenExpiresAt: Date;
+}
+
+export interface ConnectorSyncProviderAccountStatusUpdateInput
+  extends ConnectorSyncProviderAccountLookupInput {
+  readonly status: ProviderAccountStatus;
+}
+
+export interface ConnectorSyncSiteConnectorStatusUpdateInput
+  extends ConnectorSyncSiteConnectorLookupInput {
+  readonly lastCheckedAt: Date;
+  readonly lastErrorCode: ProviderCredentialFailureCode | null;
+  readonly status: SiteConnectorStatus;
 }
 
 export interface PersistConnectorSyncJobResultOutput {
@@ -123,7 +232,12 @@ export interface MarkConnectorSyncRunFailedOutput {
 export function createPrismaConnectorSyncPersistenceClient(
   prisma: Pick<
     SearchOpsPrismaClient,
-    "connectorOAuthCredential" | "connectorSyncResult" | "connectorSyncRun"
+    | "connectorOAuthCredential"
+    | "connectorSyncResult"
+    | "connectorSyncRun"
+    | "providerAccount"
+    | "site"
+    | "siteConnector"
   >,
 ): ConnectorSyncPersistenceClient {
   return {
@@ -131,6 +245,7 @@ export function createPrismaConnectorSyncPersistenceClient(
       async findMany(args) {
         const rows = await prisma.connectorOAuthCredential.findMany({
           where: {
+            organizationId: args.where.organizationId,
             ...(args.where.provider
               ? {
                   provider: {
@@ -204,6 +319,70 @@ export function createPrismaConnectorSyncPersistenceClient(
       async upsert(args) {
         return prisma.connectorSyncResult.upsert(args);
       }
+    },
+    providerCredentials: {
+      async getSite(input) {
+        return prisma.site.findFirst({
+          select: { id: true, organizationId: true },
+          where: { id: input.siteId, organizationId: input.organizationId }
+        });
+      },
+      async getSiteConnector(input) {
+        const row = await prisma.siteConnector.findFirst({
+          select: connectorSyncSiteConnectorSelect,
+          where: {
+            organizationId: input.organizationId,
+            provider: input.provider,
+            siteId: input.siteId
+          }
+        });
+        return row === null ? null : toSiteConnectorForSync(row);
+      },
+      async getProviderAccount(input) {
+        const row = await prisma.providerAccount.findFirst({
+          select: connectorSyncProviderAccountSelect,
+          where: {
+            id: input.providerAccountId,
+            organizationId: input.organizationId
+          }
+        });
+        return row === null ? null : toProviderAccountForSync(row);
+      },
+      async updateProviderAccountCredential(input) {
+        const updated = await prisma.providerAccount.updateMany({
+          data: {
+            ...input.encryptedCredential,
+            status: input.status,
+            tokenExpiresAt: input.tokenExpiresAt
+          },
+          where: {
+            id: input.providerAccountId,
+            organizationId: input.organizationId,
+            updatedAt: new Date(input.expectedUpdatedAt)
+          }
+        });
+        return updated.count === 1;
+      },
+      async updateProviderAccountStatus(input) {
+        await prisma.providerAccount.updateMany({
+          data: { status: input.status },
+          where: { id: input.providerAccountId, organizationId: input.organizationId }
+        });
+      },
+      async updateSiteConnectorStatus(input) {
+        await prisma.siteConnector.updateMany({
+          data: {
+            lastCheckedAt: input.lastCheckedAt,
+            lastErrorCode: input.lastErrorCode,
+            status: input.status
+          },
+          where: {
+            organizationId: input.organizationId,
+            provider: input.provider,
+            siteId: input.siteId
+          }
+        });
+      }
     }
   };
 }
@@ -234,7 +413,11 @@ export async function createConnectorSyncRun(
 
 export async function listConnectorOAuthCredentialsForSync(
   client: ConnectorSyncPersistenceClient,
-  siteId: string,
+  input: {
+    readonly organizationId: string;
+    readonly providers: readonly ConnectorOAuthProvider[];
+    readonly siteId: string;
+  },
 ): Promise<ConnectorOAuthCredentialForSync[]> {
   if (client.connectorOAuthCredential === undefined) {
     return [];
@@ -242,13 +425,56 @@ export async function listConnectorOAuthCredentialsForSync(
 
   return client.connectorOAuthCredential.findMany({
     where: {
+      organizationId: input.organizationId,
       provider: {
-        in: ["gsc", "ga4"]
+        in: input.providers
       },
-      siteId,
+      siteId: input.siteId,
       status: "connected"
     }
   });
+}
+
+export async function getSiteForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncSiteLookupInput,
+) {
+  return client.providerCredentials?.getSite(input) ?? null;
+}
+
+export async function getSiteConnectorForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncSiteConnectorLookupInput,
+) {
+  return client.providerCredentials?.getSiteConnector(input) ?? null;
+}
+
+export async function getProviderAccountForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncProviderAccountLookupInput,
+) {
+  return client.providerCredentials?.getProviderAccount(input) ?? null;
+}
+
+export async function updateProviderAccountCredentialForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncProviderAccountCredentialUpdateInput,
+) {
+  return client.providerCredentials?.updateProviderAccountCredential(input) ?? false;
+}
+
+export async function updateProviderAccountStatusForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncProviderAccountStatusUpdateInput,
+) {
+  await client.providerCredentials?.updateProviderAccountStatus(input);
+}
+
+export async function updateSiteConnectorStatusForConnectorSync(
+  client: ConnectorSyncPersistenceClient,
+  input: ConnectorSyncSiteConnectorStatusUpdateInput,
+) {
+  await client.providerCredentials?.updateSiteConnectorStatus(input);
 }
 
 export async function updateConnectorOAuthCredentialForSync(
@@ -402,6 +628,42 @@ function serializeError(error: unknown) {
     message: String(error),
     name: "Error"
   };
+}
+
+function toProviderAccountForSync(
+  row: ConnectorSyncProviderAccountRow,
+): ProviderAccountForConnectorSync {
+  if (row.encryptionVersion !== 1) {
+    throw new Error("unsupported_credential_encryption_version");
+  }
+  if (!Array.isArray(row.scopes) || row.scopes.some((scope) => typeof scope !== "string")) {
+    throw new Error("invalid_provider_account_scopes");
+  }
+
+  return {
+    authType: ProviderAccountAuthTypeSchema.parse(row.authType),
+    credentialAuthTag: row.credentialAuthTag,
+    credentialCiphertext: row.credentialCiphertext,
+    credentialIv: row.credentialIv,
+    encryptionKeyId: row.encryptionKeyId,
+    encryptionVersion: 1,
+    id: row.id,
+    organizationId: row.organizationId,
+    provider: ProviderAccountProviderSchema.parse(row.provider),
+    scopes: row.scopes as string[],
+    status: ProviderAccountStatusSchema.parse(row.status),
+    tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
+function toSiteConnectorForSync(row: ConnectorSyncSiteConnectorRow): SiteConnector {
+  return SiteConnectorSchema.parse({
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+    updatedAt: row.updatedAt.toISOString()
+  });
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {

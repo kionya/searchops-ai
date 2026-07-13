@@ -4,6 +4,7 @@ import {
   createLiveGeoAnswerMonitorAdaptersFromKeys,
   createLiveSchemaRichResultValidatorAdapter
 } from "@searchops/connectors";
+import { parseCredentialKeyring } from "@searchops/db";
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
@@ -15,15 +16,35 @@ import {
 } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
+const connectorLiveExternalApis = shouldEnableConnectorLiveApis(env);
+const credentialKeyring =
+  env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
+    ? undefined
+    : parseCredentialKeyring({
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+          ? {}
+          : {
+              SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+                env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
+            })
+      });
 const crawlRuntime = createCrawlWorker({ redisUrl: env.REDIS_URL });
 const connectorSyncRuntime = createConnectorSyncWorker({
   redisUrl: env.REDIS_URL,
   processorOptions: {
     bingApiKey: env.SEARCHOPS_BING_API_KEY,
+    credentialKeyring,
+    credentialStorageMode: env.SEARCHOPS_CREDENTIAL_STORAGE_MODE,
     ga4PropertyId: env.SEARCHOPS_GA4_PROPERTY_ID,
     googleOAuthClientId: env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID,
     googleOAuthClientSecret: env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET,
-    liveExternalApis: shouldEnableConnectorLiveApis(env) ? "enabled" : "disabled",
+    liveExternalApis: connectorLiveExternalApis ? "enabled" : "disabled",
     pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY
   }
 });
@@ -115,10 +136,5 @@ process.once("SIGTERM", () => {
 console.log(`SearchOps worker listening for jobs: ${workerJobNames.join(", ")}`);
 
 function shouldEnableConnectorLiveApis(env: ReturnType<typeof parseSearchOpsEnv>) {
-  return Boolean(
-    env.SEARCHOPS_BING_API_KEY ||
-      env.SEARCHOPS_GA4_PROPERTY_ID ||
-      env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID ||
-      env.SEARCHOPS_PAGESPEED_API_KEY,
-  );
+  return env.SEARCHOPS_CREDENTIAL_STORAGE_MODE !== undefined;
 }

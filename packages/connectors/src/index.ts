@@ -14,6 +14,7 @@ import {
   type BingUrlMetric,
   type CmsPageRecord,
   type ConnectorAuthMode,
+  type ConnectorCredentialSources,
   type ConnectorOAuthProvider,
   type ConnectorProvider,
   type ConnectorRecord,
@@ -30,6 +31,7 @@ import {
   type JsonLdObject,
   type LiveExternalApiMode,
   type PageSpeedMetric,
+  type ProviderCredentialFailureCode,
   type SchemaJsonLdType,
   type SchemaRichResultValidationIssue,
   type SchemaRichResultValidationResult,
@@ -185,20 +187,39 @@ export interface GoogleConnectorOAuthCredential {
   readonly tokenExpiresAt?: string | null;
 }
 
+export type GoogleOAuthCredential = GoogleConnectorOAuthCredential;
+
+export interface LiveConnectorProviderConfigs {
+  readonly bing?: { readonly apiKey: string; readonly siteUrl: string } | undefined;
+  readonly ga4?: {
+    readonly credential: GoogleOAuthCredential;
+    readonly propertyId: string;
+  } | undefined;
+  readonly gsc?: {
+    readonly credential: GoogleOAuthCredential;
+    readonly propertyId: string;
+  } | undefined;
+  readonly pagespeed?: {
+    readonly apiKey?: string | undefined;
+    readonly siteUrl: string;
+  } | undefined;
+}
+
 export interface LiveConnectorBatchSyncRequest extends ConnectorBatchSyncRequest {
-  readonly bingApiKey?: string | undefined;
+  readonly credentialSources?: ConnectorCredentialSources | undefined;
   readonly fetch?: typeof fetch | undefined;
-  readonly ga4PropertyId?: string | undefined;
-  readonly googleOAuthCredentials?: readonly GoogleConnectorOAuthCredential[] | undefined;
-  readonly pagespeedApiKey?: string | undefined;
-  readonly siteDomain: string;
+  readonly providerConfigs: LiveConnectorProviderConfigs;
+  readonly providerFailures?: Partial<
+    Record<ConnectorProvider, ProviderCredentialFailureCode>
+  > | undefined;
 }
 
 export interface LiveGscConnectorAdapterConfig {
   readonly credential: GoogleConnectorOAuthCredential;
   readonly fetch?: typeof fetch | undefined;
+  readonly propertyId?: string | undefined;
   readonly rowLimit?: number | undefined;
-  readonly siteDomain: string;
+  readonly siteDomain?: string | undefined;
 }
 
 export interface LiveGa4ConnectorAdapterConfig {
@@ -222,6 +243,7 @@ export interface LiveBingConnectorAdapterConfig {
 }
 
 export interface ConnectorBatchSyncSummary {
+  readonly credentialSources?: ConnectorCredentialSources | undefined;
   readonly failedProviders: number;
   readonly okProviders: number;
   readonly partialProviders: number;
@@ -704,11 +726,15 @@ export function createFixtureConnectorAdapter({
 export function createLiveGscConnectorAdapter({
   credential,
   fetch: fetchImpl = fetch,
+  propertyId,
   rowLimit = connectorPageSize,
   siteDomain
 }: LiveGscConnectorAdapterConfig): ConnectorAdapter {
   assertGoogleCredential("gsc", credential);
-  const siteUrl = normalizeSiteUrl(siteDomain);
+  const siteUrl = propertyId ?? (siteDomain ? normalizeSiteUrl(siteDomain) : "");
+  if (!siteUrl) {
+    throw new Error("Google Search Console property ID is required");
+  }
 
   return {
     authMode: "oauth",
@@ -1176,43 +1202,38 @@ export async function syncFixtureConnectors({
 }
 
 export async function syncLiveConnectors({
-  bingApiKey,
+  credentialSources,
   fetchedAt,
   fetch: fetchImpl,
-  ga4PropertyId,
-  googleOAuthCredentials = [],
-  pagespeedApiKey,
+  providerConfigs,
+  providerFailures = {},
   providers = connectorProviders,
-  siteDomain
 }: LiveConnectorBatchSyncRequest): Promise<ConnectorBatchSyncResult> {
   const orderedProviders = orderConnectorProviders(providers);
   const results = await Promise.all(
     orderedProviders.map(async (provider) => {
       try {
-        const adapter = createLiveConnectorAdapter(provider, {
-          bingApiKey,
-          fetch: fetchImpl,
-          ga4PropertyId,
-          googleOAuthCredentials,
-          pagespeedApiKey,
-          siteDomain
-        });
+        const resolutionFailure = providerFailures[provider];
+        if (resolutionFailure !== undefined) {
+          return createCredentialResolutionFailureResult(provider, fetchedAt, resolutionFailure);
+        }
+
+        const adapter = createLiveConnectorAdapter(provider, providerConfigs, fetchImpl);
 
         if (adapter === null) {
           return createSetupRequiredConnectorRunResult(
             provider,
             fetchedAt,
-            createMissingLiveConnectorError(provider, {
-              bingApiKey,
-              ga4PropertyId,
-              googleOAuthCredentials,
-              pagespeedApiKey
-            }),
+            createMissingLiveConnectorError(provider, providerConfigs),
           );
         }
 
         return await adapter.sync({ fetchedAt });
       } catch (error) {
+        const credentialFailure = normalizeLiveProviderCredentialFailure(provider, error);
+        if (credentialFailure !== null) {
+          return createCredentialResolutionFailureResult(provider, fetchedAt, credentialFailure);
+        }
         if (isConnectorSetupRequiredError(error)) {
           return createSetupRequiredConnectorRunResult(provider, fetchedAt, error);
         }
@@ -1224,7 +1245,10 @@ export async function syncLiveConnectors({
 
   return {
     results,
-    summary: summarizeConnectorRunResults(results)
+    summary: {
+      ...summarizeConnectorRunResults(results),
+      ...(credentialSources === undefined ? {} : { credentialSources })
+    }
   };
 }
 
@@ -1770,60 +1794,62 @@ function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
 
 function createLiveConnectorAdapter(
   provider: ConnectorProvider,
-  config: Omit<LiveConnectorBatchSyncRequest, "fetchedAt" | "providers">,
+  configs: LiveConnectorProviderConfigs,
+  fetchImpl?: typeof fetch,
 ): ConnectorAdapter | null {
   switch (provider) {
-    case "bing":
-      return config.bingApiKey
+    case "bing": {
+      const config = configs.bing;
+      return config
         ? createLiveBingConnectorAdapter({
-            apiKey: config.bingApiKey,
-            fetch: config.fetch,
-            siteDomain: config.siteDomain
+            apiKey: config.apiKey,
+            fetch: fetchImpl,
+            siteDomain: config.siteUrl
           })
         : null;
+    }
     case "cms":
       return null;
     case "ga4": {
-      const credential = findGoogleCredential("ga4", config.googleOAuthCredentials ?? []);
-      if (!credential || !config.ga4PropertyId) {
+      const config = configs.ga4;
+      if (!config) {
         return null;
       }
 
       return createLiveGa4ConnectorAdapter({
-        credential,
-        fetch: config.fetch,
-        propertyId: config.ga4PropertyId
+        credential: config.credential,
+        fetch: fetchImpl,
+        propertyId: config.propertyId
       });
     }
     case "gsc": {
-      const credential = findGoogleCredential("gsc", config.googleOAuthCredentials ?? []);
-      if (!credential) {
+      const config = configs.gsc;
+      if (!config) {
         return null;
       }
 
       return createLiveGscConnectorAdapter({
-        credential,
-        fetch: config.fetch,
-        siteDomain: config.siteDomain
+        credential: config.credential,
+        fetch: fetchImpl,
+        propertyId: config.propertyId
       });
     }
-    case "pagespeed":
-      return config.pagespeedApiKey
+    case "pagespeed": {
+      const config = configs.pagespeed;
+      return config?.apiKey
         ? createLivePageSpeedConnectorAdapter({
-            apiKey: config.pagespeedApiKey,
-            fetch: config.fetch,
-            siteDomain: config.siteDomain
+            apiKey: config.apiKey,
+            fetch: fetchImpl,
+            siteDomain: config.siteUrl
           })
         : null;
+    }
   }
 }
 
 function createMissingLiveConnectorError(
   provider: ConnectorProvider,
-  config: Pick<
-    LiveConnectorBatchSyncRequest,
-    "bingApiKey" | "ga4PropertyId" | "googleOAuthCredentials" | "pagespeedApiKey"
-  >,
+  configs: LiveConnectorProviderConfigs,
 ) {
   switch (provider) {
     case "bing":
@@ -1850,8 +1876,7 @@ function createMissingLiveConnectorError(
         },
       );
     case "ga4": {
-      const hasCredential = Boolean(findGoogleCredential("ga4", config.googleOAuthCredentials ?? []));
-      if (!hasCredential) {
+      if (!configs.ga4) {
         return new ConnectorProviderDiagnosticError("GA4 OAuth credential is missing for this site.", {
           code: "ga4_oauth_missing",
           nextAction:
@@ -1861,7 +1886,7 @@ function createMissingLiveConnectorError(
         });
       }
 
-      return new ConnectorProviderDiagnosticError("GA4 property ID is missing in the worker runtime.", {
+      return new ConnectorProviderDiagnosticError("GA4 property ID is missing for this site.", {
         code: "ga4_property_id_missing",
         nextAction:
           "Railway worker 환경변수 SEARCHOPS_GA4_PROPERTY_ID에 GA4 관리 > 속성 세부정보의 숫자 Property ID를 넣고 GA4만 다시 실행하세요.",
@@ -1889,6 +1914,51 @@ function createMissingLiveConnectorError(
         },
       );
   }
+}
+
+function createCredentialResolutionFailureResult(
+  provider: ConnectorProvider,
+  fetchedAt: string,
+  code: ProviderCredentialFailureCode,
+): ConnectorRunResult {
+  const setupRequired = isCredentialSetupRequired(code);
+  const error = new ConnectorProviderDiagnosticError(code, {
+    code,
+    nextAction:
+      "사이트 커넥터의 계정, 권한, 리소스 설정을 확인한 뒤 해당 provider를 다시 실행하세요.",
+    operatorMessage: `Connector credential resolution failed: ${code}`,
+    setupRequired
+  });
+
+  return setupRequired
+    ? createSetupRequiredConnectorRunResult(provider, fetchedAt, error)
+    : createFailedConnectorRunResult(provider, fetchedAt, error);
+}
+
+function normalizeLiveProviderCredentialFailure(
+  provider: ConnectorProvider,
+  error: unknown,
+): ProviderCredentialFailureCode | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("status 429")) {
+    return "provider_rate_limited";
+  }
+  if (normalized.includes("status 403")) {
+    return "resource_access_denied";
+  }
+  if (normalized.includes("status 401")) {
+    return "credential_expired";
+  }
+  if (provider === "bing" && normalized.includes("status 400")) {
+    return "credential_revoked";
+  }
+  return null;
+}
+
+function isCredentialSetupRequired(code: ProviderCredentialFailureCode) {
+  return code !== "provider_rate_limited" && code !== "resource_access_denied";
 }
 
 interface GscSearchAnalyticsApiResponse {
@@ -1924,13 +1994,6 @@ function assertGoogleCredential(
   if (credential.status !== undefined && credential.status !== "connected") {
     throw new Error(`Google OAuth credential is not connected: ${credential.status}`);
   }
-}
-
-function findGoogleCredential(
-  provider: ConnectorOAuthProvider,
-  credentials: readonly GoogleConnectorOAuthCredential[],
-) {
-  return credentials.find((credential) => credential.provider === provider);
 }
 
 function normalizeSiteUrl(siteDomain: string) {
@@ -2065,69 +2128,10 @@ function parseRetryAfterMs(response: Response): number | null {
   return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
 }
 
-async function assertFetchOk(response: Response, serviceName: string) {
+function assertFetchOk(response: Response, serviceName: string) {
   if (!response.ok) {
-    const detail = await readConnectorErrorDetail(response);
-    const suffix = detail ? `: ${detail}` : "";
-    throw new Error(`${serviceName} request failed with status ${response.status}${suffix}`);
+    throw new Error(`${serviceName} request failed with status ${response.status}`);
   }
-}
-
-async function readConnectorErrorDetail(response: Response) {
-  try {
-    const raw = (await response.text()).trim();
-    if (raw.length === 0) {
-      return "";
-    }
-
-    return summarizeConnectorErrorBody(raw);
-  } catch {
-    return "";
-  }
-}
-
-function summarizeConnectorErrorBody(raw: string) {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const message = readJsonErrorMessage(parsed);
-    if (message) {
-      return truncateConnectorErrorDetail(message);
-    }
-  } catch {
-    // Use the raw response text below when the provider does not return JSON.
-  }
-
-  return truncateConnectorErrorDetail(raw.replace(/\s+/g, " "));
-}
-
-function readJsonErrorMessage(value: unknown): string | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const error = record.error;
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error && typeof error === "object") {
-    const errorRecord = error as Record<string, unknown>;
-    if (typeof errorRecord.message === "string") {
-      return errorRecord.message;
-    }
-  }
-
-  if (typeof record.message === "string") {
-    return record.message;
-  }
-
-  return null;
-}
-
-function truncateConnectorErrorDetail(value: string) {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
 }
 
 function unwrapBingUrlInfo(response: BingUrlInfoApiResponse): Record<string, unknown> {
