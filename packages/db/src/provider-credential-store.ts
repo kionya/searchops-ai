@@ -387,7 +387,8 @@ export function createPrismaProviderCredentialStore(
               where: {
                 organizationId: input.organizationId,
                 provider: target.provider,
-                id: { not: input.providerAccountId }
+                id: { not: input.providerAccountId },
+                isDefault: true
               },
               data: { isDefault: false }
             });
@@ -640,6 +641,7 @@ type ProviderAccountMetadataUpdateWhere =
       readonly organizationId: string;
       readonly provider: string;
       readonly id: { readonly not: string };
+      readonly isDefault: true;
     };
 
 interface ProviderAccountMetadataUpdateData {

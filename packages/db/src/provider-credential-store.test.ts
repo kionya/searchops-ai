@@ -121,12 +121,17 @@ describe("provider credential store", () => {
   });
 
   it("sets one default while clearing only other same-provider tenant accounts", async () => {
+    const currentDefaultUpdatedAt = new Date("2026-07-13T00:00:01.000Z");
+    const alreadyFalseUpdatedAt = new Date("2026-07-13T00:00:02.000Z");
+    const otherProviderUpdatedAt = new Date("2026-07-13T00:00:03.000Z");
+    const otherOrganizationUpdatedAt = new Date("2026-07-13T00:00:04.000Z");
     const prisma = fakePrisma({
       accounts: [
         account(),
-        account({ id: "pa_google_other", isDefault: true }),
-        account({ id: "pa_bing", provider: "bing", isDefault: true }),
-        account({ id: "pa_org_b", organizationId: "org_b", isDefault: true }),
+        account({ id: "pa_google_default", isDefault: true, updatedAt: currentDefaultUpdatedAt }),
+        account({ id: "pa_google_false", updatedAt: alreadyFalseUpdatedAt }),
+        account({ id: "pa_bing", provider: "bing", isDefault: true, updatedAt: otherProviderUpdatedAt }),
+        account({ id: "pa_org_b", organizationId: "org_b", isDefault: true, updatedAt: otherOrganizationUpdatedAt }),
       ],
     });
     const store = createPrismaProviderCredentialStore(prisma);
@@ -145,6 +150,7 @@ describe("provider credential store", () => {
           organizationId: "org_a",
           provider: "google",
           id: { not: "pa_a" },
+          isDefault: true,
         },
         data: { isDefault: false },
       },
@@ -153,9 +159,14 @@ describe("provider credential store", () => {
         data: { isDefault: true },
       },
     ]);
-    expect(prisma.accounts.find((row) => row.id === "pa_google_other")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_default")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_default")?.updatedAt).toBe(now);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_false")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_false")?.updatedAt).toBe(alreadyFalseUpdatedAt);
     expect(prisma.accounts.find((row) => row.id === "pa_bing")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_bing")?.updatedAt).toBe(otherProviderUpdatedAt);
     expect(prisma.accounts.find((row) => row.id === "pa_org_b")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_org_b")?.updatedAt).toBe(otherOrganizationUpdatedAt);
   });
 
   it("can clear a target default without updating sibling accounts", async () => {
@@ -202,8 +213,9 @@ describe("provider credential store", () => {
   });
 
   it("returns null when the tenant-scoped target disappears before update", async () => {
+    const siblingUpdatedAt = new Date("2026-07-13T00:00:05.000Z");
     const prisma = fakePrisma({
-      accounts: [account()],
+      accounts: [account(), account({ id: "pa_google_default", isDefault: true, updatedAt: siblingUpdatedAt })],
       providerAccountMetadataUpdateCountZero: true,
     });
 
@@ -211,12 +223,14 @@ describe("provider credential store", () => {
       createPrismaProviderCredentialStore(prisma).updateAccountMetadata({
         organizationId: "org_a",
         providerAccountId: "pa_a",
-        displayName: "Renamed Google",
+        isDefault: true,
       }),
     ).resolves.toBeNull();
 
     expect(prisma.calls.transactionProviderAccount.findFirst).toHaveLength(1);
-    expect(prisma.calls.transactionProviderAccount.updateMany).toHaveLength(1);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toHaveLength(2);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_default")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_default")?.updatedAt).toBe(siblingUpdatedAt);
   });
 
   it("rolls back default clearing and redacts unique conflicts", async () => {
@@ -866,6 +880,9 @@ function matches<T extends object>(row: T, where: Record<string, unknown>) {
   return Object.entries(where).every(([key, value]) => {
     if (typeof value === "object" && value !== null && "not" in value) {
       return values[key] !== value.not;
+    }
+    if (key === "isDefault") {
+      return values.isDefault === value;
     }
     return values[key] === value;
   });
