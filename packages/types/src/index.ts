@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import { CredentialStorageModeSchema } from "./provider-credentials.js";
+
+export * from "./provider-credentials.js";
+
 export const productName = "SearchOps AI" as const;
 export const crawlQueueName = "searchops-crawl" as const;
 export const connectorQueueName = "searchops-connectors" as const;
@@ -283,6 +287,10 @@ export type SecretRotationExecutionResponse = z.infer<
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: z.string().min(1).optional(),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: z.string().min(1).optional(),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: JsonObjectStringSchema.optional(),
+  SEARCHOPS_CREDENTIAL_STORAGE_MODE: CredentialStorageModeSchema.optional(),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
   SEARCHOPS_GA4_ACCESS_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_GA4_PROPERTY_ID: z.string().min(1).optional(),
