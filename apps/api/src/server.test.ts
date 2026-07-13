@@ -50,6 +50,7 @@ import {
   type AuthContextResolver,
 } from "./auth.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
+import type { GoogleOAuthStateStore } from "./google-oauth-state-store.js";
 import {
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
@@ -546,6 +547,7 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
         authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=fake_state&scope=${input.providers.join("+")}`,
         providers: input.providers,
         state: "fake_state",
+        stateIdentifier: "start-nonce",
         stateExpiresAt: "2026-05-27T00:10:00.000Z",
       };
     },
@@ -572,13 +574,35 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
       }
       return {
         issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: "nonce",
+        nonce: "callback-nonce",
         organizationId: seededSite.organizationId,
         providers: ["gsc", "ga4"],
         requestedByUserId: "user_connector",
         returnTo: null,
         siteId: seededSite.id,
       };
+    },
+  };
+}
+
+function createFakeGoogleOAuthStateStore(
+  initialIdentifiers: readonly string[] = ["callback-nonce"],
+): GoogleOAuthStateStore {
+  const active = new Set(initialIdentifiers);
+  return {
+    async issue(input) {
+      if (active.has(input.identifier)) {
+        return false;
+      }
+      active.add(input.identifier);
+      return true;
+    },
+    async consume(identifier) {
+      if (!active.has(identifier)) {
+        return false;
+      }
+      active.delete(identifier);
+      return true;
     },
   };
 }
@@ -663,7 +687,9 @@ function createFakeProviderAccountService(
 function buildConnectorOAuthTestContext(options: {
   readonly authContextResolver?: AuthContextResolver;
   readonly googleOAuthClient?: GoogleConnectorOAuthClient;
+  readonly googleOAuthStateStore?: GoogleOAuthStateStore;
   readonly includeGoogleOAuthClient?: boolean;
+  readonly includeGoogleOAuthStateStore?: boolean;
   readonly includeProviderAccountService?: boolean;
   readonly providerAccountService?: ProviderAccountService;
   readonly publicAppUrl?: string;
@@ -674,6 +700,8 @@ function buildConnectorOAuthTestContext(options: {
     sites: [...(options.sites ?? [seededSite])],
   });
   const googleOAuthClient = options.googleOAuthClient ?? createFakeGoogleOAuthClient();
+  const googleOAuthStateStore =
+    options.googleOAuthStateStore ?? createFakeGoogleOAuthStateStore();
   const providerAccountService =
     options.providerAccountService ?? createFakeProviderAccountService();
   const server = buildApiServer({
@@ -681,13 +709,21 @@ function buildConnectorOAuthTestContext(options: {
     currentTime: () => new Date("2026-05-27T00:00:00.000Z"),
     googleOAuthClient:
       options.includeGoogleOAuthClient === false ? undefined : googleOAuthClient,
+    googleOAuthStateStore:
+      options.includeGoogleOAuthStateStore === false ? undefined : googleOAuthStateStore,
     providerAccountService:
       options.includeProviderAccountService === false ? undefined : providerAccountService,
     publicAppUrl: options.publicAppUrl,
     repository,
   });
 
-  return { googleOAuthClient, providerAccountService, repository, server };
+  return {
+    googleOAuthClient,
+    googleOAuthStateStore,
+    providerAccountService,
+    repository,
+    server,
+  };
 }
 
 function buildGeoAnswerMonitorTestContext() {
@@ -2309,10 +2345,11 @@ describe("api foundation", () => {
       async (role) => {
         const client = createFakeGoogleOAuthClient();
         const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
-        const { server } = buildConnectorOAuthTestContext({
+        const { googleOAuthStateStore, server } = buildConnectorOAuthTestContext({
           googleOAuthClient: client,
           publicAppUrl: "https://app.searchops.test",
         });
+        const issue = vi.spyOn(googleOAuthStateStore, "issue");
         const response = await server.inject({
           method: "GET",
           url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed&providers=gsc,ga4&format=json&returnTo=https%3A%2F%2Fapp.searchops.test%2Fsites%2Fsite_seed%2Fconnectors",
@@ -2331,6 +2368,10 @@ describe("api foundation", () => {
           requestedByUserId: `user_${role}`,
           returnTo: "https://app.searchops.test/sites/site_seed/connectors",
           siteId: "site_seed",
+        });
+        expect(issue).toHaveBeenCalledWith({
+          expiresAt: "2026-05-27T00:10:00.000Z",
+          identifier: "start-nonce",
         });
       },
     );
@@ -2406,13 +2447,19 @@ describe("api foundation", () => {
     });
 
     it.each([
-      [false, true],
-      [true, false],
+      [false, true, true],
+      [true, false, true],
+      [true, true, false],
     ] as const)(
       "returns a generic 503 when OAuth dependencies are unavailable",
-      async (includeGoogleOAuthClient, includeProviderAccountService) => {
+      async (
+        includeGoogleOAuthClient,
+        includeProviderAccountService,
+        includeGoogleOAuthStateStore,
+      ) => {
         const { server } = buildConnectorOAuthTestContext({
           includeGoogleOAuthClient,
+          includeGoogleOAuthStateStore,
           includeProviderAccountService,
         });
         const response = await server.inject({
@@ -2426,6 +2473,40 @@ describe("api foundation", () => {
           error: "oauth_service_unavailable",
           message: "Google OAuth service is unavailable",
         });
+      },
+    );
+
+    it.each([false, "throw"] as const)(
+      "fails closed without exposing authorization state when registration returns %s",
+      async (failure) => {
+        const stateStore: GoogleOAuthStateStore = {
+          async issue() {
+            if (failure === "throw") {
+              throw new Error("redis-registration-detail");
+            }
+            return false;
+          },
+          async consume() {
+            return false;
+          },
+        };
+        const { server } = buildConnectorOAuthTestContext({
+          googleOAuthStateStore: stateStore,
+        });
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed&format=json",
+          headers: userHeaders("owner"),
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toEqual({
+          error: "oauth_state_store_unavailable",
+          message: "Google OAuth state could not be registered",
+        });
+        expect(response.body).not.toContain("accounts.google.com");
+        expect(response.body).not.toContain("fake_state");
+        expect(response.body).not.toContain("redis-registration-detail");
       },
     );
 
@@ -2535,6 +2616,160 @@ describe("api foundation", () => {
       }
     });
 
+    it("accepts Google extension query params while verifying and consuming state", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const verifyState = vi.spyOn(client, "verifyState");
+      const { googleOAuthStateStore, server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+      });
+      const consume = vi.spyOn(googleOAuthStateStore, "consume");
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123&scope=openid%20email&authuser=0&prompt=consent&hd=example.com&future_google_param=ignored-secret",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(verifyState).toHaveBeenCalledWith("fake_state");
+      expect(consume).toHaveBeenCalledWith("callback-nonce");
+      expect(response.body).not.toContain("ignored-secret");
+      expect(response.body).not.toContain("future_google_param");
+    });
+
+    it("preserves configured resources and repeats identical binding inputs on a fresh OAuth state", async () => {
+      const configuredGsc: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        externalResourceId: "sc-domain:configured.example",
+        providerAccountId: "pa_previous_google",
+        status: "connected",
+      };
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      const listInputs: Parameters<ProviderAccountService["listSiteConnectors"]>[0][] = [];
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors(input) {
+          listInputs.push(input);
+          return [configuredGsc];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          return input.provider === "gsc"
+            ? {
+                ...configuredGsc,
+                providerAccountId: input.providerAccountId,
+              }
+            : googleOAuthPlaceholder("ga4");
+        },
+      });
+      const stateStore = createFakeGoogleOAuthStateStore(["nonce-a", "nonce-b"]);
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockImplementation((state) => ({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: state === "state-a" ? "nonce-a" : "nonce-b",
+        organizationId: "org_demo",
+        providers: ["gsc", "ga4"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      }));
+      const { repository, server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: stateStore,
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+
+      const first = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=state-a&code=code-a",
+      });
+      const second = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=state-b&code=code-b",
+      });
+
+      expect([first.statusCode, second.statusCode]).toEqual([200, 200]);
+      expect(listInputs).toEqual([
+        { organizationId: "org_demo", siteId: "site_seed" },
+        { organizationId: "org_demo", siteId: "site_seed" },
+      ]);
+      const expectedBindings = [
+        {
+          externalResourceId: "sc-domain:configured.example",
+          organizationId: "org_demo",
+          provider: "gsc" as const,
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4" as const,
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ];
+      expect(connectorInputs).toEqual([...expectedBindings, ...expectedBindings]);
+      expect(legacyWrite).not.toHaveBeenCalled();
+    });
+
+    it("rejects replay before provider calls and consumes provider-declined callbacks", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const service = createFakeProviderAccountService();
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const stateStore = createFakeGoogleOAuthStateStore();
+      const consume = vi.spyOn(stateStore, "consume");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: stateStore,
+        providerAccountService: service,
+      });
+
+      const declined = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&error=access_denied&error_description=provider-secret&scope=openid",
+      });
+      const replay = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=different-valid-code",
+      });
+
+      expect(declined.statusCode).toBe(400);
+      expect(declined.json()).toEqual({
+        error: "oauth_error",
+        message: "Google OAuth authorization was not completed",
+      });
+      expect(declined.body).not.toContain("provider-secret");
+      expect(replay.statusCode).toBe(400);
+      expect(replay.json()).toEqual({
+        error: "oauth_state_replayed",
+        message: "Google OAuth state is invalid or already used",
+      });
+      expect(consume).toHaveBeenCalledTimes(2);
+      expect(exchange).not.toHaveBeenCalled();
+      expect(accountUpsert).not.toHaveBeenCalled();
+    });
+
+    it("does not consume a malformed completion missing code and provider error", async () => {
+      const stateStore = createFakeGoogleOAuthStateStore();
+      const consume = vi.spyOn(stateStore, "consume");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthStateStore: stateStore,
+      });
+
+      const malformed = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&scope=openid",
+      });
+      const valid = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-after-malformed",
+      });
+
+      expect(malformed.statusCode).toBe(400);
+      expect(consume).toHaveBeenCalledTimes(1);
+      expect(valid.statusCode).toBe(200);
+    });
+
     it("returns scope_missing without connector or legacy writes", async () => {
       let connectorWrites = 0;
       const service = createFakeProviderAccountService({
@@ -2564,12 +2799,172 @@ describe("api foundation", () => {
       expect(legacyWrite).not.toHaveBeenCalled();
     });
 
+    it("requires a fresh OAuth state to idempotently repair a partial connector failure", async () => {
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockImplementation((state) => ({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: state === "partial-state" ? "partial-nonce" : "retry-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc", "ga4"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      }));
+      const stateStore = createFakeGoogleOAuthStateStore([
+        "partial-nonce",
+        "retry-nonce",
+      ]);
+      const configuredGsc: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        externalResourceId: "sc-domain:configured.example",
+        status: "connected",
+      };
+      const existing: SiteConnector[] = [configuredGsc];
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      let failGa4 = true;
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors() {
+          return [...existing];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          if (input.provider === "ga4" && failGa4) {
+            failGa4 = false;
+            throw new Error("binding-failure-access-token-sentinel");
+          }
+          const saved =
+            input.provider === "gsc"
+              ? { ...configuredGsc, providerAccountId: input.providerAccountId }
+              : googleOAuthPlaceholder("ga4");
+          const index = existing.findIndex((connector) => connector.provider === input.provider);
+          if (index === -1) {
+            existing.push(saved);
+          } else {
+            existing[index] = saved;
+          }
+          return saved;
+        },
+      });
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const { repository, server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: stateStore,
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+
+      const partial = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=partial-state&code=partial-code",
+      });
+      const replay = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=partial-state&code=replay-code",
+      });
+      const repaired = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=retry-state&code=retry-code",
+      });
+
+      expect(partial.statusCode).toBe(502);
+      expect(partial.json()).toEqual({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
+      });
+      expect(partial.body).not.toContain("binding-failure-access-token-sentinel");
+      expect(partial.body).not.toContain('"status":"connected"');
+      expect(replay.statusCode).toBe(400);
+      expect(replay.json()).toMatchObject({ error: "oauth_state_replayed" });
+      expect(repaired.statusCode).toBe(200);
+      expect(accountUpsert).toHaveBeenCalledTimes(2);
+      expect(connectorInputs).toEqual([
+        {
+          externalResourceId: "sc-domain:configured.example",
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+        {
+          externalResourceId: "sc-domain:configured.example",
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      for (const input of connectorInputs) {
+        expect(input).toMatchObject({
+          organizationId: "org_demo",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        });
+      }
+      expect(legacyWrite).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when state consumption storage is unavailable", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const service = createFakeProviderAccountService();
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: {
+          async issue() {
+            return true;
+          },
+          async consume() {
+            throw new Error("redis-consume-detail-sentinel");
+          },
+        },
+        providerAccountService: service,
+      });
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        error: "oauth_state_store_unavailable",
+        message: "Google OAuth state could not be consumed",
+      });
+      expect(response.body).not.toContain("redis-consume-detail-sentinel");
+      expect(exchange).not.toHaveBeenCalled();
+      expect(accountUpsert).not.toHaveBeenCalled();
+    });
+
     it("returns generic callback failures without provider details or token values", async () => {
       const failingClient = createFakeGoogleOAuthClient();
       vi.spyOn(failingClient, "exchangeCodeForTokens").mockRejectedValue(
         new Error("userinfo failed with access_token and refresh_token"),
       );
-      const { server } = buildConnectorOAuthTestContext({ googleOAuthClient: failingClient });
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: failingClient,
+        googleOAuthStateStore: {
+          async issue() {
+            return true;
+          },
+          async consume() {
+            return true;
+          },
+        },
+      });
       const userinfoFailure = await server.inject({
         method: "GET",
         url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
@@ -2627,7 +3022,7 @@ describe("api foundation", () => {
       const client = createFakeGoogleOAuthClient();
       vi.spyOn(client, "verifyState").mockReturnValue({
         issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: "nonce",
+        nonce: "callback-nonce",
         organizationId: "org_other",
         providers: ["gsc"],
         requestedByUserId: "user_connector",
@@ -2650,7 +3045,7 @@ describe("api foundation", () => {
       const safeClient = createFakeGoogleOAuthClient();
       vi.spyOn(safeClient, "verifyState").mockReturnValue({
         issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: "nonce",
+        nonce: "callback-nonce",
         organizationId: "org_demo",
         providers: ["gsc", "ga4"],
         requestedByUserId: "user_connector",
@@ -2674,7 +3069,7 @@ describe("api foundation", () => {
       const foreignClient = createFakeGoogleOAuthClient();
       vi.spyOn(foreignClient, "verifyState").mockReturnValue({
         issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: "nonce",
+        nonce: "callback-nonce",
         organizationId: "org_demo",
         providers: ["gsc"],
         requestedByUserId: "user_connector",
@@ -5589,6 +5984,7 @@ describe("api foundation", () => {
 
 function installApiEntrypointMocks(options: {
   readonly credentialStorageMode?: "encrypted";
+  readonly googleOAuthConfigured?: boolean;
   readonly keyringError?: Error;
 }) {
   vi.resetModules();
@@ -5613,6 +6009,16 @@ function installApiEntrypointMocks(options: {
   const createPrismaProviderCredentialStore = vi.fn(() => providerStore);
   const providerAccountService = { kind: "provider-account-service" };
   const createProviderAccountService = vi.fn(() => providerAccountService);
+  const googleOAuthClient = { kind: "google-oauth-client" };
+  const createGoogleConnectorOAuthClientFromEnv = vi.fn(() =>
+    options.googleOAuthConfigured === true ? googleOAuthClient : undefined,
+  );
+  const googleOAuthStateStore = {
+    close: vi.fn().mockResolvedValue(undefined),
+    consume: vi.fn(),
+    issue: vi.fn(),
+  };
+  const createIoredisGoogleOAuthStateStore = vi.fn(() => googleOAuthStateStore);
   const repository = { kind: "repository" };
   const createPrismaRepository = vi.fn(() => repository);
   const closeable = () => ({ close: vi.fn().mockResolvedValue(undefined) });
@@ -5655,7 +6061,10 @@ function installApiEntrypointMocks(options: {
     createIoredisApiRateLimitStore: vi.fn(),
   }));
   vi.doMock("./google-oauth.js", () => ({
-    createGoogleConnectorOAuthClientFromEnv: vi.fn(),
+    createGoogleConnectorOAuthClientFromEnv,
+  }));
+  vi.doMock("./google-oauth-state-store.js", () => ({
+    createIoredisGoogleOAuthStateStore,
   }));
   vi.doMock("./prisma-repository.js", () => ({ createPrismaRepository }));
   vi.doMock("./provider-account-service.js", () => ({ createProviderAccountService }));
@@ -5664,8 +6073,10 @@ function installApiEntrypointMocks(options: {
 
   return {
     buildApiServer,
+    createIoredisGoogleOAuthStateStore,
     createPrismaProviderCredentialStore,
     createProviderAccountService,
+    googleOAuthStateStore,
     parseCredentialKeyring,
     server,
   };
@@ -5680,8 +6091,12 @@ describe.sequential("provider credential startup wiring", () => {
     expect(mocks.parseCredentialKeyring).not.toHaveBeenCalled();
     expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
     expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
+    expect(mocks.createIoredisGoogleOAuthStateStore).not.toHaveBeenCalled();
     expect(mocks.buildApiServer).toHaveBeenCalledWith(
-      expect.objectContaining({ providerAccountService: undefined }),
+      expect.objectContaining({
+        googleOAuthStateStore: undefined,
+        providerAccountService: undefined,
+      }),
     );
     expect(mocks.server.listen).toHaveBeenCalledOnce();
   });
@@ -5700,5 +6115,24 @@ describe.sequential("provider credential startup wiring", () => {
     expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
     expect(mocks.buildApiServer).not.toHaveBeenCalled();
     expect(mocks.server.listen).not.toHaveBeenCalled();
+  });
+
+  it("wires a Redis OAuth state store only when Google OAuth is configured and closes it", async () => {
+    const mocks = installApiEntrypointMocks({ googleOAuthConfigured: true });
+
+    await import("./index.js");
+
+    expect(mocks.createIoredisGoogleOAuthStateStore).toHaveBeenCalledWith({
+      redisUrl: "redis://localhost:6379",
+    });
+    expect(mocks.buildApiServer).toHaveBeenCalledWith(
+      expect.objectContaining({ googleOAuthStateStore: mocks.googleOAuthStateStore }),
+    );
+    const onClose = mocks.server.addHook.mock.calls.find(
+      ([hookName]) => hookName === "onClose",
+    )?.[1] as (() => Promise<void>) | undefined;
+    expect(onClose).toBeTypeOf("function");
+    await onClose?.();
+    expect(mocks.googleOAuthStateStore.close).toHaveBeenCalledOnce();
   });
 });

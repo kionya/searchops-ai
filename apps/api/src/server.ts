@@ -183,6 +183,10 @@ import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay
 import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
 import { createProductizationReadiness } from "./productization-readiness.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
+import {
+  createMemoryGoogleOAuthStateStore,
+  type GoogleOAuthStateStore,
+} from "./google-oauth-state-store.js";
 import { createOperationalReadiness } from "./readiness.js";
 import {
   ProviderAccountServiceError,
@@ -225,7 +229,7 @@ const GoogleOAuthCallbackQuerySchema = z.object({
   code: z.string().min(1).optional(),
   error: z.string().min(1).optional(),
   state: z.string().min(1),
-}).strict();
+});
 
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
@@ -233,6 +237,7 @@ export interface BuildApiServerOptions {
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
   readonly googleOAuthClient?: GoogleConnectorOAuthClient | undefined;
+  readonly googleOAuthStateStore?: GoogleOAuthStateStore | undefined;
   readonly schemaRichResultValidationQueue?: SchemaRichResultValidationQueue;
   readonly deadLetterJobStore?: DeadLetterJobStore;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
@@ -281,11 +286,20 @@ function requireProviderAccountService(
 
 function requireGoogleOAuthServices(
   googleOAuthClient: GoogleConnectorOAuthClient | undefined,
+  googleOAuthStateStore: GoogleOAuthStateStore | undefined,
   providerAccountService: ProviderAccountService | undefined,
   reply: FastifyReply,
-): { googleOAuthClient: GoogleConnectorOAuthClient; providerAccountService: ProviderAccountService } | null {
-  if (googleOAuthClient !== undefined && providerAccountService !== undefined) {
-    return { googleOAuthClient, providerAccountService };
+): {
+  googleOAuthClient: GoogleConnectorOAuthClient;
+  googleOAuthStateStore: GoogleOAuthStateStore;
+  providerAccountService: ProviderAccountService;
+} | null {
+  if (
+    googleOAuthClient !== undefined &&
+    googleOAuthStateStore !== undefined &&
+    providerAccountService !== undefined
+  ) {
+    return { googleOAuthClient, googleOAuthStateStore, providerAccountService };
   }
 
   reply.status(503).send({
@@ -416,6 +430,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.requireCmsWebhookSignature ??
     (Object.keys(cmsWebhookSecrets).length > 0 || process.env.NODE_ENV === "production");
   const currentTime = options.currentTime ?? (() => new Date());
+  const googleOAuthStateStore = Object.prototype.hasOwnProperty.call(
+    options,
+    "googleOAuthStateStore",
+  )
+    ? options.googleOAuthStateStore
+    : createMemoryGoogleOAuthStateStore({ currentTime });
   const rateLimit = options.rateLimit ?? {
     enabled: false,
     maxRequests: 120,
@@ -2216,6 +2236,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
       const services = requireGoogleOAuthServices(
         googleOAuthClient,
+        googleOAuthStateStore,
         providerAccountService,
         reply,
       );
@@ -2230,6 +2251,22 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         ...(returnTo === null ? {} : { returnTo }),
         siteId: site.id,
       });
+      let issued = false;
+      try {
+        issued = await services.googleOAuthStateStore.issue({
+          expiresAt: authorization.stateExpiresAt,
+          identifier: authorization.stateIdentifier,
+        });
+      } catch {
+        issued = false;
+      }
+      if (!issued) {
+        reply.status(503).send({
+          error: "oauth_state_store_unavailable",
+          message: "Google OAuth state could not be registered",
+        });
+        return;
+      }
 
       if (query.format === "json") {
         reply.send(
@@ -2282,6 +2319,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   server.get("/connectors/google/oauth/callback", async (request, reply) => {
     const services = requireGoogleOAuthServices(
       googleOAuthClient,
+      googleOAuthStateStore,
       providerAccountService,
       reply,
     );
@@ -2306,6 +2344,42 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    try {
+      validateOAuthReturnTo(state.returnTo, publicAppUrl);
+    } catch {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth return URL is invalid",
+      });
+      return;
+    }
+
+    if (query.error === undefined && query.code === undefined) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth code or provider error is required",
+      });
+      return;
+    }
+
+    let consumed: boolean;
+    try {
+      consumed = await services.googleOAuthStateStore.consume(state.nonce);
+    } catch {
+      reply.status(503).send({
+        error: "oauth_state_store_unavailable",
+        message: "Google OAuth state could not be consumed",
+      });
+      return;
+    }
+    if (!consumed) {
+      reply.status(400).send({
+        error: "oauth_state_replayed",
+        message: "Google OAuth state is invalid or already used",
+      });
+      return;
+    }
+
     if (query.error !== undefined) {
       reply.status(400).send({
         error: "oauth_error",
@@ -2322,16 +2396,6 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    try {
-      validateOAuthReturnTo(state.returnTo, publicAppUrl);
-    } catch {
-      reply.status(400).send({
-        error: "validation_error",
-        message: "OAuth return URL is invalid",
-      });
-      return;
-    }
-
     let tokenResult;
     try {
       tokenResult = await services.googleOAuthClient.exchangeCodeForTokens(query.code);
@@ -2339,6 +2403,22 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       reply.status(502).send({
         error: "oauth_exchange_failed",
         message: "Google OAuth authorization could not be completed",
+      });
+      return;
+    }
+
+    let existingConnectors: Awaited<
+      ReturnType<ProviderAccountService["listSiteConnectors"]>
+    >;
+    try {
+      existingConnectors = await services.providerAccountService.listSiteConnectors({
+        organizationId: state.organizationId,
+        siteId: state.siteId,
+      });
+    } catch {
+      reply.status(502).send({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
       });
       return;
     }
@@ -2358,16 +2438,32 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       verifiedExternalAccountId: tokenResult.externalAccountId,
     });
     const siteConnectors = [];
-    for (const provider of state.providers) {
-      siteConnectors.push(
-        await services.providerAccountService.upsertSiteConnector({
-          externalResourceId: null,
-          organizationId: state.organizationId,
-          provider,
-          providerAccountId: account.id,
-          siteId: state.siteId,
-        }),
-      );
+    try {
+      for (const provider of state.providers) {
+        const existingResourceId =
+          existingConnectors.find(
+            (connector) =>
+              connector.organizationId === state.organizationId &&
+              connector.siteId === state.siteId &&
+              connector.provider === provider &&
+              connector.externalResourceId !== null,
+          )?.externalResourceId ?? null;
+        siteConnectors.push(
+          await services.providerAccountService.upsertSiteConnector({
+            externalResourceId: existingResourceId,
+            organizationId: state.organizationId,
+            provider,
+            providerAccountId: account.id,
+            siteId: state.siteId,
+          }),
+        );
+      }
+    } catch {
+      reply.status(502).send({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
+      });
+      return;
     }
 
     const response = CompleteGoogleOAuthResponseSchema.parse({

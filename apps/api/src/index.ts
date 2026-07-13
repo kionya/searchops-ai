@@ -28,12 +28,17 @@ import {
 } from "./operations-hardening.js";
 import { createIoredisApiRateLimitStore } from "./redis-rate-limit.js";
 import { createGoogleConnectorOAuthClientFromEnv } from "./google-oauth.js";
+import { createIoredisGoogleOAuthStateStore } from "./google-oauth-state-store.js";
 import { createPrismaRepository } from "./prisma-repository.js";
 import { createProviderAccountService } from "./provider-account-service.js";
 import { buildApiServer } from "./server.js";
 
 const env = parseSearchOpsEnv(process.env);
 const googleOAuthClient = createGoogleConnectorOAuthClientFromEnv(process.env);
+const googleOAuthStateStore =
+  googleOAuthClient === undefined
+    ? undefined
+    : createIoredisGoogleOAuthStateStore({ redisUrl: env.REDIS_URL });
 const prisma = createSearchOpsPrismaClient();
 const providerAccountService =
   env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
@@ -129,6 +134,7 @@ const server = buildApiServer({
   deadLetterJobStore,
   geoAnswerMonitorQueue,
   googleOAuthClient,
+  googleOAuthStateStore,
   operationalAlertRouter,
   operationalLogDrain,
   providerAccountService,
@@ -148,6 +154,7 @@ server.addHook("onClose", async () => {
   await crawlRunQueue.close();
   await deadLetterJobStore.close();
   await geoAnswerMonitorQueue.close();
+  await googleOAuthStateStore?.close();
   await rateLimitStore?.close();
   await schemaRichResultValidationQueue.close();
   await prisma.$disconnect();

@@ -43,6 +43,16 @@ function oauthClient(fetch: typeof globalThis.fetch) {
   });
 }
 
+function stateClientAt(time: string) {
+  return createGoogleConnectorOAuthClient({
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    currentTime: () => new Date(time),
+    redirectUri: "https://api.example.com/connectors/google/oauth/callback",
+    stateSecret,
+  });
+}
+
 describe("google-oauth", () => {
   it("creates a signed authorization URL with GSC and GA4 readonly scopes", () => {
     const client = createGoogleConnectorOAuthClient({
@@ -71,6 +81,9 @@ describe("google-oauth", () => {
       providers: ["gsc", "ga4"],
       siteId: "site_1",
     });
+    expect(authorization.stateIdentifier).toBe(
+      client.verifyState(authorization.state).nonce,
+    );
   });
 
   it("rejects tampered state payloads", () => {
@@ -89,6 +102,28 @@ describe("google-oauth", () => {
 
     expect(verifyGoogleOAuthState(state, stateSecret)).toMatchObject({ siteId: "site_1" });
     expect(() => verifyGoogleOAuthState(`${state}x`, stateSecret)).toThrow(/signature/i);
+  });
+
+  it("accepts state time boundaries and rejects excessive future skew or age", () => {
+    const stateFor = (issuedAt: string) =>
+      signGoogleOAuthState(
+        {
+          issuedAt,
+          nonce: `nonce-${issuedAt}`,
+          organizationId: "org_1",
+          providers: ["gsc"],
+          requestedByUserId: "user_1",
+          returnTo: null,
+          siteId: "site_1",
+        },
+        stateSecret,
+      );
+    const client = stateClientAt("2026-05-27T00:10:00.000Z");
+
+    expect(() => client.verifyState(stateFor("2026-05-27T00:00:00.000Z"))).not.toThrow();
+    expect(() => client.verifyState(stateFor("2026-05-27T00:11:00.000Z"))).not.toThrow();
+    expect(() => client.verifyState(stateFor("2026-05-26T23:59:59.999Z"))).toThrow(/expired/i);
+    expect(() => client.verifyState(stateFor("2026-05-27T00:11:00.001Z"))).toThrow(/future/i);
   });
 
   it("exchanges tokens then loads a verified Google sub and email", async () => {
@@ -170,6 +205,18 @@ describe("google-oauth", () => {
     expect(error).toEqual(new Error("Google OAuth token exchange failed."));
     expect(String(error)).not.toContain(accessToken);
     expect(String(error)).not.toContain(refreshToken);
+  });
+
+  it.each([
+    ["malformed JSON", new Response("not-json", { status: 200 })],
+    ["out-of-range expiry", jsonResponse({ access_token: "access", expires_in: 1e20 })],
+  ])("returns a stable token error for %s", async (_name, response) => {
+    const sequence = createFetchSequence([response]);
+
+    await expect(oauthClient(sequence.fetch).exchangeCodeForTokens("code_123")).rejects.toEqual(
+      new Error("Google OAuth token exchange failed."),
+    );
+    expect(sequence.calls).toHaveLength(1);
   });
 
   it("does not leak access or refresh token values in userinfo errors", async () => {
