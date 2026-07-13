@@ -1,11 +1,28 @@
-import { createElement } from "react";
+import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderAccountSummary } from "@searchops/types";
 
+vi.mock("../../../src/provider-accounts", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    getCurrentProviderUser: vi.fn(async () => ({
+      accessToken: "current-user-token",
+      organizationId: "org_1",
+      role: "viewer",
+      userId: "user_1",
+    })),
+    loadOrganizationSites: vi.fn(async () => []),
+    loadProviderAccounts: vi.fn(async () => []),
+  };
+});
+vi.stubGlobal("React", React);
+
 import { ProviderAccountRows } from "./account-rows";
 import { GoogleConnectForm } from "./google-connect-form";
+import IntegrationsPage from "./page";
 import IntegrationsLoading from "./loading";
 import ConnectorsLoading from "../../sites/[siteId]/connectors/loading";
 
@@ -67,6 +84,20 @@ describe("provider account rows", () => {
 });
 
 describe("integration route load states", () => {
+  it("renders only resolvable aria-labelledby references", async () => {
+    const html = renderToStaticMarkup(
+      await IntegrationsPage({ searchParams: Promise.resolve({}) }),
+    );
+    const renderedIds = new Set(
+      [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]),
+    );
+    const labelledByIds = [...html.matchAll(/\saria-labelledby="([^"]+)"/g)]
+      .flatMap((match) => match[1]?.split(/\s+/) ?? []);
+
+    expect(html).toContain('<section aria-label="Provider 계정 연동">');
+    expect(labelledByIds.every((id) => renderedIds.has(id))).toBe(true);
+  });
+
   it("distinguishes a fixed site-list failure from a true empty site list", () => {
     const failed = renderToStaticMarkup(createElement(GoogleConnectForm, {
       canManage: false,

@@ -85,7 +85,7 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
       eyebrow="Operations"
       title="연동 관리"
     >
-      <section aria-labelledby="integrations-heading">
+      <section aria-label="Provider 계정 연동">
         <SectionHeader
           description="계정 메타데이터와 사이트 연결 수만 표시합니다."
           eyebrow="연동"

@@ -26,27 +26,24 @@ import {
   type GoogleOAuthCredential,
   type LiveConnectorProviderConfigs,
 } from "@searchops/connectors";
-import type {
-  ConnectorRunResult,
-  ConnectorCredentialSources,
-  ConnectorProvider,
-  ConnectorSyncJobPayload,
-  CredentialStorageMode,
-  GeoAnswerMonitorJobPayload,
-  GeoAnswerMonitorProvider,
-  GeoAnswerMonitorProviderError,
-  GeoCredentialSources,
-  ProviderAccountStatus,
-  ProviderCredentialFailureCode,
-  SiteConnector,
-  SiteConnectorProvider,
-  SiteConnectorStatus,
+import {
+  isGoogleConnectorScopeSatisfied,
+  type ConnectorRunResult,
+  type ConnectorCredentialSources,
+  type ConnectorProvider,
+  type ConnectorSyncJobPayload,
+  type CredentialStorageMode,
+  type GeoAnswerMonitorJobPayload,
+  type GeoAnswerMonitorProvider,
+  type GeoAnswerMonitorProviderError,
+  type GeoCredentialSources,
+  type ProviderAccountStatus,
+  type ProviderCredentialFailureCode,
+  type SiteConnector,
+  type SiteConnectorProvider,
+  type SiteConnectorStatus,
 } from "@searchops/types";
 
-const googleRequiredScopes = {
-  ga4: "https://www.googleapis.com/auth/analytics.readonly",
-  gsc: "https://www.googleapis.com/auth/webmasters.readonly",
-} as const;
 const googleRefreshSkewMs = 120_000;
 const geoProviderAccountByMonitorProvider = {
   chatgpt: "geo_chatgpt",
@@ -641,7 +638,7 @@ async function resolveEncryptedConnector(input: {
   }
   if (
     isGoogleConnectorProvider(connector.provider) &&
-    !account.scopes.includes(googleRequiredScopes[connector.provider])
+    !isGoogleConnectorScopeSatisfied(account.scopes, connector.provider)
   ) {
     return failure("scope_missing", account);
   }
@@ -1144,7 +1141,7 @@ function assertValidGoogleAccountReread(
   if (statusFailure !== null) {
     throw new ProviderCredentialResolutionError(statusFailure);
   }
-  if (!account.scopes.includes(googleRequiredScopes[requestedProvider])) {
+  if (!isGoogleConnectorScopeSatisfied(account.scopes, requestedProvider)) {
     throw new ProviderCredentialResolutionError("scope_missing");
   }
 }

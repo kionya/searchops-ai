@@ -340,6 +340,60 @@ describe("provider credential resolver", () => {
     });
   });
 
+  it.each([
+    ["gsc", "readonly-only", ["https://www.googleapis.com/auth/webmasters.readonly"], true],
+    ["gsc", "full-only", ["https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", "both", [
+      "https://www.googleapis.com/auth/webmasters.readonly",
+      "https://www.googleapis.com/auth/webmasters",
+    ], true],
+    ["gsc", "neither", [], false],
+    ["ga4", "readonly-only", ["https://www.googleapis.com/auth/analytics.readonly"], true],
+    ["ga4", "full-only", ["https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", "both", [
+      "https://www.googleapis.com/auth/analytics.readonly",
+      "https://www.googleapis.com/auth/analytics",
+    ], true],
+    ["ga4", "neither", [], false],
+  ] as const)(
+    "resolves %s with a %s Google scope grant",
+    async (provider, _scopeCase, scopes, allowed) => {
+      const resolver = createProviderCredentialResolver({
+        keyring,
+        now: () => now,
+        storageMode: "encrypted",
+        store: createStore({
+          accounts: [encryptedAccount({ scopes: [...scopes] })],
+          connectors: [
+            siteConnector({
+              externalResourceId:
+                provider === "gsc" ? "sc-domain:example.com" : "properties/111",
+              id: provider === "gsc" ? "sc_gsc" : "sc_ga4",
+              provider,
+            }),
+          ],
+          sites: [{ id: "site_a", organizationId: "org_a" }],
+        }),
+      });
+
+      const result = await resolver.resolveConnectorProviderConfigs(
+        connectorJob("site_a", [provider]),
+      );
+
+      if (allowed) {
+        expect(result.failures).toEqual({});
+        expect(result.credentialSources).toEqual({ [provider]: "encrypted" });
+        expect(result.configs[provider]).toBeDefined();
+      } else {
+        expect(result).toMatchObject({
+          configs: {},
+          credentialSources: {},
+          failures: { [provider]: "scope_missing" },
+        });
+      }
+    },
+  );
+
   it("rejects a cross-organization account before attempting decryption", async () => {
     const mismatched = encryptedAccount({ organizationId: "org_b" });
     const store = createStore({
@@ -578,6 +632,65 @@ describe("provider credential resolver", () => {
     expect(fetchCount).toBe(0);
     expect(updateCount).toBe(0);
   });
+
+  it.each([
+    [
+      "gsc",
+      "https://www.googleapis.com/auth/webmasters.readonly",
+      "https://www.googleapis.com/auth/webmasters",
+    ],
+    [
+      "ga4",
+      "https://www.googleapis.com/auth/analytics.readonly",
+      "https://www.googleapis.com/auth/analytics",
+    ],
+  ] as const)(
+    "accepts a full-only %s scope on the post-lock account reread",
+    async (provider, readonlyScope, fullScope) => {
+      const expiring = encryptedAccount({
+        scopes: [readonlyScope],
+        tokenExpiresAt: "2026-07-14T00:01:00.000Z",
+      });
+      const fresh = encryptedAccount({
+        scopes: [fullScope],
+        tokenExpiresAt: "2026-07-14T01:00:00.000Z",
+        updatedAt: "2026-07-14T00:00:01.000Z",
+      });
+      let fetchCount = 0;
+      const resolver = createProviderCredentialResolver({
+        fetch: (async () => {
+          fetchCount += 1;
+          throw new Error("refresh must be skipped");
+        }) as typeof fetch,
+        googleOAuthClientId: "client-id",
+        googleOAuthClientSecret: "client-secret",
+        keyring,
+        now: () => now,
+        refreshLock: { async withLock(_key, operation) { return operation(); } },
+        storageMode: "encrypted",
+        store: createStore({
+          accountReads: [expiring, fresh],
+          connectors: [
+            siteConnector({
+              externalResourceId:
+                provider === "gsc" ? "sc-domain:example.com" : "properties/111",
+              id: provider === "gsc" ? "sc_gsc" : "sc_ga4",
+              provider,
+            }),
+          ],
+          sites: [{ id: "site_a", organizationId: "org_a" }],
+        }),
+      });
+
+      const result = await resolver.resolveConnectorProviderConfigs(
+        connectorJob("site_a", [provider]),
+      );
+
+      expect(result.failures).toEqual({});
+      expect(result.credentialSources).toEqual({ [provider]: "encrypted" });
+      expect(fetchCount).toBe(0);
+    },
+  );
 
   it.each([
     ["revoked", { status: "revoked" as const }, "credential_revoked" as const],
