@@ -2440,22 +2440,35 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     const siteConnectors = [];
     try {
       for (const provider of state.providers) {
-        const existingResourceId =
-          existingConnectors.find(
-            (connector) =>
-              connector.organizationId === state.organizationId &&
-              connector.siteId === state.siteId &&
-              connector.provider === provider &&
-              connector.externalResourceId !== null,
-          )?.externalResourceId ?? null;
+        const existingConnector = existingConnectors.find(
+          (connector) =>
+            connector.organizationId === state.organizationId &&
+            connector.siteId === state.siteId &&
+            connector.provider === provider,
+        );
+        const preserveExisting = existingConnector?.providerAccountId === account.id;
         siteConnectors.push(
-          await services.providerAccountService.upsertSiteConnector({
-            externalResourceId: existingResourceId,
-            organizationId: state.organizationId,
-            provider,
-            providerAccountId: account.id,
-            siteId: state.siteId,
-          }),
+          await services.providerAccountService.upsertSiteConnector(
+            preserveExisting
+              ? {
+                  config: existingConnector.config,
+                  externalResourceId: existingConnector.externalResourceId,
+                  lastCheckedAt: existingConnector.lastCheckedAt,
+                  lastErrorCode: existingConnector.lastErrorCode,
+                  organizationId: state.organizationId,
+                  provider,
+                  providerAccountId: account.id,
+                  siteId: state.siteId,
+                  status: existingConnector.status,
+                }
+              : {
+                  externalResourceId: null,
+                  organizationId: state.organizationId,
+                  provider,
+                  providerAccountId: account.id,
+                  siteId: state.siteId,
+                },
+          ),
         );
       }
     } catch {

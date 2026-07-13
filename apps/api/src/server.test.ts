@@ -647,6 +647,30 @@ function googleOAuthPlaceholder(provider: "gsc" | "ga4"): SiteConnector {
   };
 }
 
+function googleOAuthConnectorFromInput(
+  input: Parameters<ProviderAccountService["upsertSiteConnector"]>[0],
+): SiteConnector {
+  const metadata = input as typeof input & {
+    readonly config?: SiteConnector["config"];
+    readonly lastCheckedAt?: string | null;
+    readonly lastErrorCode?: string | null;
+    readonly status?: SiteConnector["status"];
+  };
+  return {
+    ...googleOAuthPlaceholder(input.provider as "gsc" | "ga4"),
+    config: metadata.config ?? {},
+    externalResourceId: input.externalResourceId,
+    lastCheckedAt: metadata.lastCheckedAt ?? null,
+    lastErrorCode: metadata.lastErrorCode ?? null,
+    organizationId: input.organizationId,
+    providerAccountId: input.providerAccountId,
+    siteId: input.siteId,
+    status:
+      metadata.status ??
+      (input.externalResourceId === null ? "needs_configuration" : "connected"),
+  };
+}
+
 function createFakeProviderAccountService(
   overrides: Partial<ProviderAccountService> = {},
 ): ProviderAccountService {
@@ -677,7 +701,7 @@ function createFakeProviderAccountService(
       if (input.provider !== "gsc" && input.provider !== "ga4") {
         throw new ProviderAccountServiceError("validation_error");
       }
-      return googleOAuthPlaceholder(input.provider);
+      return googleOAuthConnectorFromInput(input);
     },
     async deleteSiteConnector() {},
     ...overrides,
@@ -2635,12 +2659,15 @@ describe("api foundation", () => {
       expect(response.body).not.toContain("future_google_param");
     });
 
-    it("preserves configured resources and repeats identical binding inputs on a fresh OAuth state", async () => {
+    it("preserves exact same-account metadata and creates a new-provider placeholder", async () => {
       const configuredGsc: SiteConnector = {
         ...googleOAuthPlaceholder("gsc"),
+        config: { resourceResolution: "legacy_auto" },
         externalResourceId: "sc-domain:configured.example",
-        providerAccountId: "pa_previous_google",
-        status: "connected",
+        lastCheckedAt: "2026-05-26T23:55:00.000Z",
+        lastErrorCode: "google_permission_denied",
+        providerAccountId: googleOAuthProviderAccount.id,
+        status: "error",
       };
       const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
       const listInputs: Parameters<ProviderAccountService["listSiteConnectors"]>[0][] = [];
@@ -2651,53 +2678,32 @@ describe("api foundation", () => {
         },
         async upsertSiteConnector(input) {
           connectorInputs.push(input);
-          return input.provider === "gsc"
-            ? {
-                ...configuredGsc,
-                providerAccountId: input.providerAccountId,
-              }
-            : googleOAuthPlaceholder("ga4");
+          return googleOAuthConnectorFromInput(input);
         },
       });
-      const stateStore = createFakeGoogleOAuthStateStore(["nonce-a", "nonce-b"]);
-      const client = createFakeGoogleOAuthClient();
-      vi.spyOn(client, "verifyState").mockImplementation((state) => ({
-        issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: state === "state-a" ? "nonce-a" : "nonce-b",
-        organizationId: "org_demo",
-        providers: ["gsc", "ga4"],
-        requestedByUserId: "user_connector",
-        returnTo: null,
-        siteId: "site_seed",
-      }));
       const { repository, server } = buildConnectorOAuthTestContext({
-        googleOAuthClient: client,
-        googleOAuthStateStore: stateStore,
         providerAccountService: service,
       });
       const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
 
-      const first = await server.inject({
+      const response = await server.inject({
         method: "GET",
-        url: "/connectors/google/oauth/callback?state=state-a&code=code-a",
-      });
-      const second = await server.inject({
-        method: "GET",
-        url: "/connectors/google/oauth/callback?state=state-b&code=code-b",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-a",
       });
 
-      expect([first.statusCode, second.statusCode]).toEqual([200, 200]);
-      expect(listInputs).toEqual([
-        { organizationId: "org_demo", siteId: "site_seed" },
-        { organizationId: "org_demo", siteId: "site_seed" },
-      ]);
-      const expectedBindings = [
+      expect(response.statusCode).toBe(200);
+      expect(listInputs).toEqual([{ organizationId: "org_demo", siteId: "site_seed" }]);
+      expect(connectorInputs).toEqual([
         {
+          config: { resourceResolution: "legacy_auto" },
           externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: "2026-05-26T23:55:00.000Z",
+          lastErrorCode: "google_permission_denied",
           organizationId: "org_demo",
           provider: "gsc" as const,
           providerAccountId: "pa_google_canonical",
           siteId: "site_seed",
+          status: "error",
         },
         {
           externalResourceId: null,
@@ -2706,9 +2712,109 @@ describe("api foundation", () => {
           providerAccountId: "pa_google_canonical",
           siteId: "site_seed",
         },
-      ];
-      expect(connectorInputs).toEqual([...expectedBindings, ...expectedBindings]);
+      ]);
+      expect(response.json()).toMatchObject({
+        siteConnectors: [
+          {
+            config: { resourceResolution: "legacy_auto" },
+            externalResourceId: "sc-domain:configured.example",
+            lastCheckedAt: "2026-05-26T23:55:00.000Z",
+            lastErrorCode: "google_permission_denied",
+            provider: "gsc",
+            status: "error",
+          },
+          {
+            config: {},
+            externalResourceId: null,
+            lastCheckedAt: null,
+            lastErrorCode: null,
+            provider: "ga4",
+            status: "needs_configuration",
+          },
+        ],
+      });
       expect(legacyWrite).not.toHaveBeenCalled();
+    });
+
+    it("does not transfer connector metadata across Google accounts or tenants", async () => {
+      const oldAccountConnector: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        config: { resourceResolution: "legacy_auto" },
+        externalResourceId: "sc-domain:old-account.example",
+        lastCheckedAt: "2026-05-26T23:50:00.000Z",
+        lastErrorCode: "old-account-error",
+        providerAccountId: "pa_previous_google",
+        status: "revoked",
+      };
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      const listInputs: Parameters<ProviderAccountService["listSiteConnectors"]>[0][] = [];
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors(input) {
+          listInputs.push(input);
+          return [
+            oldAccountConnector,
+            {
+              ...oldAccountConnector,
+              organizationId: "org_foreign",
+              providerAccountId: googleOAuthProviderAccount.id,
+            },
+            {
+              ...oldAccountConnector,
+              providerAccountId: googleOAuthProviderAccount.id,
+              siteId: "site_foreign",
+            },
+          ];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          return googleOAuthConnectorFromInput(input);
+        },
+      });
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockReturnValue({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "callback-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      });
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        providerAccountService: service,
+      });
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-switch",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(listInputs).toEqual([{ organizationId: "org_demo", siteId: "site_seed" }]);
+      expect(connectorInputs).toEqual([
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      expect(response.json()).toMatchObject({
+        siteConnectors: [
+          {
+            config: {},
+            externalResourceId: null,
+            lastCheckedAt: null,
+            lastErrorCode: null,
+            organizationId: "org_demo",
+            providerAccountId: "pa_google_canonical",
+            siteId: "site_seed",
+            status: "needs_configuration",
+          },
+        ],
+      });
     });
 
     it("rejects replay before provider calls and consumes provider-declined callbacks", async () => {
@@ -2879,11 +2985,15 @@ describe("api foundation", () => {
       expect(accountUpsert).toHaveBeenCalledTimes(2);
       expect(connectorInputs).toEqual([
         {
+          config: {},
           externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: null,
+          lastErrorCode: null,
           organizationId: "org_demo",
           provider: "gsc",
           providerAccountId: "pa_google_canonical",
           siteId: "site_seed",
+          status: "connected",
         },
         {
           externalResourceId: null,
@@ -2893,11 +3003,15 @@ describe("api foundation", () => {
           siteId: "site_seed",
         },
         {
+          config: {},
           externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: null,
+          lastErrorCode: null,
           organizationId: "org_demo",
           provider: "gsc",
           providerAccountId: "pa_google_canonical",
           siteId: "site_seed",
+          status: "connected",
         },
         {
           externalResourceId: null,
@@ -5943,6 +6057,32 @@ describe("api foundation", () => {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: "validation_error" });
       expectNoCredentialFields(response.json());
+    });
+
+    it("keeps internal connector metadata fields out of the public PUT body", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector(input) {
+            calls += 1;
+            return { ...siteConnector, provider: input.provider };
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/gsc",
+        headers: authHeaders("owner"),
+        payload: {
+          config: { resourceResolution: "legacy_auto" },
+          externalResourceId: "sc-domain:example.com",
+          providerAccountId: "pa_google",
+          status: "connected",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+      expect(calls).toBe(0);
     });
 
     it("returns 404 for missing sites without calling the provider service", async () => {

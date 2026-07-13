@@ -120,9 +120,9 @@ describe("google-oauth", () => {
       );
     const client = stateClientAt("2026-05-27T00:10:00.000Z");
 
-    expect(() => client.verifyState(stateFor("2026-05-27T00:00:00.000Z"))).not.toThrow();
+    expect(() => client.verifyState(stateFor("2026-05-27T00:00:00.001Z"))).not.toThrow();
+    expect(() => client.verifyState(stateFor("2026-05-27T00:00:00.000Z"))).toThrow(/expired/i);
     expect(() => client.verifyState(stateFor("2026-05-27T00:11:00.000Z"))).not.toThrow();
-    expect(() => client.verifyState(stateFor("2026-05-26T23:59:59.999Z"))).toThrow(/expired/i);
     expect(() => client.verifyState(stateFor("2026-05-27T00:11:00.001Z"))).toThrow(/future/i);
   });
 

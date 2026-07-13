@@ -11,7 +11,9 @@ import {
 } from "@searchops/db";
 import {
   CreateApiKeyProviderAccountRequestSchema,
+  SiteConnectorConfigSchema,
   SiteConnectorProviderSchema,
+  SiteConnectorStatusSchema,
   UpdateProviderAccountMetadataRequestSchema,
   UpsertSiteConnectorRequestSchema,
   type ProviderAccountMetadata,
@@ -78,9 +80,19 @@ const UpsertGooglePlaceholderInputSchema = SiteConnectorLookupInputSchema.extend
   provider: GoogleConnectorProviderSchema,
   providerAccountId: IdSchema,
 });
+const PreserveGoogleSiteConnectorInputSchema = SiteConnectorLookupInputSchema.extend({
+  config: SiteConnectorConfigSchema.optional(),
+  externalResourceId: z.string().min(1).nullable(),
+  lastCheckedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  lastErrorCode: z.string().min(1).nullable().optional(),
+  provider: GoogleConnectorProviderSchema,
+  providerAccountId: IdSchema,
+  status: SiteConnectorStatusSchema.optional(),
+});
 const InternalUpsertSiteConnectorInputSchema = z.union([
   UpsertSiteConnectorInputSchema,
   UpsertGooglePlaceholderInputSchema,
+  PreserveGoogleSiteConnectorInputSchema,
 ]);
 const GoogleAccountInputSchema = z
   .object({
@@ -179,6 +191,17 @@ export interface ProviderAccountService {
           readonly provider: "gsc" | "ga4";
           readonly providerAccountId: string;
           readonly siteId: string;
+        }
+      | {
+          readonly config?: SiteConnector["config"];
+          readonly externalResourceId: string | null;
+          readonly lastCheckedAt?: string | null;
+          readonly lastErrorCode?: string | null;
+          readonly organizationId: string;
+          readonly provider: "gsc" | "ga4";
+          readonly providerAccountId: string;
+          readonly siteId: string;
+          readonly status?: SiteConnector["status"];
         },
   ): Promise<SiteConnector>;
   deleteSiteConnector(input: {
@@ -402,6 +425,7 @@ export function createProviderAccountService({
 
     async upsertSiteConnector(input) {
       const parsed = parseBoundary(InternalUpsertSiteConnectorInputSchema, input);
+      const preservedMetadata = PreserveGoogleSiteConnectorInputSchema.safeParse(parsed);
       const externalResourceId =
         parsed.externalResourceId === null
           ? null
@@ -413,6 +437,23 @@ export function createProviderAccountService({
           provider: parsed.provider,
           providerAccountId: parsed.providerAccountId,
           externalResourceId,
+          ...(preservedMetadata.success && preservedMetadata.data.config !== undefined
+            ? { config: preservedMetadata.data.config }
+            : {}),
+          ...(preservedMetadata.success && preservedMetadata.data.status !== undefined
+            ? { status: preservedMetadata.data.status }
+            : {}),
+          ...(preservedMetadata.success && preservedMetadata.data.lastErrorCode !== undefined
+            ? { lastErrorCode: preservedMetadata.data.lastErrorCode }
+            : {}),
+          ...(preservedMetadata.success && preservedMetadata.data.lastCheckedAt !== undefined
+            ? {
+                lastCheckedAt:
+                  preservedMetadata.data.lastCheckedAt === null
+                    ? null
+                    : new Date(preservedMetadata.data.lastCheckedAt),
+              }
+            : {}),
         }),
       );
     },

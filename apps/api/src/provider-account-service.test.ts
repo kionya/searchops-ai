@@ -958,6 +958,90 @@ describe("ProviderAccountService", () => {
     },
   );
 
+  it("preserves validated Google connector metadata through the store boundary", async () => {
+    let call: Parameters<ProviderCredentialStore["upsertSiteConnector"]>[0] | undefined;
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertSiteConnector(input) {
+          call = input;
+          return connector(input.provider, {
+            config: input.config ?? {},
+            externalResourceId: input.externalResourceId,
+            lastCheckedAt: input.lastCheckedAt?.toISOString() ?? null,
+            lastErrorCode: input.lastErrorCode ?? null,
+            organizationId: input.organizationId,
+            providerAccountId: input.providerAccountId,
+            siteId: input.siteId,
+            status:
+              input.status ??
+              (input.externalResourceId === null ? "needs_configuration" : "connected"),
+          });
+        },
+      }),
+    });
+
+    const result = await service.upsertSiteConnector({
+      config: { resourceResolution: "legacy_auto" },
+      externalResourceId: "sc-domain:example.com",
+      lastCheckedAt: "2026-07-14T00:05:00.000Z",
+      lastErrorCode: "google_permission_denied",
+      organizationId: "org_a",
+      provider: "gsc",
+      providerAccountId: "pa_google",
+      siteId: "site_a",
+      status: "error",
+    });
+
+    expect(call).toEqual({
+      config: { resourceResolution: "legacy_auto" },
+      externalResourceId: "sc-domain:example.com",
+      lastCheckedAt: new Date("2026-07-14T00:05:00.000Z"),
+      lastErrorCode: "google_permission_denied",
+      organizationId: "org_a",
+      provider: "gsc",
+      providerAccountId: "pa_google",
+      siteId: "site_a",
+      status: "error",
+    });
+    expect(result).toMatchObject({
+      config: { resourceResolution: "legacy_auto" },
+      externalResourceId: "sc-domain:example.com",
+      lastCheckedAt: "2026-07-14T00:05:00.000Z",
+      lastErrorCode: "google_permission_denied",
+      providerAccountId: "pa_google",
+      status: "error",
+    });
+  });
+
+  it("rejects invalid internal connector metadata before store persistence", async () => {
+    let writes = 0;
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertSiteConnector(input) {
+          writes += 1;
+          return connector(input.provider);
+        },
+      }),
+    });
+
+    await expect(
+      service.upsertSiteConnector({
+        config: {},
+        externalResourceId: "sc-domain:example.com",
+        lastCheckedAt: "not-an-iso-date",
+        lastErrorCode: null,
+        organizationId: "org_a",
+        provider: "gsc",
+        providerAccountId: "pa_google",
+        siteId: "site_a",
+        status: "connected",
+      }),
+    ).rejects.toEqual(new ProviderAccountServiceError("validation_error"));
+    expect(writes).toBe(0);
+  });
+
   it("rejects a null Bing resource before persistence", async () => {
     let writes = 0;
     const service = createProviderAccountService({

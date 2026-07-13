@@ -188,7 +188,7 @@ export function createGoogleConnectorOAuthClient({
       }
 
       const ageMs = currentTime().getTime() - issuedAtMs;
-      if (ageMs > stateMaxAgeMs) {
+      if (ageMs >= stateMaxAgeMs) {
         throw new Error("Google OAuth state expired.");
       }
       if (ageMs < -stateFutureSkewMs) {
