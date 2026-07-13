@@ -9,6 +9,17 @@ export {
 export type { Prisma } from "./generated/prisma/index.js";
 
 export {
+  CredentialDecryptionError,
+  decryptProviderCredential,
+  encryptProviderCredential,
+  parseCredentialKeyring,
+  type CredentialContext,
+  type CredentialKeyring,
+  type CredentialKeyringEnvironment,
+  type EncryptedProviderCredential
+} from "./credential-crypto.js";
+
+export {
   buildUrlRecordUpsertArgs,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
