@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   ProviderAccountAuthTypeSchema,
   ProviderAccountMetadataSchema,
@@ -18,6 +20,7 @@ import {
 } from "@searchops/types";
 
 import type { EncryptedProviderCredential } from "./credential-crypto.js";
+import type { Prisma } from "./generated/prisma/index.js";
 
 const providerAccountMetadataSelect = {
   id: true,
@@ -36,7 +39,7 @@ const providerAccountMetadataSelect = {
   connectedAt: true,
   createdAt: true,
   updatedAt: true
-} as const;
+} as const satisfies Prisma.ProviderAccountSelect;
 
 const providerAccountSecretSelect = {
   id: true,
@@ -52,7 +55,7 @@ const providerAccountSecretSelect = {
   encryptionKeyId: true,
   encryptionVersion: true,
   updatedAt: true
-} as const;
+} as const satisfies Prisma.ProviderAccountSelect;
 
 const siteConnectorSelect = {
   id: true,
@@ -67,7 +70,7 @@ const siteConnectorSelect = {
   lastCheckedAt: true,
   createdAt: true,
   updatedAt: true
-} as const;
+} as const satisfies Prisma.SiteConnectorSelect;
 
 const readinessConnectorSelect = {
   provider: true,
@@ -78,71 +81,26 @@ const readinessConnectorSelect = {
       status: true
     }
   }
-} as const;
+} as const satisfies Prisma.SiteConnectorSelect;
 
-export interface ProviderAccountMetadataRow {
-  readonly id: string;
-  readonly organizationId: string;
-  readonly provider: string;
-  readonly authType: string;
-  readonly externalAccountId: string | null;
-  readonly accountEmail: string | null;
-  readonly displayName: string;
-  readonly status: string;
-  readonly scopes: unknown;
-  readonly tokenExpiresAt: Date | null;
-  readonly isDefault: boolean;
-  readonly legacyCredentialId: string | null;
-  readonly connectedByUserId: string;
-  readonly connectedAt: Date;
-  readonly createdAt: Date;
-  readonly updatedAt: Date;
-}
+export type ProviderAccountMetadataRow = Prisma.ProviderAccountGetPayload<{
+  select: typeof providerAccountMetadataSelect;
+}>;
 
-interface ProviderAccountSecretRow {
-  readonly id: string;
-  readonly organizationId: string;
-  readonly provider: string;
-  readonly authType: string;
-  readonly status: string;
-  readonly scopes: unknown;
-  readonly tokenExpiresAt: Date | null;
-  readonly credentialCiphertext: string;
-  readonly credentialIv: string;
-  readonly credentialAuthTag: string;
-  readonly encryptionKeyId: string;
-  readonly encryptionVersion: number;
-  readonly updatedAt: Date;
-}
+type ProviderAccountSecretRow = Prisma.ProviderAccountGetPayload<{
+  select: typeof providerAccountSecretSelect;
+}>;
 
 interface SiteRow {
   readonly id: string;
   readonly organizationId: string;
 }
 
-interface SiteConnectorRow {
-  readonly id: string;
-  readonly organizationId: string;
-  readonly siteId: string;
-  readonly provider: string;
-  readonly providerAccountId: string;
-  readonly externalResourceId: string | null;
-  readonly config: unknown;
-  readonly status: string;
-  readonly lastErrorCode: string | null;
-  readonly lastCheckedAt: Date | null;
-  readonly createdAt: Date;
-  readonly updatedAt: Date;
-}
+type SiteConnectorRow = Prisma.SiteConnectorGetPayload<{ select: typeof siteConnectorSelect }>;
 
-interface ReadinessConnectorRow {
-  readonly provider: string;
-  readonly externalResourceId: string | null;
-  readonly status: string;
-  readonly providerAccount: {
-    readonly status: string;
-  } | null;
-}
+type ReadinessConnectorRow = Prisma.SiteConnectorGetPayload<{
+  select: typeof readinessConnectorSelect;
+}>;
 
 export interface ProviderCredentialStorePrismaPort {
   readonly providerAccount: {
@@ -164,6 +122,7 @@ export interface ProviderCredentialStorePrismaPort {
     }): Promise<{ readonly count: number }>;
     upsert(args: {
       readonly where: {
+        readonly id: string;
         readonly organizationId_provider_externalAccountId: {
           readonly organizationId: string;
           readonly provider: "google";
@@ -192,6 +151,7 @@ export interface ProviderCredentialStorePrismaPort {
     }): Promise<SiteConnectorRow[]>;
     upsert(args: {
       readonly where: {
+        readonly organizationId: string;
         readonly siteId_provider: {
           readonly siteId: string;
           readonly provider: SiteConnectorProvider;
@@ -226,6 +186,7 @@ export interface ProviderAccountSecretRecord extends EncryptedProviderCredential
 }
 
 export interface CreateApiKeyAccountStoreInput {
+  readonly providerAccountId: string;
   readonly organizationId: string;
   readonly provider: ProviderAccountProvider;
   readonly authType: "api_key";
@@ -244,6 +205,7 @@ export interface ReplaceCredentialStoreInput {
 }
 
 export interface UpsertGoogleAccountStoreInput {
+  readonly providerAccountId: string;
   readonly organizationId: string;
   readonly externalAccountId: string;
   readonly accountEmail: string;
@@ -317,6 +279,8 @@ export class ProviderCredentialStoreError extends Error {
 
 export type ProviderCredentialStoreErrorCode =
   | "account_in_use"
+  | "provider_account_identity_conflict"
+  | "provider_account_identity_mismatch"
   | "provider_account_not_in_organization"
   | "provider_account_provider_mismatch"
   | "site_not_in_organization";
@@ -351,6 +315,7 @@ export function createPrismaProviderCredentialStore(
     async createApiKeyAccount(input) {
       const row = await prisma.providerAccount.create({
         data: {
+          id: input.providerAccountId,
           organizationId: input.organizationId,
           provider: input.provider,
           authType: input.authType,
@@ -388,52 +353,70 @@ export function createPrismaProviderCredentialStore(
     },
 
     async upsertGoogleAccount(input) {
+      const canonicalId = deriveCanonicalProviderAccountId({
+        organizationId: input.organizationId,
+        provider: "google",
+        externalAccountId: input.externalAccountId
+      });
+      if (input.providerAccountId !== canonicalId) {
+        throw new ProviderCredentialStoreError("provider_account_identity_mismatch");
+      }
+
       const connectedAt = new Date();
-      const row = await prisma.providerAccount.upsert({
-        where: {
-          organizationId_provider_externalAccountId: {
+      try {
+        const row = await prisma.providerAccount.upsert({
+          where: {
+            id: canonicalId,
+            organizationId_provider_externalAccountId: {
+              organizationId: input.organizationId,
+              provider: "google",
+              externalAccountId: input.externalAccountId
+            }
+          },
+          create: {
+            id: canonicalId,
             organizationId: input.organizationId,
             provider: "google",
-            externalAccountId: input.externalAccountId
-          }
-        },
-        create: {
-          organizationId: input.organizationId,
-          provider: "google",
-          authType: "oauth2",
-          externalAccountId: input.externalAccountId,
-          accountEmail: input.accountEmail,
-          displayName: input.displayName,
-          status: input.status,
-          scopes: [...input.scopes],
-          tokenExpiresAt: input.tokenExpiresAt,
-          credentialCiphertext: input.encryptedCredential.credentialCiphertext,
-          credentialIv: input.encryptedCredential.credentialIv,
-          credentialAuthTag: input.encryptedCredential.credentialAuthTag,
-          encryptionKeyId: input.encryptedCredential.encryptionKeyId,
-          encryptionVersion: input.encryptedCredential.encryptionVersion,
-          isDefault: false,
-          connectedByUserId: input.connectedByUserId,
-          connectedAt
-        },
-        update: {
-          accountEmail: input.accountEmail,
-          displayName: input.displayName,
-          status: input.status,
-          scopes: [...input.scopes],
-          tokenExpiresAt: input.tokenExpiresAt,
-          credentialCiphertext: input.encryptedCredential.credentialCiphertext,
-          credentialIv: input.encryptedCredential.credentialIv,
-          credentialAuthTag: input.encryptedCredential.credentialAuthTag,
-          encryptionKeyId: input.encryptedCredential.encryptionKeyId,
-          encryptionVersion: input.encryptedCredential.encryptionVersion,
-          connectedByUserId: input.connectedByUserId,
-          connectedAt
-        },
-        select: providerAccountMetadataSelect
-      });
+            authType: "oauth2",
+            externalAccountId: input.externalAccountId,
+            accountEmail: input.accountEmail,
+            displayName: input.displayName,
+            status: input.status,
+            scopes: [...input.scopes],
+            tokenExpiresAt: input.tokenExpiresAt,
+            credentialCiphertext: input.encryptedCredential.credentialCiphertext,
+            credentialIv: input.encryptedCredential.credentialIv,
+            credentialAuthTag: input.encryptedCredential.credentialAuthTag,
+            encryptionKeyId: input.encryptedCredential.encryptionKeyId,
+            encryptionVersion: input.encryptedCredential.encryptionVersion,
+            isDefault: false,
+            connectedByUserId: input.connectedByUserId,
+            connectedAt
+          },
+          update: {
+            accountEmail: input.accountEmail,
+            displayName: input.displayName,
+            status: input.status,
+            scopes: [...input.scopes],
+            tokenExpiresAt: input.tokenExpiresAt,
+            credentialCiphertext: input.encryptedCredential.credentialCiphertext,
+            credentialIv: input.encryptedCredential.credentialIv,
+            credentialAuthTag: input.encryptedCredential.credentialAuthTag,
+            encryptionKeyId: input.encryptedCredential.encryptionKeyId,
+            encryptionVersion: input.encryptedCredential.encryptionVersion,
+            connectedByUserId: input.connectedByUserId,
+            connectedAt
+          },
+          select: providerAccountMetadataSelect
+        });
 
-      return toProviderAccountMetadata(row);
+        return toProviderAccountMetadata(row);
+      } catch (error) {
+        if (hasPrismaErrorCode(error, "P2002")) {
+          throw new ProviderCredentialStoreError("provider_account_identity_conflict");
+        }
+        throw error;
+      }
     },
 
     async deleteAccount(input) {
@@ -442,10 +425,17 @@ export function createPrismaProviderCredentialStore(
         throw new ProviderCredentialStoreError("account_in_use");
       }
 
-      const deleted = await prisma.providerAccount.deleteMany({
-        where: { id: input.providerAccountId, organizationId: input.organizationId }
-      });
-      return deleted.count > 0;
+      try {
+        const deleted = await prisma.providerAccount.deleteMany({
+          where: { id: input.providerAccountId, organizationId: input.organizationId }
+        });
+        return deleted.count > 0;
+      } catch (error) {
+        if (hasPrismaErrorCode(error, "P2003")) {
+          throw new ProviderCredentialStoreError("account_in_use");
+        }
+        throw error;
+      }
     },
 
     async listSiteConnectors(input) {
@@ -477,7 +467,10 @@ export function createPrismaProviderCredentialStore(
       assertConnectorProviderAccountCompatibility(input.provider, foundAccount.provider);
       const data = siteConnectorWriteData(input);
       const row = await prisma.siteConnector.upsert({
-        where: { siteId_provider: { siteId: input.siteId, provider: input.provider } },
+        where: {
+          organizationId: input.organizationId,
+          siteId_provider: { siteId: input.siteId, provider: input.provider }
+        },
         create: data,
         update: data,
         select: siteConnectorSelect
@@ -528,6 +521,7 @@ export function createPrismaProviderCredentialStore(
 }
 
 interface ProviderAccountCreateData {
+  readonly id: string;
   readonly organizationId: string;
   readonly provider: ProviderAccountProvider;
   readonly authType: ProviderAccountAuthType;
@@ -718,4 +712,17 @@ function parseEncryptionVersion(value: number): 1 {
 
 function toIsoDate(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
+}
+
+export function deriveCanonicalProviderAccountId(input: {
+  readonly organizationId: string;
+  readonly provider: ProviderAccountProvider;
+  readonly externalAccountId: string;
+}): string {
+  const tuple = JSON.stringify([input.organizationId, input.provider, input.externalAccountId]);
+  return `pa_${createHash("sha256").update(tuple, "utf8").digest("base64url")}`;
+}
+
+function hasPrismaErrorCode(error: unknown, code: "P2002" | "P2003"): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

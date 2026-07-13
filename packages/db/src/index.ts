@@ -21,6 +21,7 @@ export {
 
 export {
   createPrismaProviderCredentialStore,
+  deriveCanonicalProviderAccountId,
   ProviderCredentialStoreError,
   type AccountLookupStoreInput,
   type ConnectorCredentialReadinessSnapshot,
