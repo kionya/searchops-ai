@@ -1,5 +1,9 @@
 import { parseSearchOpsEnv } from "@searchops/types";
-import { createSearchOpsPrismaClient } from "@searchops/db";
+import {
+  createPrismaProviderCredentialStore,
+  createSearchOpsPrismaClient,
+  parseCredentialKeyring
+} from "@searchops/db";
 
 import {
   createBullMqConnectorSyncQueue,
@@ -25,11 +29,32 @@ import {
 import { createIoredisApiRateLimitStore } from "./redis-rate-limit.js";
 import { createGoogleConnectorOAuthClientFromEnv } from "./google-oauth.js";
 import { createPrismaRepository } from "./prisma-repository.js";
+import { createProviderAccountService } from "./provider-account-service.js";
 import { buildApiServer } from "./server.js";
 
 const env = parseSearchOpsEnv(process.env);
 const googleOAuthClient = createGoogleConnectorOAuthClientFromEnv(process.env);
 const prisma = createSearchOpsPrismaClient();
+const providerAccountService =
+  env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
+    ? undefined
+    : createProviderAccountService({
+        keyring: parseCredentialKeyring({
+          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+            ? {}
+            : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
+          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+            ? {}
+            : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
+          ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+            ? {}
+            : {
+                SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+                  env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
+              })
+        }),
+        store: createPrismaProviderCredentialStore(prisma)
+      });
 const crawlRunQueue = createBullMqCrawlRunQueue({ redisUrl: env.REDIS_URL });
 const connectorSyncQueue = createBullMqConnectorSyncQueue({ redisUrl: env.REDIS_URL });
 const geoAnswerMonitorQueue = createBullMqGeoAnswerMonitorQueue({ redisUrl: env.REDIS_URL });
@@ -106,6 +131,7 @@ const server = buildApiServer({
   googleOAuthClient,
   operationalAlertRouter,
   operationalLogDrain,
+  providerAccountService,
   rateLimit: {
     enabled: rateLimitEnabled,
     maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,

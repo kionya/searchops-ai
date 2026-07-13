@@ -14,9 +14,11 @@ import type {
   GeoVisibilityReportRecord,
   KeywordDiscoveryCandidateRecord,
   Organization,
+  ProviderAccountMetadata,
   SchemaRecommendationRecord,
   SeoIssue,
   Site,
+  SiteConnector,
   UrlRecord,
   WorkOrder,
 } from "@searchops/types";
@@ -34,6 +36,10 @@ import { createMemoryDeadLetterJobStore } from "./dead-letter-store.js";
 import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
+import {
+  ProviderAccountServiceError,
+  type ProviderAccountService,
+} from "./provider-account-service.js";
 import {
   createCmsNativeWebhookSignature,
   createCmsWebhookSignature,
@@ -4389,5 +4395,391 @@ describe("api foundation", () => {
 
     const accepted = await server.inject({ method: "POST", url: `/invites/${sent[0]!.token}/accept` });
     expect(accepted.statusCode).toBe(409);
+  });
+
+  describe("provider accounts and site connectors", () => {
+    const providerAccount: ProviderAccountMetadata = {
+      id: "pa_api_key",
+      organizationId: "org_demo",
+      provider: "bing",
+      authType: "api_key",
+      externalAccountId: null,
+      accountEmail: null,
+      displayName: "Bing primary",
+      status: "connected",
+      scopes: [],
+      tokenExpiresAt: null,
+      isDefault: false,
+      legacyCredentialId: null,
+      connectedByUserId: "user_owner",
+      connectedAt: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+      credentialSource: "encrypted",
+    };
+    const siteConnector: SiteConnector = {
+      id: "connector_ga4",
+      organizationId: "org_demo",
+      siteId: "site_seed",
+      provider: "ga4",
+      providerAccountId: "pa_google",
+      externalResourceId: "properties/123456789",
+      config: {},
+      status: "connected",
+      lastErrorCode: null,
+      lastCheckedAt: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+
+    function providerService(
+      overrides: Partial<ProviderAccountService> = {},
+    ): ProviderAccountService {
+      return {
+        async createApiKeyAccount() {
+          return providerAccount;
+        },
+        async updateAccountMetadata() {
+          return providerAccount;
+        },
+        async replaceApiKeyCredential() {
+          return providerAccount;
+        },
+        async upsertGoogleAccount() {
+          return { ...providerAccount, provider: "google", authType: "oauth2" };
+        },
+        async prepareGoogleConnectors() {
+          return { requiredScopes: [] };
+        },
+        async listAccounts() {
+          return [providerAccount];
+        },
+        async deleteAccount() {},
+        async listSiteConnectors() {
+          return [siteConnector];
+        },
+        async upsertSiteConnector() {
+          return siteConnector;
+        },
+        async deleteSiteConnector() {},
+        ...overrides,
+      };
+    }
+
+    function buildProviderServer(service?: ProviderAccountService) {
+      return buildApiServer({
+        providerAccountService: service,
+        repository: createMemoryRepository({
+          organizations: [seededOrganization, otherOrganization],
+          sites: [seededSite, otherSite],
+        }),
+      });
+    }
+
+    function authHeaders(role: "owner" | "admin" | "editor" | "viewer" | "system") {
+      return {
+        "x-mock-organization-id": "org_demo",
+        "x-mock-user-id": `user_${role}`,
+        "x-mock-user-role": role,
+      };
+    }
+
+    function expectNoCredentialFields(value: unknown) {
+      const forbiddenKeys = new Set([
+        "apikey",
+        "accesstoken",
+        "refreshtoken",
+        "ciphertext",
+        "credentialciphertext",
+        "iv",
+        "credentialiv",
+        "tag",
+        "credentialauthtag",
+        "encryptionkeyid",
+      ]);
+
+      function visit(current: unknown) {
+        if (Array.isArray(current)) {
+          current.forEach(visit);
+          return;
+        }
+        if (typeof current !== "object" || current === null) {
+          return;
+        }
+        for (const [key, nested] of Object.entries(current)) {
+          expect(forbiddenKeys.has(key.toLowerCase())).toBe(false);
+          visit(nested);
+        }
+      }
+
+      visit(value);
+    }
+
+    it("allows viewer metadata reads and keeps the response credential-free", async () => {
+      const response = await buildProviderServer(providerService()).inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ providerAccounts: [providerAccount] });
+      expectNoCredentialFields(response.json());
+    });
+
+    it.each(["owner", "admin", "system"] as const)(
+      "allows %s to create an API-key account",
+      async (role) => {
+        let actorUserId: string | undefined;
+        const response = await buildProviderServer(
+          providerService({
+            async createApiKeyAccount(input) {
+              actorUserId = input.actorUserId;
+              return providerAccount;
+            },
+          }),
+        ).inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          headers: authHeaders(role),
+          payload: {
+            provider: "bing",
+            displayName: "Bing primary",
+            apiKey: "request-secret",
+          },
+        });
+
+        expect(response.statusCode).toBe(201);
+        expect(actorUserId).toBe(`user_${role}`);
+        expectNoCredentialFields(response.json());
+      },
+    );
+
+    it("rejects editor provider-account mutations before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async createApiKeyAccount() {
+            calls += 1;
+            return providerAccount;
+          },
+        }),
+      ).inject({
+        method: "POST",
+        url: "/organizations/org_demo/provider-accounts/bing/api-key",
+        headers: authHeaders("editor"),
+        payload: {
+          provider: "bing",
+          displayName: "Bing primary",
+          apiKey: "request-secret",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects cross-organization account paths before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listAccounts() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/organizations/org_other/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects API-key body/path provider mismatches", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async createApiKeyAccount() {
+            calls += 1;
+            return providerAccount;
+          },
+        }),
+      ).inject({
+        method: "POST",
+        url: "/organizations/org_demo/provider-accounts/bing/api-key",
+        headers: authHeaders("owner"),
+        payload: {
+          provider: "geo_chatgpt",
+          displayName: "Mismatch",
+          apiKey: "request-secret",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "provider_mismatch" });
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("supports strict metadata updates and API-key replacement", async () => {
+      const service = providerService();
+      const server = buildProviderServer(service);
+      const patchResponse = await server.inject({
+        method: "PATCH",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("admin"),
+        payload: { displayName: "Renamed" },
+      });
+      const replaceResponse = await server.inject({
+        method: "PUT",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+        headers: authHeaders("owner"),
+        payload: { apiKey: "new-request-secret" },
+      });
+
+      expect(patchResponse.statusCode).toBe(200);
+      expect(replaceResponse.statusCode).toBe(200);
+      expectNoCredentialFields(patchResponse.json());
+      expectNoCredentialFields(replaceResponse.json());
+    });
+
+    it("maps in-use account deletion to 409 without credential fields", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async deleteAccount() {
+            throw new ProviderAccountServiceError("account_in_use");
+          },
+        }),
+      ).inject({
+        method: "DELETE",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("owner"),
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: "account_in_use",
+        message: "Provider account is in use",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("derives site tenant access and allows viewer connector reads", async () => {
+      const response = await buildProviderServer(providerService()).inject({
+        method: "GET",
+        url: "/sites/site_seed/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ siteConnectors: [siteConnector] });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects editor connector mutations before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            calls += 1;
+            return siteConnector;
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        headers: authHeaders("editor"),
+        payload: {
+          providerAccountId: "pa_google",
+          externalResourceId: "123456789",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects cross-tenant connector reads before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listSiteConnectors() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/sites/site_other/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects malformed connector resources before service persistence", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            throw new ProviderAccountServiceError("validation_error");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        headers: authHeaders("owner"),
+        payload: {
+          providerAccountId: "pa_google",
+          externalResourceId: "properties/not-digits",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("returns 404 for missing sites without calling the provider service", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listSiteConnectors() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/sites/site_missing/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("returns a redacted 503 when provider credential storage is unavailable", async () => {
+      const response = await buildProviderServer(undefined).inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        error: "provider_account_service_unavailable",
+        message: "Provider account service is unavailable",
+      });
+      expectNoCredentialFields(response.json());
+    });
   });
 });

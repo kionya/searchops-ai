@@ -61,6 +61,7 @@ import {
   CreateKeywordDiscoveryRequestSchema,
   CreateKeywordDiscoveryResponseSchema,
   CreateOrganizationRequestSchema,
+  CreateApiKeyProviderAccountRequestSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
@@ -77,6 +78,9 @@ import {
   KeywordDiscoveryListResponseSchema,
   MigrationDeploymentGatePlanSchema,
   OrganizationListResponseSchema,
+  ProviderAccountDetailResponseSchema,
+  ProviderAccountListResponseSchema,
+  ProviderAccountProviderSchema,
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
@@ -94,12 +98,18 @@ import {
   SecretRotationPlanRequestSchema,
   SeoIssueListResponseSchema,
   SiteListResponseSchema,
+  SiteConnectorDetailResponseSchema,
+  SiteConnectorListResponseSchema,
+  SiteConnectorProviderSchema,
   SiteSchema,
   StartConnectorOAuthRequestSchema,
   StartConnectorOAuthResponseSchema,
   UpdateComplianceFlagRequestSchema,
+  UpdateProviderAccountMetadataRequestSchema,
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
+  UpsertSiteConnectorRequestSchema,
+  ReplaceProviderCredentialRequestSchema,
   UrlRecordListResponseSchema,
   WorkOrderListResponseSchema,
   WorkOrderSchema,
@@ -173,9 +183,25 @@ import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
 import { createProductizationReadiness } from "./productization-readiness.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import { createOperationalReadiness } from "./readiness.js";
+import {
+  ProviderAccountServiceError,
+  type ProviderAccountService,
+} from "./provider-account-service.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
+const ProviderApiKeyParamsSchema = z.object({
+  organizationId: z.string().min(1),
+  provider: ProviderAccountProviderSchema,
+});
+const ProviderAccountParamsSchema = z.object({
+  id: z.string().min(1),
+  organizationId: z.string().min(1),
+});
+const SiteConnectorParamsSchema = z.object({
+  id: z.string().min(1),
+  provider: SiteConnectorProviderSchema,
+});
 const InvitationRevokeParamsSchema = z.object({
   invitationId: z.string().min(1),
   organizationId: z.string().min(1),
@@ -216,6 +242,7 @@ export interface BuildApiServerOptions {
   readonly backupRestoreDrillScheduler?: BackupRestoreDrillScheduler | undefined;
   readonly secretRotationExecutor?: SecretRotationExecutor | undefined;
   readonly inviteEmailSender?: InviteEmailSender | undefined;
+  readonly providerAccountService?: ProviderAccountService | undefined;
 }
 
 export interface ApiRateLimitOptions {
@@ -230,6 +257,49 @@ function notFound(message: string) {
 
 function forbidden(message: string) {
   return { error: "forbidden", message };
+}
+
+function requireProviderAccountService(
+  service: ProviderAccountService | undefined,
+  reply: FastifyReply,
+): ProviderAccountService | null {
+  if (service !== undefined) {
+    return service;
+  }
+
+  reply.status(503).send({
+    error: "provider_account_service_unavailable",
+    message: "Provider account service is unavailable",
+  });
+  return null;
+}
+
+function providerAccountServiceErrorResponse(code: ProviderAccountServiceError["code"]): {
+  readonly message: string;
+  readonly statusCode: 400 | 404 | 409;
+} {
+  switch (code) {
+    case "account_not_found":
+      return { message: "Provider account not found", statusCode: 404 };
+    case "account_in_use":
+      return { message: "Provider account is in use", statusCode: 409 };
+    case "provider_account_default_conflict":
+      return { message: "Provider account default conflicts with an existing account", statusCode: 409 };
+    case "provider_account_identity_conflict":
+      return { message: "Provider account identity conflicts with an existing account", statusCode: 409 };
+    case "scope_missing":
+      return { message: "Required provider scope is missing", statusCode: 409 };
+    case "site_not_in_organization":
+      return { message: "Site not found", statusCode: 404 };
+    case "provider_account_identity_mismatch":
+      return { message: "Provider account identity does not match", statusCode: 400 };
+    case "provider_account_not_in_organization":
+      return { message: "Provider account does not belong to the organization", statusCode: 400 };
+    case "provider_account_provider_mismatch":
+      return { message: "Provider account is incompatible with the connector", statusCode: 400 };
+    case "validation_error":
+      return { message: "Provider account request is invalid", statusCode: 400 };
+  }
 }
 
 function serializeErrorMessage(error: unknown) {
@@ -304,6 +374,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const secretRotationExecutor =
     options.secretRotationExecutor ?? createNoopSecretRotationExecutor();
   const inviteEmailSender = options.inviteEmailSender ?? createInviteEmailSender(process.env);
+  const providerAccountService = options.providerAccountService;
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -355,6 +426,29 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     return true;
   }
 
+  function ensureProviderManagementAccess({
+    organizationId,
+    reply,
+    request,
+  }: {
+    readonly organizationId: string;
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+  }) {
+    const userContext = resolveRequestUserContext(request);
+    if (!canAccessOrganization(userContext, organizationId)) {
+      sendForbidden(reply, "User cannot access this organization");
+      return false;
+    }
+
+    if (isWriteRequest(request) && !canManageOperations(userContext.role)) {
+      sendForbidden(reply, "User role cannot manage provider credentials");
+      return false;
+    }
+
+    return true;
+  }
+
   async function ensureSiteAccess({
     reply,
     request,
@@ -370,6 +464,27 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     return ensureOrganizationAccess({
+      organizationId: site.organizationId,
+      reply,
+      request,
+    });
+  }
+
+  async function ensureSiteProviderManagementAccess({
+    reply,
+    request,
+    siteId,
+  }: {
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+    readonly siteId: string;
+  }) {
+    const site = await repository.getSite(siteId);
+    if (!site) {
+      return true;
+    }
+
+    return ensureProviderManagementAccess({
       organizationId: site.organizationId,
       reply,
       request,
@@ -424,6 +539,11 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return ensureOrganizationAccess({ organizationId, reply, request });
     }
 
+    if (routeUrl.startsWith("/organizations/:organizationId/provider-accounts")) {
+      const { organizationId } = OrganizationParamsSchema.parse(request.params);
+      return ensureProviderManagementAccess({ organizationId, reply, request });
+    }
+
     if (routeUrl.startsWith("/organizations/:organizationId/invites")) {
       const { organizationId } = OrganizationParamsSchema.parse(request.params);
       return ensureOrganizationAccess({ organizationId, reply, request });
@@ -431,6 +551,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     if (routeUrl.startsWith("/sites/:id")) {
       const { id } = IdParamsSchema.parse(request.params);
+      if (
+        routeUrl === "/sites/:id/connectors" ||
+        routeUrl === "/sites/:id/connectors/:provider"
+      ) {
+        return ensureSiteProviderManagementAccess({ reply, request, siteId: id });
+      }
       return ensureSiteAccess({ reply, request, siteId: id });
     }
 
@@ -786,6 +912,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    if (error instanceof ProviderAccountServiceError) {
+      const response = providerAccountServiceErrorResponse(error.code);
+      reply.status(response.statusCode).send({ error: error.code, message: response.message });
+      return;
+    }
+
     if (error instanceof DeadLetterReplayError) {
       reply.status(400).send({
         error: "validation_error",
@@ -1022,6 +1154,161 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(SiteSchema.parse(site));
+  });
+
+  server.get("/organizations/:organizationId/provider-accounts", async (request, reply) => {
+    const { organizationId } = OrganizationParamsSchema.parse(request.params);
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+
+    reply.send(
+      ProviderAccountListResponseSchema.parse({
+        providerAccounts: await service.listAccounts({ organizationId }),
+      }),
+    );
+  });
+
+  server.post(
+    "/organizations/:organizationId/provider-accounts/:provider/api-key",
+    async (request, reply) => {
+      const { organizationId, provider } = ProviderApiKeyParamsSchema.parse(request.params);
+      const input = CreateApiKeyProviderAccountRequestSchema.parse(request.body);
+      if (input.provider !== provider) {
+        reply.status(400).send({
+          error: "provider_mismatch",
+          message: "Request provider must match the route provider",
+        });
+        return;
+      }
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const userContext = resolveRequestUserContext(request);
+      const providerAccount = await service.createApiKeyAccount({
+        actorUserId: userContext.userId,
+        accountEmail: input.accountEmail ?? null,
+        apiKey: input.apiKey,
+        displayName: input.displayName,
+        externalAccountId: input.externalAccountId ?? null,
+        isDefault: input.isDefault ?? false,
+        organizationId,
+        provider: input.provider,
+      });
+      reply.status(201).send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.patch(
+    "/organizations/:organizationId/provider-accounts/:id",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const update = UpdateProviderAccountMetadataRequestSchema.parse(request.body);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const providerAccount = await service.updateAccountMetadata({
+        organizationId,
+        providerAccountId: id,
+        update,
+      });
+      reply.send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.put(
+    "/organizations/:organizationId/provider-accounts/:id/credential",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const input = ReplaceProviderCredentialRequestSchema.parse(request.body);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const providerAccount = await service.replaceApiKeyCredential({
+        ...input,
+        organizationId,
+        providerAccountId: id,
+      });
+      reply.send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.delete(
+    "/organizations/:organizationId/provider-accounts/:id",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      await service.deleteAccount({ organizationId, providerAccountId: id });
+      reply.status(204).send();
+    },
+  );
+
+  server.get("/sites/:id/connectors", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    reply.send(
+      SiteConnectorListResponseSchema.parse({
+        siteConnectors: await service.listSiteConnectors({
+          organizationId: site.organizationId,
+          siteId: site.id,
+        }),
+      }),
+    );
+  });
+
+  server.put("/sites/:id/connectors/:provider", async (request, reply) => {
+    const { id, provider } = SiteConnectorParamsSchema.parse(request.params);
+    const input = UpsertSiteConnectorRequestSchema.parse(request.body);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    const siteConnector = await service.upsertSiteConnector({
+      ...input,
+      organizationId: site.organizationId,
+      provider,
+      siteId: site.id,
+    });
+    reply.send(SiteConnectorDetailResponseSchema.parse({ siteConnector }));
+  });
+
+  server.delete("/sites/:id/connectors/:provider", async (request, reply) => {
+    const { id, provider } = SiteConnectorParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    await service.deleteSiteConnector({
+      organizationId: site.organizationId,
+      provider,
+      siteId: site.id,
+    });
+    reply.status(204).send();
   });
 
   server.get("/organizations/:organizationId/invites", async (request, reply) => {
