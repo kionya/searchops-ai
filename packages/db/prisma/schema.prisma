@@ -24,6 +24,8 @@ model Organization {
   workOrders      WorkOrder[]
   connectorSyncRuns ConnectorSyncRun[]
   connectorOAuthCredentials ConnectorOAuthCredential[]
+  providerAccounts ProviderAccount[]
+  siteConnectors SiteConnector[]
   aiPrompts       AiPrompt[]
   complianceFlags ComplianceFlag[]
   closedLoopAuditEvents ClosedLoopAuditEvent[]
@@ -86,6 +88,7 @@ model Site {
   workOrders      WorkOrder[]
   connectorSyncRuns ConnectorSyncRun[]
   connectorOAuthCredentials ConnectorOAuthCredential[]
+  siteConnectors SiteConnector[]
   keywords        Keyword[]
   keywordDiscoveries KeywordDiscoveryCandidate[]
   contentBriefs   ContentBrief[]
@@ -96,6 +99,7 @@ model Site {
   closedLoopAuditEvents ClosedLoopAuditEvent[]
 
   @@unique([organizationId, domain])
+  @@unique([id, organizationId])
   @@index([organizationId])
 }
 
@@ -158,6 +162,64 @@ model ConnectorOAuthCredential {
   @@index([provider])
   @@index([status])
   @@index([updatedAt])
+}
+
+model ProviderAccount {
+  id                       String   @id @default(cuid())
+  organizationId           String
+  provider                 String
+  authType                 String
+  externalAccountId        String?
+  accountEmail             String?
+  displayName              String
+  status                   String   @default("connected")
+  scopes                   Json     @default("[]")
+  tokenExpiresAt           DateTime?
+  credentialCiphertext     String
+  credentialIv             String
+  credentialAuthTag        String
+  encryptionKeyId          String
+  encryptionVersion        Int      @default(1)
+  isDefault                Boolean  @default(false)
+  legacyCredentialId       String?  @unique
+  connectedByUserId        String
+  connectedAt              DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  siteConnectors SiteConnector[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, provider, externalAccountId])
+  @@index([organizationId])
+  @@index([provider])
+  @@index([status])
+  @@index([encryptionKeyId])
+}
+
+model SiteConnector {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  siteId               String
+  provider             String
+  providerAccountId    String
+  externalResourceId   String?
+  config               Json     @default("{}")
+  status               String   @default("needs_configuration")
+  lastErrorCode        String?
+  lastCheckedAt        DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site Site @relation(fields: [siteId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  providerAccount ProviderAccount @relation(fields: [providerAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([siteId, provider])
+  @@index([organizationId])
+  @@index([providerAccountId])
+  @@index([status])
 }
 
 model ConnectorSyncRun {
