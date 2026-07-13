@@ -97,7 +97,7 @@ export const SiteConnectorSchema = z
     siteId: IdSchema,
     provider: SiteConnectorProviderSchema,
     providerAccountId: IdSchema,
-    externalResourceId: z.string().min(1),
+    externalResourceId: z.string().min(1).nullable(),
     config: SiteConnectorConfigSchema,
     status: SiteConnectorStatusSchema,
     lastErrorCode: z.string().min(1).nullable(),

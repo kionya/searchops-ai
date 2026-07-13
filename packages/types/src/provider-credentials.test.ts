@@ -8,6 +8,7 @@ import {
   SiteConnectorConfigSchema,
   SiteConnectorDetailResponseSchema,
   SiteConnectorListResponseSchema,
+  SiteConnectorSchema,
   UpsertSiteConnectorRequestSchema,
 } from "./provider-credentials.js";
 
@@ -79,6 +80,27 @@ describe("provider credential contracts", () => {
 
   it("accepts the approved empty site connector config", () => {
     expect(SiteConnectorConfigSchema.parse({})).toEqual({});
+  });
+
+  it("accepts an unconfigured site connector without weakening upsert input", () => {
+    expect(
+      SiteConnectorSchema.parse({
+        ...siteConnector,
+        externalResourceId: null,
+        status: "needs_configuration",
+        config: {},
+      }),
+    ).toMatchObject({
+      externalResourceId: null,
+      status: "needs_configuration",
+      config: {},
+    });
+    expect(() =>
+      UpsertSiteConnectorRequestSchema.parse({
+        providerAccountId: "pa_google_1",
+        externalResourceId: null,
+      }),
+    ).toThrow();
   });
 
   it.each([
