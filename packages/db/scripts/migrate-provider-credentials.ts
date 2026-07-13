@@ -5,8 +5,11 @@ import {
   createSearchOpsPrismaClient,
   migrateLegacyProviderCredentials,
   parseCredentialKeyring,
+  type CredentialKeyring,
   type CredentialKeyringEnvironment,
+  type CredentialMaintenanceCliOptions,
   type CredentialMaintenanceSummary,
+  type ProviderCredentialMaintenanceStore,
   type SearchOpsPrismaClient,
 } from "../src/index.js";
 import { parseCredentialMaintenanceCliArgs } from "../src/provider-credential-migration.js";
@@ -18,21 +21,51 @@ const REDACTED_CODES = new Set([
   "credential_maintenance_options_invalid",
 ]);
 
+export interface CredentialMaintenanceCliClient {
+  $disconnect(): Promise<void>;
+}
+
+export interface MigrateProviderCredentialsCliDependencies {
+  parseArgs(args: readonly string[]): CredentialMaintenanceCliOptions;
+  parseKeyring(env: NodeJS.ProcessEnv): CredentialKeyring;
+  createClient(): CredentialMaintenanceCliClient;
+  createStore(client: CredentialMaintenanceCliClient): ProviderCredentialMaintenanceStore;
+  execute(
+    store: ProviderCredentialMaintenanceStore,
+    keyring: CredentialKeyring,
+    options: CredentialMaintenanceCliOptions & { readonly legacyGa4PropertyId?: string },
+  ): Promise<CredentialMaintenanceSummary>;
+  writeOutput(message: string): void;
+  writeError(message: string): void;
+}
+
+const productionDependencies: MigrateProviderCredentialsCliDependencies = {
+  parseArgs: parseCredentialMaintenanceCliArgs,
+  parseKeyring: (env) => parseCredentialKeyring(env as CredentialKeyringEnvironment),
+  createClient: createSearchOpsPrismaClient,
+  createStore: (client) =>
+    createPrismaProviderCredentialMaintenanceStore(client as SearchOpsPrismaClient),
+  execute: migrateLegacyProviderCredentials,
+  writeOutput: (message) => console.log(message),
+  writeError: (message) => console.error(message),
+};
+
 export async function runMigrateProviderCredentialsCli(
   args: readonly string[] = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env,
+  dependencies: MigrateProviderCredentialsCliDependencies = productionDependencies,
 ): Promise<number> {
-  let client: SearchOpsPrismaClient | undefined;
+  let client: CredentialMaintenanceCliClient | undefined;
   let summary: CredentialMaintenanceSummary | undefined;
   let failureCode: string | undefined;
 
   try {
-    const options = parseCredentialMaintenanceCliArgs(args);
+    const options = dependencies.parseArgs(args);
     const legacyGa4PropertyId = parseLegacyGa4PropertyId(env.SEARCHOPS_GA4_PROPERTY_ID);
-    const keyring = parseCredentialKeyring(env as CredentialKeyringEnvironment);
-    client = createSearchOpsPrismaClient();
-    summary = await migrateLegacyProviderCredentials(
-      createPrismaProviderCredentialMaintenanceStore(client),
+    const keyring = dependencies.parseKeyring(env);
+    client = dependencies.createClient();
+    summary = await dependencies.execute(
+      dependencies.createStore(client),
       keyring,
       { ...options, ...(legacyGa4PropertyId === undefined ? {} : { legacyGa4PropertyId }) },
     );
@@ -49,10 +82,10 @@ export async function runMigrateProviderCredentialsCli(
   }
 
   if (failureCode !== undefined || summary === undefined) {
-    console.error(failureCode ?? "credential_maintenance_failed");
+    dependencies.writeError(failureCode ?? "credential_maintenance_failed");
     return 1;
   }
-  console.log(JSON.stringify(summary));
+  dependencies.writeOutput(JSON.stringify(summary));
   return summary.failed > 0 ? 1 : 0;
 }
 

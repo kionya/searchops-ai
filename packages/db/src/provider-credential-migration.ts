@@ -14,6 +14,42 @@ const DEFAULT_BATCH_SIZE = 100;
 const LEGACY_ACCOUNT_DISPLAY_NAME = "Legacy Google account";
 const MAINTENANCE_ARGUMENT_ERROR = "credential_maintenance_arguments_invalid";
 const MAINTENANCE_OPTION_ERROR = "credential_maintenance_options_invalid";
+const PRISMA_MAINTENANCE_TRANSACTION_OPTIONS = {
+  maxWait: 30_000,
+  timeout: 300_000,
+} as const;
+const legacyCredentialSelect = {
+  id: true,
+  organizationId: true,
+  siteId: true,
+  provider: true,
+  status: true,
+  scopes: true,
+  accessToken: true,
+  refreshToken: true,
+  tokenType: true,
+  tokenExpiresAt: true,
+  externalAccountEmail: true,
+  connectedByUserId: true,
+  connectedAt: true,
+} as const satisfies Prisma.ConnectorOAuthCredentialSelect;
+const legacyAccountInspectionSelect = {
+  id: true,
+  organizationId: true,
+} as const satisfies Prisma.ProviderAccountSelect;
+const siteIdentitySelect = { id: true } as const satisfies Prisma.SiteSelect;
+const rotationCredentialSelect = {
+  id: true,
+  organizationId: true,
+  provider: true,
+  credentialCiphertext: true,
+  credentialIv: true,
+  credentialAuthTag: true,
+  encryptionKeyId: true,
+  encryptionVersion: true,
+  updatedAt: true,
+} as const satisfies Prisma.ProviderAccountSelect;
+const idSelect = { id: true } as const;
 
 export interface CredentialMaintenanceSummary {
   readonly examined: number;
@@ -63,6 +99,7 @@ export interface RotatableProviderCredentialRow {
 
 export interface LegacyCredentialInspection {
   readonly providerAccountId: string | null;
+  readonly providerAccountOrganizationId: string | null;
   readonly siteBelongsToOrganization: boolean;
 }
 
@@ -130,6 +167,82 @@ export interface ProviderCredentialMaintenanceStore {
   }): Promise<readonly RotatableProviderCredentialRow[]>;
   transaction<T>(
     operation: (transaction: ProviderCredentialMaintenanceTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
+type LegacyProviderAccountCreateData = Omit<
+  LegacyProviderAccountCreateInput,
+  "encryptedCredential" | "scopes"
+> &
+  EncryptedProviderCredential & { readonly scopes: string[] };
+
+type LegacySiteConnectorWriteData = LegacySiteConnectorUpsertInput & {
+  readonly lastErrorCode: null;
+};
+
+export interface ProviderCredentialMaintenancePrismaTransactionPort {
+  readonly connectorOAuthCredential: {
+    findMany(args: {
+      readonly where?: { readonly id: { readonly gt: string } };
+      readonly orderBy: { readonly id: "asc" };
+      readonly take: number;
+      readonly select: typeof legacyCredentialSelect;
+    }): Promise<readonly LegacyProviderCredentialRow[]>;
+  };
+  readonly providerAccount: {
+    findUnique(args: {
+      readonly where: { readonly legacyCredentialId: string };
+      readonly select: typeof legacyAccountInspectionSelect;
+    }): Promise<{ readonly id: string; readonly organizationId: string } | null>;
+    findMany(args: {
+      readonly where: {
+        readonly encryptionKeyId: { readonly not: string };
+        readonly id?: { readonly gt: string };
+      };
+      readonly orderBy: { readonly id: "asc" };
+      readonly take: number;
+      readonly select: typeof rotationCredentialSelect;
+    }): Promise<readonly RotatableProviderCredentialRow[]>;
+    create(args: {
+      readonly data: LegacyProviderAccountCreateData;
+      readonly select: typeof idSelect;
+    }): Promise<{ readonly id: string }>;
+    updateMany(args: {
+      readonly where: {
+        readonly id: string;
+        readonly organizationId: string;
+        readonly updatedAt: Date;
+      };
+      readonly data: EncryptedProviderCredential;
+    }): Promise<{ readonly count: number }>;
+  };
+  readonly site: {
+    findFirst(args: {
+      readonly where: { readonly id: string; readonly organizationId: string };
+      readonly select: typeof siteIdentitySelect;
+    }): Promise<{ readonly id: string } | null>;
+  };
+  readonly siteConnector: {
+    upsert(args: {
+      readonly where: {
+        readonly organizationId: string;
+        readonly siteId_provider: {
+          readonly siteId: string;
+          readonly provider: "gsc" | "ga4";
+        };
+      };
+      readonly create: LegacySiteConnectorWriteData;
+      readonly update: LegacySiteConnectorWriteData;
+      readonly select: typeof idSelect;
+    }): Promise<{ readonly id: string }>;
+  };
+}
+
+export interface ProviderCredentialMaintenancePrismaPort
+  extends ProviderCredentialMaintenancePrismaTransactionPort {
+  $transaction<T>(
+    operation: (transaction: ProviderCredentialMaintenancePrismaTransactionPort) => Promise<T>,
+    options: typeof PRISMA_MAINTENANCE_TRANSACTION_OPTIONS,
   ): Promise<T>;
 }
 
@@ -212,13 +325,7 @@ export async function migrateLegacyProviderCredentials(
 
     const planned: PlannedLegacyCredential[] = [];
     for (const row of rows) {
-      let candidate: PlannedLegacyCredential | null;
-      try {
-        candidate = planLegacyCredential(row, keyring, ga4PropertyId);
-      } catch {
-        candidate = null;
-      }
-      if (candidate === null) {
+      if (!hasValidLegacyCredentialIdentity(row)) {
         summary.failed += 1;
         continue;
       }
@@ -230,11 +337,22 @@ export async function migrateLegacyProviderCredentials(
           organizationId: row.organizationId,
         }),
       );
+      if (!isTenantSafeInspection(inspection, row.organizationId)) {
+        summary.failed += 1;
+        continue;
+      }
       if (inspection.providerAccountId !== null) {
         summary.skipped += 1;
         continue;
       }
-      if (!inspection.siteBelongsToOrganization) {
+
+      let candidate: PlannedLegacyCredential | null;
+      try {
+        candidate = planLegacyCredential(row, keyring, ga4PropertyId);
+      } catch {
+        candidate = null;
+      }
+      if (candidate === null) {
         summary.failed += 1;
         continue;
       }
@@ -247,35 +365,36 @@ export async function migrateLegacyProviderCredentials(
     }
     if (planned.length === 0) continue;
 
+    let transactionMigrated = 0;
+    let transactionSkipped = 0;
     try {
-      const result = await store.transaction(async (transaction) => {
-        let migrated = 0;
-        let skipped = 0;
+      await store.transaction(async (transaction) => {
         for (const candidate of planned) {
           const inspection = await transaction.inspectLegacyCredential({
             legacyCredentialId: candidate.account.legacyCredentialId,
             siteId: candidate.connector.siteId,
             organizationId: candidate.account.organizationId,
           });
-          if (inspection.providerAccountId !== null) {
-            skipped += 1;
-            continue;
+          if (!isTenantSafeInspection(inspection, candidate.account.organizationId)) {
+            throw new Error("provider_credential_maintenance_tenant_mismatch");
           }
-          if (!inspection.siteBelongsToOrganization) {
-            throw new Error("provider_credential_maintenance_site_mismatch");
+          if (inspection.providerAccountId !== null) {
+            transactionSkipped += 1;
+            continue;
           }
 
           await transaction.createLegacyProviderAccount(candidate.account);
           await transaction.upsertLegacySiteConnector(candidate.connector);
-          migrated += 1;
+          transactionMigrated += 1;
         }
-        return { migrated, skipped };
       });
-      summary.migrated += result.migrated;
-      summary.skipped += result.skipped;
+      summary.migrated += transactionMigrated;
+      summary.skipped += transactionSkipped;
     } catch {
-      summary.failed += planned.length;
-      summary.pending += planned.length;
+      const rolledBack = planned.length - transactionSkipped;
+      summary.skipped += transactionSkipped;
+      summary.failed += rolledBack;
+      summary.pending += rolledBack;
     }
   }
 
@@ -333,32 +452,29 @@ export async function rotateProviderCredentialEncryption(
     }
     if (planned.length === 0) continue;
 
+    let transactionMigrated = 0;
+    let transactionSkipped = 0;
     try {
-      const results = await store.transaction(async (transaction) => {
-        const updated: boolean[] = [];
+      await store.transaction(async (transaction) => {
         for (const candidate of planned) {
-          updated.push(
-            await transaction.updateProviderCredentialEncryption({
-              id: candidate.row.id,
-              organizationId: candidate.row.organizationId,
-              expectedUpdatedAt: candidate.row.updatedAt,
-              encryptedCredential: candidate.encryptedCredential,
-            }),
-          );
+          const updated = await transaction.updateProviderCredentialEncryption({
+            id: candidate.row.id,
+            organizationId: candidate.row.organizationId,
+            expectedUpdatedAt: candidate.row.updatedAt,
+            encryptedCredential: candidate.encryptedCredential,
+          });
+          if (updated) transactionMigrated += 1;
+          else transactionSkipped += 1;
         }
-        return updated;
       });
-
-      for (const updated of results) {
-        if (updated) summary.migrated += 1;
-        else {
-          summary.skipped += 1;
-          summary.pending += 1;
-        }
-      }
+      summary.migrated += transactionMigrated;
+      summary.skipped += transactionSkipped;
+      summary.pending += transactionSkipped;
     } catch {
-      summary.failed += planned.length;
-      summary.pending += planned.length;
+      const rolledBack = planned.length - transactionSkipped;
+      summary.skipped += transactionSkipped;
+      summary.failed += rolledBack;
+      summary.pending += transactionSkipped + rolledBack;
     }
   }
 
@@ -367,19 +483,29 @@ export async function rotateProviderCredentialEncryption(
 
 export function createPrismaProviderCredentialMaintenanceStore(
   client: SearchOpsPrismaClient,
+): ProviderCredentialMaintenanceStore;
+export function createPrismaProviderCredentialMaintenanceStore(
+  client: ProviderCredentialMaintenancePrismaPort,
+): ProviderCredentialMaintenanceStore;
+export function createPrismaProviderCredentialMaintenanceStore(
+  client: SearchOpsPrismaClient | ProviderCredentialMaintenancePrismaPort,
 ): ProviderCredentialMaintenanceStore {
+  const prisma = client as unknown as ProviderCredentialMaintenancePrismaPort;
   return {
-    listLegacyCredentials: (input) => listLegacyCredentials(client, input),
-    inspectLegacyCredential: (input) => inspectLegacyCredential(client, input),
+    listLegacyCredentials: (input) => listLegacyCredentials(prisma, input),
+    inspectLegacyCredential: (input) => inspectLegacyCredential(prisma, input),
     listProviderCredentialsForRotation: (input) =>
-      listProviderCredentialsForRotation(client, input),
+      listProviderCredentialsForRotation(prisma, input),
     transaction: (operation) =>
-      client.$transaction(async (transaction) => operation(createTransactionAdapter(transaction))),
+      prisma.$transaction(
+        async (transaction) => operation(createTransactionAdapter(transaction)),
+        PRISMA_MAINTENANCE_TRANSACTION_OPTIONS,
+      ),
   };
 }
 
 function createTransactionAdapter(
-  client: Prisma.TransactionClient,
+  client: ProviderCredentialMaintenancePrismaTransactionPort,
 ): ProviderCredentialMaintenanceTransaction {
   return {
     inspectLegacyCredential: (input) => inspectLegacyCredential(client, input),
@@ -440,33 +566,19 @@ function createTransactionAdapter(
 }
 
 async function listLegacyCredentials(
-  client: SearchOpsPrismaClient | Prisma.TransactionClient,
+  client: ProviderCredentialMaintenancePrismaTransactionPort,
   input: { readonly afterId: string | null; readonly limit: number },
 ): Promise<readonly LegacyProviderCredentialRow[]> {
   return client.connectorOAuthCredential.findMany({
     ...(input.afterId === null ? {} : { where: { id: { gt: input.afterId } } }),
     orderBy: { id: "asc" },
     take: input.limit,
-    select: {
-      id: true,
-      organizationId: true,
-      siteId: true,
-      provider: true,
-      status: true,
-      scopes: true,
-      accessToken: true,
-      refreshToken: true,
-      tokenType: true,
-      tokenExpiresAt: true,
-      externalAccountEmail: true,
-      connectedByUserId: true,
-      connectedAt: true,
-    },
+    select: legacyCredentialSelect,
   });
 }
 
 async function inspectLegacyCredential(
-  client: SearchOpsPrismaClient | Prisma.TransactionClient,
+  client: ProviderCredentialMaintenancePrismaTransactionPort,
   input: {
     readonly legacyCredentialId: string;
     readonly siteId: string;
@@ -475,20 +587,21 @@ async function inspectLegacyCredential(
 ): Promise<LegacyCredentialInspection> {
   const providerAccount = await client.providerAccount.findUnique({
     where: { legacyCredentialId: input.legacyCredentialId },
-    select: { id: true },
+    select: legacyAccountInspectionSelect,
   });
   const site = await client.site.findFirst({
     where: { id: input.siteId, organizationId: input.organizationId },
-    select: { id: true },
+    select: siteIdentitySelect,
   });
   return {
     providerAccountId: providerAccount?.id ?? null,
+    providerAccountOrganizationId: providerAccount?.organizationId ?? null,
     siteBelongsToOrganization: site !== null,
   };
 }
 
 async function listProviderCredentialsForRotation(
-  client: SearchOpsPrismaClient | Prisma.TransactionClient,
+  client: ProviderCredentialMaintenancePrismaTransactionPort,
   input: { readonly activeKeyId: string; readonly afterId: string | null; readonly limit: number },
 ): Promise<readonly RotatableProviderCredentialRow[]> {
   return client.providerAccount.findMany({
@@ -498,17 +611,7 @@ async function listProviderCredentialsForRotation(
     },
     orderBy: { id: "asc" },
     take: input.limit,
-    select: {
-      id: true,
-      organizationId: true,
-      provider: true,
-      credentialCiphertext: true,
-      credentialIv: true,
-      credentialAuthTag: true,
-      encryptionKeyId: true,
-      encryptionVersion: true,
-      updatedAt: true,
-    },
+    select: rotationCredentialSelect,
   });
 }
 
@@ -597,6 +700,25 @@ function validateLegacyCredential(row: LegacyProviderCredentialRow): {
     return null;
   }
   return { provider: row.provider, status: row.status, scopes: [...row.scopes] };
+}
+
+function hasValidLegacyCredentialIdentity(row: LegacyProviderCredentialRow): boolean {
+  return (
+    isNonEmptyString(row.id) &&
+    isNonEmptyString(row.organizationId) &&
+    isNonEmptyString(row.siteId)
+  );
+}
+
+function isTenantSafeInspection(
+  inspection: LegacyCredentialInspection,
+  organizationId: string,
+): boolean {
+  if (!inspection.siteBelongsToOrganization) return false;
+  if (inspection.providerAccountId === null) {
+    return inspection.providerAccountOrganizationId === null;
+  }
+  return inspection.providerAccountOrganizationId === organizationId;
 }
 
 function parseLegacyGa4PropertyId(value: string | undefined): string | null {

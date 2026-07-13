@@ -42,9 +42,13 @@ export {
   createPrismaProviderCredentialMaintenanceStore,
   migrateLegacyProviderCredentials,
   rotateProviderCredentialEncryption,
+  type CredentialMaintenanceCliOptions,
   type CredentialMaintenanceOptions,
   type CredentialMaintenanceSummary,
+  type LegacyCredentialInspection,
   type LegacyProviderCredentialMigrationOptions,
+  type ProviderCredentialMaintenancePrismaPort,
+  type ProviderCredentialMaintenancePrismaTransactionPort,
   type ProviderCredentialMaintenanceStore,
   type ProviderCredentialMaintenanceTransaction
 } from "./provider-credential-migration.js";

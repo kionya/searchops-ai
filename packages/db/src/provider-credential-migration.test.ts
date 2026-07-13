@@ -1,13 +1,17 @@
 import { randomBytes } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createPrismaProviderCredentialMaintenanceStore,
   migrateLegacyProviderCredentials,
   parseCredentialMaintenanceCliArgs,
   rotateProviderCredentialEncryption,
+  type CredentialMaintenanceCliOptions,
+  type CredentialMaintenanceSummary,
   type LegacyProviderCredentialRow,
+  type ProviderCredentialMaintenancePrismaPort,
+  type ProviderCredentialMaintenancePrismaTransactionPort,
   type ProviderCredentialMaintenanceStore,
   type ProviderCredentialMaintenanceTransaction,
   type RotatableProviderCredentialRow,
@@ -63,6 +67,94 @@ describe("legacy provider credential migration", () => {
     });
     expect(store.accounts).toHaveLength(1);
     expect(store.connectors).toHaveLength(1);
+  });
+
+  it("inspects before validating historical secret metadata and skips a tenant-safe match", async () => {
+    const row = legacyGscRow({
+      accessToken: "",
+      externalAccountEmail: "not-an-email",
+      scopes: [""],
+      connectedAt: new Date("invalid"),
+    });
+    const store = createMigrationStore({ legacyRows: [row] });
+    store.seedMigratedAccount(legacyGscRow({ id: row.id }));
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toEqual({
+      examined: 1,
+      migrated: 0,
+      skipped: 1,
+      failed: 0,
+      pending: 0,
+      dryRun: false,
+    });
+    expect(store.inspectionInputs).toHaveLength(1);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("inspects a new row before full validation but never inspects an invalid identity", async () => {
+    const store = createMigrationStore({
+      legacyRows: [
+        legacyGscRow({ id: "legacy_bad_secret", accessToken: "" }),
+        legacyGscRow({ id: "", accessToken: "" }),
+      ],
+    });
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: false,
+      batchSize: 100,
+    });
+
+    expect(summary.failed).toBe(2);
+    expect(store.inspectionInputs).toEqual([
+      {
+        legacyCredentialId: "legacy_bad_secret",
+        organizationId: "org_a",
+        siteId: "site_a",
+      },
+    ]);
+  });
+
+  it("fails an existing legacy match bound to another organization", async () => {
+    const row = legacyGscRow();
+    const store = createMigrationStore({ legacyRows: [row] });
+    store.seedMigratedAccount(row, "org_other");
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toEqual({
+      examined: 1,
+      migrated: 0,
+      skipped: 0,
+      failed: 1,
+      pending: 0,
+      dryRun: false,
+    });
+    expect(store.writes).toEqual([]);
+  });
+
+  it("fails an existing legacy match when the site is outside the row organization", async () => {
+    const row = legacyGscRow();
+    const store = createMigrationStore({
+      legacyRows: [row],
+      sites: [{ id: row.siteId, organizationId: "org_other" }],
+    });
+    store.seedMigratedAccount(row);
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toMatchObject({ migrated: 0, skipped: 0, failed: 1, pending: 0 });
+    expect(store.writes).toEqual([]);
   });
 
   it("rolls back only a failed batch and resumes it later", async () => {
@@ -130,6 +222,71 @@ describe("legacy provider credential migration", () => {
     });
     expect(store.accounts).toHaveLength(1);
     expect(store.connectors).toHaveLength(0);
+  });
+
+  it("rechecks tenant ownership for an existing match inside the transaction", async () => {
+    const row = legacyGscRow();
+    const store = createMigrationStore({ legacyRows: [row] });
+    store.beforeNextTransaction = () => store.seedMigratedAccount(row, "org_other");
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toEqual({
+      examined: 1,
+      migrated: 0,
+      skipped: 0,
+      failed: 1,
+      pending: 1,
+      dryRun: false,
+    });
+    expect(store.connectors).toHaveLength(0);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("keeps a transaction-observed skip when a later migration row throws", async () => {
+    const first = legacyGscRow({ id: "legacy_1" });
+    const second = legacyGscRow({ id: "legacy_2" });
+    const store = createMigrationStore({ legacyRows: [first, second] });
+    store.beforeNextTransaction = () => store.seedMigratedAccount(first);
+    store.failNextCreateFor.add(second.id);
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toEqual({
+      examined: 2,
+      migrated: 0,
+      skipped: 1,
+      failed: 1,
+      pending: 1,
+      dryRun: false,
+    });
+    expect(store.accounts.map((account) => account.legacyCredentialId)).toEqual([first.id]);
+    expect(store.connectors).toEqual([]);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("keeps a transaction-observed skip when the migration commit throws", async () => {
+    const first = legacyGscRow({ id: "legacy_1" });
+    const second = legacyGscRow({ id: "legacy_2" });
+    const store = createMigrationStore({ legacyRows: [first, second] });
+    store.beforeNextTransaction = () => store.seedMigratedAccount(first);
+    store.failNextCommit = true;
+
+    const summary = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toMatchObject({ migrated: 0, skipped: 1, failed: 1, pending: 1 });
+    expect(store.accounts.map((account) => account.legacyCredentialId)).toEqual([first.id]);
+    expect(store.connectors).toEqual([]);
+    expect(store.writes).toEqual([]);
   });
 
   it("rejects a site owned by another organization without writing", async () => {
@@ -327,6 +484,47 @@ describe("provider credential encryption rotation", () => {
     });
     expect(store.encryptedRows[0]?.encryptionKeyId).toBe("v1");
   });
+
+  it("keeps an optimistic miss when a later rotation update throws", async () => {
+    const store = createMigrationStore({
+      encryptedRows: [encryptedV1Row({ id: "account_1" }), encryptedV1Row({ id: "account_2" })],
+    });
+    store.optimisticMissIds.add("account_1");
+    store.failNextRotationFor.add("account_2");
+
+    const summary = await rotateProviderCredentialEncryption(store, rotatingKeyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toEqual({
+      examined: 2,
+      migrated: 0,
+      skipped: 1,
+      failed: 1,
+      pending: 2,
+      dryRun: false,
+    });
+    expect(store.encryptedRows.map((row) => row.encryptionKeyId)).toEqual(["v1", "v1"]);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("keeps an optimistic miss when the rotation commit throws", async () => {
+    const store = createMigrationStore({
+      encryptedRows: [encryptedV1Row({ id: "account_1" }), encryptedV1Row({ id: "account_2" })],
+    });
+    store.optimisticMissIds.add("account_1");
+    store.failNextCommit = true;
+
+    const summary = await rotateProviderCredentialEncryption(store, rotatingKeyring(), {
+      apply: true,
+      batchSize: 100,
+    });
+
+    expect(summary).toMatchObject({ migrated: 0, skipped: 1, failed: 1, pending: 2 });
+    expect(store.encryptedRows.map((row) => row.encryptionKeyId)).toEqual(["v1", "v1"]);
+    expect(store.writes).toEqual([]);
+  });
 });
 
 describe("credential maintenance CLI validation", () => {
@@ -371,6 +569,304 @@ describe("credential maintenance CLI validation", () => {
   });
 });
 
+describe("Prisma credential maintenance adapter", () => {
+  it("uses redacted projections, transaction clients, exact options, and stable pagination", async () => {
+    const legacyRows = [
+      legacyGscRow({ id: "legacy_1" }),
+      legacyGa4Row({ id: "legacy_2" }),
+    ];
+    const rotationRows = [
+      encryptedV1Row({ id: "account_1" }),
+      encryptedV1Row({ id: "account_2" }),
+    ];
+    const fake = createMaintenancePrismaPort({ legacyRows, rotationRows });
+    const store = createPrismaProviderCredentialMaintenanceStore(fake.prisma);
+
+    const migration = await migrateLegacyProviderCredentials(store, keyring(), {
+      apply: true,
+      batchSize: 1,
+      legacyGa4PropertyId: "123456789",
+    });
+    const rotation = await rotateProviderCredentialEncryption(store, rotatingKeyring(), {
+      apply: true,
+      batchSize: 1,
+    });
+
+    expect(migration).toMatchObject({ examined: 2, migrated: 2, failed: 0 });
+    expect(rotation).toMatchObject({ examined: 2, migrated: 2, failed: 0 });
+    expect(fake.calls.legacyList.map((call) => call.where?.id.gt ?? null)).toEqual([
+      null,
+      "legacy_1",
+      "legacy_2",
+    ]);
+    expect(fake.calls.legacyList.every((call) => call.take === 1)).toBe(true);
+    expect(fake.calls.legacyList.every((call) => call.orderBy.id === "asc")).toBe(true);
+    expect(fake.calls.rotationList.map((call) => call.where.id?.gt ?? null)).toEqual([
+      null,
+      "account_1",
+      "account_2",
+    ]);
+    expect(fake.calls.rotationList.every((call) => call.take === 1)).toBe(true);
+    expect(fake.calls.rotationList.every((call) => call.orderBy.id === "asc")).toBe(true);
+    expect(fake.calls.inspections).not.toHaveLength(0);
+    for (const call of fake.calls.inspections) {
+      expect(call.select).toEqual({ id: true, organizationId: true });
+      expect(JSON.stringify(call)).not.toMatch(
+        /credentialCiphertext|credentialIv|credentialAuthTag|encryptionKeyId|accessToken|refreshToken|tokenType/i,
+      );
+    }
+    expect(fake.calls.inspections.map((call) => call.where.legacyCredentialId)).toEqual([
+      "legacy_1",
+      "legacy_1",
+      "legacy_2",
+      "legacy_2",
+    ]);
+    expect(fake.calls.transactionOptions).toEqual(
+      Array.from({ length: 4 }, () => ({ maxWait: 30_000, timeout: 300_000 })),
+    );
+    expect(fake.calls.writes.map((write) => write.client)).toEqual([
+      "transaction",
+      "transaction",
+      "transaction",
+      "transaction",
+      "transaction",
+      "transaction",
+    ]);
+    expect(fake.calls.accountCreates.map((call) => call.data.id)).toEqual(
+      legacyRows.map((row) =>
+        deriveCanonicalProviderAccountId({
+          organizationId: row.organizationId,
+          provider: "google",
+          externalAccountId: `legacy:${row.id}`,
+        }),
+      ),
+    );
+    const firstCreated = fake.calls.accountCreates[0]!.data;
+    expect(
+      decryptProviderCredential(
+        keyring(),
+        {
+          organizationId: firstCreated.organizationId,
+          providerAccountId: firstCreated.id,
+          provider: firstCreated.provider,
+        },
+        firstCreated,
+      ),
+    ).toEqual({
+      kind: "oauth2",
+      accessToken: legacyRows[0]!.accessToken,
+      refreshToken: legacyRows[0]!.refreshToken,
+      tokenType: legacyRows[0]!.tokenType,
+    });
+    expect(fake.calls.connectorUpserts.map((call) => call.create.provider)).toEqual([
+      "gsc",
+      "ga4",
+    ]);
+    expect(fake.calls.connectorUpserts.map((call) => call.create.externalResourceId)).toEqual([
+      null,
+      "properties/123456789",
+    ]);
+    expect(fake.calls.rotationUpdates.map((call) => call.where)).toEqual([
+      {
+        id: "account_1",
+        organizationId: "org_a",
+        updatedAt: rotationRows[0]!.updatedAt,
+      },
+      {
+        id: "account_2",
+        organizationId: "org_a",
+        updatedAt: rotationRows[1]!.updatedAt,
+      },
+    ]);
+    expect(fake.state.rotationRows.map((row) => row.encryptionKeyId)).toEqual(["v2", "v2"]);
+  });
+});
+
+describe("credential maintenance CLI bindings", () => {
+  it("has no output side effects when both CLI modules are imported", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await importMigrateCliModule();
+    await importRotationCliModule();
+
+    expect(log).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    log.mockRestore();
+    error.mockRestore();
+  });
+
+  it("binds injected migration dependencies and emits success JSON", async () => {
+    const { runMigrateProviderCredentialsCli } = await importMigrateCliModule();
+    const summary = maintenanceSummary();
+    const output: string[] = [];
+    const errors: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+    const store = createMigrationStore({});
+
+    const exitCode = await runMigrateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      {},
+      {
+        parseArgs: () => ({ apply: true, batchSize: 7 }),
+        parseKeyring: () => keyring(),
+        createClient: () => client,
+        createStore: (received) => {
+          expect(received).toBe(client);
+          return store;
+        },
+        execute: async (receivedStore, _keyring, options) => {
+          expect(receivedStore).toBe(store);
+          expect(options).toEqual({ apply: true, batchSize: 7 });
+          return summary;
+        },
+        writeOutput: (message) => output.push(message),
+        writeError: (message) => errors.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output).toEqual([JSON.stringify(summary)]);
+    expect(errors).toEqual([]);
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("returns migration exit 1 for a failed summary and still disconnects", async () => {
+    const { runMigrateProviderCredentialsCli } = await importMigrateCliModule();
+    const summary = maintenanceSummary({ failed: 1, pending: 1 });
+    const output: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+
+    const exitCode = await runMigrateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      {},
+      migrationCliDependencies({
+        client,
+        execute: async () => summary,
+        writeOutput: (message) => output.push(message),
+      }),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output).toEqual([JSON.stringify(summary)]);
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("redacts migration runtime failures and disconnects without raw output", async () => {
+    const { runMigrateProviderCredentialsCli } = await importMigrateCliModule();
+    const token = "token-never-print";
+    const env = { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: token };
+    const output: string[] = [];
+    const errors: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+
+    const exitCode = await runMigrateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      env,
+      migrationCliDependencies({
+        client,
+        execute: async () => {
+          throw new Error(`P2002 Prisma ${token} ${JSON.stringify(env)}\nraw stack`);
+        },
+        writeOutput: (message) => output.push(message),
+        writeError: (message) => errors.push(message),
+      }),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output).toEqual([]);
+    expect(errors).toEqual(["credential_maintenance_failed"]);
+    expect(JSON.stringify(errors)).not.toMatch(/P2002|Prisma|token-never-print|raw stack/);
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("binds injected rotation dependencies and emits success JSON", async () => {
+    const { runRotateProviderCredentialsCli } = await importRotationCliModule();
+    const summary = maintenanceSummary();
+    const output: string[] = [];
+    const errors: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+    const store = createMigrationStore({});
+
+    const exitCode = await runRotateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      {},
+      {
+        parseArgs: () => ({ apply: true, batchSize: 9 }),
+        parseKeyring: () => keyring(),
+        createClient: () => client,
+        createStore: (received) => {
+          expect(received).toBe(client);
+          return store;
+        },
+        execute: async (receivedStore, _keyring, options) => {
+          expect(receivedStore).toBe(store);
+          expect(options).toEqual({ apply: true, batchSize: 9 });
+          return summary;
+        },
+        writeOutput: (message) => output.push(message),
+        writeError: (message) => errors.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output).toEqual([JSON.stringify(summary)]);
+    expect(errors).toEqual([]);
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("returns rotation exit 1 for a failed summary and still disconnects", async () => {
+    const { runRotateProviderCredentialsCli } = await importRotationCliModule();
+    const summary = maintenanceSummary({ failed: 1, pending: 1 });
+    const output: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+
+    const exitCode = await runRotateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      {},
+      rotationCliDependencies({
+        client,
+        execute: async () => summary,
+        writeOutput: (message) => output.push(message),
+      }),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output).toEqual([JSON.stringify(summary)]);
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("redacts rotation runtime failures and disconnects without raw output", async () => {
+    const { runRotateProviderCredentialsCli } = await importRotationCliModule();
+    const token = "rotation-token-never-print";
+    const env = { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: token };
+    const output: string[] = [];
+    const errors: string[] = [];
+    const client = { $disconnect: vi.fn(async () => undefined) };
+
+    const exitCode = await runRotateProviderCredentialsCli(
+      ["--injected-test-mode"],
+      env,
+      rotationCliDependencies({
+        client,
+        execute: async () => {
+          throw new Error(`P2002 Prisma ${token} ${JSON.stringify(env)}\nraw stack`);
+        },
+        writeOutput: (message) => output.push(message),
+        writeError: (message) => errors.push(message),
+      }),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output).toEqual([]);
+    expect(errors).toEqual(["credential_maintenance_failed"]);
+    expect(JSON.stringify(errors)).not.toMatch(
+      /P2002|Prisma|rotation-token-never-print|raw stack/,
+    );
+    expect(client.$disconnect).toHaveBeenCalledOnce();
+  });
+});
+
 interface AccountWrite {
   readonly id: string;
   readonly organizationId: string;
@@ -406,6 +902,228 @@ interface RotatableEnvelope {
   readonly encryptionVersion: 1;
 }
 
+interface TestCredentialMaintenanceCliClient {
+  $disconnect(): Promise<void>;
+}
+
+interface TestCredentialMaintenanceCliDependencies<Options> {
+  parseArgs(args: readonly string[]): CredentialMaintenanceCliOptions;
+  parseKeyring(env: NodeJS.ProcessEnv): CredentialKeyring;
+  createClient(): TestCredentialMaintenanceCliClient;
+  createStore(client: TestCredentialMaintenanceCliClient): ProviderCredentialMaintenanceStore;
+  execute(
+    store: ProviderCredentialMaintenanceStore,
+    keyring: CredentialKeyring,
+    options: Options,
+  ): Promise<CredentialMaintenanceSummary>;
+  writeOutput(message: string): void;
+  writeError(message: string): void;
+}
+
+type TestCredentialMaintenanceCliRunner<Options> = (
+  args?: readonly string[],
+  env?: NodeJS.ProcessEnv,
+  dependencies?: TestCredentialMaintenanceCliDependencies<Options>,
+) => Promise<number>;
+
+async function importMigrateCliModule(): Promise<{
+  runMigrateProviderCredentialsCli: TestCredentialMaintenanceCliRunner<
+    CredentialMaintenanceCliOptions & { readonly legacyGa4PropertyId?: string }
+  >;
+}> {
+  const path = `../scripts/${"migrate-provider-credentials"}.js`;
+  return (await import(path)) as {
+    runMigrateProviderCredentialsCli: TestCredentialMaintenanceCliRunner<
+      CredentialMaintenanceCliOptions & { readonly legacyGa4PropertyId?: string }
+    >;
+  };
+}
+
+async function importRotationCliModule(): Promise<{
+  runRotateProviderCredentialsCli: TestCredentialMaintenanceCliRunner<CredentialMaintenanceCliOptions>;
+}> {
+  const path = `../scripts/${"rotate-provider-credentials"}.js`;
+  return (await import(path)) as {
+    runRotateProviderCredentialsCli: TestCredentialMaintenanceCliRunner<CredentialMaintenanceCliOptions>;
+  };
+}
+
+function maintenanceSummary(
+  overrides: Partial<CredentialMaintenanceSummary> = {},
+): CredentialMaintenanceSummary {
+  return {
+    examined: 1,
+    migrated: 1,
+    skipped: 0,
+    failed: 0,
+    pending: 0,
+    dryRun: false,
+    ...overrides,
+  };
+}
+
+function migrationCliDependencies(options: {
+  readonly client: { $disconnect(): Promise<void> };
+  readonly execute: () => Promise<CredentialMaintenanceSummary>;
+  readonly writeOutput: (message: string) => void;
+  readonly writeError?: (message: string) => void;
+}) {
+  return {
+    parseArgs: () => ({ apply: true, batchSize: 7 }),
+    parseKeyring: () => keyring(),
+    createClient: () => options.client,
+    createStore: () => createMigrationStore({}),
+    execute: options.execute,
+    writeOutput: options.writeOutput,
+    writeError: options.writeError ?? (() => undefined),
+  };
+}
+
+function rotationCliDependencies(options: {
+  readonly client: { $disconnect(): Promise<void> };
+  readonly execute: () => Promise<CredentialMaintenanceSummary>;
+  readonly writeOutput: (message: string) => void;
+  readonly writeError?: (message: string) => void;
+}) {
+  return {
+    parseArgs: () => ({ apply: true, batchSize: 9 }),
+    parseKeyring: () => keyring(),
+    createClient: () => options.client,
+    createStore: () => createMigrationStore({}),
+    execute: options.execute,
+    writeOutput: options.writeOutput,
+    writeError: options.writeError ?? (() => undefined),
+  };
+}
+
+function createMaintenancePrismaPort(options: {
+  readonly legacyRows: readonly LegacyProviderCredentialRow[];
+  readonly rotationRows: readonly RotatableProviderCredentialRow[];
+}) {
+  const state = {
+    createdAccounts: [] as {
+      id: string;
+      organizationId: string;
+      legacyCredentialId: string;
+      [key: string]: unknown;
+    }[],
+    rotationRows: options.rotationRows.map((row) => ({ ...row })),
+    connectorUpserts: [] as unknown[],
+  };
+  const calls = {
+    legacyList: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["connectorOAuthCredential"]["findMany"]
+    >[0][],
+    rotationList: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["providerAccount"]["findMany"]
+    >[0][],
+    inspections: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["providerAccount"]["findUnique"]
+    >[0][],
+    transactionOptions: [] as unknown[],
+    writes: [] as { client: "root" | "transaction"; kind: string }[],
+    accountCreates: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["providerAccount"]["create"]
+    >[0][],
+    connectorUpserts: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["siteConnector"]["upsert"]
+    >[0][],
+    rotationUpdates: [] as Parameters<
+      ProviderCredentialMaintenancePrismaTransactionPort["providerAccount"]["updateMany"]
+    >[0][],
+  };
+  const sites = options.legacyRows.map((row) => ({
+    id: row.siteId,
+    organizationId: row.organizationId,
+  }));
+
+  function createDelegates(
+    client: "root" | "transaction",
+  ): ProviderCredentialMaintenancePrismaTransactionPort {
+    return {
+      connectorOAuthCredential: {
+        async findMany(args) {
+          const afterId = args.where?.id.gt ?? null;
+          calls.legacyList.push(args);
+          return options.legacyRows
+            .filter((row) => afterId === null || row.id > afterId)
+            .sort((left, right) => left.id.localeCompare(right.id))
+            .slice(0, args.take);
+        },
+      },
+      providerAccount: {
+        async findUnique(args) {
+          calls.inspections.push(args);
+          const row = state.createdAccounts.find(
+            (account) => account.legacyCredentialId === args.where.legacyCredentialId,
+          );
+          return row === undefined
+            ? null
+            : { id: row.id, organizationId: row.organizationId };
+        },
+        async findMany(args) {
+          const afterId = args.where.id?.gt ?? null;
+          calls.rotationList.push(args);
+          return state.rotationRows
+            .filter((row) => row.encryptionKeyId !== args.where.encryptionKeyId.not)
+            .filter((row) => afterId === null || row.id > afterId)
+            .sort((left, right) => left.id.localeCompare(right.id))
+            .slice(0, args.take)
+            .map((row) => ({ ...row }));
+        },
+        async create(args) {
+          calls.writes.push({ client, kind: "account.create" });
+          calls.accountCreates.push(args);
+          state.createdAccounts.push({ ...args.data });
+          return { id: args.data.id };
+        },
+        async updateMany(args) {
+          calls.writes.push({ client, kind: "account.updateMany" });
+          calls.rotationUpdates.push(args);
+          const index = state.rotationRows.findIndex(
+            (row) =>
+              row.id === args.where.id &&
+              row.organizationId === args.where.organizationId &&
+              row.updatedAt.getTime() === args.where.updatedAt.getTime(),
+          );
+          if (index === -1) return { count: 0 };
+          state.rotationRows[index] = { ...state.rotationRows[index]!, ...args.data };
+          return { count: 1 };
+        },
+      },
+      site: {
+        async findFirst(args) {
+          const site = sites.find(
+            (row) =>
+              row.id === args.where.id && row.organizationId === args.where.organizationId,
+          );
+          return site === undefined ? null : { id: site.id };
+        },
+      },
+      siteConnector: {
+        async upsert(args) {
+          calls.writes.push({ client, kind: "siteConnector.upsert" });
+          calls.connectorUpserts.push(args);
+          state.connectorUpserts.push(args);
+          return { id: `${args.create.siteId}:${args.create.provider}` };
+        },
+      },
+    };
+  }
+
+  const root = createDelegates("root");
+  const transaction = createDelegates("transaction");
+  const prisma: ProviderCredentialMaintenancePrismaPort = {
+    ...root,
+    async $transaction(operation, transactionOptions) {
+      calls.transactionOptions.push(transactionOptions);
+      return operation(transaction);
+    },
+  };
+
+  return { prisma, state, calls };
+}
+
 function createMigrationStore(options: {
   readonly legacyRows?: readonly LegacyProviderCredentialRow[];
   readonly encryptedRows?: readonly RotatableProviderCredentialRow[];
@@ -428,18 +1146,28 @@ function createMigrationStore(options: {
     readonly connectors: ConnectorWrite[];
     readonly encryptedRows: RotatableProviderCredentialRow[];
     readonly writes: string[];
+    readonly inspectionInputs: {
+      readonly legacyCredentialId: string;
+      readonly siteId: string;
+      readonly organizationId: string;
+    }[];
     readonly failNextCreateFor: Set<string>;
+    readonly failNextRotationFor: Set<string>;
     readonly optimisticMissIds: Set<string>;
     beforeNextTransaction: (() => void) | undefined;
-    seedMigratedAccount(row: LegacyProviderCredentialRow): void;
+    failNextCommit: boolean;
+    seedMigratedAccount(row: LegacyProviderCredentialRow, organizationId?: string): void;
   } = {
     accounts: state.accounts,
     connectors: state.connectors,
     encryptedRows: state.encryptedRows,
     writes: state.writes,
+    inspectionInputs: [],
     failNextCreateFor: new Set(),
+    failNextRotationFor: new Set(),
     optimisticMissIds: new Set(),
     beforeNextTransaction: undefined,
+    failNextCommit: false,
 
     async listLegacyCredentials(input) {
       return (options.legacyRows ?? [])
@@ -449,6 +1177,7 @@ function createMigrationStore(options: {
     },
 
     async inspectLegacyCredential(input) {
+      store.inspectionInputs.push(input);
       return inspectState(state, input);
     },
 
@@ -474,6 +1203,11 @@ function createMigrationStore(options: {
       const transaction = createFakeTransaction(draft, store);
       const result = await operation(transaction);
 
+      if (store.failNextCommit) {
+        store.failNextCommit = false;
+        throw new Error("provider_credential_maintenance_commit_failed");
+      }
+
       state.accounts.splice(0, state.accounts.length, ...draft.accounts);
       state.connectors.splice(0, state.connectors.length, ...draft.connectors);
       state.encryptedRows.splice(0, state.encryptedRows.length, ...draft.encryptedRows);
@@ -481,9 +1215,11 @@ function createMigrationStore(options: {
       return result;
     },
 
-    seedMigratedAccount(row) {
+    seedMigratedAccount(row, organizationId = row.organizationId) {
       if (state.accounts.some((account) => account.legacyCredentialId === row.id)) return;
-      state.accounts.push(accountFromLegacy(row, keyring()));
+      state.accounts.push(
+        accountFromLegacy({ ...row, organizationId }, keyring()),
+      );
     },
   };
 
@@ -498,7 +1234,11 @@ function createFakeTransaction(
     sites: { id: string; organizationId: string }[];
     writes: string[];
   },
-  controls: { readonly failNextCreateFor: Set<string>; readonly optimisticMissIds: Set<string> },
+  controls: {
+    readonly failNextCreateFor: Set<string>;
+    readonly failNextRotationFor: Set<string>;
+    readonly optimisticMissIds: Set<string>;
+  },
 ): ProviderCredentialMaintenanceTransaction {
   return {
     async inspectLegacyCredential(input) {
@@ -527,6 +1267,9 @@ function createFakeTransaction(
 
     async updateProviderCredentialEncryption(input) {
       if (controls.optimisticMissIds.has(input.id)) return false;
+      if (controls.failNextRotationFor.delete(input.id)) {
+        throw new Error("provider_credential_maintenance_rotation_failed");
+      }
       const index = draft.encryptedRows.findIndex(
         (row) =>
           row.id === input.id &&
@@ -555,6 +1298,9 @@ function inspectState(
   return Promise.resolve({
     providerAccountId:
       state.accounts.find((row) => row.legacyCredentialId === input.legacyCredentialId)?.id ?? null,
+    providerAccountOrganizationId:
+      state.accounts.find((row) => row.legacyCredentialId === input.legacyCredentialId)
+        ?.organizationId ?? null,
     siteBelongsToOrganization: state.sites.some(
       (row) => row.id === input.siteId && row.organizationId === input.organizationId,
     ),
@@ -588,12 +1334,15 @@ function legacyGa4Row(
   return legacyGscRow({ id: "legacy_ga4", provider: "ga4", scopes: ["scope:ga4"], ...overrides });
 }
 
-function encryptedV1Row(): RotatableProviderCredentialRow {
+function encryptedV1Row(
+  overrides: Partial<Pick<RotatableProviderCredentialRow, "id" | "organizationId" | "updatedAt">> = {},
+): RotatableProviderCredentialRow {
   const row = {
     id: "account_1",
     organizationId: "org_a",
     provider: "google" as const,
     updatedAt: new Date("2026-07-13T00:00:00.000Z"),
+    ...overrides,
   };
   return {
     ...row,
