@@ -5,10 +5,12 @@ import {
   ProviderAccountDetailResponseSchema,
   ProviderAccountListResponseSchema,
   ProviderCredentialSecretSchema,
+  ReplaceProviderCredentialRequestSchema,
   SiteConnectorConfigSchema,
   SiteConnectorDetailResponseSchema,
   SiteConnectorListResponseSchema,
   SiteConnectorSchema,
+  UpdateProviderAccountMetadataRequestSchema,
   UpsertSiteConnectorRequestSchema,
 } from "./provider-credentials.js";
 
@@ -63,6 +65,61 @@ describe("provider credential contracts", () => {
     });
     expect(() =>
       ProviderCredentialSecretSchema.parse({ kind: "api_key", accessToken: "x" }),
+    ).toThrow();
+  });
+
+  it("accepts only non-empty provider account metadata updates", () => {
+    expect(
+      UpdateProviderAccountMetadataRequestSchema.parse({
+        displayName: "  Renamed account  ",
+      }),
+    ).toEqual({ displayName: "Renamed account" });
+    expect(UpdateProviderAccountMetadataRequestSchema.parse({ isDefault: false })).toEqual({
+      isDefault: false,
+    });
+    expect(() => UpdateProviderAccountMetadataRequestSchema.parse({})).toThrow();
+    expect(() =>
+      UpdateProviderAccountMetadataRequestSchema.parse({ displayName: "   " }),
+    ).toThrow();
+  });
+
+  it.each([
+    { status: "revoked" },
+    { provider: "bing" },
+    { email: "other@example.test" },
+    { accountEmail: "other@example.test" },
+    { scopes: ["scope.write"] },
+    { secret: "raw-secret" },
+    { credentialCiphertext: "encrypted-secret" },
+    { credentialIv: "encrypted-iv" },
+    { credentialAuthTag: "encrypted-auth-tag" },
+    { encryptionKeyId: "key-v2" },
+  ])("rejects non-metadata provider account update fields", (payload) => {
+    expect(() =>
+      UpdateProviderAccountMetadataRequestSchema.parse({ displayName: "Allowed", ...payload }),
+    ).toThrow();
+  });
+
+  it("accepts only a direct API key for credential replacement", () => {
+    expect(ReplaceProviderCredentialRequestSchema.parse({ apiKey: "key-123" })).toEqual({
+      apiKey: "key-123",
+    });
+    expect(() => ReplaceProviderCredentialRequestSchema.parse({ apiKey: "" })).toThrow();
+    expect(() =>
+      ReplaceProviderCredentialRequestSchema.parse({
+        credential: { kind: "api_key", apiKey: "key-123" },
+      }),
+    ).toThrow();
+    expect(() =>
+      ReplaceProviderCredentialRequestSchema.parse({
+        kind: "oauth2",
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        tokenType: "Bearer",
+      }),
+    ).toThrow();
+    expect(() =>
+      ReplaceProviderCredentialRequestSchema.parse({ apiKey: "key-123", status: "connected" }),
     ).toThrow();
   });
 

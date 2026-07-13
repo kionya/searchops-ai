@@ -15,7 +15,8 @@ import {
   deriveCanonicalProviderAccountId,
   ProviderCredentialStoreError,
   type ProviderCredentialStore,
-  type ProviderCredentialStorePrismaPort
+  type ProviderCredentialStorePrismaPort,
+  type ProviderCredentialStorePrismaTransactionPort
 } from "./provider-credential-store.js";
 
 const now = new Date("2026-07-13T00:00:00.000Z");
@@ -23,6 +24,24 @@ const keyring = parseCredentialKeyring({
   SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "test-v1",
   SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64")
 });
+const metadataSelect = {
+  id: true,
+  organizationId: true,
+  provider: true,
+  authType: true,
+  externalAccountId: true,
+  accountEmail: true,
+  displayName: true,
+  status: true,
+  scopes: true,
+  tokenExpiresAt: true,
+  isDefault: true,
+  legacyCredentialId: true,
+  connectedByUserId: true,
+  connectedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 describe("provider credential store", () => {
   it("accepts the real Prisma client through its narrow port", () => {
@@ -61,6 +80,169 @@ describe("provider credential store", () => {
     expect(prisma.calls.providerAccount.findFirst[0]?.select).not.toHaveProperty("credentialCiphertext");
     expect(prisma.calls.providerAccount.findFirst[1]?.where).toEqual({ id: "pa_a", organizationId: "org_a" });
     expect(prisma.calls.providerAccount.findFirst[1]?.select).toHaveProperty("credentialCiphertext", true);
+  });
+
+  it("updates displayName in a tenant-scoped transaction with secret-free selects", async () => {
+    const prisma = fakePrisma({ accounts: [account()] });
+    const store = createPrismaProviderCredentialStore(prisma);
+
+    const updated = await store.updateAccountMetadata({
+      organizationId: "org_a",
+      providerAccountId: "pa_a",
+      displayName: "Renamed Google",
+    });
+
+    expect(updated).toMatchObject({ id: "pa_a", displayName: "Renamed Google" });
+    expect(JSON.stringify(updated)).not.toContain("ciphertext-a");
+    expect(prisma.calls.$transaction).toHaveLength(1);
+    expect(prisma.calls.transactionProviderAccount.findFirst).toEqual([
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        select: metadataSelect,
+      },
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        select: metadataSelect,
+      },
+    ]);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toEqual([
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        data: { displayName: "Renamed Google" },
+      },
+    ]);
+    for (const call of prisma.calls.transactionProviderAccount.findFirst) {
+      expect(call.select).not.toHaveProperty("credentialCiphertext");
+      expect(call.select).not.toHaveProperty("credentialIv");
+      expect(call.select).not.toHaveProperty("credentialAuthTag");
+    }
+    expect(prisma.calls.providerAccount.findFirst).toHaveLength(0);
+    expect(prisma.calls.providerAccount.updateMany).toHaveLength(0);
+  });
+
+  it("sets one default while clearing only other same-provider tenant accounts", async () => {
+    const prisma = fakePrisma({
+      accounts: [
+        account(),
+        account({ id: "pa_google_other", isDefault: true }),
+        account({ id: "pa_bing", provider: "bing", isDefault: true }),
+        account({ id: "pa_org_b", organizationId: "org_b", isDefault: true }),
+      ],
+    });
+    const store = createPrismaProviderCredentialStore(prisma);
+
+    await expect(
+      store.updateAccountMetadata({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+        isDefault: true,
+      }),
+    ).resolves.toMatchObject({ id: "pa_a", isDefault: true });
+
+    expect(prisma.calls.transactionProviderAccount.updateMany).toEqual([
+      {
+        where: {
+          organizationId: "org_a",
+          provider: "google",
+          id: { not: "pa_a" },
+        },
+        data: { isDefault: false },
+      },
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        data: { isDefault: true },
+      },
+    ]);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_other")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_bing")?.isDefault).toBe(true);
+    expect(prisma.accounts.find((row) => row.id === "pa_org_b")?.isDefault).toBe(true);
+  });
+
+  it("can clear a target default without updating sibling accounts", async () => {
+    const prisma = fakePrisma({
+      accounts: [account({ isDefault: true }), account({ id: "pa_google_other" })],
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).updateAccountMetadata({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+        isDefault: false,
+      }),
+    ).resolves.toMatchObject({ id: "pa_a", isDefault: false });
+
+    expect(prisma.calls.transactionProviderAccount.updateMany).toEqual([
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        data: { isDefault: false },
+      },
+    ]);
+  });
+
+  it("returns null without writes for a cross-organization target", async () => {
+    const prisma = fakePrisma({ accounts: [account({ organizationId: "org_b" })] });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).updateAccountMetadata({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+        displayName: "Must not write",
+        isDefault: true,
+      }),
+    ).resolves.toBeNull();
+
+    expect(prisma.calls.transactionProviderAccount.findFirst).toEqual([
+      {
+        where: { id: "pa_a", organizationId: "org_a" },
+        select: metadataSelect,
+      },
+    ]);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toHaveLength(0);
+    expect(prisma.accounts[0]?.displayName).toBe("Google account");
+  });
+
+  it("returns null when the tenant-scoped target disappears before update", async () => {
+    const prisma = fakePrisma({
+      accounts: [account()],
+      providerAccountMetadataUpdateCountZero: true,
+    });
+
+    await expect(
+      createPrismaProviderCredentialStore(prisma).updateAccountMetadata({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+        displayName: "Renamed Google",
+      }),
+    ).resolves.toBeNull();
+
+    expect(prisma.calls.transactionProviderAccount.findFirst).toHaveLength(1);
+    expect(prisma.calls.transactionProviderAccount.updateMany).toHaveLength(1);
+  });
+
+  it("rolls back default clearing and redacts unique conflicts", async () => {
+    const prisma = fakePrisma({
+      accounts: [account(), account({ id: "pa_google_other", isDefault: true })],
+      providerAccountMetadataUpdateError: {
+        code: "P2002",
+        message: "sensitive prisma partial unique details",
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await createPrismaProviderCredentialStore(prisma).updateAccountMetadata({
+        organizationId: "org_a",
+        providerAccountId: "pa_a",
+        isDefault: true,
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toEqual(new ProviderCredentialStoreError("provider_account_default_conflict"));
+    expect(String(caught)).not.toContain("sensitive prisma partial unique details");
+    expect(prisma.accounts.find((row) => row.id === "pa_a")?.isDefault).toBe(false);
+    expect(prisma.accounts.find((row) => row.id === "pa_google_other")?.isDefault).toBe(true);
   });
 
   it("creates and replaces encrypted API-key accounts without raw credential inputs", async () => {
@@ -489,14 +671,19 @@ function fakePrisma(seed: {
   sites?: SiteRow[];
   connectors?: ConnectorRow[];
   providerAccountDeleteError?: unknown;
+  providerAccountMetadataUpdateError?: unknown;
+  providerAccountMetadataUpdateCountZero?: boolean;
 } = {}) {
   const accounts = seed.accounts ?? [];
   const sites = seed.sites ?? [];
   const connectors = seed.connectors ?? [];
   type ProviderAccountPort = ProviderCredentialStorePrismaPort["providerAccount"];
+  type TransactionProviderAccountPort =
+    ProviderCredentialStorePrismaTransactionPort["providerAccount"];
   type SitePort = ProviderCredentialStorePrismaPort["site"];
   type SiteConnectorPort = ProviderCredentialStorePrismaPort["siteConnector"];
   const calls = {
+    $transaction: [] as ProviderCredentialStorePrismaTransactionPort[],
     providerAccount: {
       findMany: [] as Parameters<ProviderAccountPort["findMany"]>[0][],
       findFirst: [] as Parameters<ProviderAccountPort["findFirst"]>[0][],
@@ -505,6 +692,10 @@ function fakePrisma(seed: {
       upsert: [] as Parameters<ProviderAccountPort["upsert"]>[0][],
       deleteMany: [] as Parameters<ProviderAccountPort["deleteMany"]>[0][],
       count: [] as Parameters<ProviderAccountPort["count"]>[0][]
+    },
+    transactionProviderAccount: {
+      findFirst: [] as Parameters<TransactionProviderAccountPort["findFirst"]>[0][],
+      updateMany: [] as Parameters<TransactionProviderAccountPort["updateMany"]>[0][],
     },
     site: { findFirst: [] as Parameters<SitePort["findFirst"]>[0][] },
     siteConnector: {
@@ -516,7 +707,48 @@ function fakePrisma(seed: {
   };
   let nextId = 1;
 
+  const transactionProviderAccount: TransactionProviderAccountPort = {
+    async findFirst(args) {
+      calls.transactionProviderAccount.findFirst.push(args);
+      const row = accounts.find((candidate) => matches(candidate, args.where));
+      return row === undefined ? null : select(row, args.select);
+    },
+    async updateMany(args) {
+      calls.transactionProviderAccount.updateMany.push(args);
+      const isTargetUpdate =
+        typeof args.where.id === "string" &&
+        args.where.organizationId !== undefined;
+      if (isTargetUpdate && seed.providerAccountMetadataUpdateError !== undefined) {
+        throw seed.providerAccountMetadataUpdateError;
+      }
+      if (isTargetUpdate && seed.providerAccountMetadataUpdateCountZero === true) {
+        return { count: 0 };
+      }
+      let count = 0;
+      for (const row of accounts) {
+        if (matches(row, args.where)) {
+          Object.assign(row, args.data, { updatedAt: now });
+          count += 1;
+        }
+      }
+      return { count };
+    },
+  };
+
   const prisma: ProviderCredentialStorePrismaPort = {
+    async $transaction(callback) {
+      const snapshot = accounts.map((row) => ({ ...row, scopes: structuredClone(row.scopes) }));
+      const transactionClient: ProviderCredentialStorePrismaTransactionPort = {
+        providerAccount: transactionProviderAccount,
+      };
+      calls.$transaction.push(transactionClient);
+      try {
+        return await callback(transactionClient);
+      } catch (error) {
+        accounts.splice(0, accounts.length, ...snapshot);
+        throw error;
+      }
+    },
     providerAccount: {
       async findMany(args) {
         calls.providerAccount.findMany.push(args);
@@ -631,7 +863,12 @@ function fakePrisma(seed: {
 
 function matches<T extends object>(row: T, where: Record<string, unknown>) {
   const values = row as Record<string, unknown>;
-  return Object.entries(where).every(([key, value]) => values[key] === value);
+  return Object.entries(where).every(([key, value]) => {
+    if (typeof value === "object" && value !== null && "not" in value) {
+      return values[key] !== value.not;
+    }
+    return values[key] === value;
+  });
 }
 
 function matchesUniqueAccount(

@@ -102,7 +102,23 @@ type ReadinessConnectorRow = Prisma.SiteConnectorGetPayload<{
   select: typeof readinessConnectorSelect;
 }>;
 
+export interface ProviderCredentialStorePrismaTransactionPort {
+  readonly providerAccount: {
+    findFirst(args: {
+      readonly where: { readonly id: string; readonly organizationId: string };
+      readonly select: typeof providerAccountMetadataSelect;
+    }): Promise<ProviderAccountMetadataRow | null>;
+    updateMany(args: {
+      readonly where: ProviderAccountMetadataUpdateWhere;
+      readonly data: ProviderAccountMetadataUpdateData;
+    }): Promise<{ readonly count: number }>;
+  };
+}
+
 export interface ProviderCredentialStorePrismaPort {
+  $transaction<T>(
+    operation: (transaction: ProviderCredentialStorePrismaTransactionPort) => Promise<T>,
+  ): Promise<T>;
   readonly providerAccount: {
     findMany(args: {
       readonly where: { readonly organizationId: string };
@@ -204,6 +220,18 @@ export interface ReplaceCredentialStoreInput {
   readonly encryptedCredential: EncryptedProviderCredential;
 }
 
+export type UpdateProviderAccountMetadataStoreInput = AccountLookupStoreInput &
+  (
+    | {
+        readonly displayName: string;
+        readonly isDefault?: boolean;
+      }
+    | {
+        readonly displayName?: string;
+        readonly isDefault: boolean;
+      }
+  );
+
 export interface UpsertGoogleAccountStoreInput {
   readonly providerAccountId: string;
   readonly organizationId: string;
@@ -260,6 +288,9 @@ export interface ProviderCredentialStore {
   getAccountMetadata(input: AccountLookupStoreInput): Promise<ProviderAccountMetadata | null>;
   getAccountSecretRecord(input: AccountLookupStoreInput): Promise<ProviderAccountSecretRecord | null>;
   createApiKeyAccount(input: CreateApiKeyAccountStoreInput): Promise<ProviderAccountMetadata>;
+  updateAccountMetadata(
+    input: UpdateProviderAccountMetadataStoreInput,
+  ): Promise<ProviderAccountMetadata | null>;
   replaceCredential(input: ReplaceCredentialStoreInput): Promise<ProviderAccountMetadata | null>;
   upsertGoogleAccount(input: UpsertGoogleAccountStoreInput): Promise<ProviderAccountMetadata>;
   deleteAccount(input: DeleteAccountStoreInput): Promise<boolean>;
@@ -279,6 +310,7 @@ export class ProviderCredentialStoreError extends Error {
 
 export type ProviderCredentialStoreErrorCode =
   | "account_in_use"
+  | "provider_account_default_conflict"
   | "provider_account_identity_conflict"
   | "provider_account_identity_mismatch"
   | "provider_account_not_in_organization"
@@ -337,6 +369,56 @@ export function createPrismaProviderCredentialStore(
       });
 
       return toProviderAccountMetadata(row);
+    },
+
+    async updateAccountMetadata(input) {
+      try {
+        return await prisma.$transaction(async (transaction) => {
+          const target = await transaction.providerAccount.findFirst({
+            where: { id: input.providerAccountId, organizationId: input.organizationId },
+            select: providerAccountMetadataSelect
+          });
+          if (target === null) {
+            return null;
+          }
+
+          if (input.isDefault === true) {
+            await transaction.providerAccount.updateMany({
+              where: {
+                organizationId: input.organizationId,
+                provider: target.provider,
+                id: { not: input.providerAccountId }
+              },
+              data: { isDefault: false }
+            });
+          }
+
+          const updated = await transaction.providerAccount.updateMany({
+            where: { id: input.providerAccountId, organizationId: input.organizationId },
+            data: providerAccountMetadataUpdateData(input)
+          });
+          if (updated.count === 0) {
+            throw providerAccountMetadataTargetMissing;
+          }
+
+          const row = await transaction.providerAccount.findFirst({
+            where: { id: input.providerAccountId, organizationId: input.organizationId },
+            select: providerAccountMetadataSelect
+          });
+          if (row === null) {
+            throw providerAccountMetadataTargetMissing;
+          }
+          return toProviderAccountMetadata(row);
+        });
+      } catch (error) {
+        if (error === providerAccountMetadataTargetMissing) {
+          return null;
+        }
+        if (hasPrismaErrorCode(error, "P2002")) {
+          throw new ProviderCredentialStoreError("provider_account_default_conflict");
+        }
+        throw error;
+      }
     },
 
     async replaceCredential(input) {
@@ -549,6 +631,22 @@ interface ProviderAccountCredentialUpdateData {
   readonly encryptionVersion: 1;
 }
 
+type ProviderAccountMetadataUpdateWhere =
+  | {
+      readonly id: string;
+      readonly organizationId: string;
+    }
+  | {
+      readonly organizationId: string;
+      readonly provider: string;
+      readonly id: { readonly not: string };
+    };
+
+interface ProviderAccountMetadataUpdateData {
+  readonly displayName?: string;
+  readonly isDefault?: boolean;
+}
+
 interface ProviderAccountGoogleUpdateData extends ProviderAccountCredentialUpdateData {
   readonly accountEmail: string;
   readonly displayName: string;
@@ -606,6 +704,15 @@ function encryptedCredentialUpdateData(
     credentialAuthTag: encryptedCredential.credentialAuthTag,
     encryptionKeyId: encryptedCredential.encryptionKeyId,
     encryptionVersion: encryptedCredential.encryptionVersion
+  };
+}
+
+function providerAccountMetadataUpdateData(
+  input: UpdateProviderAccountMetadataStoreInput,
+): ProviderAccountMetadataUpdateData {
+  return {
+    ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+    ...(input.isDefault === undefined ? {} : { isDefault: input.isDefault })
   };
 }
 
@@ -726,3 +833,5 @@ export function deriveCanonicalProviderAccountId(input: {
 function hasPrismaErrorCode(error: unknown, code: "P2002" | "P2003"): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
+
+const providerAccountMetadataTargetMissing = Symbol("provider_account_metadata_target_missing");

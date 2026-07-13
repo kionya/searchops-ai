@@ -32,10 +32,12 @@ export {
   type ProviderCredentialStore,
   type ProviderCredentialStoreErrorCode,
   type ProviderCredentialStorePrismaPort,
+  type ProviderCredentialStorePrismaTransactionPort,
   type ReplaceCredentialStoreInput,
   type SiteConnectorLookupStoreInput,
   type UpsertGoogleAccountStoreInput,
-  type UpsertSiteConnectorStoreInput
+  type UpsertSiteConnectorStoreInput,
+  type UpdateProviderAccountMetadataStoreInput
 } from "./provider-credential-store.js";
 
 export {

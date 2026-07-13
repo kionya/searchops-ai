@@ -128,11 +128,24 @@ export type CreateApiKeyProviderAccountRequest = z.infer<
 
 export const ReplaceProviderCredentialRequestSchema = z
   .object({
-    credential: ProviderCredentialSecretSchema,
+    apiKey: z.string().min(1),
   })
   .strict();
 export type ReplaceProviderCredentialRequest = z.infer<
   typeof ReplaceProviderCredentialRequestSchema
+>;
+
+export const UpdateProviderAccountMetadataRequestSchema = z
+  .object({
+    displayName: z.string().trim().min(1).optional(),
+    isDefault: z.boolean().optional(),
+  })
+  .strict()
+  .refine((value) => value.displayName !== undefined || value.isDefault !== undefined, {
+    message: "At least one metadata field is required",
+  });
+export type UpdateProviderAccountMetadataRequest = z.infer<
+  typeof UpdateProviderAccountMetadataRequestSchema
 >;
 
 export const UpsertSiteConnectorRequestSchema = z
