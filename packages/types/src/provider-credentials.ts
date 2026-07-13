@@ -42,6 +42,9 @@ export type CredentialStorageMode = z.infer<typeof CredentialStorageModeSchema>;
 export const CredentialSourceSchema = z.enum(["encrypted", "legacy", "platform"]);
 export type CredentialSource = z.infer<typeof CredentialSourceSchema>;
 
+export const SiteConnectorConfigSchema = z.object({}).strict();
+export type SiteConnectorConfig = z.infer<typeof SiteConnectorConfigSchema>;
+
 export const OAuthCredentialSecretSchema = z
   .object({
     kind: z.literal("oauth2"),
@@ -95,7 +98,7 @@ export const SiteConnectorSchema = z
     provider: SiteConnectorProviderSchema,
     providerAccountId: IdSchema,
     externalResourceId: z.string().min(1),
-    config: z.record(z.unknown()),
+    config: SiteConnectorConfigSchema,
     status: SiteConnectorStatusSchema,
     lastErrorCode: z.string().min(1).nullable(),
     lastCheckedAt: IsoDateTimeSchema.nullable(),
