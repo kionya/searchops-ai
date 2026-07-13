@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 
 import type {
   ProviderAccountSummary,
-  Site,
 } from "@searchops/types";
 
 import {
@@ -30,9 +29,9 @@ import {
 } from "../../../src/provider-accounts";
 import {
   createProviderAccountAction,
-  startGoogleOAuthAction,
 } from "./actions";
 import { ProviderAccountRows } from "./account-rows";
+import { GoogleConnectForm } from "./google-connect-form";
 import { IntegrationSubmitButton } from "./submit-button";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +65,7 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
   ]);
   const accounts = accountResult.status === "fulfilled" ? accountResult.value : [];
   const sites = siteResult.status === "fulfilled" ? siteResult.value : [];
+  const siteLoadFailed = siteResult.status === "rejected";
   const resolvedSearchParams = await searchParams;
   const status = resolvedSearchParams.status;
   const statusFeedback = status && status in feedback
@@ -105,15 +105,17 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
           accounts={accounts.filter((account) => account.provider === "google")}
           canManage={canManage}
           emptyLabel="연결된 Google 계정이 없습니다."
+          loadFailed={accountResult.status === "rejected"}
           title="Google"
         >
-          {canManage ? <GoogleConnectForm sites={sites} /> : null}
+          <GoogleConnectForm canManage={canManage} siteLoadFailed={siteLoadFailed} sites={sites} />
         </ProviderSection>
 
         <ProviderSection
           accounts={accounts.filter((account) => account.provider === "bing")}
           canManage={canManage}
           emptyLabel="연결된 Bing 계정이 없습니다."
+          loadFailed={accountResult.status === "rejected"}
           title="Bing"
         >
           {canManage ? <ApiKeyCreateForm provider="bing" /> : null}
@@ -123,6 +125,7 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
           accounts={accounts.filter((account) => account.provider.startsWith("geo_"))}
           canManage={canManage}
           emptyLabel="등록된 GEO BYOK 계정이 없습니다."
+          loadFailed={accountResult.status === "rejected"}
           title="GEO BYOK"
         >
           {canManage ? <GeoCreateForm /> : null}
@@ -137,12 +140,14 @@ function ProviderSection({
   canManage,
   children,
   emptyLabel,
+  loadFailed,
   title,
 }: {
   readonly accounts: readonly ProviderAccountSummary[];
   readonly canManage: boolean;
   readonly children?: ReactNode;
   readonly emptyLabel: string;
+  readonly loadFailed: boolean;
   readonly title: string;
 }) {
   return (
@@ -172,7 +177,7 @@ function ProviderSection({
           </thead>
           <tbody>
             <ProviderAccountRows accounts={accounts} canManage={canManage} />
-            {accounts.length === 0 ? (
+            {accounts.length === 0 && !loadFailed ? (
               <tr>
                 <td colSpan={8} style={{ ...tdStyle, ...mutedTextStyle }}>{emptyLabel}</td>
               </tr>
@@ -181,19 +186,6 @@ function ProviderSection({
         </table>
       </div>
     </section>
-  );
-}
-
-function GoogleConnectForm({ sites }: { readonly sites: readonly Site[] }) {
-  return (
-    <form action={startGoogleOAuthAction} style={headerFormStyle}>
-      <label htmlFor="google-site">사이트</label>
-      <select disabled={sites.length === 0} id="google-site" name="siteId" required style={inputStyle}>
-        <option value="">선택</option>
-        {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-      </select>
-      <IntegrationSubmitButton disabled={sites.length === 0}>연결 / 재연결</IntegrationSubmitButton>
-    </form>
   );
 }
 

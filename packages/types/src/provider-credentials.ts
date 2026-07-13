@@ -27,6 +27,41 @@ export type ProviderAccountStatus = z.infer<typeof ProviderAccountStatusSchema>;
 export const SiteConnectorProviderSchema = z.enum(["gsc", "ga4", "bing"]);
 export type SiteConnectorProvider = z.infer<typeof SiteConnectorProviderSchema>;
 
+export type GoogleConnectorProvider = Extract<SiteConnectorProvider, "gsc" | "ga4">;
+
+export const GoogleConnectorScopes = {
+  ga4: [
+    "https://www.googleapis.com/auth/analytics.readonly",
+    "https://www.googleapis.com/auth/analytics",
+  ],
+  gsc: [
+    "https://www.googleapis.com/auth/webmasters.readonly",
+    "https://www.googleapis.com/auth/webmasters",
+  ],
+} as const satisfies Record<GoogleConnectorProvider, readonly [string, string]>;
+
+export function isGoogleConnectorScopeSatisfied(
+  scopes: readonly string[],
+  provider: GoogleConnectorProvider,
+): boolean {
+  const grantedScopes = new Set(scopes);
+  return GoogleConnectorScopes[provider].some((scope) => grantedScopes.has(scope));
+}
+
+export function googleConnectorProvidersAllowedByScopes(
+  scopes: readonly string[],
+): GoogleConnectorProvider[] {
+  return (["gsc", "ga4"] as const).filter((provider) =>
+    isGoogleConnectorScopeSatisfied(scopes, provider),
+  );
+}
+
+export function getGoogleConnectorReadonlyScopes(
+  providers: readonly GoogleConnectorProvider[],
+): string[] {
+  return [...new Set(providers.map((provider) => GoogleConnectorScopes[provider][0]))].sort();
+}
+
 export const SiteConnectorStatusSchema = z.enum([
   "connected",
   "needs_configuration",

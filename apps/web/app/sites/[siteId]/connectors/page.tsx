@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 
 import type {
+  ConnectorLiveSetupCheck,
   ProviderAccountSummary,
   SiteConnector,
   SiteConnectorProvider,
 } from "@searchops/types";
 
 import {
-  loadDashboardSite,
   mutedTextStyle,
   SectionHeader
 } from "../../../../src/dashboard-shell";
@@ -24,10 +24,10 @@ import {
 import { formatBooleanLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
   formatConnectorLiveSetupStatus,
+  findPageSpeedLiveSetupCheck,
   getConnectorLiveSetupTone,
-  getPageSpeedLiveSetupCheck,
-  loadConnectorLiveSetupData,
-  type ConnectorLiveSetupTone
+  type ConnectorLiveSetupTone,
+  type ProtectedConnectorLiveSetupData,
 } from "../../../../src/connector-live-setup";
 import {
   createGoogleOAuthStartPath,
@@ -45,20 +45,19 @@ import {
   getConnectorSyncRunProviderErrorMessages,
   getConnectorSyncRunTone,
   getConnectorSyncProviderErrorMessage,
-  loadConnectorSyncHistory,
   summarizeConnectorSyncHistory,
   type ConnectorOperationGuidance,
   type ConnectorOperationTone,
   type ConnectorSyncResultTone,
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
+import { loadProtectedConnectorPageData } from "../../../../src/connector-page-data";
 import {
   canManageProviderAccounts,
   canRunConnectorSync,
+  filterGoogleProviderAccounts,
   formatProviderAccountProvider,
   getCurrentProviderUser,
-  loadProviderAccounts,
-  loadSiteConnectors,
 } from "../../../../src/provider-accounts";
 import {
   deleteSiteConnectorAction,
@@ -87,7 +86,6 @@ interface ConnectorsPageProps {
 
 export default async function ConnectorsPage({ params, searchParams }: ConnectorsPageProps) {
   const { siteId } = await params;
-  const site = await loadDashboardSite(siteId);
   const triggerSearchParams = await searchParams;
   let userContext;
   try {
@@ -95,20 +93,24 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   } catch {
     redirect(`/login?next=${encodeURIComponent(`/sites/${siteId}/connectors`)}`);
   }
-  const [history, liveSetupData, accountResult, connectorResult] = await Promise.all([
-    loadConnectorSyncHistory(site),
-    loadConnectorLiveSetupData(),
-    loadProviderAccounts(userContext).then(
-      (accounts) => ({ accounts, failed: false as const }),
-      () => ({ accounts: [] as ProviderAccountSummary[], failed: true as const }),
-    ),
-    loadSiteConnectors(userContext, siteId).then(
-      (connectors) => ({ connectors, failed: false as const }),
-      () => ({ connectors: [] as SiteConnector[], failed: true as const }),
-    ),
-  ]);
+  const pageData = await loadProtectedConnectorPageData(userContext, siteId);
+  if (pageData.status === "site_unavailable") {
+    return (
+      <section aria-label="커넥터 접근 오류">
+        <SectionHeader
+          description="현재 계정으로 이 사이트의 커넥터 정보를 조회할 수 없습니다."
+          eyebrow="커넥터"
+          title="사이트 정보를 불러올 수 없습니다"
+        />
+        <p role="status" style={{ color: "#b91c1c", fontSize: 14 }}>
+          사이트 접근 권한과 로그인 상태를 확인하세요.
+        </p>
+      </section>
+    );
+  }
+  const { history, liveSetup: liveSetupData, oauth } = pageData;
   const summary = summarizeConnectorSyncHistory(history);
-  const pageSpeedSetupCheck = getPageSpeedLiveSetupCheck(liveSetupData.report);
+  const pageSpeedSetupCheck = findPageSpeedLiveSetupCheck(liveSetupData.report);
   const operationGuidance = summarizeConnectorOperations(history);
   const commandSummary = summarizeConnectorCommandCenter(operationGuidance);
   const allResults = Object.values(history.resultsByRunId).flat();
@@ -141,12 +143,20 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         siteId={siteId}
       />
       <ProviderBindingsPanel
-        accounts={accountResult.accounts}
+        accounts={pageData.accounts}
         bindingStatus={triggerSearchParams.binding}
         canManage={canManageBindings}
-        connectors={connectorResult.connectors}
-        loadFailed={accountResult.failed || connectorResult.failed}
-        oauthStatus={triggerSearchParams.connectorOAuth ?? triggerSearchParams.oauth}
+        connectors={pageData.connectors}
+        loadFailed={
+          pageData.accountLoadFailed ||
+          pageData.connectorLoadFailed ||
+          oauth.errorMessage !== null
+        }
+        oauthStatus={
+          triggerSearchParams.connectorOAuth ??
+          triggerSearchParams.oauth ??
+          (oauth.credentials.length > 0 ? "connected" : undefined)
+        }
         siteId={siteId}
       />
       <PageSpeedSetupPanel
@@ -322,12 +332,14 @@ function ConnectorCommandCenterPanel({
   readonly commandSummary: ReturnType<typeof summarizeConnectorCommandCenter>;
   readonly historyErrorMessage: string | null;
   readonly historySource: string;
-  readonly liveSetupData: Awaited<ReturnType<typeof loadConnectorLiveSetupData>>;
-  readonly pageSpeedCheck: ReturnType<typeof getPageSpeedLiveSetupCheck>;
+  readonly liveSetupData: ProtectedConnectorLiveSetupData;
+  readonly pageSpeedCheck: ConnectorLiveSetupCheck | null;
   readonly summary: ReturnType<typeof summarizeConnectorSyncHistory>;
 }) {
   const liveModeLabel =
-    liveSetupData.report.liveExternalApis === "enabled"
+    liveSetupData.report === null
+      ? "설정 조회 실패"
+      : liveSetupData.report.liveExternalApis === "enabled"
       ? "Live external APIs"
       : "Fixture-safe mode";
 
@@ -389,13 +401,15 @@ function ConnectorCommandCenterPanel({
         <div>
           <strong style={{ display: "block", fontSize: 14 }}>PageSpeed live setup</strong>
           <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 4 }}>
-            {pageSpeedCheck.summary}
+            {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
           </span>
         </div>
-        <LiveSetupStatusPill
-          label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
-          tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
-        />
+        {pageSpeedCheck ? (
+          <LiveSetupStatusPill
+            label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
+            tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
+          />
+        ) : <LiveSetupStatusPill label="조회 실패" tone="risk" />}
       </div>
     </section>
   );
@@ -483,7 +497,7 @@ function PageSpeedSetupPanel({
   source
 }: {
   readonly errorMessage: string | null;
-  readonly pageSpeedCheck: ReturnType<typeof getPageSpeedLiveSetupCheck>;
+  readonly pageSpeedCheck: ConnectorLiveSetupCheck | null;
   readonly source: string;
 }) {
   return (
@@ -491,10 +505,10 @@ function PageSpeedSetupPanel({
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>PageSpeed live setup</h3>
         <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          {pageSpeedCheck.summary}
+          {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
         </p>
         <p style={{ ...mutedTextStyle, fontSize: 12, marginTop: 6 }}>
-          조치: {pageSpeedCheck.nextAction}
+          조치: {pageSpeedCheck?.nextAction ?? "권한과 API 연결 상태를 확인하세요."}
         </p>
         {errorMessage ? (
           <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
@@ -503,12 +517,14 @@ function PageSpeedSetupPanel({
         ) : null}
       </div>
       <div style={liveSetupStatusBoxStyle}>
-        <LiveSetupStatusPill
-          label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
-          tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
-        />
+        {pageSpeedCheck ? (
+          <LiveSetupStatusPill
+            label={formatConnectorLiveSetupStatus(pageSpeedCheck.status)}
+            tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
+          />
+        ) : <LiveSetupStatusPill label="조회 실패" tone="risk" />}
         <span style={{ ...codeTextStyle, color: "#475569", marginTop: 8 }}>
-          {pageSpeedCheck.envKeys.join(", ")}
+          {pageSpeedCheck?.envKeys.join(", ") ?? "환경 정보 없음"}
         </span>
         <span
           style={{
@@ -574,7 +590,7 @@ function ProviderBindingsPanel({
       </header>
       <div style={bindingRowsStyle}>
         <ConnectorBindingControl
-          accounts={filterGoogleAccounts(googleAccounts, "gsc")}
+          accounts={filterGoogleProviderAccounts(googleAccounts, "gsc")}
           canManage={canManage}
           connector={connectorByProvider.get("gsc") ?? null}
           label="GSC"
@@ -583,7 +599,7 @@ function ProviderBindingsPanel({
           siteId={siteId}
         />
         <ConnectorBindingControl
-          accounts={filterGoogleAccounts(googleAccounts, "ga4")}
+          accounts={filterGoogleProviderAccounts(googleAccounts, "ga4")}
           canManage={canManage}
           connector={connectorByProvider.get("ga4") ?? null}
           label="GA4"
@@ -697,24 +713,6 @@ function ReadonlyBindingRow({ label, status }: { readonly label: string; readonl
       <strong>{label}</strong>
       <span className={bindingStyles.readonlyStatus}>{status}</span>
     </div>
-  );
-}
-
-function filterGoogleAccounts(
-  accounts: readonly ProviderAccountSummary[],
-  provider: "gsc" | "ga4",
-): ProviderAccountSummary[] {
-  const scopes = provider === "gsc"
-    ? [
-        "https://www.googleapis.com/auth/webmasters",
-        "https://www.googleapis.com/auth/webmasters.readonly",
-      ]
-    : [
-        "https://www.googleapis.com/auth/analytics",
-        "https://www.googleapis.com/auth/analytics.readonly",
-      ];
-  return accounts.filter(
-    (account) => account.status === "connected" && scopes.some((scope) => account.scopes.includes(scope)),
   );
 }
 

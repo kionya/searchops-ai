@@ -7,6 +7,7 @@ import {
 
 import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import type { ProviderUserContext } from "./provider-accounts";
 import { demoSite } from "./work-order-board";
 
 export type ConnectorOAuthSource = "api" | "fixture";
@@ -79,17 +80,21 @@ export const demoConnectorOAuthCredentials: ConnectorOAuthCredential[] = [
 
 export async function loadConnectorOAuthData(
   siteId: string,
-  accessToken: string,
+  context: ProviderUserContext,
 ): Promise<ConnectorOAuthData> {
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoConnectorOAuthData(siteId);
+    return {
+      credentials: [],
+      errorMessage: "OAuth 상태를 불러오지 못했습니다.",
+      source: "api",
+    };
   }
 
   try {
     const response = await apiFetchAsUser(
       `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connectors/oauth`,
-      accessToken,
+      context.accessToken,
       { cache: "no-store" },
     );
     if (!response.ok) {
@@ -97,6 +102,12 @@ export async function loadConnectorOAuthData(
     }
 
     const output = ConnectorOAuthCredentialListResponseSchema.parse(await response.json());
+    if (output.credentials.some(
+      (credential) =>
+        credential.organizationId !== context.organizationId || credential.siteId !== siteId,
+    )) {
+      throw new Error("oauth_tenant_mismatch");
+    }
     return {
       credentials: output.credentials,
       errorMessage: null,

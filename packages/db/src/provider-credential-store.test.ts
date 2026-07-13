@@ -68,6 +68,28 @@ describe("provider credential store", () => {
     expect(JSON.stringify(await store.listAccounts("org_a"))).not.toContain("ciphertext-a");
   });
 
+  it("lists multiple account binding counts with one tenant-scoped aggregate query", async () => {
+    const prisma = fakePrisma({
+      accounts: [
+        account(),
+        account({ id: "pa_zero" }),
+        account({ id: "pa_other", organizationId: "org_b" }),
+      ],
+      connectors: [
+        connector(),
+        connector({ id: "connector_cross", organizationId: "org_b", providerAccountId: "pa_a" }),
+      ],
+    });
+
+    await expect(createPrismaProviderCredentialStore(prisma).listAccounts("org_a")).resolves.toEqual([
+      expect.objectContaining({ id: "pa_a", bindingCount: 1 }),
+      expect.objectContaining({ id: "pa_zero", bindingCount: 0 }),
+    ]);
+    expect(prisma.calls.providerAccount.findMany).toHaveLength(1);
+    expect(prisma.calls.providerAccount.findMany[0]?.where).toEqual({ organizationId: "org_a" });
+    expect(prisma.calls.siteConnector.count).toHaveLength(0);
+  });
+
   it("keeps metadata and secret-bearing account reads separately tenant scoped", async () => {
     const prisma = fakePrisma({ accounts: [account()] });
     const store = createPrismaProviderCredentialStore(prisma);
@@ -1058,6 +1080,48 @@ describe("provider credential store", () => {
     ]);
   });
 
+  it.each([
+    ["gsc", "https://www.googleapis.com/auth/webmasters"],
+    ["ga4", "https://www.googleapis.com/auth/analytics"],
+  ] as const)("accepts the persisted full Google scope before binding %s", async (provider, fullScope) => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: [fullScope] })],
+    });
+
+    await expect(createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+      organizationId: "org_a",
+      siteId: "site_a",
+      provider,
+      providerAccountId: "pa_a",
+      externalResourceId: provider === "gsc" ? "sc-domain:example.com" : "properties/1",
+    })).resolves.toMatchObject({ provider, providerAccountId: "pa_a" });
+  });
+
+  it.each([
+    ["gsc", [
+      "https://www.googleapis.com/auth/webmasters.readonly",
+      "https://www.googleapis.com/auth/webmasters",
+    ]],
+    ["ga4", [
+      "https://www.googleapis.com/auth/analytics.readonly",
+      "https://www.googleapis.com/auth/analytics",
+    ]],
+  ] as const)("accepts both persisted Google scopes before binding %s", async (provider, scopes) => {
+    const prisma = fakePrisma({
+      sites: [site()],
+      accounts: [account({ scopes: [...scopes] })],
+    });
+
+    await expect(createPrismaProviderCredentialStore(prisma).upsertSiteConnector({
+      organizationId: "org_a",
+      siteId: "site_a",
+      provider,
+      providerAccountId: "pa_a",
+      externalResourceId: provider === "gsc" ? "sc-domain:example.com" : "properties/1",
+    })).resolves.toMatchObject({ provider, providerAccountId: "pa_a" });
+  });
+
   it("keeps Bing API-key binding compatibility without a Google scope rule", async () => {
     const prisma = fakePrisma({
       sites: [site()],
@@ -1549,7 +1613,9 @@ function fakePrisma(seed: {
     providerAccount: {
       async findMany(args) {
         calls.providerAccount.findMany.push(args);
-        return accounts.filter((row) => row.organizationId === args.where.organizationId).map((row) => select(row, args.select));
+        return accounts
+          .filter((row) => row.organizationId === args.where.organizationId)
+          .map((row) => selectAccountSummary(row, args.select, connectors));
       },
       async findFirst(args) {
         calls.providerAccount.findFirst.push(args);
@@ -1650,6 +1716,23 @@ function select<T extends object>(row: T, fields: Record<string, unknown>): T {
       .filter(([, enabled]) => enabled === true)
       .map(([key]) => [key, values[key]]),
   ) as T;
+}
+
+function selectAccountSummary(
+  row: AccountRow,
+  fields: Record<string, unknown>,
+  connectors: ConnectorRow[],
+) {
+  return {
+    ...select(row, fields),
+    _count: {
+      siteConnectors: connectors.filter(
+        (connectorRow) =>
+          connectorRow.organizationId === row.organizationId &&
+          connectorRow.providerAccountId === row.id,
+      ).length,
+    },
+  };
 }
 
 function selectConnector(row: ConnectorRow, fields: Record<string, unknown>, accounts: AccountRow[]): ConnectorRow {

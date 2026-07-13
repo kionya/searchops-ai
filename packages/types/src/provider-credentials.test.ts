@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   CompleteGoogleOAuthResponseSchema,
   CredentialStorageModeSchema,
+  googleConnectorProvidersAllowedByScopes,
+  isGoogleConnectorScopeSatisfied,
   ProviderAccountDetailResponseSchema,
   ProviderAccountListResponseSchema,
   ProviderCredentialSecretSchema,
@@ -56,6 +58,20 @@ const siteConnector = {
 };
 
 describe("provider credential contracts", () => {
+  it.each([
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly", "https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", [], false],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly", "https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", [], false],
+  ] as const)("applies one Google scope rule for %s scopes %j", (provider, scopes, expected) => {
+    expect(isGoogleConnectorScopeSatisfied(scopes, provider)).toBe(expected);
+    expect(googleConnectorProvidersAllowedByScopes(scopes).includes(provider)).toBe(expected);
+  });
+
   it("accepts supported storage modes", () => {
     expect(CredentialStorageModeSchema.parse("dual")).toBe("dual");
     expect(CredentialStorageModeSchema.parse("encrypted")).toBe("encrypted");

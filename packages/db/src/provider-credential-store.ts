@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  isGoogleConnectorScopeSatisfied,
   ProviderAccountAuthTypeSchema,
   ProviderAccountMetadataSchema,
   ProviderAccountProviderSchema,
@@ -12,6 +13,7 @@ import {
   type ProviderAccountAuthType,
   type ProviderAccountMetadata,
   type ProviderAccountProvider,
+  type ProviderAccountSummary,
   type ProviderAccountStatus,
   type SiteConnector,
   type SiteConnectorConfig,
@@ -39,6 +41,15 @@ const providerAccountMetadataSelect = {
   connectedAt: true,
   createdAt: true,
   updatedAt: true
+} as const satisfies Prisma.ProviderAccountSelect;
+
+const providerAccountSummarySelect = {
+  ...providerAccountMetadataSelect,
+  _count: {
+    select: {
+      siteConnectors: true,
+    },
+  },
 } as const satisfies Prisma.ProviderAccountSelect;
 
 const providerAccountSecretSelect = {
@@ -87,14 +98,14 @@ const accountConnectorProviderSelect = {
   provider: true
 } as const satisfies Prisma.SiteConnectorSelect;
 
-const googleConnectorRequiredScope = {
-  ga4: "https://www.googleapis.com/auth/analytics.readonly",
-  gsc: "https://www.googleapis.com/auth/webmasters.readonly"
-} as const;
 const serializableTransactionMaxAttempts = 3;
 
 export type ProviderAccountMetadataRow = Prisma.ProviderAccountGetPayload<{
   select: typeof providerAccountMetadataSelect;
+}>;
+
+type ProviderAccountSummaryRow = Prisma.ProviderAccountGetPayload<{
+  select: typeof providerAccountSummarySelect;
 }>;
 
 type ProviderAccountSecretRow = Prisma.ProviderAccountGetPayload<{
@@ -193,8 +204,8 @@ export interface ProviderCredentialStorePrismaPort {
   readonly providerAccount: {
     findMany(args: {
       readonly where: { readonly organizationId: string };
-      readonly select: typeof providerAccountMetadataSelect;
-    }): Promise<ProviderAccountMetadataRow[]>;
+      readonly select: typeof providerAccountSummarySelect;
+    }): Promise<ProviderAccountSummaryRow[]>;
     findFirst(args: {
       readonly where: { readonly id: string; readonly organizationId: string };
       readonly select: typeof providerAccountMetadataSelect;
@@ -331,7 +342,7 @@ export interface ConnectorCredentialReadinessSnapshot {
 }
 
 export interface ProviderCredentialStore {
-  listAccounts(organizationId: string): Promise<ProviderAccountMetadata[]>;
+  listAccounts(organizationId: string): Promise<ProviderAccountSummary[]>;
   getAccountMetadata(input: AccountLookupStoreInput): Promise<ProviderAccountMetadata | null>;
   getAccountSecretRecord(input: AccountLookupStoreInput): Promise<ProviderAccountSecretRecord | null>;
   createApiKeyAccount(input: CreateApiKeyAccountStoreInput): Promise<ProviderAccountMetadata>;
@@ -374,10 +385,10 @@ export function createPrismaProviderCredentialStore(
     async listAccounts(organizationId) {
       const rows = await prisma.providerAccount.findMany({
         where: { organizationId },
-        select: providerAccountMetadataSelect
+        select: providerAccountSummarySelect
       });
 
-      return rows.map(toProviderAccountMetadata);
+      return rows.map(toProviderAccountSummary);
     },
 
     async getAccountMetadata(input) {
@@ -893,7 +904,7 @@ function assertConnectorRequiredScope(
   if (connectorProvider === "bing") {
     return;
   }
-  if (!parseScopes(accountScopes).includes(googleConnectorRequiredScope[connectorProvider])) {
+  if (!isGoogleConnectorScopeSatisfied(parseScopes(accountScopes), connectorProvider)) {
     throw new ProviderCredentialStoreError("scope_missing");
   }
 }
@@ -926,6 +937,13 @@ function toProviderAccountMetadata(row: ProviderAccountMetadataRow): ProviderAcc
     updatedAt: row.updatedAt.toISOString(),
     credentialSource: "encrypted"
   });
+}
+
+function toProviderAccountSummary(row: ProviderAccountSummaryRow): ProviderAccountSummary {
+  return {
+    ...toProviderAccountMetadata(row),
+    bindingCount: row._count.siteConnectors,
+  };
 }
 
 function toProviderAccountSecretRecord(row: ProviderAccountSecretRow): ProviderAccountSecretRecord {

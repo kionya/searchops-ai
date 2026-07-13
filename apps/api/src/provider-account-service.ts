@@ -11,6 +11,9 @@ import {
 } from "@searchops/db";
 import {
   CreateApiKeyProviderAccountRequestSchema,
+  getGoogleConnectorReadonlyScopes,
+  googleConnectorProvidersAllowedByScopes,
+  isGoogleConnectorScopeSatisfied,
   SiteConnectorConfigSchema,
   SiteConnectorProviderSchema,
   SiteConnectorStatusSchema,
@@ -40,10 +43,6 @@ const GeoProviderSchema = z.enum([
   "geo_perplexity",
 ]);
 const GoogleConnectorProviderSchema = z.enum(["gsc", "ga4"]);
-const GoogleScopeByProvider = {
-  ga4: "https://www.googleapis.com/auth/analytics.readonly",
-  gsc: "https://www.googleapis.com/auth/webmasters.readonly",
-} as const satisfies Record<z.infer<typeof GoogleConnectorProviderSchema>, string>;
 
 const CreateApiKeyAccountInputSchema = CreateApiKeyProviderAccountRequestSchema.extend({
   actorUserId: IdSchema,
@@ -408,18 +407,7 @@ export function createProviderAccountService({
 
     async listAccounts(input) {
       const organizationId = parseBoundary(IdSchema, input.organizationId);
-      const accounts = await mapStoreErrors(() => store.listAccounts(organizationId));
-      return Promise.all(
-        accounts.map(async (account) => ({
-          ...account,
-          bindingCount: await mapStoreErrors(() =>
-            store.countAccountBindings({
-              organizationId,
-              providerAccountId: account.id,
-            }),
-          ),
-        })),
-      );
+      return mapStoreErrors(() => store.listAccounts(organizationId));
     },
 
     async deleteAccount(input) {
@@ -535,23 +523,13 @@ async function validateGoogleConnectorScopes(input: {
     ...(attachedProviders as z.infer<typeof GoogleConnectorProviderSchema>[]),
     ...input.selectedProviders,
   ];
-  const requiredScopes = [
-    ...new Set(connectorProviders.map((provider) => GoogleScopeByProvider[provider])),
-  ].sort();
-  const grantedScopes = new Set(input.grantedScopes);
-  if (requiredScopes.some((scope) => !grantedScopes.has(scope))) {
+  const requiredScopes = getGoogleConnectorReadonlyScopes(connectorProviders);
+  if (connectorProviders.some(
+    (provider) => !isGoogleConnectorScopeSatisfied(input.grantedScopes, provider),
+  )) {
     throw new ProviderAccountServiceError("scope_missing");
   }
   return { requiredScopes };
-}
-
-function googleConnectorProvidersAllowedByScopes(
-  scopes: readonly string[],
-): z.infer<typeof GoogleConnectorProviderSchema>[] {
-  const grantedScopes = new Set(scopes);
-  return GoogleConnectorProviderSchema.options.filter((provider) =>
-    grantedScopes.has(GoogleScopeByProvider[provider]),
-  );
 }
 
 function normalizeHttpUrl(value: string): string {

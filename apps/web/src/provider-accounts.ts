@@ -3,6 +3,7 @@ import {
   CreateConnectorSyncRunRequestSchema,
   CreateConnectorSyncRunResponseSchema,
   CreateApiKeyProviderAccountRequestSchema,
+  isGoogleConnectorScopeSatisfied,
   ProviderAccountDetailResponseSchema,
   ProviderAccountListResponseSchema,
   ReplaceProviderCredentialRequestSchema,
@@ -155,6 +156,9 @@ export async function loadProviderAccounts(
     `/organizations/${encodeURIComponent(context.organizationId)}/provider-accounts`,
     ProviderAccountListResponseSchema,
   );
+  if (output.providerAccounts.some((account) => account.organizationId !== context.organizationId)) {
+    throw new ProviderAccountClientError("invalid_response");
+  }
   return output.providerAccounts;
 }
 
@@ -164,6 +168,9 @@ export async function loadOrganizationSites(context: ProviderUserContext): Promi
     `/organizations/${encodeURIComponent(context.organizationId)}/sites`,
     SiteListResponseSchema,
   );
+  if (output.sites.some((site) => site.organizationId !== context.organizationId)) {
+    throw new ProviderAccountClientError("invalid_response");
+  }
   return output.sites;
 }
 
@@ -247,6 +254,13 @@ export async function loadSiteConnectors(
     `/sites/${encodeURIComponent(requireId(siteId))}/connectors`,
     SiteConnectorListResponseSchema,
   );
+  const normalizedSiteId = requireId(siteId);
+  if (output.siteConnectors.some(
+    (connector) =>
+      connector.organizationId !== context.organizationId || connector.siteId !== normalizedSiteId,
+  )) {
+    throw new ProviderAccountClientError("invalid_response");
+  }
   return output.siteConnectors;
 }
 
@@ -443,6 +457,19 @@ export function formatProviderAccountProvider(provider: ProviderAccountProvider)
     geo_perplexity: "Perplexity",
     google: "Google",
   }[provider];
+}
+
+export function filterGoogleProviderAccounts(
+  accounts: readonly ProviderAccountSummary[],
+  provider: "gsc" | "ga4",
+): ProviderAccountSummary[] {
+  return accounts.filter(
+    (account) =>
+      account.provider === "google" &&
+      account.authType === "oauth2" &&
+      account.status === "connected" &&
+      isGoogleConnectorScopeSatisfied(account.scopes, provider),
+  );
 }
 
 function strictFormValues(

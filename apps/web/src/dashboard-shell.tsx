@@ -1,11 +1,16 @@
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import React, { type CSSProperties, type ReactNode } from "react";
 
 import { productName, SiteSchema, type Site } from "@searchops/types";
 
-import { apiFetch } from "./api-client";
+import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatIndustryLabel } from "./korean-labels";
+import {
+  ProviderAccountClientError,
+  getCurrentProviderUser,
+  type ProviderUserContext,
+} from "./provider-accounts";
 import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
 
@@ -111,22 +116,39 @@ export function resolveDashboardSite(siteId: string): Site {
 }
 
 export async function loadDashboardSite(siteId: string): Promise<Site> {
+  const context = await getCurrentProviderUser();
+  const site = await loadDashboardSiteAsUser(context, siteId);
+  if (site === null) {
+    throw new ProviderAccountClientError("request_failed");
+  }
+  return site;
+}
+
+export async function loadDashboardSiteAsUser(
+  context: ProviderUserContext,
+  siteId: string,
+): Promise<Site | null> {
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return resolveDashboardSite(siteId);
+    return null;
   }
 
   try {
-    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}`, {
-      cache: "no-store"
-    });
+    const response = await apiFetchAsUser(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}`,
+      context.accessToken,
+      {
+        cache: "no-store",
+      },
+    );
     if (!response.ok) {
-      throw new Error(`Site request failed with ${response.status}`);
+      return null;
     }
 
-    return SiteSchema.parse(await response.json());
+    const site = SiteSchema.parse(await response.json());
+    return site.organizationId === context.organizationId ? site : null;
   } catch {
-    return resolveDashboardSite(siteId);
+    return null;
   }
 }
 

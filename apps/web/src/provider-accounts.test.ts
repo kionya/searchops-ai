@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ProviderAccountSummary } from "@searchops/types";
+
 import {
   ProviderAccountClientError,
   canManageProviderAccounts,
   canRunConnectorSync,
   createApiKeyProviderAccount,
   deleteProviderAccount,
+  filterGoogleProviderAccounts,
   loadProviderAccounts,
   normalizeSiteConnectorResource,
   resolveVerifiedProviderUser,
@@ -246,6 +249,28 @@ describe("provider account web client", () => {
     await expect(deleteProviderAccount(context, "pa_1")).rejects.toEqual(
       expect.objectContaining({ code: "account_in_use" }),
     );
+  });
+
+  it.each([
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly", "https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", [], false],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly", "https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", [], false],
+  ] as const)("filters %s accounts with the shared scope rule for %j", (provider, scopes, expected) => {
+    const googleAccount = {
+      ...account(),
+      authType: "oauth2" as const,
+      bindingCount: 0,
+      provider: "google" as const,
+      scopes: [...scopes],
+      status: "connected" as const,
+    } as ProviderAccountSummary;
+    const accounts = filterGoogleProviderAccounts([googleAccount], provider);
+    expect(accounts).toHaveLength(expected ? 1 : 0);
   });
 });
 

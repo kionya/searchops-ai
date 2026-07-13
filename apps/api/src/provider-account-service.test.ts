@@ -152,17 +152,20 @@ function createStore(
 }
 
 describe("ProviderAccountService", () => {
-  it("adds a tenant-scoped binding count to every listed account", async () => {
-    const bindingLookups: unknown[] = [];
+  it("lists pre-aggregated tenant binding counts with one store query", async () => {
+    const aggregateLookups: string[] = [];
     const service = createProviderAccountService({
       keyring: keyring(),
       store: createStore({
-        async listAccounts() {
-          return [account({ id: "pa_one" }), account({ id: "pa_two" })];
+        async listAccounts(organizationId) {
+          aggregateLookups.push(organizationId);
+          return [
+            { ...account({ id: "pa_one" }), bindingCount: 2 },
+            { ...account({ id: "pa_two" }), bindingCount: 0 },
+          ];
         },
-        async countAccountBindings(input) {
-          bindingLookups.push(input);
-          return input.providerAccountId === "pa_one" ? 2 : 0;
+        async countAccountBindings() {
+          throw new Error("N+1 binding count query must not run");
         },
       }),
     });
@@ -171,10 +174,82 @@ describe("ProviderAccountService", () => {
       { ...account({ id: "pa_one" }), bindingCount: 2 },
       { ...account({ id: "pa_two" }), bindingCount: 0 },
     ]);
-    expect(bindingLookups).toEqual([
-      { organizationId: "org_a", providerAccountId: "pa_one" },
-      { organizationId: "org_a", providerAccountId: "pa_two" },
-    ]);
+    expect(aggregateLookups).toEqual(["org_a"]);
+  });
+
+  it.each([
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", ["https://www.googleapis.com/auth/webmasters.readonly", "https://www.googleapis.com/auth/webmasters"], true],
+    ["gsc", [], false],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", ["https://www.googleapis.com/auth/analytics.readonly", "https://www.googleapis.com/auth/analytics"], true],
+    ["ga4", [], false],
+  ] as const)("uses the shared Google scope rule for %s scopes %j", async (provider, scopes, allowed) => {
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async getAccountMetadata(input) {
+          return account({
+            id: input.providerAccountId,
+            organizationId: input.organizationId,
+            provider: "google",
+            authType: "oauth2",
+          });
+        },
+      }),
+    });
+    const result = service.prepareGoogleConnectors({
+      grantedScopes: [...scopes],
+      organizationId: "org_a",
+      providerAccountId: "pa_google",
+      selectedProviders: [provider],
+    });
+
+    if (allowed) {
+      await expect(result).resolves.toBeDefined();
+    } else {
+      await expect(result).rejects.toEqual(new ProviderAccountServiceError("scope_missing"));
+    }
+  });
+
+  it.each([
+    ["gsc", "https://www.googleapis.com/auth/webmasters"],
+    ["ga4", "https://www.googleapis.com/auth/analytics"],
+  ] as const)("derives OAuth allowed provider %s from a full scope", async (provider, fullScope) => {
+    let allowedProviders: readonly ("gsc" | "ga4")[] | undefined;
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertGoogleAccount(input) {
+          allowedProviders = input.allowedConnectorProviders;
+          return account({
+            id: input.providerAccountId,
+            organizationId: input.organizationId,
+            provider: "google",
+            authType: "oauth2",
+            scopes: [...input.scopes],
+          });
+        },
+      }),
+    });
+
+    await service.upsertGoogleAccount({
+      accessToken: "access",
+      actorUserId: "user_a",
+      displayName: "Google",
+      organizationId: "org_a",
+      refreshToken: "refresh",
+      scopes: [fullScope],
+      selectedProviders: [],
+      tokenExpiresAt: null,
+      tokenType: "Bearer",
+      verifiedAccountEmail: "owner@example.com",
+      verifiedExternalAccountId: `google-${provider}`,
+    });
+
+    expect(allowedProviders).toContain(provider);
   });
 
   it("allocates the API-key account ID before encryption and never passes the raw key to the store", async () => {

@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { ProviderAccountSummary } from "@searchops/types";
 
 import { ProviderAccountRows } from "./account-rows";
+import { GoogleConnectForm } from "./google-connect-form";
+import IntegrationsLoading from "./loading";
+import ConnectorsLoading from "../../sites/[siteId]/connectors/loading";
 
 const account: ProviderAccountSummary = {
   id: "pa_bing",
@@ -60,5 +63,36 @@ describe("provider account rows", () => {
     expect(html).toContain('type="password"');
     expect(html).not.toMatch(/type="password"[^>]*(?:value|defaultValue)=/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>삭제<\/button>/);
+  });
+});
+
+describe("integration route load states", () => {
+  it("distinguishes a fixed site-list failure from a true empty site list", () => {
+    const failed = renderToStaticMarkup(createElement(GoogleConnectForm, {
+      canManage: false,
+      siteLoadFailed: true,
+      sites: [],
+    }));
+    const empty = renderToStaticMarkup(createElement(GoogleConnectForm, {
+      canManage: true,
+      siteLoadFailed: false,
+      sites: [],
+    }));
+
+    expect(failed).toContain("사이트 목록을 불러오지 못했습니다.");
+    expect(failed).not.toContain("등록된 사이트가 없습니다.");
+    expect(failed).not.toContain("<form");
+    expect(empty).toContain("등록된 사이트가 없습니다.");
+    expect(empty).not.toContain("사이트 목록을 불러오지 못했습니다.");
+  });
+
+  it.each([
+    ["integrations", IntegrationsLoading],
+    ["connectors", ConnectorsLoading],
+  ] as const)("renders a stable %s route loading status", (_name, LoadingComponent) => {
+    const html = renderToStaticMarkup(createElement(LoadingComponent));
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("불러오는 중");
+    expect(html).toContain("min-height");
   });
 });
