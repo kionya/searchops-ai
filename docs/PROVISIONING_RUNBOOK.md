@@ -93,6 +93,15 @@ Google refresh 앱:
 - `SEARCHOPS_GEO_CLAUDE_API_KEY`
 - `SEARCHOPS_GEO_GEMINI_API_KEY`
 - `SEARCHOPS_GEO_PERPLEXITY_API_KEY`
+
+선택 Worker-only adapter 설정:
+
+- `SEARCHOPS_GEO_CHATGPT_MODEL`
+- `SEARCHOPS_GEO_CLAUDE_MODEL`
+- `SEARCHOPS_GEO_GEMINI_MODEL`
+- `SEARCHOPS_GEO_PERPLEXITY_MODEL`
+- `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`
+- `SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN`
 <!-- RAILWAY_WORKER_ENV_END -->
 
 Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Google token, 조직 GEO BYOK를 넣지 않는다. Worker는 각 job의 `organizationId`와 `siteId`로 encrypted `ProviderAccount`/`SiteConnector`를 조회한다.
@@ -116,39 +125,56 @@ Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Goog
 
 `DATABASE_URL`이 없으면 API와 Worker가 PostgreSQL을 사용할 수 없고, `REDIS_URL`이 없으면 API queue/rate-limit와 Worker BullMQ가 같은 작업 흐름을 공유할 수 없다. 두 값은 Railway의 두 서비스에 각각 저장해야 하며 한 서비스에만 넣는 것으로는 충분하지 않다.
 
-## 4. Initial key 생성
+## 4. Production rollout 순서
 
-운영자 terminal에서 다음 명령을 한 번 실행한다.
+아래 순서는 변경하지 않는다. 각 단계의 증거를 기록한 뒤 다음 단계로 이동한다.
 
-```bash
-openssl rand -base64 32
-```
+### 4.1 Backup과 status
 
-출력을 파일로 저장하지 말고 Railway API와 Worker의 `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` secret 입력란에 직접 같은 값으로 붙여 넣는다. 문서, 메모, 스크린샷, shell history 공유, Git, Vercel에는 넣지 않는다. active key ID도 두 서비스에서 동일해야 한다. Rotation 중에는 이전 key를 `SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON`에 유지한다.
-
-## 5. Expand, backfill, cutover
-
-### Preflight
-
-1. Supabase의 복구 가능한 backup을 생성하고 별도 scratch DB에서 restore를 검증한다.
-2. release commit과 migration 상태를 기록한다.
-3. API/Worker에 같은 keyring과 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`을 설정한다.
-4. Vercel에 server secret이 없는지 다시 확인한다.
+1. Supabase의 복구 가능한 backup을 생성한다.
+2. 별도 scratch DB restore 검증이 성공해야 한다.
+3. release commit과 현재 migration 상태를 기록한다.
 
 ```bash
 corepack pnpm db:migrate:status
 ```
 
-### Expand migration
+Backup/restore 증거가 없으면 이후 migration, backfill, cutover를 실행하지 않는다.
+
+### 4.2 Initial encryption key
+
+최초 rollout에서만 운영자 terminal로 다음 명령을 실행한다.
+
+```bash
+openssl rand -base64 32
+```
+
+출력을 파일로 저장하지 않고 Railway API와 Worker의 `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` secret 입력란에 직접 같은 값으로 붙여 넣는다. 문서, 메모, 스크린샷, shell history 공유, Git, Vercel에는 넣지 않는다. 두 서비스에 같은 active key ID, key material, previous-key JSON, `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`을 설정한다. 이 단계는 routine/emergency rotation이 아니다.
+
+### 4.3 Additive migrate
+
+평문 필드를 삭제하지 않는 additive migration만 적용한다.
 
 ```bash
 corepack pnpm db:migrate:deploy
 corepack pnpm db:migrate:status
 ```
 
-### Legacy backfill
+### 4.4 API 배포
 
-먼저 dry-run 결과의 대상, 성공, skip, failure 수를 기록한다.
+새 schema를 읽고 `dual` read/write를 제공하는 API를 먼저 배포한다. Health, verified user auth, exact-tenant readiness snapshot, keyring semantic validation을 확인한다.
+
+### 4.5 Worker 배포
+
+같은 `dual` mode/keyring을 가진 Worker를 다음에 배포한다. Queue 소비, tenant credential resolution, refresh, `credentialSources` summary 기록을 확인한다.
+
+### 4.6 Web 배포
+
+마지막으로 Web을 배포한다. Vercel에는 browser-safe 값만 있는지 확인하고 ProviderAccount/SiteConnector UI와 user-principal `/ops/readiness` 호출을 확인한다.
+
+### 4.7 Backfill dry-run, apply, reconcile
+
+API, Worker, Web 배포가 모두 확인된 뒤에만 실행한다. 각 실행의 대상, 성공, skip, failure 수를 기록한다.
 
 ```bash
 corepack pnpm credentials:migrate -- --dry-run
@@ -156,9 +182,40 @@ corepack pnpm credentials:migrate -- --apply --batch-size=100
 corepack pnpm credentials:migrate -- --dry-run
 ```
 
-### Key rotation
+마지막 dry-run은 reconcile 증거다. 인증된 `/ops/readiness`의 `unmigratedLegacyCredentials`도 0이어야 한다.
 
-새 active key를 API/Worker에 추가하고 기존 active key를 previous map으로 옮긴 뒤 실행한다.
+### 4.8 Validate
+
+```bash
+corepack pnpm check:connector-live
+corepack pnpm check:connector-live -- --deployment --api-env-file=scripts/dev/api.env.example --worker-env-file=scripts/dev/worker.env.example --json
+```
+
+CLI는 DB-free platform 검사이며 API/Worker 파일을 합치지 않는다. 실제 운영 값은 Railway secret에서 주입하고 파일, 문서, 스크린샷, Git에 남기지 않는다. 조직별 GSC/GA4/Bing과 migration 상태는 verified owner/admin user로 `/ops/readiness`와 `/ops/integrations`에서 확인한다. `unmigratedLegacyCredentials`는 이관 잔량이고 `observedLegacyFallbacks`는 정확한 조직의 문서화된 관측 창에서 실제 사용된 legacy credential 수다.
+
+두 개 이상의 서로 다른 사이트로 GSC/GA4 resource 격리, Bing account/resource, GEO BYOK 우선순위, PageSpeed 플랫폼 key를 검증한다. Backfill 잔량 0만으로 cutover를 승인하지 않는다.
+
+### 4.9 Encrypted cutover
+
+`unmigratedLegacyCredentials=0`이고 현재 관측 범위의 `observedLegacyFallbacks=0`인 상태에서 API와 Worker의 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=encrypted`를 함께 변경한다. API, Worker, Web 순서로 재배포하고 각 단계에서 health/auth/queue/readiness를 확인한다.
+
+### 4.10 Seven-day zero-observed-legacy
+
+Encrypted cutover 뒤 최소 7일 동안 `observedLegacyFallbacks=0`, refresh error 0, decryption error 0을 관찰한다. 관측 창은 정확한 조직의 `ConnectorSyncRun.summary.credentialSources`를 기준으로 하며 malformed summary는 readiness 근거로 사용하지 않는다.
+
+### 4.11 Separate destructive approval
+
+7일 증거가 완료되어도 legacy table/read path를 자동 삭제하지 않는다. 별도 contract migration 계획, 별도 코드 리뷰, backup 재확인, 운영자 명시 승인이 모두 있어야 destructive SQL을 실행할 수 있다.
+
+## 5. Rollback
+
+Encrypted cutover에서 decryption, refresh, 또는 미이관 credential 문제가 발생하면 API와 Worker를 함께 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`로 되돌리고 API, Worker, Web 순서로 재배포한다. Previous key를 제거하지 말고 backup과 오류 metadata를 보존한 상태에서 backfill과 readiness를 다시 검사한다.
+
+## 6. Key lifecycle
+
+### Routine key rotation
+
+정상적인 주기 교체에서는 새 active key를 API/Worker에 함께 추가하고 기존 active key를 previous map으로 옮긴 뒤 다음 순서로 재암호화한다.
 
 ```bash
 corepack pnpm credentials:rotate -- --dry-run
@@ -166,36 +223,11 @@ corepack pnpm credentials:rotate -- --apply --batch-size=100
 corepack pnpm credentials:rotate -- --dry-run
 ```
 
-### Readiness check
+Reconcile과 API/Worker parity가 확인될 때까지 previous key를 제거하지 않는다.
 
-```bash
-corepack pnpm check:connector-live
-```
+### Emergency key rotation
 
-이 CLI는 DB-free platform 검사다. 조직별 GSC/GA4/Bing 연결과 `legacyFallbacks`는 owner/admin user로 로그인한 `/ops/readiness`와 `/ops/integrations`에서 확인한다.
-
-### Deploy order
-
-1. API 배포: 새 schema/contract를 읽고 dual mode write/read를 제공한다.
-2. Worker 배포: job별 tenant credential resolution과 metadata 기록을 활성화한다.
-3. Web 배포: ProviderAccount와 SiteConnector 관리 UI를 공개한다.
-
-각 단계 사이에 health, auth, queue, connector metadata를 확인한다. Worker부터 배포하거나 Web이 아직 없는 상태에서 customer cutover를 시작하지 않는다.
-
-### Cutover
-
-1. Backfill failure와 unmigrated row가 0인지 확인한다.
-2. 두 개 이상의 서로 다른 사이트에서 GSC/GA4 resource가 교차되지 않는지 확인한다.
-3. Bing 조직 계정, GEO BYOK 우선순위, PageSpeed 플랫폼 key를 확인한다.
-4. 새 sync summary에서 `credentialSources.*=legacy`가 0인지 확인한다.
-5. API와 Worker를 모두 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=encrypted`로 변경하고 API, Worker, Web 순서로 재배포한다.
-6. 최소 7일 동안 legacy fallback 0, token refresh, provider error, decryption error를 관찰한다.
-
-## 6. Rollback과 삭제 금지선
-
-Encrypted cutover에서 decryption, refresh, 또는 미이관 credential 문제가 발생하면 API와 Worker를 함께 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`로 되돌리고 API, Worker 순서로 재배포한다. Previous key를 제거하지 말고 backup과 오류 metadata를 보존한 상태에서 backfill/rotation을 다시 검사한다.
-
-`ConnectorOAuthCredential` 평문 legacy table, legacy read path, 이전 backup을 이 rollout에서 삭제하지 않는다. 최소 7일 zero-legacy 관찰이 끝난 뒤에도 별도 contract migration 계획, 코드 리뷰, 운영자 명시 승인이 있어야 destructive SQL을 실행할 수 있다.
+노출 가능성이 있으면 affected provider token/API key를 provider에서 먼저 revoke/reissue한다. 그 다음 새 encryption key를 API/Worker에 함께 배포하고 위 rotate dry-run/apply/reconcile을 실행한다. 암호화 key rotation만으로 이미 노출된 provider credential을 무효화할 수는 없다. 사고 기록과 별도 보안 승인을 남긴다.
 
 ## 7. Legacy env의 임시 범위
 

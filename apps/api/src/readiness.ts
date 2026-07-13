@@ -14,6 +14,7 @@ export interface CreateOperationalReadinessInput {
   readonly connectorCredentials?: ConnectorCredentialReadinessSnapshot;
   readonly env: NodeJS.ProcessEnv;
   readonly generatedAt: Date;
+  readonly workerEnv?: NodeJS.ProcessEnv;
 }
 
 interface ReadinessInput {
@@ -32,12 +33,15 @@ export function createOperationalReadiness({
   connectorCredentials,
   env,
   generatedAt,
+  workerEnv,
 }: CreateOperationalReadinessInput): OperationalReadinessResponse {
   const items = [
     createCredentialKeyringItem(env),
+    createWorkerTargetVerificationItem(workerEnv),
+    createCredentialMigrationItem(connectorCredentials),
     createCredentialCutoverItem(env, connectorCredentials),
     ...readinessInputs.map((item) =>
-      createReadinessItem(item, env, connectorCredentials),
+      createReadinessItem(item, env, workerEnv, connectorCredentials),
     ),
   ];
   const summary = {
@@ -90,13 +94,24 @@ const readinessInputs: readonly ReadinessInput[] = [
     category: "connectors",
     id: "google-oauth-platform",
     title: "Google OAuth 앱 설정",
-    summary: "API OAuth 연결과 Worker token refresh에 필요한 플랫폼 앱 credential을 분리해 사용합니다.",
-    nextAction: "Railway API에 OAuth 4개 env를, Railway Worker에 같은 client ID/secret을 설정하세요.",
+    summary: "API OAuth 연결에 필요한 플랫폼 앱 credential을 검증합니다.",
+    nextAction: "Railway API에 OAuth client ID/secret, redirect URI, state secret을 설정하세요.",
     requiredAll: [
       "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
       "SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET",
       "SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI",
       "SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET",
+    ],
+  },
+  {
+    category: "connectors",
+    id: "google-worker-refresh-platform",
+    title: "Worker Google token refresh 앱 설정",
+    summary: "Worker가 조직별 Google refresh token을 갱신할 때 사용하는 플랫폼 client credential입니다.",
+    nextAction: "Railway Worker에 API와 같은 Google OAuth client ID/secret을 설정하세요.",
+    requiredAll: [
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET",
     ],
   },
   {
@@ -408,14 +423,19 @@ const readinessInputs: readonly ReadinessInput[] = [
 
 function createReadinessItem(
   input: ReadinessInput,
-  env: NodeJS.ProcessEnv,
+  apiEnv: NodeJS.ProcessEnv,
+  workerEnv: NodeJS.ProcessEnv | undefined,
   connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
 ): OperationalReadinessItem {
   const envKeys = [...(input.requiredAll ?? []), ...(input.requiredAny ?? []), ...(input.envKeys ?? [])];
   const tenantProvider = tenantProviderByItemId[input.id];
+  const isWorkerItem = workerReadinessItemIds.has(input.id);
+  const env = isWorkerItem ? workerEnv : apiEnv;
   const status =
     tenantProvider === undefined
-      ? input.id === "live-pagespeed"
+      ? env === undefined
+        ? "manual_followup"
+        : input.id === "live-pagespeed"
         ? hasEnv(env, "SEARCHOPS_PAGESPEED_API_KEY")
           ? "configured"
           : "manual_followup"
@@ -432,10 +452,20 @@ function createReadinessItem(
     id: input.id,
     nextAction: input.nextAction,
     status,
-    summary: input.summary,
+    summary:
+      isWorkerItem && env === undefined
+        ? `${input.summary} API process에서는 Worker target 설정을 검증할 수 없습니다.`
+        : input.summary,
     title: input.title,
   };
 }
+
+const workerReadinessItemIds = new Set([
+  "geo-live-providers",
+  "google-worker-refresh-platform",
+  "live-pagespeed",
+  "rich-result-live-validator",
+]);
 
 const tenantProviderByItemId: Readonly<
   Partial<Record<string, keyof ConnectorCredentialReadinessSnapshot["configuredByProvider"]>>
@@ -467,6 +497,15 @@ function createCredentialKeyringItem(env: NodeJS.ProcessEnv): OperationalReadine
       nextAction: "Railway API와 Worker에 같은 storage mode와 active/previous keyring을 설정하세요.",
       status: "needs_provisioning",
       summary: "암호화 credential 저장 모드가 아직 설정되지 않았습니다.",
+    };
+  }
+  const mode = env.SEARCHOPS_CREDENTIAL_STORAGE_MODE?.trim();
+  if (mode !== "dual" && mode !== "encrypted") {
+    return {
+      ...base,
+      nextAction: "SEARCHOPS_CREDENTIAL_STORAGE_MODE를 dual 또는 encrypted로 설정하세요.",
+      status: "blocked",
+      summary: "Provider credential storage mode가 유효하지 않습니다.",
     };
   }
 
@@ -507,12 +546,67 @@ function createCredentialKeyringItem(env: NodeJS.ProcessEnv): OperationalReadine
   }
 }
 
+function createWorkerTargetVerificationItem(
+  workerEnv: NodeJS.ProcessEnv | undefined,
+): OperationalReadinessItem {
+  return {
+    category: "hardening",
+    envKeys: ["DATABASE_URL", "REDIS_URL", ...credentialKeyringEnvKeys],
+    id: "worker-target-verification",
+    nextAction:
+      workerEnv === undefined
+        ? "Worker deployment env 또는 검증된 safe readiness signal을 별도로 제공해 런타임과 keyring을 대조하세요."
+        : "Worker runtime과 API/Worker keyring parity를 connector live setup report에서 확인하세요.",
+    status: workerEnv === undefined ? "manual_followup" : "configured",
+    summary:
+      workerEnv === undefined
+        ? "API process에서는 Worker deployment 설정을 검증할 수 없습니다."
+        : "Worker target 환경이 별도로 제공되었습니다.",
+    title: "Worker deployment target verification",
+  };
+}
+
+function createCredentialMigrationItem(
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): OperationalReadinessItem {
+  const unmigrated = connectorCredentials?.unmigratedLegacyCredentials;
+  const base = {
+    category: "connectors" as const,
+    envKeys: [] as string[],
+    id: "credential-legacy-migration",
+    title: "Legacy credential migration",
+  };
+
+  if (unmigrated === undefined) {
+    return {
+      ...base,
+      nextAction: "검증된 사용자로 /ops/readiness를 호출해 조직별 migration 잔량을 확인하세요.",
+      status: "needs_provisioning",
+      summary: "DB-free platform 검사에서는 조직별 unmigrated legacy credential 수를 조회하지 않습니다.",
+    };
+  }
+  if (unmigrated > 0) {
+    return {
+      ...base,
+      nextAction: "Backfill dry-run/apply/reconcile을 완료해 unmigrated legacy credential을 0건으로 만드세요.",
+      status: "manual_followup",
+      summary: `이 조직에 아직 migration되지 않은 legacy credential이 ${unmigrated}건 있습니다.`,
+    };
+  }
+  return {
+    ...base,
+    nextAction: "최근 7일 실제 legacy 사용 관측값을 cutover 항목에서 별도로 확인하세요.",
+    status: "configured",
+    summary: "이 조직의 unmigrated legacy credential은 0건입니다.",
+  };
+}
+
 function createCredentialCutoverItem(
   env: NodeJS.ProcessEnv,
   connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
 ): OperationalReadinessItem {
   const mode = env.SEARCHOPS_CREDENTIAL_STORAGE_MODE?.trim();
-  const legacyFallbacks = connectorCredentials?.legacyFallbacks;
+  const observedLegacyFallbacks = connectorCredentials?.observedLegacyFallbacks;
   const base = {
     category: "connectors" as const,
     envKeys: ["SEARCHOPS_CREDENTIAL_STORAGE_MODE"],
@@ -528,27 +622,27 @@ function createCredentialCutoverItem(
       summary: "Provider credential storage mode가 아직 설정되지 않았습니다.",
     };
   }
-  if (legacyFallbacks === undefined) {
+  if (observedLegacyFallbacks === undefined) {
     return {
       ...base,
       nextAction: "검증된 사용자로 /ops/readiness를 호출해 조직별 fallback metadata를 확인하세요.",
       status: "needs_provisioning",
-      summary: "로컬 platform 검사에서는 조직별 legacy fallback 상태를 조회하지 않습니다.",
+      summary: "로컬 platform 검사에서는 조직별 최근 7일 legacy 사용 상태를 조회하지 않습니다.",
     };
   }
-  if (legacyFallbacks > 0) {
+  if (observedLegacyFallbacks > 0) {
     return mode === "encrypted"
       ? {
           ...base,
-          nextAction: "API와 Worker를 dual로 롤백하고 legacy fallback을 0으로 만든 뒤 다시 cutover하세요.",
+          nextAction: "API와 Worker를 dual로 롤백하고 최근 7일 관측 legacy 사용을 0으로 만든 뒤 다시 cutover하세요.",
           status: "blocked",
-          summary: "Encrypted mode인데 조직 sync metadata에 legacy fallback이 남아 있어 cutover ready가 아닙니다.",
+          summary: "Encrypted mode인데 조직의 최근 7일 sync에 legacy credential 사용이 관측되어 cutover ready가 아닙니다.",
         }
       : {
           ...base,
-          nextAction: "Legacy fallback을 backfill하고 0건이 될 때까지 dual mode를 유지하세요.",
+          nextAction: "관측된 fallback 원인을 해결하고 최근 7일 legacy 사용이 0건이 될 때까지 dual mode를 유지하세요.",
           status: "manual_followup",
-          summary: "경고: dual mode 조직 sync metadata에 legacy credential fallback이 남아 있습니다.",
+          summary: "경고: dual mode 조직의 최근 7일 sync에 legacy credential 사용이 관측됐습니다.",
         };
   }
 
@@ -561,8 +655,8 @@ function createCredentialCutoverItem(
     status: mode === "dual" ? "ready" : "configured",
     summary:
       mode === "dual"
-        ? "조직 sync metadata에서 legacy fallback이 0건입니다."
-        : "Encrypted storage mode이며 조직 sync metadata의 legacy fallback이 0건입니다.",
+        ? "조직의 최근 7일 sync metadata에서 관측된 legacy 사용이 0건입니다."
+        : "Encrypted storage mode이며 최근 7일 관측 legacy 사용이 0건입니다.",
   };
 }
 

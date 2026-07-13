@@ -1,6 +1,7 @@
 import {
   createHttpSchemaRichResultValidatorClient,
-  createLiveSchemaRichResultValidatorAdapter
+  createLiveSchemaRichResultValidatorAdapter,
+  shouldEnableConnectorLiveRuntime
 } from "@searchops/connectors";
 import { parseCredentialKeyring } from "@searchops/db";
 import { parseSearchOpsEnv } from "@searchops/types";
@@ -16,7 +17,14 @@ import {
 } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
-const connectorLiveExternalApis = shouldEnableConnectorLiveApis(env);
+const connectorLiveExternalApis = shouldEnableConnectorLiveRuntime({
+  ...(env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
+    ? {}
+    : { credentialStorageMode: env.SEARCHOPS_CREDENTIAL_STORAGE_MODE }),
+  ...(env.SEARCHOPS_PAGESPEED_API_KEY === undefined
+    ? {}
+    : { pagespeedApiKey: env.SEARCHOPS_PAGESPEED_API_KEY }),
+});
 const geoPlatformApiKeys = {
   geo_chatgpt: env.SEARCHOPS_GEO_CHATGPT_API_KEY,
   geo_claude: env.SEARCHOPS_GEO_CLAUDE_API_KEY,
@@ -130,7 +138,3 @@ process.once("SIGTERM", () => {
 });
 
 console.log(`SearchOps worker listening for jobs: ${workerJobNames.join(", ")}`);
-
-function shouldEnableConnectorLiveApis(env: ReturnType<typeof parseSearchOpsEnv>) {
-  return env.SEARCHOPS_CREDENTIAL_STORAGE_MODE !== undefined;
-}

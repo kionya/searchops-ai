@@ -40,11 +40,12 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 ## Phase 11 Production Hardening
 
 - [ ] A restorable Supabase backup is verified before the credential schema migration/backfill.
-- [ ] Migration status/deploy/status and credential migrate/rotate dry-runs are recorded.
-- [ ] Deployment order is API, Worker, then Web.
-- [ ] `legacyFallbacks=0` and no sync summary uses `credentialSources.*=legacy` before encrypted cutover.
-- [ ] Encrypted mode is observed for at least seven days with zero fallback and no unexpected refresh/decryption error.
-- [ ] Rollback keeps both API and Worker in `dual`; plaintext legacy table removal requires a separate plan and explicit approval.
+- [ ] Initial key generation is recorded separately from routine/emergency rotation; key output was pasted directly into Railway API/Worker secrets only.
+- [ ] Additive migration status/deploy/status is recorded before application deployment.
+- [ ] Deployment order is API, Worker, then Web; credential backfill dry-run/apply/reconcile runs only afterward.
+- [ ] `unmigratedLegacyCredentials=0` and `observedLegacyFallbacks=0` are verified as separate readiness facts before encrypted cutover.
+- [ ] Encrypted mode is observed for at least seven days with zero observed legacy use and no unexpected refresh/decryption error.
+- [ ] Rollback returns both API and Worker to `dual` and redeploys API, Worker, Web; plaintext legacy table removal requires a separate plan and explicit approval.
 - Redis-backed rate limiting is wired in the API runtime and requires a Redis provider suitable for shared counters.
 - BullMQ Redis must use `noeviction`.
 - Observability log drain, alert routing, restore drill scheduler, secret manager executor, and IdP JWKS/issuer/audience remain deployment provisioning tasks.

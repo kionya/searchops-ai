@@ -6,8 +6,10 @@
 
 ## 🚀 운영 배포 · 프로비저닝 진행상황
 
-Updated: 2026-06-27
+Updated: 2026-07-14 (Task 12 local fix; live deployment not performed or verified)
 Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.app) · api = https://searchops-api-production.up.railway.app
+
+> **Current source of truth:** `.superpowers/sdd/task-12-fix-report.md` and `docs/PROVISIONING_RUNBOOK.md`. Task 12 now makes `/ops/readiness` current-user-only and fail-closed, separates API/Worker readiness provenance, splits unmigrated rows from seven-day observed legacy use, and keeps Vercel browser-safe. API, Worker, Web must be deployed in that order before backfill. No live service was changed in this local task. The dated deployment notes below are historical snapshots and may be superseded.
 
 > ✅ **org-invite 라이브 (2026-06-23)**: `Invitation` 테이블 운영 DB 생성 확인 + **invite web UI 라이브 (#81)** — 운영 콘솔 `/ops/invites`에서 초대 생성·목록·철회.
 > ✅ **마이그레이션 자동화 완료 (2026-06-27, #82)**: Prisma `directUrl`(`DIRECT_DATABASE_URL`=Supabase **session pooler :5432**) + Railway `searchops-api` **Pre-Deploy Command** `corepack pnpm db:migrate:deploy`. 배포 로그로 검증(`No pending migrations to apply`). 이제 스키마 PR 머지→배포 시 **자동 적용**(수동 불필요). (과거 교훈이던 "Railway는 자동 적용 안 함"을 이 설정으로 해결. 런타임 client는 풀러 URL 유지, migrate만 직결 URL 사용.)
@@ -32,9 +34,9 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 1. **Phase 0 — DB**: Supabase 연결 + `prisma migrate deploy`(15개) + seed. 로컬 Docker로 동일 파이프라인 리허설 후 운영 적용.
 2. **Phase 1 — Redis**: Railway Redis(noeviction) 연결, API·Worker 양쪽 부팅 확인.
 3. **인증/보안**: `NODE_ENV=production` + `SEARCHOPS_IDP_JWT_HS256_SECRET` → mock/trusted-header fallback 차단(`/ops/*` 401로 확인).
-4. **웹↔API 연결 (PR #75 머지)**: `apps/web/src/api-client.ts`(`apiFetch` + HS256 서비스 토큰 자동 발급) 추가, 16개 모듈 **37곳** `fetch`→`apiFetch`, `/ops/readiness`·`/ops/productization`·`/ops/observability` `force-dynamic`. typecheck/lint/build 통과.
-5. **Vercel web env**: `SEARCHOPS_API_BASE_URL` + `SEARCHOPS_IDP_JWT_HS256_SECRET` 설정. (실수로 넣었던 `NODE_ENV`/`DATABASE_URL` 제거 → 빌드 복구)
-6. **결과**: `/ops/readiness` "데모 데이터" → "API 데이터" 전환 확인.
+4. **웹↔API 연결 (PR #75 머지, 이후 Task 12 수정)**: 일반 ops 호출의 초기 `apiFetch` 이력은 유지되지만 `/ops/readiness`는 더 이상 HS256 service principal을 사용하지 않는다. Supabase verified current-user access token을 `apiFetchAsUser`로 전달한다.
+5. **Vercel web env (Task 12 기준)**: `SEARCHOPS_API_BASE_URL`, `SEARCHOPS_PUBLIC_APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`만 사용한다. `NODE_ENV`, DB/Redis, IdP shared secret, encryption/provider secret은 넣지 않는다.
+6. **Readiness 결과 규칙**: verified user API 응답만 "API 데이터"로 표시한다. 인증/store 장애에서는 demo/fixture로 대체하지 않고 고정 unavailable UI로 닫는다.
 7. **A안 — 알림 + 에러/가동 모니터링 (PR #76 머지, 2026-06-22)**:
    - `apps/web/app/api/ops/alert-sink/route.ts` 인증 sink(Bearer 상수시간 검증·로깅·200) + `.github/workflows/ops-heartbeat.yml`(5분: `/health` 다운 감지 → 실패 시 GitHub 알림 + HS256 단명 토큰으로 `/ops/metrics-export` 호출해 **fire-on-read** 구동).
    - 설정: Vercel `SEARCHOPS_OPS_ALERT_SINK_TOKEN` / Railway `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`(+`_TOKEN`) / GH repo secret `SEARCHOPS_IDP_JWT_HS256_SECRET`(searchops-ai).
@@ -47,7 +49,7 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
    - 검증: HTTPS(HTTP/2, 유효 인증서, icn1 서울 엣지) · `/api/ops/alert-sink` 200 · `/ops/readiness` 200, readiness `production-domain` **configured**(24→25).
    - API는 도메인 변경 불필요 확인(웹→API 서버-투-서버, CORS 없음; `SEARCHOPS_API_BASE_URL`·Google OAuth redirect 불변).
 9. **C안 — 나머지 프로비저닝 dead-env 제거 (PR #77·#78·#79·#80 머지, 2026-06-23)**:
-   - **#77 rich-result**: `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`) env 스키마 + connectors `createHttpSchemaRichResultValidatorClient` + worker 배선. (배포 시 URL을 API+Worker 양쪽 필수.)
+   - **#77 rich-result**: `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`) env 스키마 + connectors client + Worker 배선. Task 12 기준 선택형 Worker-only env다.
    - **#78 log-drain**: `apps/web/app/api/ops/log-drain-sink` 인증 self-host sink. (`SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`=Railway `..._LOG_DRAIN_TOKEN`.)
    - **#79 GEO**: 4 provider client(OpenAI호환=ChatGPT+Perplexity, Gemini, Anthropic raw HTTP) + per-provider fixture fallback + worker 배선. `SEARCHOPS_GEO_{CHATGPT,CLAUDE,GEMINI,PERPLEXITY}_{API_KEY,MODEL}`. Copilot은 공개 API 없어 fixture 유지.
    - **#80 org-invite Tier C**: Invitation 모델+추가전용 마이그레이션 + 라우트 4종(create/list/revoke admin·owner, accept=token capability) + repository(memory+prisma) + env-gated 이메일(`SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL`/`_TOKEN`, 미설정 시 서버로그). organization-invite readiness→configured. **canLaunch는 billing-subscription이 manual_followup이라 여전히 false.**
@@ -63,15 +65,15 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 
 ### 환경변수 위치 (어디에 무엇이)
 
-- **Railway API**: `DATABASE_URL`, **`DIRECT_DATABASE_URL`**(=session pooler :5432, migrate 전용), `REDIS_URL`, `NODE_ENV=production`, `SEARCHOPS_IDP_JWT_HS256_SECRET`(2026-06-27 로테이션), `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`(+`_TOKEN`), **`SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`(+`_TOKEN`)**(활성), **`SEARCHOPS_GEO_CHATGPT_API_KEY`**(배지용), `SEARCHOPS_PUBLIC_APP_URL`(=`https://searchops.totopapa.com`), Google OAuth quad 등. + Pre-Deploy Command `corepack pnpm db:migrate:deploy`.
+- **Railway API**: `DATABASE_URL`, **`DIRECT_DATABASE_URL`**(migration command only), `REDIS_URL`, `NODE_ENV=production`, IdP verifier, observability/API-owned secrets, public URLs, Google OAuth quad, credential storage mode와 keyring. GEO provider key/model과 rich-result validator는 Worker-only다.
 - **Railway Worker**: `DATABASE_URL`, `REDIS_URL`, **`SEARCHOPS_GEO_CHATGPT_API_KEY`**(+`_MODEL=gpt-4o-mini`, GEO 라이브 처리) (+ 커넥터 키)
-- **Vercel Web** (Production+Preview): `SEARCHOPS_API_BASE_URL`, `SEARCHOPS_IDP_JWT_HS256_SECRET`(2026-06-27 로테이션, prod+preview 동일), `SEARCHOPS_OPS_ALERT_SINK_TOKEN`(알림 sink — Railway `_TOKEN`과 **동일값**), **`SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`**(log-drain sink — Railway `..._LOG_DRAIN_TOKEN`과 동일값), `SEARCHOPS_PUBLIC_APP_URL`(=`https://searchops.totopapa.com`, OAuth 복귀 URL용)
+- **Vercel Web** (Production+Preview): browser-safe `SEARCHOPS_API_BASE_URL`, `SEARCHOPS_PUBLIC_APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`만 사용한다. Task 12 readiness에는 service secret이나 provider secret을 두지 않는다.
 - **GitHub repo secret (searchops-ai)**: `SEARCHOPS_IDP_JWT_HS256_SECRET` (ops-heartbeat 워크플로 토큰 발급용)
 - ⚠️ Web에는 `NODE_ENV`/`DATABASE_URL`을 **넣지 말 것** (Vercel 빌드 실패; 이 둘은 Railway 전용)
 - **C 기능 활성 env (미설정 시 dead-env 아닌 "off" 상태, 코드 폴백 안전)**:
   - **log-drain ✅ 활성**: Railway API `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`(+`_TOKEN`=`<T>`) + Vercel `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`=`<T>`
-  - **GEO ✅ 활성(chatgpt만)**: Railway **API+Worker** `SEARCHOPS_GEO_CHATGPT_API_KEY`(+`_MODEL=gpt-4o-mini`). 추가 provider(claude/gemini/perplexity)는 `SEARCHOPS_GEO_<provider>_API_KEY`로 동일하게 켜짐. ⚠️ 호출당 토큰 과금.
-  - **rich-result ⏸️ 보류**: 의미 있는 외부 validator URL 부재로 미설정(오프라인 검증 사용). 켤 경우 Railway **API+Worker** `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`).
+  - **GEO 선택형**: Railway Worker의 `SEARCHOPS_GEO_<provider>_API_KEY`(+`_MODEL`). 조직 고객 BYOK는 encrypted ProviderAccount에 둔다. 실제 live 활성 상태는 이 로컬 Task 12에서 검증하지 않았다.
+  - **rich-result 선택형**: 켤 경우 Railway Worker에만 `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`(+`_TOKEN`)을 둔다.
   - invite 이메일(선택): Railway API `SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL`(+`_TOKEN`) — 미설정 시 초대 링크가 서버 로그로 출력
 
 ### 다음 작업 (우선순위)

@@ -24,13 +24,26 @@ import {
   groupReadinessByCategory,
   loadOperationalReadiness,
   type OperationalReadinessCategory,
+  type OperationalReadinessLoadStatus,
   type OperationalReadinessTone,
+  readinessUnavailableMessages,
 } from "../../../src/operational-readiness";
+import { getCurrentProviderUser } from "../../../src/provider-accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationalReadinessPage() {
-  const dashboard = await loadOperationalReadiness();
+  let context;
+  try {
+    context = await getCurrentProviderUser();
+  } catch {
+    return <OperationalReadinessUnavailable status="authorization_unavailable" />;
+  }
+
+  const dashboard = await loadOperationalReadiness(context);
+  if (dashboard.readiness === null) {
+    return <OperationalReadinessUnavailable status={dashboard.status} />;
+  }
   const { readiness } = dashboard;
   const grouped = groupReadinessByCategory(readiness.items);
 
@@ -67,11 +80,6 @@ export default async function OperationalReadinessPage() {
               <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
                 생성 시각: {readiness.generatedAt.replace("T", " ").slice(0, 16)}
               </p>
-              {dashboard.errorMessage ? (
-                <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
-                  API 연결 실패: {dashboard.errorMessage}
-                </p>
-              ) : null}
             </div>
             <span
               style={{
@@ -144,6 +152,36 @@ export default async function OperationalReadinessPage() {
             </table>
           </div>
         </section>
+      </section>
+    </AppWorkspaceFrame>
+  );
+}
+
+function OperationalReadinessUnavailable({
+  status,
+}: {
+  readonly status: Exclude<OperationalReadinessLoadStatus, "ready">;
+}) {
+  return (
+    <AppWorkspaceFrame
+      actions={
+        <Link className="searchops-button secondary" href="/ops">
+          운영 콘솔로
+        </Link>
+      }
+      description="현재 출시 준비도 데이터를 표시할 수 없습니다."
+      eyebrow="Operations"
+      title="출시 준비도"
+    >
+      <section aria-live="polite" role="status" style={tableSectionStyle}>
+        <header style={tableHeaderStyle}>
+          <div>
+            <h3 style={{ fontSize: 18, margin: 0 }}>출시 준비도 확인 불가</h3>
+            <p style={{ color: "#b91c1c", fontSize: 14, margin: "8px 0 0" }}>
+              {readinessUnavailableMessages[status]}
+            </p>
+          </div>
+        </header>
       </section>
     </AppWorkspaceFrame>
   );

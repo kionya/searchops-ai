@@ -1103,8 +1103,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     return createConnectorLiveSetupReport({
+      apiEnv: process.env,
       connectorCredentials,
-      env: process.env,
       environment: process.env.NODE_ENV === "production" ? "deployment" : "local",
       generatedAt: currentTime(),
     });

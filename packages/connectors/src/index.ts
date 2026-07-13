@@ -44,6 +44,22 @@ export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
 export const liveExternalApisEnabled = "enabled" as const;
 
+export interface ConnectorLiveRuntimeInput {
+  readonly credentialStorageMode?: string | null;
+  readonly pagespeedApiKey?: string | null;
+}
+
+export function shouldEnableConnectorLiveRuntime({
+  credentialStorageMode,
+  pagespeedApiKey,
+}: ConnectorLiveRuntimeInput): boolean {
+  return hasConfiguredRuntimeValue(credentialStorageMode) || hasConfiguredRuntimeValue(pagespeedApiKey);
+}
+
+function hasConfiguredRuntimeValue(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 export const connectorProviders = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
 export const geoAnswerMonitorProviders = [

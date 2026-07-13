@@ -144,7 +144,8 @@ function createStore(
       return {
         configuredByProvider: { bing: 0, ga4: 0, gsc: 0 },
         encryptedAccounts: 0,
-        legacyFallbacks: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
       };
     },
     ...overrides,

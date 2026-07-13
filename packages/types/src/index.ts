@@ -384,7 +384,7 @@ export const OperationalReadinessItemSchema = z.object({
   summary: z.string().min(1),
   nextAction: z.string().min(1),
   envKeys: z.array(z.string().min(1)).default([]),
-});
+}).strict();
 
 export type OperationalReadinessItem = z.infer<typeof OperationalReadinessItemSchema>;
 
@@ -395,7 +395,7 @@ export const OperationalReadinessSummarySchema = z.object({
   manualFollowup: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
-});
+}).strict();
 
 export type OperationalReadinessSummary = z.infer<
   typeof OperationalReadinessSummarySchema
@@ -405,7 +405,7 @@ export const OperationalReadinessResponseSchema = z.object({
   generatedAt: IsoDateTimeSchema,
   items: z.array(OperationalReadinessItemSchema),
   summary: OperationalReadinessSummarySchema,
-});
+}).strict();
 
 export type OperationalReadinessResponse = z.infer<
   typeof OperationalReadinessResponseSchema
@@ -502,7 +502,7 @@ export const ConnectorLiveSetupCheckSchema = z.object({
   summary: z.string().min(1),
   nextAction: z.string().min(1),
   envKeys: z.array(z.string().min(1)).default([]),
-});
+}).strict();
 
 export type ConnectorLiveSetupCheck = z.infer<typeof ConnectorLiveSetupCheckSchema>;
 
@@ -513,7 +513,7 @@ export const ConnectorLiveSetupSummarySchema = z.object({
   warnings: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
-});
+}).strict();
 
 export type ConnectorLiveSetupSummary = z.infer<
   typeof ConnectorLiveSetupSummarySchema
@@ -527,7 +527,7 @@ export const ConnectorLiveSetupReportSchema = z.object({
   canRunLiveConnectorSync: z.boolean(),
   checks: z.array(ConnectorLiveSetupCheckSchema),
   summary: ConnectorLiveSetupSummarySchema,
-});
+}).strict();
 
 export type ConnectorLiveSetupReport = z.infer<
   typeof ConnectorLiveSetupReportSchema

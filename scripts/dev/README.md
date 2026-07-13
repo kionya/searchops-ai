@@ -32,8 +32,9 @@ What it distinguishes:
 `corepack pnpm check:connector-live` runs the API package's connector live setup CLI. It validates
 connector live-mode environment wiring without calling Google, GA4, PageSpeed, Bing, CMS, or any
 other external API. It reports only env key names and status, never secret values. Local checks
-automatically load the ignored root files `.env.api.local` and `.env.worker.local`; explicit shell
-exports override file values. Deployment checks never load these local files.
+load `.env.api.local` as the API target and `.env.worker.local` as the Worker target without merging
+them. Explicit shell exports apply only to the API target. Deployment checks never load local files
+unless each target is named explicitly.
 
 Run from the repo root:
 
@@ -47,7 +48,11 @@ Useful variants:
 corepack pnpm check:connector-live -- --deployment
 corepack pnpm check:connector-live -- --json
 corepack pnpm check:connector-live -- --deployment --require-live
+corepack pnpm check:connector-live -- --deployment --api-env-file=scripts/dev/api.env.example --worker-env-file=scripts/dev/worker.env.example --json
 ```
+
+API process env만 제공된 deployment report는 Worker를 추론하지 않고 unverified warning으로
+닫힌다. Worker refresh/live readiness는 두 target이 분리되어 제공된 report에서만 완료로 표시된다.
 
 Exit behavior:
 

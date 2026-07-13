@@ -88,7 +88,7 @@ Railway API and Worker receive the same storage mode and active/previous keyring
 
 GSC properties, numeric GA4 Property IDs, and Bing resources are site metadata. Customer Google/Bing credentials and GEO BYOK are organization accounts. PageSpeed and optional SearchOps-funded GEO keys are Worker platform credentials. Global customer GA4/Bing/token env exists only as a temporary `dual` migration fallback and is not the readiness source after encrypted cutover.
 
-Operational readiness has two inputs. The DB-free CLI validates runtime/platform env and keyring semantics without opening Prisma. Authenticated `/ops/readiness` derives the organization only from a verified user principal and adds a metadata-only tenant snapshot. In `dual`, any legacy fallback remains a warning; encrypted cutover is not ready until fallback is zero.
+Operational readiness has two inputs. The DB-free CLI validates separately supplied API/Worker runtime env and keyring semantics without opening Prisma. Authenticated `/ops/readiness` derives the organization only from a verified user principal and adds a metadata-only tenant snapshot. Migration completeness (`unmigratedLegacyCredentials`) and recent exact-tenant runtime use (`observedLegacyFallbacks`) are distinct. Cutover uses the seven-day observed-use metric; API HTTP routes never infer Worker deployment state from the API process.
 
 ## Phase 7 Keyword and AEO Boundary
 

@@ -26,7 +26,8 @@ describe("operational readiness", () => {
       connectorCredentials: {
         configuredByProvider: { gsc: 2, ga4: 2, bing: 1 },
         encryptedAccounts: 3,
-        legacyFallbacks: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
       },
     });
 
@@ -53,7 +54,8 @@ describe("operational readiness", () => {
       connectorCredentials: {
         configuredByProvider: { gsc: 0, ga4: 0, bing: 0 },
         encryptedAccounts: 0,
-        legacyFallbacks: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
       },
     });
 
@@ -77,7 +79,8 @@ describe("operational readiness", () => {
       connectorCredentials: {
         configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
         encryptedAccounts: 2,
-        legacyFallbacks: 2,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 2,
       },
     });
     const encryptedReport = createOperationalReadiness({
@@ -89,7 +92,8 @@ describe("operational readiness", () => {
       connectorCredentials: {
         configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
         encryptedAccounts: 2,
-        legacyFallbacks: 1,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 1,
       },
     });
 
@@ -102,6 +106,51 @@ describe("operational readiness", () => {
     expect(
       encryptedReport.items.find((item) => item.id === "credential-storage-cutover"),
     ).toMatchObject({ status: "blocked" });
+  });
+
+  it("keeps migration completeness separate from recently observed legacy use", () => {
+    const report = createOperationalReadiness({
+      env: {
+        SEARCHOPS_CREDENTIAL_STORAGE_MODE: "dual",
+        ...validKeyringEnv,
+      },
+      generatedAt,
+      connectorCredentials: {
+        configuredByProvider: { gsc: 1, ga4: 0, bing: 0 },
+        encryptedAccounts: 1,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 1,
+      },
+    });
+
+    expect(report.items.find((item) => item.id === "credential-legacy-migration")).toMatchObject({
+      status: "configured",
+    });
+    expect(report.items.find((item) => item.id === "credential-storage-cutover")).toMatchObject({
+      status: "manual_followup",
+    });
+  });
+
+  it("does not infer Worker-only readiness from API process environment", () => {
+    const report = createOperationalReadiness({
+      env: {
+        SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID: "api-client-id",
+        SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET: "api-client-secret",
+        SEARCHOPS_PAGESPEED_API_KEY: "api-process-value-must-not-count",
+      },
+      generatedAt,
+    });
+
+    for (const itemId of [
+      "worker-target-verification",
+      "google-worker-refresh-platform",
+      "live-pagespeed",
+      "rich-result-live-validator",
+    ]) {
+      expect(report.items.find((item) => item.id === itemId)).toMatchObject({
+        status: "manual_followup",
+      });
+    }
   });
 
   it("validates keyring semantics whenever encrypted storage is configured", () => {
@@ -206,6 +255,68 @@ describe("connector provisioning documentation", () => {
     expect(provisioning).toContain("openssl rand -base64 32");
     expect(provisioning).toMatch(/7일|seven days/i);
     expect(provisioning).toMatch(/별도 승인|separate approval/i);
+  });
+
+  it("documents one production sequence and separates initial, routine, and emergency keys", () => {
+    const provisioning = readRepoFile("docs/PROVISIONING_RUNBOOK.md");
+    const markers = [
+      "openssl rand -base64 32",
+      "corepack pnpm db:migrate:deploy",
+      "API 배포",
+      "Worker 배포",
+      "Web 배포",
+      "corepack pnpm credentials:migrate -- --dry-run",
+      "SEARCHOPS_CREDENTIAL_STORAGE_MODE=encrypted",
+      "7일",
+      "별도 contract migration",
+    ];
+    const positions = markers.map((marker) => provisioning.indexOf(marker));
+
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    expect(provisioning).toContain("Routine key rotation");
+    expect(provisioning).toContain("Emergency key rotation");
+  });
+
+  it("keeps legacy customer env explicitly dual-only across connector docs", () => {
+    for (const path of ["apps/worker/README.md", "packages/connectors/README.md"]) {
+      const content = readRepoFile(path);
+      expect(content).toMatch(/dual.{0,80}legacy|legacy.{0,80}dual/is);
+      expect(content).not.toMatch(
+        /(?:설정|필요|requires?).{0,100}SEARCHOPS_(?:GA4_PROPERTY_ID|BING_API_KEY)/is,
+      );
+    }
+  });
+
+  it("documents all optional Worker-only model and validator environment values", () => {
+    const workerExample = readRepoFile("scripts/dev/worker.env.example");
+    for (const key of [
+      "SEARCHOPS_GEO_CHATGPT_MODEL",
+      "SEARCHOPS_GEO_CLAUDE_MODEL",
+      "SEARCHOPS_GEO_GEMINI_MODEL",
+      "SEARCHOPS_GEO_PERPLEXITY_MODEL",
+      "SEARCHOPS_RICH_RESULT_VALIDATOR_URL",
+      "SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN",
+    ]) {
+      expect(workerExample).toContain(key);
+    }
+  });
+
+  it("builds both runtime workspace dependencies before the connector CLI", () => {
+    const rootPackage = JSON.parse(readRepoFile("package.json")) as {
+      readonly scripts: Record<string, string>;
+    };
+    const command = rootPackage.scripts["check:connector-live"] ?? "";
+
+    expect(command).toContain("--filter @searchops/types build");
+    expect(command).toContain("--filter @searchops/db build");
+    expect(command.indexOf("--filter @searchops/types build")).toBeLessThan(
+      command.indexOf("apps/api/src/connector-live-setup-cli.ts"),
+    );
+    expect(command.indexOf("--filter @searchops/db build")).toBeLessThan(
+      command.indexOf("apps/api/src/connector-live-setup-cli.ts"),
+    );
+    expect(rootPackage.scripts["test:connector-live-clean-artifact"]).toBeTruthy();
   });
 
   it("keeps the local connector CLI DB-free", () => {

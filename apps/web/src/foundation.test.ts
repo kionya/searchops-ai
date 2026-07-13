@@ -917,21 +917,71 @@ describe("web foundation", () => {
   it("loads operational readiness through the API response contract", async () => {
     const fixture = createDemoOperationalReadinessDashboard().readiness;
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubEnv("SEARCHOPS_IDP_JWT_HS256_SECRET", "service-secret-must-not-be-used");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/ops/readiness");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
 
         return Response.json(fixture);
       }),
     );
 
-    const dashboard = await loadOperationalReadiness();
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "current-user-token",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+    if (dashboard.readiness === null) {
+      throw new Error("expected readiness API data");
+    }
     const grouped = groupReadinessByCategory(dashboard.readiness.items);
 
     expect(dashboard.source).toBe("api");
     expect(grouped.connectors.length).toBeGreaterThan(0);
     expect(formatReadinessStatus("needs_provisioning")).toBe("프로비저닝 필요");
+  });
+
+  it.each([
+    [403, "authorization_unavailable"],
+    [503, "store_unavailable"],
+  ] as const)("fails readiness closed for API status %s", async (status, expectedStatus) => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status })));
+
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "current-user-token",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+
+    expect(dashboard).toMatchObject({ readiness: null, status: expectedStatus });
+    expect(JSON.stringify(dashboard)).not.toContain("live-gsc");
+    expect(JSON.stringify(dashboard)).not.toContain("fixture");
+  });
+
+  it("fails readiness closed as authorization unavailable without a user access token", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+
+    expect(dashboard).toMatchObject({
+      readiness: null,
+      status: "authorization_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("summarizes productization readiness and onboarding fixtures", () => {

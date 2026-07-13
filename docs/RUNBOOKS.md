@@ -163,11 +163,12 @@ Tenant readiness:
 6. Confirm sync/dead-letter/log output contains no token, API key, encryption envelope, provider response body, or URL with credential query parameters.
 
 Dual-mode migration:
-1. Keep `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual` while backfill or any sync reports `credentialSources.*=legacy`.
-2. A positive `legacyFallbacks` readiness value is a warning and is not encrypted-cutover evidence.
-3. Run the dry-run/apply commands in `PROVISIONING_RUNBOOK.md` after a verified backup.
-4. Set both API and Worker to `encrypted` only after fallback and unmigrated counts are zero.
-5. If encrypted mode reports fallback or decryption errors, roll both services back to `dual` before retrying.
+1. Follow the single order in `PROVISIONING_RUNBOOK.md`: backup/status/key, additive migrate, API, Worker, Web, then backfill dry-run/apply/reconcile.
+2. `unmigratedLegacyCredentials` is migration completeness; make it zero without using it as evidence of actual runtime use.
+3. Keep `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual` while `observedLegacyFallbacks > 0` or any recent sync reports `credentialSources.*=legacy`.
+4. Set both API and Worker to `encrypted` only after migration validation and observed use are zero.
+5. Observe exact-organization sync summaries for seven days after cutover. If encrypted mode reports fallback or decryption errors, roll API, Worker, and Web back in that order with both runtimes in `dual`.
+6. Plaintext legacy table removal requires a separate destructive approval after the observation window.
 
 CMS:
 1. A missing live CMS fetch connector is `setup_required`, not a provider failure.

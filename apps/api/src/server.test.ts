@@ -1126,7 +1126,8 @@ describe("api foundation", () => {
     const connectorCredentials = {
       configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
       encryptedAccounts: 2,
-      legacyFallbacks: 0,
+      unmigratedLegacyCredentials: 0,
+      observedLegacyFallbacks: 0,
       credentialCiphertext: "must-not-leak",
     } as unknown as ConnectorCredentialReadinessSnapshot;
     const server = buildApiServer({
@@ -1168,6 +1169,58 @@ describe("api foundation", () => {
     expect(JSON.stringify(payload)).not.toContain("credentialCiphertext");
   });
 
+  it("loads readiness from the organization in a verified bearer principal", async () => {
+    const organizations: string[] = [];
+    const server = buildApiServer({
+      authContextResolver: createRequestAuthContextResolver({
+        allowMockFallback: false,
+        allowTrustedHeaders: false,
+        tokenVerifier: createHmacJwtIdpTokenVerifier({
+          audience: "searchops-api",
+          currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+          issuer: "https://idp.example.com/",
+          organizationIdClaim: "org_id",
+          provider: "supabase",
+          secret: "idp_secret",
+        }),
+      }),
+      providerCredentialStore: readinessStore(async (organizationId) => {
+        organizations.push(organizationId);
+        return {
+          configuredByProvider: { gsc: 0, ga4: 0, bing: 1 },
+          encryptedAccounts: 1,
+          unmigratedLegacyCredentials: 0,
+          observedLegacyFallbacks: 0,
+        };
+      }),
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const token = createSignedIdpToken({
+      aud: "searchops-api",
+      email: "owner@example.test",
+      exp: 1_779_756_000,
+      iss: "https://idp.example.com/",
+      org_id: "org_other",
+      role: "owner",
+      sub: "idp_owner_other",
+    });
+
+    const response = await server.inject({
+      headers: { authorization: `Bearer ${token}` },
+      method: "GET",
+      url: "/ops/readiness?organizationId=org_demo",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(organizations).toEqual(["org_other"]);
+    expect(response.json().items.find((item: { id: string }) => item.id === "live-bing")).toMatchObject({
+      status: "configured",
+    });
+  });
+
   it("rejects service and unverified mock principals from tenant readiness", async () => {
     let snapshotCalls = 0;
     const providerCredentialStore = readinessStore(async () => {
@@ -1175,7 +1228,8 @@ describe("api foundation", () => {
       return {
         configuredByProvider: { gsc: 0, ga4: 0, bing: 0 },
         encryptedAccounts: 0,
-        legacyFallbacks: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
       };
     });
 
@@ -1283,7 +1337,8 @@ describe("api foundation", () => {
       providerCredentialStore: readinessStore(async () => ({
         configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
         encryptedAccounts: 2,
-        legacyFallbacks: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
       })),
       repository: createMemoryRepository({
         organizations: [seededOrganization],
@@ -1300,10 +1355,17 @@ describe("api foundation", () => {
 
       expect(response.statusCode).toBe(200);
       expect(payload.generatedAt).toBe("2026-06-07T00:00:00.000Z");
-      expect(payload.liveExternalApis).toBe("enabled");
+      expect(payload.liveExternalApis).toBe("disabled");
+      expect(payload.canRunLiveConnectorSync).toBe(false);
       expect(payload.checks.map((check: { id: string }) => check.id)).toContain(
         "google-oauth-env",
       );
+      expect(
+        payload.checks.find((check: { id: string }) => check.id === "google-worker-refresh-env"),
+      ).toMatchObject({ status: "warning" });
+      expect(
+        payload.checks.find((check: { id: string }) => check.id === "worker-live-mode-gate"),
+      ).toMatchObject({ status: "warning" });
       expect(JSON.stringify(payload)).not.toContain("super-secret");
     } finally {
       process.env = originalEnv;

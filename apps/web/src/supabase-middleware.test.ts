@@ -64,6 +64,21 @@ describe("updateSupabaseSession", () => {
     expect(getSession).not.toHaveBeenCalled();
   });
 
+  it("protects the operational readiness route", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.test");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "publishable-key");
+    configureAuth(null);
+
+    const response = await updateSupabaseSession(
+      new NextRequest("https://searchops.test/ops/readiness"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://searchops.test/login?next=%2Fops%2Freadiness",
+    );
+  });
+
   it("redirects authenticated login requests to sites using getClaims", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.test");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "legacy-anon-key");

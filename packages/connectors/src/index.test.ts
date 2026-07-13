@@ -48,13 +48,30 @@ import {
   summarizeConnectorRunResults,
   syncFixtureConnector,
   syncFixtureConnectors,
-  syncLiveConnectors
+  syncLiveConnectors,
+  shouldEnableConnectorLiveRuntime
 } from "./index.js";
 
 describe("connectors foundation", () => {
   it("keeps live external APIs disabled by default", () => {
     expect(liveExternalApisDefault).toBe("disabled");
     expect(liveExternalApisEnabled).toBe("enabled");
+  });
+
+  it("uses one connector live-runtime predicate for encrypted accounts and PageSpeed", () => {
+    expect(shouldEnableConnectorLiveRuntime({})).toBe(false);
+    expect(
+      shouldEnableConnectorLiveRuntime({ credentialStorageMode: "encrypted" }),
+    ).toBe(true);
+    expect(
+      shouldEnableConnectorLiveRuntime({ pagespeedApiKey: "platform-pagespeed-key" }),
+    ).toBe(true);
+    expect(
+      shouldEnableConnectorLiveRuntime({
+        credentialStorageMode: "  ",
+        pagespeedApiKey: "  ",
+      }),
+    ).toBe(false);
   });
 
   it("identifies the package", () => {

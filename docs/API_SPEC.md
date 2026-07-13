@@ -123,9 +123,9 @@ Public APIs must use Zod schemas from `packages/types` or schemas colocated with
 
 The response remains `OperationalReadinessResponse` and contains metadata-only items and counts. It never returns `ProviderAccount` encrypted fields, token metadata, API keys, customer IDs, or raw provider errors. GSC, GA4, and Bing statuses come from connected `ProviderAccount`/`SiteConnector` metadata. Missing bindings report site configuration work and do not request global Worker environment values.
 
-Platform readiness is separate: runtime DB/Redis, semantically valid encryption keyring, Google OAuth app settings, optional PageSpeed/SearchOps-funded GEO keys, IdP, and operations wiring. In `dual` mode a positive `legacyFallbacks` value is a migration warning; `encrypted` mode with any fallback is blocked.
+Platform readiness is separate: runtime DB/Redis, semantically valid encryption keyring, Google OAuth app settings, optional PageSpeed/SearchOps-funded GEO keys, IdP, and operations wiring. `unmigratedLegacyCredentials` reports migration completeness independently. `observedLegacyFallbacks` counts exact-organization `ConnectorSyncRun.summary.credentialSources` entries that used `legacy` in the documented seven-day window. A positive observed value warns in `dual` and blocks `encrypted` cutover.
 
-`GET /ops/connector-live-setup` uses the same verified user snapshot for deployed HTTP requests. The repo-local `corepack pnpm check:connector-live` command deliberately stays DB-free and reports only runtime/platform configuration plus the fact that tenant metadata was not queried.
+`GET /ops/connector-live-setup` uses the same verified user snapshot for deployed HTTP requests. It evaluates API process env only and reports Worker runtime, refresh, PageSpeed, and keyring parity as unverified rather than inferring them. The repo-local `corepack pnpm check:connector-live` command deliberately stays DB-free, keeps API and Worker env files separate, and reports tenant metadata as not queried. Both readiness response objects are deeply strict Zod contracts and reject unknown or credential-shaped fields.
 
 ## Auth Context
 

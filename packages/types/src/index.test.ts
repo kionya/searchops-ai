@@ -538,6 +538,45 @@ describe("types foundation", () => {
     });
   });
 
+  it("rejects unknown and credential-shaped operational readiness fields deeply", () => {
+    const valid = {
+      generatedAt: "2026-05-26T00:00:00.000Z",
+      items: [
+        {
+          category: "connectors",
+          envKeys: [],
+          id: "live-gsc",
+          nextAction: "Connect GSC.",
+          status: "configured",
+          summary: "GSC is configured.",
+          title: "GSC",
+        },
+      ],
+      summary: {
+        blocked: 0,
+        configured: 1,
+        manualFollowup: 0,
+        needsProvisioning: 0,
+        ready: 0,
+        total: 1,
+      },
+    };
+
+    expect(() => OperationalReadinessResponseSchema.parse({ ...valid, unknown: true })).toThrow();
+    expect(() =>
+      OperationalReadinessResponseSchema.parse({
+        ...valid,
+        items: [{ ...valid.items[0], credentialCiphertext: "must-reject" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      OperationalReadinessResponseSchema.parse({
+        ...valid,
+        summary: { ...valid.summary, credentialAuthTag: "must-reject" },
+      }),
+    ).toThrow();
+  });
+
   it("validates connector live setup reports", () => {
     expect(
       ConnectorLiveSetupReportSchema.parse({
@@ -583,6 +622,49 @@ describe("types foundation", () => {
         total: 2,
       },
     });
+  });
+
+  it("rejects unknown and credential-shaped connector live setup fields deeply", () => {
+    const valid = {
+      generatedAt: "2026-06-07T00:00:00.000Z",
+      environment: "deployment",
+      liveExternalApis: "disabled",
+      canRunFixtureMode: true,
+      canRunLiveConnectorSync: false,
+      checks: [
+        {
+          area: "runtime",
+          envKeys: [],
+          id: "worker-live-mode-gate",
+          nextAction: "Verify Worker.",
+          status: "warning",
+          summary: "Worker is unverified.",
+          title: "Worker runtime",
+        },
+      ],
+      summary: {
+        blocked: 0,
+        configured: 0,
+        needsProvisioning: 0,
+        ready: 0,
+        total: 1,
+        warnings: 1,
+      },
+    };
+
+    expect(() => ConnectorLiveSetupReportSchema.parse({ ...valid, unknown: true })).toThrow();
+    expect(() =>
+      ConnectorLiveSetupReportSchema.parse({
+        ...valid,
+        checks: [{ ...valid.checks[0], credentialIv: "must-reject" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      ConnectorLiveSetupReportSchema.parse({
+        ...valid,
+        summary: { ...valid.summary, credentialAuthTag: "must-reject" },
+      }),
+    ).toThrow();
   });
 
   it("validates normalized crawler URLs", () => {

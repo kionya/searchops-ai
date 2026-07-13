@@ -1266,7 +1266,8 @@ describe("provider credential store", () => {
     await expect(store.getCredentialReadinessSnapshot("org_a")).resolves.toEqual({
       configuredByProvider: { gsc: 1, ga4: 0, bing: 0 },
       encryptedAccounts: 2,
-      legacyFallbacks: 1
+      observedLegacyFallbacks: 0,
+      unmigratedLegacyCredentials: 1,
     });
     expect(prisma.calls.providerAccount.count[0]?.where).toEqual({ organizationId: "org_a" });
     expect(prisma.calls.providerAccount.count[1]?.where).toEqual({
@@ -1276,8 +1277,49 @@ describe("provider credential store", () => {
     expect(prisma.calls.connectorOAuthCredential.count[0]?.where).toEqual({
       organizationId: "org_a",
     });
+    expect(prisma.calls.connectorSyncRun.findMany[0]?.where).toEqual({
+      organizationId: "org_a",
+      startedAt: { gte: expect.any(Date) },
+    });
     expect(prisma.calls.siteConnector.findMany[0]?.where).toEqual({ organizationId: "org_a" });
     expect(prisma.calls.siteConnector.findMany[0]?.select).not.toHaveProperty("providerAccount.credentialCiphertext");
+  });
+
+  it("reports migrated rows separately from exact-tenant recent legacy use", async () => {
+    const prisma = fakePrisma({
+      accounts: [account({ legacyCredentialId: "legacy_migrated" })],
+      legacyCredentials: [{ id: "legacy_migrated", organizationId: "org_a" }],
+      syncRuns: [
+        {
+          organizationId: "org_a",
+          startedAt: new Date("2026-07-13T12:00:00.000Z"),
+          summary: connectorSummary({ credentialSources: { gsc: "legacy" } }),
+        },
+        {
+          organizationId: "org_b",
+          startedAt: new Date("2026-07-13T12:00:00.000Z"),
+          summary: connectorSummary({ credentialSources: { bing: "legacy" } }),
+        },
+        {
+          organizationId: "org_a",
+          startedAt: new Date("2026-07-01T12:00:00.000Z"),
+          summary: connectorSummary({ credentialSources: { ga4: "legacy" } }),
+        },
+        {
+          organizationId: "org_a",
+          startedAt: new Date("2026-07-13T12:00:00.000Z"),
+          summary: { credentialSources: { gsc: "legacy" }, credentialCiphertext: "reject" },
+        },
+      ],
+    });
+    const store = createPrismaProviderCredentialStore(prisma, {
+      currentTime: () => new Date("2026-07-14T00:00:00.000Z"),
+    });
+
+    await expect(store.getCredentialReadinessSnapshot("org_a")).resolves.toMatchObject({
+      unmigratedLegacyCredentials: 0,
+      observedLegacyFallbacks: 1,
+    });
   });
 });
 
@@ -1413,11 +1455,35 @@ interface LegacyCredentialRow {
   organizationId: string;
 }
 
+interface SyncRunRow {
+  organizationId: string;
+  startedAt: Date;
+  summary: Prisma.JsonValue;
+}
+
+function connectorSummary({
+  credentialSources,
+}: {
+  readonly credentialSources: Record<string, "encrypted" | "legacy" | "platform">;
+}): Prisma.JsonObject {
+  return {
+    credentialSources,
+    failedProviders: 0,
+    okProviders: 1,
+    partialProviders: 0,
+    recordCountsByProvider: { bing: 0, cms: 0, ga4: 0, gsc: 1, pagespeed: 0 },
+    setupRequiredProviders: 0,
+    totalProviders: 1,
+    totalRecords: 1,
+  };
+}
+
 function fakePrisma(seed: {
   accounts?: AccountRow[];
   sites?: SiteRow[];
   connectors?: ConnectorRow[];
   legacyCredentials?: LegacyCredentialRow[];
+  syncRuns?: SyncRunRow[];
   beforeTransactionAttempt?: (input: {
     readonly attempt: number;
     readonly accounts: AccountRow[];
@@ -1433,6 +1499,7 @@ function fakePrisma(seed: {
   const sites = seed.sites ?? [];
   const connectors = seed.connectors ?? [];
   const legacyCredentials = seed.legacyCredentials ?? [];
+  const syncRuns = seed.syncRuns ?? [];
   type ProviderAccountPort = ProviderCredentialStorePrismaPort["providerAccount"];
   type TransactionProviderAccountPort =
     ProviderCredentialStorePrismaTransactionPort["providerAccount"];
@@ -1443,6 +1510,7 @@ function fakePrisma(seed: {
   type SiteConnectorPort = ProviderCredentialStorePrismaPort["siteConnector"];
   type ConnectorOAuthCredentialPort =
     ProviderCredentialStorePrismaPort["connectorOAuthCredential"];
+  type ConnectorSyncRunPort = ProviderCredentialStorePrismaPort["connectorSyncRun"];
   const calls = {
     $transaction: [] as ProviderCredentialStorePrismaTransactionPort[],
     providerAccount: {
@@ -1456,6 +1524,9 @@ function fakePrisma(seed: {
     },
     connectorOAuthCredential: {
       count: [] as Parameters<ConnectorOAuthCredentialPort["count"]>[0][],
+    },
+    connectorSyncRun: {
+      findMany: [] as Parameters<ConnectorSyncRunPort["findMany"]>[0][],
     },
     transactionProviderAccount: {
       findFirst: [] as Parameters<TransactionProviderAccountPort["findFirst"]>[0][],
@@ -1685,6 +1756,18 @@ function fakePrisma(seed: {
       async count(args) {
         calls.connectorOAuthCredential.count.push(args);
         return legacyCredentials.filter((row) => matches(row, args.where)).length;
+      },
+    },
+    connectorSyncRun: {
+      async findMany(args) {
+        calls.connectorSyncRun.findMany.push(args);
+        return syncRuns
+          .filter(
+            (row) =>
+              row.organizationId === args.where.organizationId &&
+              row.startedAt >= args.where.startedAt.gte,
+          )
+          .map((row) => ({ summary: row.summary }));
       },
     },
     site: {

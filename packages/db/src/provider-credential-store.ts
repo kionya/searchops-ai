@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  ConnectorBatchSyncSummarySchema,
   isGoogleConnectorScopeSatisfied,
   ProviderAccountAuthTypeSchema,
   ProviderAccountMetadataSchema,
@@ -94,11 +95,16 @@ const readinessConnectorSelect = {
   }
 } as const satisfies Prisma.SiteConnectorSelect;
 
+const readinessSyncRunSelect = {
+  summary: true,
+} as const satisfies Prisma.ConnectorSyncRunSelect;
+
 const accountConnectorProviderSelect = {
   provider: true
 } as const satisfies Prisma.SiteConnectorSelect;
 
 const serializableTransactionMaxAttempts = 3;
+const legacyObservationWindowMs = 7 * 24 * 60 * 60 * 1_000;
 
 export type ProviderAccountMetadataRow = Prisma.ProviderAccountGetPayload<{
   select: typeof providerAccountMetadataSelect;
@@ -121,6 +127,10 @@ type SiteConnectorRow = Prisma.SiteConnectorGetPayload<{ select: typeof siteConn
 
 type ReadinessConnectorRow = Prisma.SiteConnectorGetPayload<{
   select: typeof readinessConnectorSelect;
+}>;
+
+type ReadinessSyncRunRow = Prisma.ConnectorSyncRunGetPayload<{
+  select: typeof readinessSyncRunSelect;
 }>;
 
 type AccountConnectorProviderRow = Prisma.SiteConnectorGetPayload<{
@@ -233,6 +243,15 @@ export interface ProviderCredentialStorePrismaPort {
     count(args: {
       readonly where: { readonly organizationId: string };
     }): Promise<number>;
+  };
+  readonly connectorSyncRun: {
+    findMany(args: {
+      readonly where: {
+        readonly organizationId: string;
+        readonly startedAt: { readonly gte: Date };
+      };
+      readonly select: typeof readinessSyncRunSelect;
+    }): Promise<ReadinessSyncRunRow[]>;
   };
   readonly site: {
     findFirst(args: SiteFindFirstArgs): Promise<SiteRow | null>;
@@ -348,7 +367,8 @@ export interface DeleteSiteConnectorStoreInput extends SiteConnectorLookupStoreI
 export interface ConnectorCredentialReadinessSnapshot {
   readonly configuredByProvider: Readonly<Record<SiteConnectorProvider, number>>;
   readonly encryptedAccounts: number;
-  readonly legacyFallbacks: number;
+  readonly observedLegacyFallbacks: number;
+  readonly unmigratedLegacyCredentials: number;
 }
 
 export interface ProviderCredentialStore {
@@ -390,7 +410,12 @@ export type ProviderCredentialStoreErrorCode =
 
 export function createPrismaProviderCredentialStore(
   prisma: ProviderCredentialStorePrismaPort,
+  options: {
+    readonly currentTime?: () => Date;
+  } = {},
 ): ProviderCredentialStore {
+  const currentTime = options.currentTime ?? (() => new Date());
+
   return {
     async listAccounts(organizationId) {
       const rows = await prisma.providerAccount.findMany({
@@ -693,14 +718,25 @@ export function createPrismaProviderCredentialStore(
     },
 
     async getCredentialReadinessSnapshot(organizationId) {
-      const [encryptedAccounts, migratedLegacyAccounts, legacyCredentials, connectors] =
+      const observationStartedAt = new Date(currentTime().getTime() - legacyObservationWindowMs);
+      const [
+        encryptedAccounts,
+        migratedLegacyAccounts,
+        legacyCredentials,
+        connectors,
+        recentSyncRuns,
+      ] =
         await Promise.all([
           prisma.providerAccount.count({ where: { organizationId } }),
           prisma.providerAccount.count({
             where: { organizationId, legacyCredentialId: { not: null } },
           }),
           prisma.connectorOAuthCredential.count({ where: { organizationId } }),
-          findReadinessConnectors(prisma, organizationId)
+          findReadinessConnectors(prisma, organizationId),
+          prisma.connectorSyncRun.findMany({
+            where: { organizationId, startedAt: { gte: observationStartedAt } },
+            select: readinessSyncRunSelect,
+          }),
         ]);
       const configuredByProvider: Record<SiteConnectorProvider, number> = { gsc: 0, ga4: 0, bing: 0 };
 
@@ -719,10 +755,24 @@ export function createPrismaProviderCredentialStore(
       return {
         configuredByProvider,
         encryptedAccounts,
-        legacyFallbacks: Math.max(0, legacyCredentials - migratedLegacyAccounts),
+        observedLegacyFallbacks: countObservedLegacyFallbacks(recentSyncRuns),
+        unmigratedLegacyCredentials: Math.max(0, legacyCredentials - migratedLegacyAccounts),
       };
     }
   };
+}
+
+function countObservedLegacyFallbacks(rows: readonly ReadinessSyncRunRow[]): number {
+  return rows.reduce((total, row) => {
+    const summary = ConnectorBatchSyncSummarySchema.safeParse(row.summary);
+    if (!summary.success) {
+      return total;
+    }
+
+    return total + Object.values(summary.data.credentialSources ?? {}).filter(
+      (source) => source === "legacy",
+    ).length;
+  }, 0);
 }
 
 interface ProviderAccountCreateData {
