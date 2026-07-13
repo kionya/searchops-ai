@@ -82,6 +82,24 @@ describe("provider credential contracts", () => {
     expect(SiteConnectorConfigSchema.parse({})).toEqual({});
   });
 
+  it("accepts the approved legacy GSC connector resolution metadata", () => {
+    expect(SiteConnectorConfigSchema.parse({ resourceResolution: "legacy_auto" })).toEqual({
+      resourceResolution: "legacy_auto",
+    });
+  });
+
+  it("rejects undeclared site connector config values and keys", () => {
+    expect(() =>
+      SiteConnectorConfigSchema.parse({ resourceResolution: "automatic" }),
+    ).toThrow();
+    expect(() => SiteConnectorConfigSchema.parse({ apiKey: "fake-api-key" })).toThrow();
+    expect(() => SiteConnectorConfigSchema.parse({ accessToken: "fake-access-token" })).toThrow();
+    expect(() =>
+      SiteConnectorConfigSchema.parse({ credentialCiphertext: "fake-ciphertext" }),
+    ).toThrow();
+    expect(() => SiteConnectorConfigSchema.parse({ undeclared: true })).toThrow();
+  });
+
   it("accepts an unconfigured site connector without weakening upsert input", () => {
     expect(
       SiteConnectorSchema.parse({

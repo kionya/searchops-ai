@@ -42,7 +42,11 @@ export type CredentialStorageMode = z.infer<typeof CredentialStorageModeSchema>;
 export const CredentialSourceSchema = z.enum(["encrypted", "legacy", "platform"]);
 export type CredentialSource = z.infer<typeof CredentialSourceSchema>;
 
-export const SiteConnectorConfigSchema = z.object({}).strict();
+export const SiteConnectorConfigSchema = z
+  .object({
+    resourceResolution: z.enum(["legacy_auto"]).optional(),
+  })
+  .strict();
 export type SiteConnectorConfig = z.infer<typeof SiteConnectorConfigSchema>;
 
 export const OAuthCredentialSecretSchema = z

@@ -260,6 +260,25 @@ describe("provider credential store", () => {
     expect(prisma.calls.siteConnector.findMany[0]?.where).toEqual({ organizationId: "org_a", siteId: "site_a" });
   });
 
+  it("maps approved legacy GSC resolution metadata through connector reads", async () => {
+    const prisma = fakePrisma({
+      connectors: [connector({
+        id: "connector_gsc",
+        provider: "gsc",
+        config: { resourceResolution: "legacy_auto" },
+      })],
+    });
+    const store = createPrismaProviderCredentialStore(prisma);
+
+    await expect(store.listSiteConnectors({ organizationId: "org_a", siteId: "site_a" })).resolves.toEqual([
+      expect.objectContaining({
+        id: "connector_gsc",
+        provider: "gsc",
+        config: { resourceResolution: "legacy_auto" },
+      }),
+    ]);
+  });
+
   it("tenant-checks both binding parents and enforces provider compatibility", async () => {
     const prisma = fakePrisma({
       sites: [site(), site({ id: "site_b", organizationId: "org_b" })],
