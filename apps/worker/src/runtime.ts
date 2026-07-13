@@ -52,6 +52,8 @@ import {
   type ProcessSchemaRichResultValidationJobOptions
 } from "./processor.js";
 import {
+  createDbProviderCredentialResolverStore,
+  createProviderCredentialResolver,
   createRedisProviderAccountRefreshLock,
   type RedisProviderAccountRefreshLockClient
 } from "./provider-credential-resolver.js";
@@ -324,6 +326,32 @@ function toRefreshLockClient(
 export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaGeoVisibilityPersistenceClient(prisma);
+  const connectorPersistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
+  const configuredResolver = options.processorOptions?.resolveGeoProviderAdapters;
+  const runtimeResolver =
+    configuredResolver === undefined &&
+    options.processorOptions?.liveExternalApis === "enabled" &&
+    options.processorOptions.credentialKeyring !== undefined
+      ? createProviderCredentialResolver({
+          fetch: options.processorOptions.fetch,
+          geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
+          geoProviderModels: options.processorOptions.geoProviderModels,
+          keyring: options.processorOptions.credentialKeyring,
+          storageMode: options.processorOptions.credentialStorageMode ?? "encrypted",
+          store: createDbProviderCredentialResolverStore(connectorPersistenceClient)
+        })
+      : undefined;
+  const processorOptions: ProcessGeoAnswerMonitorJobOptions = {
+    ...options.processorOptions,
+    ...(configuredResolver !== undefined
+      ? { resolveGeoProviderAdapters: configuredResolver }
+      : runtimeResolver === undefined
+        ? {}
+        : {
+            resolveGeoProviderAdapters:
+              runtimeResolver.resolveGeoProviderAdapters.bind(runtimeResolver)
+          })
+  };
   const queueName = options.queueName ?? geoAnswerMonitorQueueName;
   const worker = new Worker<
     GeoAnswerMonitorJobPayload,
@@ -331,7 +359,7 @@ export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWork
     typeof geoAnswerMonitorJobName
   >(
     queueName,
-    createGeoAnswerMonitorJobProcessor(persistenceClient, options.processorOptions),
+    createGeoAnswerMonitorJobProcessor(persistenceClient, processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

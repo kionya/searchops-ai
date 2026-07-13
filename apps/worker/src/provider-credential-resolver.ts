@@ -5,6 +5,7 @@ import {
   CredentialDecryptionError,
   decryptProviderCredential,
   encryptProviderCredential,
+  getDefaultGeoProviderAccountForSync,
   getProviderAccountForConnectorSync,
   getSiteConnectorForConnectorSync,
   getSiteForConnectorSync,
@@ -16,10 +17,14 @@ import {
   type CredentialKeyring,
   type EncryptedProviderCredential,
   type ProviderAccountSecretRecord,
+  type ProviderAccountForGeoSync,
+  type GeoProviderAccountProvider,
 } from "@searchops/db";
-import type {
-  GoogleOAuthCredential,
-  LiveConnectorProviderConfigs,
+import {
+  createLiveGeoAnswerMonitorAdaptersFromKeys,
+  type GeoAnswerMonitorAdapter,
+  type GoogleOAuthCredential,
+  type LiveConnectorProviderConfigs,
 } from "@searchops/connectors";
 import type {
   ConnectorRunResult,
@@ -27,6 +32,10 @@ import type {
   ConnectorProvider,
   ConnectorSyncJobPayload,
   CredentialStorageMode,
+  GeoAnswerMonitorJobPayload,
+  GeoAnswerMonitorProvider,
+  GeoAnswerMonitorProviderError,
+  GeoCredentialSources,
   ProviderAccountStatus,
   ProviderCredentialFailureCode,
   SiteConnector,
@@ -39,6 +48,14 @@ const googleRequiredScopes = {
   gsc: "https://www.googleapis.com/auth/webmasters.readonly",
 } as const;
 const googleRefreshSkewMs = 120_000;
+const geoProviderAccountByMonitorProvider = {
+  chatgpt: "geo_chatgpt",
+  claude: "geo_claude",
+  gemini: "geo_gemini",
+  perplexity: "geo_perplexity",
+} as const satisfies Record<SupportedGeoAnswerMonitorProvider, GeoProviderAccountProvider>;
+
+type SupportedGeoAnswerMonitorProvider = Exclude<GeoAnswerMonitorProvider, "copilot">;
 
 export interface ProviderCredentialResolverStore {
   applyProviderFeedback(input: ConnectorSyncProviderFeedbackInput): Promise<boolean>;
@@ -55,6 +72,11 @@ export interface ProviderCredentialResolverStore {
     readonly organizationId: string;
     readonly providerAccountId: string;
   }): Promise<ProviderAccountSecretRecord | null>;
+  getDefaultGeoProviderAccount(input: {
+    readonly authType: "api_key";
+    readonly organizationId: string;
+    readonly provider: GeoProviderAccountProvider;
+  }): Promise<ProviderAccountForGeoSync | null>;
   listLegacyGoogleCredentials(input: {
     readonly organizationId: string;
     readonly siteId: string;
@@ -156,6 +178,14 @@ export interface ResolvedConnectorProviderConfigs {
   readonly failures: Partial<Record<ConnectorProvider, ProviderCredentialFailureCode>>;
 }
 
+export interface ResolvedGeoAdapters {
+  readonly adapters: Partial<Record<GeoAnswerMonitorProvider, GeoAnswerMonitorAdapter>>;
+  readonly credentialSources: GeoCredentialSources;
+  readonly failures: Partial<
+    Record<GeoAnswerMonitorProvider, GeoAnswerMonitorProviderError["code"]>
+  >;
+}
+
 export interface ProviderCredentialResolver {
   recordConnectorProviderOutcomes(
     job: ConnectorSyncJobPayload,
@@ -164,6 +194,7 @@ export interface ProviderCredentialResolver {
   resolveConnectorProviderConfigs(
     job: ConnectorSyncJobPayload,
   ): Promise<ResolvedConnectorProviderConfigs>;
+  resolveGeoProviderAdapters(job: GeoAnswerMonitorJobPayload): Promise<ResolvedGeoAdapters>;
 }
 
 export interface CreateProviderCredentialResolverOptions {
@@ -171,6 +202,12 @@ export interface CreateProviderCredentialResolverOptions {
   readonly globalBingApiKey?: string | undefined;
   readonly googleOAuthClientId?: string | undefined;
   readonly googleOAuthClientSecret?: string | undefined;
+  readonly geoPlatformApiKeys?: Partial<
+    Record<GeoProviderAccountProvider, string | undefined>
+  > | undefined;
+  readonly geoProviderModels?: Partial<
+    Record<SupportedGeoAnswerMonitorProvider, string | undefined>
+  > | undefined;
   readonly keyring: CredentialKeyring;
   readonly legacyGa4PropertyId?: string | undefined;
   readonly now?: (() => Date) | undefined;
@@ -185,6 +222,8 @@ export function createDbProviderCredentialResolverStore(
 ): ProviderCredentialResolverStore {
   return {
     applyProviderFeedback: (input) => applyProviderFeedbackForConnectorSync(client, input),
+    getDefaultGeoProviderAccount: (input) =>
+      getDefaultGeoProviderAccountForSync(client, input),
     getProviderAccount: (input) => getProviderAccountForConnectorSync(client, input),
     getSite: (input) => getSiteForConnectorSync(client, input),
     getSiteConnector: (input) => getSiteConnectorForConnectorSync(client, input),
@@ -303,6 +342,162 @@ export function createProviderCredentialResolver(
 
       return { configs, credentialSources, failures };
     },
+    async resolveGeoProviderAdapters(job) {
+      return resolveGeoProviderAdapters(job, options);
+    },
+  };
+}
+
+async function resolveGeoProviderAdapters(
+  job: GeoAnswerMonitorJobPayload,
+  options: CreateProviderCredentialResolverOptions,
+): Promise<ResolvedGeoAdapters> {
+  const adapters: ResolvedGeoAdapters["adapters"] = {};
+  const credentialSources: MutableGeoCredentialSources = {};
+  const failures: ResolvedGeoAdapters["failures"] = {};
+  let site: Awaited<ReturnType<ProviderCredentialResolverStore["getSite"]>>;
+  try {
+    site = await options.store.getSite({
+      organizationId: job.organizationId,
+      siteId: job.siteId,
+    });
+  } catch {
+    return geoFailuresForRequestedProviders(job.providers, "provider_request_failed");
+  }
+  if (site === null || site.id !== job.siteId || site.organizationId !== job.organizationId) {
+    return geoFailuresForRequestedProviders(job.providers, "account_missing");
+  }
+
+  for (const provider of job.providers) {
+    if (provider === "copilot") {
+      failures.copilot = "account_missing";
+      continue;
+    }
+    const accountProvider = geoProviderAccountByMonitorProvider[provider];
+    let account: ProviderAccountForGeoSync | null;
+    try {
+      account = await options.store.getDefaultGeoProviderAccount({
+        authType: "api_key",
+        organizationId: job.organizationId,
+        provider: accountProvider,
+      });
+    } catch {
+      failures[provider] = "provider_request_failed";
+      continue;
+    }
+
+    if (isValidDefaultGeoAccount(account, job.organizationId, accountProvider)) {
+      try {
+        const secret = decryptProviderCredential(
+          options.keyring,
+          credentialContext(account),
+          account,
+        );
+        if (secret.kind !== "api_key") {
+          failures[provider] = "credential_decryption_failed";
+          continue;
+        }
+        const adapter = createGeoAdapter(
+          provider,
+          secret.apiKey,
+          options.geoProviderModels?.[provider],
+          options.fetch,
+        );
+        if (adapter === undefined) {
+          failures[provider] = "provider_request_failed";
+          continue;
+        }
+        adapters[provider] = adapter;
+        credentialSources[provider] = "encrypted";
+        continue;
+      } catch {
+        failures[provider] = "credential_decryption_failed";
+        continue;
+      }
+    }
+
+    const platformKey = options.geoPlatformApiKeys?.[accountProvider];
+    if (platformKey) {
+      try {
+        const adapter = createGeoAdapter(
+          provider,
+          platformKey,
+          options.geoProviderModels?.[provider],
+          options.fetch,
+        );
+        if (adapter !== undefined) {
+          adapters[provider] = adapter;
+          credentialSources[provider] = "platform";
+          continue;
+        }
+      } catch {
+        failures[provider] = "provider_request_failed";
+        continue;
+      }
+    }
+    failures[provider] = "account_missing";
+  }
+
+  return { adapters, credentialSources, failures };
+}
+
+function isValidDefaultGeoAccount(
+  account: ProviderAccountForGeoSync | null,
+  organizationId: string,
+  provider: GeoProviderAccountProvider,
+): account is ProviderAccountForGeoSync {
+  return (
+    account !== null &&
+    account.authType === "api_key" &&
+    account.isDefault &&
+    account.organizationId === organizationId &&
+    account.provider === provider &&
+    account.status === "connected"
+  );
+}
+
+function createGeoAdapter(
+  provider: SupportedGeoAnswerMonitorProvider,
+  apiKey: string,
+  model: string | undefined,
+  fetchImpl: typeof fetch | undefined,
+): GeoAnswerMonitorAdapter | undefined {
+  if (provider === "chatgpt") {
+    return createLiveGeoAnswerMonitorAdaptersFromKeys({
+      chatgptApiKey: apiKey,
+      chatgptModel: model,
+      fetchImpl,
+    }).chatgpt;
+  }
+  if (provider === "claude") {
+    return createLiveGeoAnswerMonitorAdaptersFromKeys({
+      claudeApiKey: apiKey,
+      claudeModel: model,
+      fetchImpl,
+    }).claude;
+  }
+  if (provider === "gemini") {
+    return createLiveGeoAnswerMonitorAdaptersFromKeys({
+      fetchImpl,
+      geminiApiKey: apiKey,
+      geminiModel: model,
+    }).gemini;
+  }
+  return createLiveGeoAnswerMonitorAdaptersFromKeys({
+    fetchImpl,
+    perplexityApiKey: apiKey,
+    perplexityModel: model,
+  }).perplexity;
+}
+
+function geoFailuresForRequestedProviders(
+  providers: readonly GeoAnswerMonitorProvider[],
+  code: GeoAnswerMonitorProviderError["code"],
+): ResolvedGeoAdapters {
+  return {
+    adapters: {},
+    credentialSources: {},
+    failures: Object.fromEntries(providers.map((provider) => [provider, code])),
   };
 }
 
@@ -936,6 +1131,9 @@ type MutableLiveConnectorProviderConfigs = {
 };
 type MutableConnectorCredentialSources = {
   -readonly [P in keyof ConnectorCredentialSources]?: ConnectorCredentialSources[P];
+};
+type MutableGeoCredentialSources = {
+  -readonly [P in keyof GeoCredentialSources]?: GeoCredentialSources[P];
 };
 
 function assignProviderConfig(

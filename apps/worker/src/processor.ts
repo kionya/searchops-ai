@@ -1,4 +1,5 @@
 import {
+  geoAnswerMonitorProviders,
   monitorFixtureGeoAnswersBatch,
   syncLiveConnectors,
   syncFixtureConnectors,
@@ -57,6 +58,8 @@ import {
   type CrawlJobResult,
   type GeoAnswerMonitorJobPayload,
   type GeoAnswerMonitorJobResult,
+  type GeoAnswerMonitorProvider,
+  type GeoAnswerMonitorResult,
   type SchemaRichResultValidationJobPayload,
   type SchemaRichResultValidationJobResult,
   type SchemaRichResultValidationResult
@@ -65,8 +68,10 @@ import {
 import {
   createDbProviderCredentialResolverStore,
   createProviderCredentialResolver,
+  type CreateProviderCredentialResolverOptions,
   type ProviderAccountRefreshLock,
   type ResolvedConnectorProviderConfigs,
+  type ResolvedGeoAdapters,
 } from "./provider-credential-resolver.js";
 
 export interface ProcessAndPersistCrawlJobOptions {
@@ -98,9 +103,18 @@ export interface ProcessConnectorSyncJobOptions {
 }
 
 export interface ProcessGeoAnswerMonitorJobOptions {
+  readonly credentialKeyring?: CredentialKeyring | undefined;
+  readonly credentialStorageMode?: CredentialStorageMode | undefined;
+  readonly fetch?: typeof fetch | undefined;
+  readonly geoPlatformApiKeys?: CreateProviderCredentialResolverOptions["geoPlatformApiKeys"];
+  readonly geoProviderModels?: CreateProviderCredentialResolverOptions["geoProviderModels"];
+  readonly liveExternalApis?: "disabled" | "enabled";
   readonly monitorGeoAnswers?: (
     input: GeoAnswerMonitorBatchRequest,
   ) => Promise<GeoAnswerMonitorBatchResult>;
+  readonly resolveGeoProviderAdapters?: (
+    input: GeoAnswerMonitorJobPayload,
+  ) => Promise<ResolvedGeoAdapters>;
 }
 
 export interface ProcessSchemaRichResultValidationJobOptions {
@@ -287,21 +301,47 @@ export async function processGeoAnswerMonitorJob(
   options: ProcessGeoAnswerMonitorJobOptions = {},
 ): Promise<GeoAnswerMonitorJobResult> {
   const payload = GeoAnswerMonitorJobPayloadSchema.parse(input);
-  const monitorResult = await (options.monitorGeoAnswers ?? monitorFixtureGeoAnswersBatch)({
+  const liveExternalApis = LiveExternalApiModeSchema.parse(
+    options.liveExternalApis ?? "disabled",
+  );
+  const request = {
     observedAt: payload.observedAt,
     providers: payload.providers,
     queries: payload.queries,
-    target: payload.target
-  });
-  const visibilityReport = evaluateGeoVisibility(
-    {
-      observations: [...monitorResult.observations],
-      target: payload.target
-    },
-    {
-      evaluatedAt: payload.observedAt
-    },
-  );
+    target: payload.target,
+  };
+  let monitorResult: GeoAnswerMonitorBatchResult;
+  if (liveExternalApis === "disabled") {
+    monitorResult = await (options.monitorGeoAnswers ?? monitorFixtureGeoAnswersBatch)(request);
+  } else {
+    let resolved: ResolvedGeoAdapters;
+    try {
+      resolved = options.resolveGeoProviderAdapters
+        ? await options.resolveGeoProviderAdapters(payload)
+        : { adapters: {}, credentialSources: {}, failures: {} };
+    } catch {
+      resolved = {
+        adapters: {},
+        credentialSources: {},
+        failures: Object.fromEntries(
+          payload.providers.map((provider) => [provider, "provider_request_failed"]),
+        ),
+      };
+    }
+    monitorResult = await monitorLiveGeoAnswers(request, resolved);
+  }
+  const visibilityReport =
+    monitorResult.observations.length === 0
+      ? createEmptyGeoVisibilityReport(payload.target, payload.observedAt)
+      : evaluateGeoVisibility(
+          {
+            observations: [...monitorResult.observations],
+            target: payload.target
+          },
+          {
+            evaluatedAt: payload.observedAt
+          },
+        );
 
   return GeoAnswerMonitorJobResultSchema.parse({
     organizationId: payload.organizationId,
@@ -313,6 +353,154 @@ export async function processGeoAnswerMonitorJob(
     monitorResults: [...monitorResult.results],
     visibilityReport
   });
+}
+
+function createEmptyGeoVisibilityReport(
+  target: GeoAnswerMonitorJobPayload["target"],
+  evaluatedAt: string,
+): GeoAnswerMonitorJobResult["visibilityReport"] {
+  return {
+    target,
+    status: "not_visible",
+    score: 10,
+    mentionRate: 0,
+    citationRate: 0,
+    competitorCitationRate: 0,
+    queryCount: 0,
+    providerCount: 0,
+    observations: [],
+    citations: [],
+    checks: [
+      emptyGeoCheck("BRAND_MENTIONED", 0, ">= 70", "observations.answerText"),
+      emptyGeoCheck("OWNED_URL_CITED", 0, ">= 50", "observations.citedUrls"),
+      emptyGeoCheck("QUERY_COVERAGE", 0, ">= 3 distinct queries", "observations.query"),
+      emptyGeoCheck("PROVIDER_DIVERSITY", 0, ">= 2 providers", "observations.provider"),
+      emptyGeoCheck("COMPETITOR_CITATION_RISK", 100, "<= 40", "observations.citedUrls"),
+    ],
+    generatedBy: "deterministic",
+    evaluatedAt,
+  };
+}
+
+function emptyGeoCheck(
+  checkId: GeoAnswerMonitorJobResult["visibilityReport"]["checks"][number]["checkId"],
+  score: number,
+  expectedValue: string,
+  sourceField: string,
+): GeoAnswerMonitorJobResult["visibilityReport"]["checks"][number] {
+  return {
+    checkId,
+    status: score >= 80 ? "pass" : score >= 40 ? "warning" : "fail",
+    score,
+    evidence: { expectedValue, observedValue: 0, sourceField },
+  };
+}
+
+async function monitorLiveGeoAnswers(
+  request: GeoAnswerMonitorBatchRequest,
+  resolved: ResolvedGeoAdapters,
+): Promise<GeoAnswerMonitorBatchResult> {
+  const requestedProviders = new Set(request.providers ?? geoAnswerMonitorProviders);
+  const providers = geoAnswerMonitorProviders.filter((provider) =>
+    requestedProviders.has(provider),
+  );
+  const results = await Promise.all(
+    providers.map(async (provider): Promise<GeoAnswerMonitorResult> => {
+      const failure = resolved.failures[provider];
+      if (failure !== undefined) {
+        return geoProviderFailureResult(provider, failure);
+      }
+      const adapter = resolved.adapters[provider];
+      if (adapter === undefined) {
+        return geoProviderFailureResult(provider, "account_missing");
+      }
+      try {
+        const result = await adapter.monitor({
+          observedAt: request.observedAt,
+          queries: request.queries,
+          target: request.target,
+        });
+        if (
+          result.generatedBy !== "connector" ||
+          result.liveExternalApis !== "enabled" ||
+          result.provider !== provider ||
+          result.status !== "ok" ||
+          result.observations.some(
+            (observation) =>
+              observation.provider !== provider || observation.source !== "connector",
+          )
+        ) {
+          return geoProviderFailureResult(provider, "provider_request_failed");
+        }
+        return result;
+      } catch {
+        return geoProviderFailureResult(provider, "provider_request_failed");
+      }
+    }),
+  );
+  return {
+    observations: results.flatMap((result) => result.observations),
+    results,
+  };
+}
+
+function geoProviderFailureResult(
+  provider: GeoAnswerMonitorProvider,
+  code: ResolvedGeoAdapters["failures"][GeoAnswerMonitorProvider],
+): GeoAnswerMonitorResult {
+  if (code === "account_missing" || code === undefined) {
+    return {
+      error: {
+        code: "account_missing",
+        message:
+          provider === "copilot"
+            ? "GEO provider live monitoring is unavailable."
+            : "GEO provider credential is not configured.",
+      },
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      observations: [],
+      provider,
+      status: "setup_required",
+    };
+  }
+  if (code === "credential_decryption_failed") {
+    return {
+      error: {
+        code,
+        message: "GEO provider credential could not be decrypted safely.",
+      },
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      observations: [],
+      provider,
+      status: "failed",
+    };
+  }
+  if (code === "provider_rate_limited") {
+    return {
+      error: {
+        code,
+        message: "GEO provider request was rate limited.",
+      },
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      observations: [],
+      provider,
+      status: "failed",
+    };
+  }
+  return {
+    error: {
+      code: "provider_request_failed",
+      message: "GEO provider request could not be completed safely.",
+    },
+    generatedBy: "connector",
+    liveExternalApis: "enabled",
+    observations: [],
+    provider,
+    status: "failed",
+  };
 }
 
 export async function processAndPersistGeoAnswerMonitorJob(

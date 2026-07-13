@@ -238,6 +238,7 @@ describe("worker runtime", () => {
           results: [
             {
               provider: "chatgpt",
+              status: "ok",
               observations,
               generatedBy: "connector",
               liveExternalApis: "enabled"
@@ -281,6 +282,54 @@ describe("worker runtime", () => {
       }
     });
     expect(creates).toHaveLength(1);
+  });
+
+  it("forwards GEO job organization and site identity to the per-job resolver", async () => {
+    const resolvedJobs: unknown[] = [];
+    const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityReport: {
+        async create(args) {
+          return args;
+        }
+      }
+    };
+    const processor = createGeoAnswerMonitorJobProcessor(persistenceClient, {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters(job) {
+        resolvedJobs.push(job);
+        return { adapters: {}, credentialSources: {}, failures: {} };
+      }
+    });
+
+    const result = await processor({
+      data: {
+        organizationId: "org_geo_runtime",
+        siteId: "site_geo_runtime",
+        siteDomain: "exampleclinic.com",
+        requestedByUserId: "user_geo",
+        observedAt: "2026-07-14T00:00:00.000Z",
+        providers: ["gemini"],
+        target: {
+          siteId: "site_geo_runtime",
+          brandName: "Example Clinic",
+          domain: "exampleclinic.com",
+          locale: "ko-KR",
+          market: "KR"
+        },
+        queries: [{ query: "best seo clinic", locale: "ko-KR" }]
+      }
+    });
+
+    expect(resolvedJobs).toEqual([
+      expect.objectContaining({
+        organizationId: "org_geo_runtime",
+        providers: ["gemini"],
+        siteId: "site_geo_runtime"
+      })
+    ]);
+    expect(result.monitorResults).toEqual([
+      expect.objectContaining({ provider: "gemini", status: "setup_required" })
+    ]);
   });
 
   it("processes BullMQ schema rich-result validation job data through persistence", async () => {

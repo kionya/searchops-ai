@@ -669,7 +669,8 @@ describe("connectors foundation", () => {
           source: "connector"
         }
       ],
-      provider: "chatgpt"
+      provider: "chatgpt",
+      status: "ok"
     });
   });
 

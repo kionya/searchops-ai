@@ -1228,15 +1228,17 @@ export const GeoCitationSchema = z.object({
 
 export type GeoCitation = z.infer<typeof GeoCitationSchema>;
 
-export const GeoAnswerObservationSchema = z.object({
-  provider: GeoProviderSchema,
-  query: NonEmptyStringSchema,
-  locale: z.string().min(2).default("ko-KR"),
-  answerText: z.string().default(""),
-  citedUrls: z.array(NormalizedUrlSchema).default([]),
-  observedAt: IsoDateTimeSchema,
-  source: GeoObservationSourceSchema.default("manual"),
-});
+export const GeoAnswerObservationSchema = z
+  .object({
+    provider: GeoProviderSchema,
+    query: NonEmptyStringSchema,
+    locale: z.string().min(2).default("ko-KR"),
+    answerText: z.string().default(""),
+    citedUrls: z.array(NormalizedUrlSchema).default([]),
+    observedAt: IsoDateTimeSchema,
+    source: GeoObservationSourceSchema.default("manual"),
+  })
+  .strict();
 
 export type GeoAnswerObservation = z.infer<typeof GeoAnswerObservationSchema>;
 
@@ -1268,12 +1270,92 @@ export type GeoAnswerMonitorProviderList = z.infer<
 
 export const DefaultGeoAnswerMonitorProviders = ["chatgpt", "perplexity"] as const;
 
-export const GeoAnswerMonitorResultSchema = z.object({
+export const GeoCredentialSourceSchema = z.enum(["encrypted", "platform"]);
+
+export type GeoCredentialSource = z.infer<typeof GeoCredentialSourceSchema>;
+
+export const GeoCredentialSourcesSchema = z
+  .object({
+    chatgpt: GeoCredentialSourceSchema.optional(),
+    claude: GeoCredentialSourceSchema.optional(),
+    gemini: GeoCredentialSourceSchema.optional(),
+    perplexity: GeoCredentialSourceSchema.optional(),
+  })
+  .strict();
+
+export type GeoCredentialSources = z.infer<typeof GeoCredentialSourcesSchema>;
+
+const GeoAnswerMonitorAccountMissingErrorSchema = z
+  .object({
+    code: z.literal("account_missing"),
+    message: z.enum([
+      "GEO provider credential is not configured.",
+      "GEO provider live monitoring is unavailable.",
+    ]),
+  })
+  .strict();
+
+const GeoAnswerMonitorRateLimitedErrorSchema = z
+  .object({
+    code: z.literal("provider_rate_limited"),
+    message: z.literal("GEO provider request was rate limited."),
+  })
+  .strict();
+
+const GeoAnswerMonitorRequestFailedErrorSchema = z
+  .object({
+    code: z.literal("provider_request_failed"),
+    message: z.literal("GEO provider request could not be completed safely."),
+  })
+  .strict();
+
+const GeoAnswerMonitorDecryptionFailedErrorSchema = z
+  .object({
+    code: z.literal("credential_decryption_failed"),
+    message: z.literal("GEO provider credential could not be decrypted safely."),
+  })
+  .strict();
+
+const GeoAnswerMonitorFailedProviderErrorSchema = z.union([
+  GeoAnswerMonitorRateLimitedErrorSchema,
+  GeoAnswerMonitorRequestFailedErrorSchema,
+  GeoAnswerMonitorDecryptionFailedErrorSchema,
+]);
+
+export const GeoAnswerMonitorProviderErrorSchema = z.union([
+  GeoAnswerMonitorAccountMissingErrorSchema,
+  GeoAnswerMonitorRateLimitedErrorSchema,
+  GeoAnswerMonitorRequestFailedErrorSchema,
+  GeoAnswerMonitorDecryptionFailedErrorSchema,
+]);
+
+export type GeoAnswerMonitorProviderError = z.infer<
+  typeof GeoAnswerMonitorProviderErrorSchema
+>;
+
+const GeoAnswerMonitorResultBaseSchema = z.object({
   provider: GeoAnswerMonitorProviderSchema,
-  observations: z.array(GeoAnswerObservationSchema).min(1),
   generatedBy: GeoAnswerMonitorGenerationModeSchema,
   liveExternalApis: LiveExternalApiModeSchema,
 });
+
+export const GeoAnswerMonitorResultSchema = z.union([
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("ok").default("ok"),
+    observations: z.array(GeoAnswerObservationSchema).min(1),
+    error: z.never().optional(),
+  }).strict(),
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("failed"),
+    observations: z.array(GeoAnswerObservationSchema).length(0),
+    error: GeoAnswerMonitorFailedProviderErrorSchema,
+  }).strict(),
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("setup_required"),
+    observations: z.array(GeoAnswerObservationSchema).length(0),
+    error: GeoAnswerMonitorAccountMissingErrorSchema,
+  }).strict(),
+]);
 
 export type GeoAnswerMonitorResult = z.infer<typeof GeoAnswerMonitorResultSchema>;
 
@@ -1295,7 +1377,7 @@ export const GeoVisibilityReportSchema = z.object({
   competitorCitationRate: PercentageScoreSchema,
   queryCount: z.number().int().nonnegative(),
   providerCount: z.number().int().nonnegative(),
-  observations: z.array(GeoAnswerObservationSchema).min(1),
+  observations: z.array(GeoAnswerObservationSchema),
   citations: z.array(GeoCitationSchema),
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
@@ -1318,7 +1400,7 @@ export const GeoVisibilityReportRecordSchema = z.object({
   competitorCitationRate: PercentageScoreSchema,
   queryCount: z.number().int().nonnegative(),
   providerCount: z.number().int().nonnegative(),
-  observations: z.array(GeoAnswerObservationSchema).min(1),
+  observations: z.array(GeoAnswerObservationSchema),
   citations: z.array(GeoCitationSchema),
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
@@ -1377,16 +1459,18 @@ export const GeoAnswerMonitorJobPayloadSchema = z.object({
 
 export type GeoAnswerMonitorJobPayload = z.infer<typeof GeoAnswerMonitorJobPayloadSchema>;
 
-export const GeoAnswerMonitorJobResultSchema = z.object({
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  observedAt: IsoDateTimeSchema,
-  providers: GeoAnswerMonitorProviderListSchema,
-  monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
-  visibilityReport: GeoVisibilityReportSchema,
-});
+export const GeoAnswerMonitorJobResultSchema = z
+  .object({
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    observedAt: IsoDateTimeSchema,
+    providers: GeoAnswerMonitorProviderListSchema,
+    monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
+    visibilityReport: GeoVisibilityReportSchema,
+  })
+  .strict();
 
 export type GeoAnswerMonitorJobResult = z.infer<typeof GeoAnswerMonitorJobResultSchema>;
 

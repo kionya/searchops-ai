@@ -83,6 +83,7 @@ export {
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
   createPrismaConnectorSyncPersistenceClient,
+  getDefaultGeoProviderAccountForSync,
   getProviderAccountForConnectorSync,
   getSiteConnectorForConnectorSync,
   getSiteForConnectorSync,
@@ -108,9 +109,12 @@ export {
   type ConnectorSyncSiteConnectorLookupInput,
   type ConnectorSyncSiteLookupInput,
   type ConnectorSyncSiteRecord,
+  type GeoProviderAccountLookupInput,
+  type GeoProviderAccountProvider,
   type MarkConnectorSyncRunFailedOutput,
   type PersistConnectorSyncJobResultOutput,
-  type ProviderAccountForConnectorSync
+  type ProviderAccountForConnectorSync,
+  type ProviderAccountForGeoSync
 } from "./connector-sync.js";
 
 export {

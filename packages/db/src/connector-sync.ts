@@ -38,6 +38,11 @@ const connectorSyncProviderAccountSelect = {
   updatedAt: true,
 } as const satisfies Prisma.ProviderAccountSelect;
 
+const geoProviderAccountSelect = {
+  ...connectorSyncProviderAccountSelect,
+  isDefault: true,
+} as const satisfies Prisma.ProviderAccountSelect;
+
 const connectorSyncSiteConnectorSelect = {
   config: true,
   createdAt: true,
@@ -55,6 +60,9 @@ const connectorSyncSiteConnectorSelect = {
 
 type ConnectorSyncProviderAccountRow = Prisma.ProviderAccountGetPayload<{
   select: typeof connectorSyncProviderAccountSelect;
+}>;
+type GeoProviderAccountRow = Prisma.ProviderAccountGetPayload<{
+  select: typeof geoProviderAccountSelect;
 }>;
 type ConnectorSyncSiteConnectorRow = Prisma.SiteConnectorGetPayload<{
   select: typeof connectorSyncSiteConnectorSelect;
@@ -189,11 +197,26 @@ export interface ProviderAccountForConnectorSync extends EncryptedProviderCreden
   readonly updatedAt: string;
 }
 
+export type GeoProviderAccountProvider =
+  | "geo_chatgpt"
+  | "geo_claude"
+  | "geo_gemini"
+  | "geo_perplexity";
+
+export interface ProviderAccountForGeoSync extends ProviderAccountForConnectorSync {
+  readonly authType: "api_key";
+  readonly isDefault: boolean;
+  readonly provider: GeoProviderAccountProvider;
+}
+
 export interface ConnectorSyncProviderCredentialPort {
   applyProviderFeedback(input: ConnectorSyncProviderFeedbackInput): Promise<boolean>;
   getSite(input: ConnectorSyncSiteLookupInput): Promise<ConnectorSyncSiteRecord | null>;
   getSiteConnector(input: ConnectorSyncSiteConnectorLookupInput): Promise<SiteConnector | null>;
   getProviderAccount(input: ConnectorSyncProviderAccountLookupInput): Promise<ProviderAccountForConnectorSync | null>;
+  getDefaultGeoProviderAccount?(
+    input: GeoProviderAccountLookupInput,
+  ): Promise<ProviderAccountForGeoSync | null>;
   updateProviderAccountCredential(
     input: ConnectorSyncProviderAccountCredentialUpdateInput,
   ): Promise<{ readonly updatedAt: string } | null>;
@@ -216,6 +239,12 @@ export interface ConnectorSyncSiteConnectorLookupInput extends ConnectorSyncSite
 export interface ConnectorSyncProviderAccountLookupInput {
   readonly organizationId: string;
   readonly providerAccountId: string;
+}
+
+export interface GeoProviderAccountLookupInput {
+  readonly authType: "api_key";
+  readonly organizationId: string;
+  readonly provider: GeoProviderAccountProvider;
 }
 
 export interface ConnectorSyncProviderAccountCredentialUpdateInput
@@ -481,6 +510,20 @@ export function createPrismaConnectorSyncPersistenceClient(
         });
         return row === null ? null : toProviderAccountForSync(row);
       },
+      async getDefaultGeoProviderAccount(input) {
+        const row = await prisma.providerAccount.findFirst({
+          orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+          select: geoProviderAccountSelect,
+          where: {
+            authType: input.authType,
+            isDefault: true,
+            organizationId: input.organizationId,
+            provider: input.provider,
+            status: "connected"
+          }
+        });
+        return row === null ? null : toProviderAccountForGeoSync(row);
+      },
       async updateProviderAccountCredential(input) {
         return prisma.$transaction(async (transaction) => {
           const updated = await transaction.providerAccount.updateMany({
@@ -579,6 +622,13 @@ export async function getProviderAccountForConnectorSync(
   input: ConnectorSyncProviderAccountLookupInput,
 ) {
   return client.providerCredentials?.getProviderAccount(input) ?? null;
+}
+
+export async function getDefaultGeoProviderAccountForSync(
+  client: ConnectorSyncPersistenceClient,
+  input: GeoProviderAccountLookupInput,
+) {
+  return client.providerCredentials?.getDefaultGeoProviderAccount?.(input) ?? null;
 }
 
 export async function updateProviderAccountCredentialForConnectorSync(
@@ -787,6 +837,30 @@ function toProviderAccountForSync(
     tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
     updatedAt: row.updatedAt.toISOString()
   };
+}
+
+function toProviderAccountForGeoSync(row: GeoProviderAccountRow): ProviderAccountForGeoSync {
+  const account = toProviderAccountForSync(row);
+  if (account.authType !== "api_key" || !isGeoProviderAccountProvider(account.provider)) {
+    throw new Error("invalid_geo_provider_account");
+  }
+  return {
+    ...account,
+    authType: "api_key",
+    isDefault: row.isDefault,
+    provider: account.provider
+  };
+}
+
+function isGeoProviderAccountProvider(
+  provider: ProviderAccountForConnectorSync["provider"],
+): provider is GeoProviderAccountProvider {
+  return (
+    provider === "geo_chatgpt" ||
+    provider === "geo_claude" ||
+    provider === "geo_gemini" ||
+    provider === "geo_perplexity"
+  );
 }
 
 function toSiteConnectorForSync(row: ConnectorSyncSiteConnectorRow): SiteConnector {

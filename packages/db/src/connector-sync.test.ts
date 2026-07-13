@@ -6,6 +6,7 @@ import {
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
   createPrismaConnectorSyncPersistenceClient,
+  getDefaultGeoProviderAccountForSync,
   getProviderAccountForConnectorSync,
   getSiteConnectorForConnectorSync,
   getSiteForConnectorSync,
@@ -568,6 +569,74 @@ describe("connector sync persistence helpers", () => {
       }
     },
   );
+
+  it("queries the connected default GEO API-key account with deterministic tenant scope", async () => {
+    const calls: unknown[] = [];
+    const row = {
+      authType: "api_key",
+      credentialAuthTag: "tag",
+      credentialCiphertext: "ciphertext",
+      credentialIv: "iv",
+      encryptionKeyId: "v1",
+      encryptionVersion: 1,
+      id: "pa_geo_default",
+      isDefault: true,
+      organizationId: "org_1",
+      provider: "geo_chatgpt",
+      scopes: [],
+      status: "connected",
+      tokenExpiresAt: null,
+      updatedAt: new Date("2026-07-14T00:00:00.000Z")
+    };
+    const prisma = {
+      connectorOAuthCredential: {},
+      connectorSyncResult: {},
+      connectorSyncRun: {},
+      providerAccount: {
+        async findFirst(args: unknown) {
+          calls.push(args);
+          return row;
+        }
+      },
+      site: {},
+      siteConnector: {}
+    } as unknown as Parameters<typeof createPrismaConnectorSyncPersistenceClient>[0];
+    const client = createPrismaConnectorSyncPersistenceClient(prisma);
+
+    await expect(
+      getDefaultGeoProviderAccountForSync(client, {
+        authType: "api_key",
+        organizationId: "org_1",
+        provider: "geo_chatgpt"
+      }),
+    ).resolves.toMatchObject({
+      authType: "api_key",
+      id: "pa_geo_default",
+      isDefault: true,
+      organizationId: "org_1",
+      provider: "geo_chatgpt",
+      status: "connected"
+    });
+    expect(calls).toEqual([
+      {
+        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        select: expect.objectContaining({
+          credentialCiphertext: true,
+          id: true,
+          isDefault: true,
+          organizationId: true,
+          provider: true
+        }),
+        where: {
+          authType: "api_key",
+          isDefault: true,
+          organizationId: "org_1",
+          provider: "geo_chatgpt",
+          status: "connected"
+        }
+      }
+    ]);
+  });
 
   it("persists only approved credential source values in the batch summary", async () => {
     const updates: unknown[] = [];

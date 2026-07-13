@@ -93,6 +93,7 @@ describe("geo visibility persistence", () => {
       monitorResults: [
         {
           provider: "chatgpt",
+          status: "ok",
           observations: visibilityReport.observations,
           generatedBy: "connector",
           liveExternalApis: "enabled"

@@ -11,6 +11,7 @@ import {
 import type {
   ConnectorRunResult,
   ConnectorSyncJobPayload,
+  GeoAnswerMonitorJobPayload,
   SiteConnector,
 } from "@searchops/types";
 
@@ -79,6 +80,168 @@ describe("provider credential resolver", () => {
         throw new Error("credential_revoked");
       }),
     ).rejects.toThrow("credential_revoked");
+  });
+
+  it("prefers each organization's default encrypted GEO BYOK over the platform key", async () => {
+    const authorizationHeaders: string[] = [];
+    const store = createStore({
+      defaultGeoAccounts: [
+        encryptedGeoAccount("org-a-key", { id: "pa_geo_a", organizationId: "org_a" }),
+        encryptedGeoAccount("org-b-key", { id: "pa_geo_b", organizationId: "org_b" }),
+      ],
+      sites: [
+        { id: "site_a", organizationId: "org_a" },
+        { id: "site_b", organizationId: "org_b" },
+      ],
+    });
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulGeoFetch(authorizationHeaders),
+      geoPlatformApiKeys: { geo_chatgpt: "platform-key" },
+      keyring,
+      storageMode: "encrypted",
+      store,
+    });
+
+    const orgA = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt"]),
+    );
+    const orgB = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_b", "site_b", ["chatgpt"]),
+    );
+    await orgA.adapters.chatgpt?.monitor(geoMonitorRequest("site_a"));
+    await orgB.adapters.chatgpt?.monitor(geoMonitorRequest("site_b"));
+
+    expect(orgA.credentialSources).toEqual({ chatgpt: "encrypted" });
+    expect(orgB.credentialSources).toEqual({ chatgpt: "encrypted" });
+    expect(authorizationHeaders).toEqual(["Bearer org-a-key", "Bearer org-b-key"]);
+    expect(JSON.stringify([orgA, orgB])).not.toContain("org-a-key");
+    expect(JSON.stringify([orgA, orgB])).not.toContain("org-b-key");
+  });
+
+  it.each([
+    ["cross-tenant", { organizationId: "org_b" }],
+    ["non-default", { isDefault: false }],
+    ["revoked", { status: "revoked" as const }],
+  ])("does not decrypt a %s GEO account and uses the platform key", async (_name, change) => {
+    const authorizationHeaders: string[] = [];
+    const unsafeAccount = {
+      ...encryptedGeoAccount("must-not-decrypt"),
+      ...change,
+      credentialAuthTag: Buffer.alloc(16, 9).toString("base64"),
+    };
+    const baseStore = createStore({
+      sites: [{ id: "site_a", organizationId: "org_a" }],
+    });
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulGeoFetch(authorizationHeaders),
+      geoPlatformApiKeys: { geo_chatgpt: "platform-key" },
+      keyring,
+      storageMode: "encrypted",
+      store: {
+        ...baseStore,
+        async getDefaultGeoProviderAccount() {
+          return unsafeAccount;
+        },
+      },
+    });
+
+    const resolved = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt"]),
+    );
+    await resolved.adapters.chatgpt?.monitor(geoMonitorRequest("site_a"));
+
+    expect(resolved.credentialSources).toEqual({ chatgpt: "platform" });
+    expect(resolved.failures).toEqual({});
+    expect(authorizationHeaders).toEqual(["Bearer platform-key"]);
+  });
+
+  it("returns a safe failure when a valid default GEO account cannot be decrypted", async () => {
+    const account = encryptedGeoAccount("tenant-secret");
+    const resolver = createProviderCredentialResolver({
+      geoPlatformApiKeys: { geo_chatgpt: "platform-key" },
+      keyring,
+      storageMode: "encrypted",
+      store: createStore({
+        defaultGeoAccounts: [
+          { ...account, credentialAuthTag: Buffer.alloc(16, 9).toString("base64") },
+        ],
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    const resolved = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt"]),
+    );
+
+    expect(resolved).toEqual({
+      adapters: {},
+      credentialSources: {},
+      failures: { chatgpt: "credential_decryption_failed" },
+    });
+    expect(JSON.stringify(resolved)).not.toContain("tenant-secret");
+    expect(JSON.stringify(resolved)).not.toContain(account.credentialCiphertext);
+  });
+
+  it("resolves only requested supported GEO providers and leaves Copilot unsupported", async () => {
+    const lookups: unknown[] = [];
+    const store = createStore({
+      onGetDefaultGeoAccount(input) {
+        lookups.push(input);
+      },
+      sites: [{ id: "site_a", organizationId: "org_a" }],
+    });
+    const resolver = createProviderCredentialResolver({
+      geoPlatformApiKeys: {
+        geo_chatgpt: "chatgpt-platform-key",
+        geo_claude: "claude-platform-key",
+        geo_gemini: "gemini-platform-key",
+        geo_perplexity: "perplexity-platform-key",
+      },
+      keyring,
+      storageMode: "encrypted",
+      store,
+    });
+
+    const resolved = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["claude", "copilot"]),
+    );
+
+    expect(Object.keys(resolved.adapters)).toEqual(["claude"]);
+    expect(resolved.credentialSources).toEqual({ claude: "platform" });
+    expect(resolved.failures).toEqual({ copilot: "account_missing" });
+    expect(lookups).toEqual([
+      {
+        authType: "api_key",
+        organizationId: "org_a",
+        provider: "geo_claude",
+      },
+    ]);
+    expect(JSON.stringify(resolved)).not.toContain("claude-platform-key");
+  });
+
+  it("maps every supported GEO monitor provider to its account provider", async () => {
+    const lookups: unknown[] = [];
+    const resolver = createProviderCredentialResolver({
+      keyring,
+      storageMode: "encrypted",
+      store: createStore({
+        onGetDefaultGeoAccount(input) {
+          lookups.push(input);
+        },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt", "claude", "gemini", "perplexity"]),
+    );
+
+    expect(lookups).toEqual([
+      { authType: "api_key", organizationId: "org_a", provider: "geo_chatgpt" },
+      { authType: "api_key", organizationId: "org_a", provider: "geo_claude" },
+      { authType: "api_key", organizationId: "org_a", provider: "geo_gemini" },
+      { authType: "api_key", organizationId: "org_a", provider: "geo_perplexity" },
+    ]);
   });
 
   it("returns different GA4 resources for two sites sharing one Google account", async () => {
@@ -987,6 +1150,54 @@ function connectorJob(
   };
 }
 
+function geoJob(
+  organizationId: string,
+  siteId: string,
+  providers: GeoAnswerMonitorJobPayload["providers"],
+): GeoAnswerMonitorJobPayload {
+  return {
+    observedAt: now.toISOString(),
+    organizationId,
+    providers,
+    queries: [{ query: "best seo clinic", locale: "ko-KR" }],
+    requestedByUserId: "user_a",
+    siteDomain: "example.com",
+    siteId,
+    target: {
+      brandName: "Example Clinic",
+      domain: "example.com",
+      locale: "ko-KR",
+      market: "KR",
+      siteId,
+    },
+  };
+}
+
+function geoMonitorRequest(siteId: string) {
+  return {
+    observedAt: now.toISOString(),
+    queries: [{ query: "best seo clinic", locale: "ko-KR" }],
+    target: {
+      brandName: "Example Clinic",
+      domain: "example.com",
+      locale: "ko-KR",
+      market: "KR",
+      siteId,
+    },
+  };
+}
+
+function successfulGeoFetch(authorizationHeaders: string[]): typeof fetch {
+  return (async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    authorizationHeaders.push(headers.get("authorization") ?? "");
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: "Example Clinic is cited." } }] }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+}
+
 function successfulRefreshFetch(accessToken: string): typeof fetch {
   return (async () =>
     new Response(
@@ -1036,6 +1247,40 @@ function encryptedAccountWithKeyring(
   };
 }
 
+type GeoAccountRecord = Omit<ProviderAccountSecretRecord, "authType" | "provider"> & {
+  readonly authType: "api_key";
+  readonly isDefault: boolean;
+  readonly provider: "geo_chatgpt" | "geo_claude" | "geo_gemini" | "geo_perplexity";
+};
+
+function encryptedGeoAccount(
+  apiKey: string,
+  overrides: Partial<GeoAccountRecord> = {},
+): GeoAccountRecord {
+  const organizationId = overrides.organizationId ?? "org_a";
+  const id = overrides.id ?? "pa_geo_chatgpt";
+  const provider = overrides.provider ?? "geo_chatgpt";
+  const envelope = encryptProviderCredential(
+    keyring,
+    { organizationId, provider, providerAccountId: id },
+    { apiKey, kind: "api_key" },
+  );
+
+  return {
+    ...envelope,
+    authType: "api_key",
+    id,
+    isDefault: true,
+    organizationId,
+    provider,
+    scopes: [],
+    status: "connected",
+    tokenExpiresAt: null,
+    updatedAt: now.toISOString(),
+    ...overrides,
+  };
+}
+
 function siteConnector(overrides: Partial<SiteConnector> = {}): SiteConnector {
   return {
     config: {},
@@ -1058,6 +1303,7 @@ function createStore(input: {
   readonly accountReads?: readonly (ProviderAccountSecretRecord | null)[];
   readonly accounts?: readonly ProviderAccountSecretRecord[];
   readonly connectors?: readonly SiteConnector[];
+  readonly defaultGeoAccounts?: readonly GeoAccountRecord[];
   readonly legacyCredentials?: Awaited<
     ReturnType<ProviderCredentialResolverStore["listLegacyGoogleCredentials"]>
   >;
@@ -1071,6 +1317,11 @@ function createStore(input: {
     input: ConnectorSyncProviderFeedbackInput,
   ) => void;
   readonly onListLegacyCredentials?: () => void;
+  readonly onGetDefaultGeoAccount?: (input: {
+    readonly authType: "api_key";
+    readonly organizationId: string;
+    readonly provider: "geo_chatgpt" | "geo_claude" | "geo_gemini" | "geo_perplexity";
+  }) => void;
   readonly sites?: readonly { readonly id: string; readonly organizationId: string }[];
   readonly updateAccountResult?: boolean;
 }): ProviderCredentialResolverStore {
@@ -1095,6 +1346,19 @@ function createStore(input: {
         ) ??
         input.accounts?.find((account) => account.id === inputArgs.providerAccountId) ??
         null
+      );
+    },
+    async getDefaultGeoProviderAccount(inputArgs) {
+      input.onGetDefaultGeoAccount?.(inputArgs);
+      return (
+        input.defaultGeoAccounts?.find(
+          (account) =>
+            account.authType === inputArgs.authType &&
+            account.isDefault &&
+            account.organizationId === inputArgs.organizationId &&
+            account.provider === inputArgs.provider &&
+            account.status === "connected",
+        ) ?? null
       );
     },
     async getSite(inputArgs) {

@@ -76,6 +76,7 @@ import {
   GeoAnswerMonitorProviderSchema,
   GeoAnswerMonitorRequestSchema,
   GeoAnswerMonitorResultSchema,
+  GeoCredentialSourcesSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
@@ -1661,6 +1662,13 @@ describe("types foundation", () => {
       "copilot",
       "claude",
     ]);
+    expect(
+      GeoCredentialSourcesSchema.parse({ chatgpt: "encrypted", claude: "platform" }),
+    ).toEqual({ chatgpt: "encrypted", claude: "platform" });
+    expect(() => GeoCredentialSourcesSchema.parse({ chatgpt: "legacy" })).toThrow();
+    expect(() =>
+      GeoCredentialSourcesSchema.parse({ chatgpt: "encrypted", apiKey: "tenant-secret" }),
+    ).toThrow();
     const monitorRequest = GeoAnswerMonitorRequestSchema.parse({
       target: {
         siteId: "site_1",
@@ -1677,6 +1685,7 @@ describe("types foundation", () => {
     expect(
       GeoAnswerMonitorResultSchema.parse({
         provider: "chatgpt",
+        status: "ok",
         observations: [
           {
             provider: "chatgpt",
@@ -1695,10 +1704,12 @@ describe("types foundation", () => {
       generatedBy: "fixture",
       liveExternalApis: "disabled",
       provider: "chatgpt",
+      status: "ok",
     });
     expect(
       GeoAnswerMonitorResultSchema.parse({
         provider: "perplexity",
+        status: "ok",
         observations: [
           {
             provider: "perplexity",
@@ -1717,7 +1728,90 @@ describe("types foundation", () => {
       generatedBy: "connector",
       liveExternalApis: "enabled",
       provider: "perplexity",
+      status: "ok",
     });
+
+    expect(
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "claude",
+        status: "setup_required",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "account_missing",
+          message: "GEO provider credential is not configured.",
+        },
+      }),
+    ).toEqual({
+      provider: "claude",
+      status: "setup_required",
+      observations: [],
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      error: {
+        code: "account_missing",
+        message: "GEO provider credential is not configured.",
+      },
+    });
+
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "must stay empty",
+            observedAt: "2026-05-24T00:00:00.000Z",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "provider_request_failed",
+          message: "upstream body api_key=tenant-secret",
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            leaked: "tenant-secret",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
     const request = CreateGeoVisibilityReportRequestSchema.parse({
       target: {
         siteId: "site_1",
@@ -1875,6 +1969,7 @@ describe("types foundation", () => {
     });
     const monitorResult = GeoAnswerMonitorResultSchema.parse({
       provider: "chatgpt",
+      status: "ok",
       observations: [
         {
           provider: "chatgpt",
@@ -1922,18 +2017,20 @@ describe("types foundation", () => {
     });
 
     expect(payload.providers).toEqual(["chatgpt", "perplexity"]);
-    expect(
-      GeoAnswerMonitorJobResultSchema.parse({
-        organizationId: "org_1",
-        siteId: "site_1",
-        siteDomain: "example.com",
-        requestedByUserId: "user_1",
-        observedAt: "2026-05-26T00:00:00.000Z",
-        providers: ["chatgpt"],
-        monitorResults: [monitorResult],
-        visibilityReport,
-      }).visibilityReport.generatedBy,
-    ).toBe("deterministic");
+    const jobResult = GeoAnswerMonitorJobResultSchema.parse({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      observedAt: "2026-05-26T00:00:00.000Z",
+      providers: ["chatgpt"],
+      monitorResults: [monitorResult],
+      visibilityReport,
+    });
+    expect(jobResult.visibilityReport.generatedBy).toBe("deterministic");
+    expect(() =>
+      GeoAnswerMonitorJobResultSchema.parse({ ...jobResult, apiKey: "tenant-secret" }),
+    ).toThrow();
     expect(
       QueueGeoAnswerMonitorRequestSchema.parse({
         target: payload.target,
