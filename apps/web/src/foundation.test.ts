@@ -9,6 +9,7 @@ import {
 } from "@searchops/types";
 
 import {
+  appRouteItems,
   dashboardPlaceholders,
   getSiteDashboardPath,
   loadDashboardSite,
@@ -23,6 +24,7 @@ import {
   loadConnectorLiveSetupData
 } from "./connector-live-setup";
 import {
+  createGoogleOAuthStartPath,
   createDemoConnectorOAuthData,
   formatConnectorOAuthStatus,
   getConnectorOAuthTone,
@@ -218,6 +220,30 @@ describe("web foundation", () => {
 
   it("can import shared workspace types", () => {
     expect(productName).toBe("SearchOps AI");
+  });
+
+  it("includes the integration operations route in app navigation", () => {
+    expect(appRouteItems).toContainEqual({
+      href: "/ops/integrations",
+      label: "Integrations",
+      summary: "Provider 계정과 사이트 연결",
+    });
+  });
+
+  it("builds a same-origin authenticated Google OAuth start path", () => {
+    vi.stubEnv("SEARCHOPS_PUBLIC_APP_URL", "https://app.searchops.test");
+
+    const path = createGoogleOAuthStartPath(
+      "site_1",
+      ["gsc", "ga4"],
+      "/ops/integrations",
+    );
+    const url = new URL(path ?? "", "https://app.searchops.test");
+
+    expect(url.pathname).toBe("/sites/site_1/connectors/google/oauth/start");
+    expect(url.searchParams.get("providers")).toBe("gsc,ga4");
+    expect(url.searchParams.get("returnTo")).toBe("https://app.searchops.test/ops/integrations");
+    expect(createGoogleOAuthStartPath("site_1", ["gsc"], "https://evil.test/steal")).toBeNull();
   });
 
   it("can validate the dashboard site fixture shape", () => {
@@ -2200,15 +2226,18 @@ describe("web foundation", () => {
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/sites/site_1/connectors/oauth");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
         return Response.json({
           credentials: data.credentials
         });
       }),
     );
 
-    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+    await expect(loadConnectorOAuthData("site_1", "current-user-token")).resolves.toMatchObject({
       credentials: data.credentials,
       errorMessage: null,
       source: "api"
@@ -2216,7 +2245,7 @@ describe("web foundation", () => {
   });
 
   it("falls back to fixture Google connector OAuth data without an API base URL", async () => {
-    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+    await expect(loadConnectorOAuthData("site_1", "current-user-token")).resolves.toMatchObject({
       source: "fixture"
     });
   });

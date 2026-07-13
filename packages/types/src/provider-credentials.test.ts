@@ -35,6 +35,11 @@ const providerAccount = {
   credentialSource: "encrypted" as const,
 };
 
+const providerAccountSummary = {
+  ...providerAccount,
+  bindingCount: 2,
+};
+
 const siteConnector = {
   id: "sc_1",
   organizationId: "org_1",
@@ -179,15 +184,24 @@ describe("provider credential contracts", () => {
     ).toThrow();
   });
 
+  it("requires a non-secret binding count on provider account list items", () => {
+    expect(
+      ProviderAccountListResponseSchema.parse({ providerAccounts: [providerAccountSummary] }),
+    ).toEqual({ providerAccounts: [providerAccountSummary] });
+    expect(() =>
+      ProviderAccountListResponseSchema.parse({ providerAccounts: [providerAccount] }),
+    ).toThrow();
+  });
+
   it.each([
-    ["Provider account list", ProviderAccountListResponseSchema, "providerAccounts"],
-    ["Provider account detail", ProviderAccountDetailResponseSchema, "providerAccount"],
-  ] as const)("rejects raw and encrypted credentials from %s responses", (_name, schema, key) => {
+    ["Provider account list", ProviderAccountListResponseSchema, "providerAccounts", providerAccountSummary],
+    ["Provider account detail", ProviderAccountDetailResponseSchema, "providerAccount", providerAccount],
+  ] as const)("rejects raw and encrypted credentials from %s responses", (_name, schema, key, value) => {
     const responseValue = (record: Record<string, unknown>) =>
       key.endsWith("s") ? [record] : record;
-    expect(() => schema.parse({ [key]: responseValue({ ...providerAccount, apiKey: "fake-api-key" }) })).toThrow();
-    expect(() => schema.parse({ [key]: responseValue(providerAccount) })).not.toThrow();
-    expect(() => schema.parse({ [key]: responseValue({ ...providerAccount, credentialCiphertext: "fake-ciphertext" }) })).toThrow();
+    expect(() => schema.parse({ [key]: responseValue({ ...value, apiKey: "fake-api-key" }) })).toThrow();
+    expect(() => schema.parse({ [key]: responseValue(value) })).not.toThrow();
+    expect(() => schema.parse({ [key]: responseValue({ ...value, credentialCiphertext: "fake-ciphertext" }) })).toThrow();
   });
 
   it.each([

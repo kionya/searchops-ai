@@ -152,6 +152,31 @@ function createStore(
 }
 
 describe("ProviderAccountService", () => {
+  it("adds a tenant-scoped binding count to every listed account", async () => {
+    const bindingLookups: unknown[] = [];
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async listAccounts() {
+          return [account({ id: "pa_one" }), account({ id: "pa_two" })];
+        },
+        async countAccountBindings(input) {
+          bindingLookups.push(input);
+          return input.providerAccountId === "pa_one" ? 2 : 0;
+        },
+      }),
+    });
+
+    await expect(service.listAccounts({ organizationId: "org_a" })).resolves.toEqual([
+      { ...account({ id: "pa_one" }), bindingCount: 2 },
+      { ...account({ id: "pa_two" }), bindingCount: 0 },
+    ]);
+    expect(bindingLookups).toEqual([
+      { organizationId: "org_a", providerAccountId: "pa_one" },
+      { organizationId: "org_a", providerAccountId: "pa_two" },
+    ]);
+  });
+
   it("allocates the API-key account ID before encryption and never passes the raw key to the store", async () => {
     const calls: Parameters<ProviderCredentialStore["createApiKeyAccount"]>[0][] = [];
     const store = createStore({
@@ -1334,7 +1359,7 @@ describe("ProviderAccountService", () => {
     ["ga4", "properties/123456789", "properties/123456789"],
     ["gsc", "sc-domain:example.com", "sc-domain:example.com"],
     ["gsc", "https://example.com/prefix/", "https://example.com/prefix/"],
-    ["bing", "http://example.com/site", "http://example.com/site"],
+    ["bing", "https://example.com/site", "https://example.com/site"],
   ] as const)(
     "normalizes %s resource %s before persistence",
     async (provider, externalResourceId, expected) => {
@@ -1373,6 +1398,7 @@ describe("ProviderAccountService", () => {
     ["gsc", "sc-domain:example.com/path"],
     ["gsc", "ftp://example.com/"],
     ["bing", "example.com"],
+    ["bing", "http://example.com/"],
     ["bing", "ftp://example.com/"],
   ] as const)("rejects malformed %s resource %s", async (provider, externalResourceId) => {
     let writes = 0;

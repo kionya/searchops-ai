@@ -5,7 +5,7 @@ import {
   type ConnectorOAuthProvider,
 } from "@searchops/types";
 
-import { apiFetch } from "./api-client";
+import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { demoSite } from "./work-order-board";
 
@@ -26,6 +26,41 @@ export interface ConnectorOAuthProviderStatus {
 
 export const connectorOAuthProviders = ["gsc", "ga4"] as const satisfies readonly ConnectorOAuthProvider[];
 
+export function createGoogleOAuthStartPath(
+  siteId: string,
+  providers: readonly ConnectorOAuthProvider[] = connectorOAuthProviders,
+  returnPath = `/sites/${siteId}/connectors`,
+): string | null {
+  const appBaseUrl = process.env.SEARCHOPS_PUBLIC_APP_URL?.trim();
+  if (!appBaseUrl || siteId.trim().length === 0 || providers.length === 0) {
+    return null;
+  }
+
+  try {
+    const appUrl = new URL(appBaseUrl);
+    const isLocalHttp = appUrl.protocol === "http:" &&
+      (appUrl.hostname === "localhost" || appUrl.hostname === "127.0.0.1");
+    if (
+      (appUrl.protocol !== "https:" && !isLocalHttp) ||
+      appUrl.username.length > 0 ||
+      appUrl.password.length > 0
+    ) {
+      return null;
+    }
+    const returnTo = new URL(returnPath, appUrl.origin);
+    if (returnTo.origin !== appUrl.origin) {
+      return null;
+    }
+    const query = new URLSearchParams({
+      providers: [...new Set(providers)].join(","),
+      returnTo: returnTo.toString(),
+    });
+    return `/sites/${encodeURIComponent(siteId)}/connectors/google/oauth/start?${query.toString()}`;
+  } catch {
+    return null;
+  }
+}
+
 export const demoConnectorOAuthCredentials: ConnectorOAuthCredential[] = [
   {
     id: "oauth_demo_gsc",
@@ -42,16 +77,21 @@ export const demoConnectorOAuthCredentials: ConnectorOAuthCredential[] = [
   }
 ];
 
-export async function loadConnectorOAuthData(siteId: string): Promise<ConnectorOAuthData> {
+export async function loadConnectorOAuthData(
+  siteId: string,
+  accessToken: string,
+): Promise<ConnectorOAuthData> {
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createDemoConnectorOAuthData(siteId);
   }
 
   try {
-    const response = await apiFetch(`${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connectors/oauth`, {
-      cache: "no-store"
-    });
+    const response = await apiFetchAsUser(
+      `${apiBaseUrl}/sites/${encodeURIComponent(siteId)}/connectors/oauth`,
+      accessToken,
+      { cache: "no-store" },
+    );
     if (!response.ok) {
       throw new Error(`OAuth credential request failed: ${response.status}`);
     }
@@ -62,11 +102,11 @@ export async function loadConnectorOAuthData(siteId: string): Promise<ConnectorO
       errorMessage: null,
       source: "api"
     };
-  } catch (error) {
+  } catch {
     return {
-      ...createDemoConnectorOAuthData(siteId),
-      errorMessage: error instanceof Error ? error.message : "OAuth credential request failed",
-      source: "fixture"
+      credentials: [],
+      errorMessage: "OAuth 상태를 불러오지 못했습니다.",
+      source: "api"
     };
   }
 }

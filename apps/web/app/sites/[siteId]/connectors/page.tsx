@@ -1,3 +1,11 @@
+import { redirect } from "next/navigation";
+
+import type {
+  ProviderAccountSummary,
+  SiteConnector,
+  SiteConnectorProvider,
+} from "@searchops/types";
+
 import {
   loadDashboardSite,
   mutedTextStyle,
@@ -22,12 +30,7 @@ import {
   type ConnectorLiveSetupTone
 } from "../../../../src/connector-live-setup";
 import {
-  formatConnectorOAuthDate,
-  formatConnectorOAuthStatus,
-  getConnectorOAuthTone,
-  loadConnectorOAuthData,
-  summarizeConnectorOAuthProviders,
-  type ConnectorOAuthTone
+  createGoogleOAuthStartPath,
 } from "../../../../src/connector-oauth";
 import {
   connectorProviderOptions,
@@ -49,15 +52,34 @@ import {
   type ConnectorSyncResultTone,
   type ConnectorSyncRunTone
 } from "../../../../src/connector-sync-history";
-import { getApiBaseUrl } from "../../../../src/api-base-url";
-import { runConnectorSyncAction } from "./actions";
-import { ConnectorSyncSubmitButton, ProviderSyncSubmitButton } from "./submit-button";
+import {
+  canManageProviderAccounts,
+  canRunConnectorSync,
+  formatProviderAccountProvider,
+  getCurrentProviderUser,
+  loadProviderAccounts,
+  loadSiteConnectors,
+} from "../../../../src/provider-accounts";
+import {
+  deleteSiteConnectorAction,
+  runConnectorSyncAction,
+  saveSiteConnectorAction,
+} from "./actions";
+import {
+  ConnectorBindingSubmitButton,
+  ConnectorSyncSubmitButton,
+  ProviderSyncSubmitButton,
+} from "./submit-button";
+import bindingStyles from "./bindings.module.css";
 
 interface ConnectorsPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
   readonly searchParams: Promise<{
+    readonly binding?: string;
+    readonly connectorOAuth?: string;
+    readonly oauth?: string;
     readonly runId?: string;
     readonly sync?: string;
   }>;
@@ -67,13 +89,25 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   const { siteId } = await params;
   const site = await loadDashboardSite(siteId);
   const triggerSearchParams = await searchParams;
-  const [history, oauthData, liveSetupData] = await Promise.all([
+  let userContext;
+  try {
+    userContext = await getCurrentProviderUser();
+  } catch {
+    redirect(`/login?next=${encodeURIComponent(`/sites/${siteId}/connectors`)}`);
+  }
+  const [history, liveSetupData, accountResult, connectorResult] = await Promise.all([
     loadConnectorSyncHistory(site),
-    loadConnectorOAuthData(siteId),
-    loadConnectorLiveSetupData()
+    loadConnectorLiveSetupData(),
+    loadProviderAccounts(userContext).then(
+      (accounts) => ({ accounts, failed: false as const }),
+      () => ({ accounts: [] as ProviderAccountSummary[], failed: true as const }),
+    ),
+    loadSiteConnectors(userContext, siteId).then(
+      (connectors) => ({ connectors, failed: false as const }),
+      () => ({ connectors: [] as SiteConnector[], failed: true as const }),
+    ),
   ]);
   const summary = summarizeConnectorSyncHistory(history);
-  const oauthStatuses = summarizeConnectorOAuthProviders(oauthData.credentials);
   const pageSpeedSetupCheck = getPageSpeedLiveSetupCheck(liveSetupData.report);
   const operationGuidance = summarizeConnectorOperations(history);
   const commandSummary = summarizeConnectorCommandCenter(operationGuidance);
@@ -83,6 +117,8 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
     triggerSearchParams.sync,
     triggerSearchParams.runId,
   );
+  const canManageBindings = canManageProviderAccounts(userContext.role);
+  const canRunSync = canRunConnectorSync(userContext.role);
 
   return (
     <section aria-label="커넥터 커맨드 센터">
@@ -99,11 +135,18 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         pageSpeedCheck={pageSpeedSetupCheck}
         summary={summary}
       />
-      <ConnectorOperationsPanel operations={operationGuidance} siteId={siteId} />
-      <GoogleOAuthPanel
-        oauthErrorMessage={oauthData.errorMessage}
-        oauthSource={oauthData.source}
-        oauthStatuses={oauthStatuses}
+      <ConnectorOperationsPanel
+        canRunSync={canRunSync}
+        operations={operationGuidance}
+        siteId={siteId}
+      />
+      <ProviderBindingsPanel
+        accounts={accountResult.accounts}
+        bindingStatus={triggerSearchParams.binding}
+        canManage={canManageBindings}
+        connectors={connectorResult.connectors}
+        loadFailed={accountResult.failed || connectorResult.failed}
+        oauthStatus={triggerSearchParams.connectorOAuth ?? triggerSearchParams.oauth}
         siteId={siteId}
       />
       <PageSpeedSetupPanel
@@ -111,7 +154,11 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         pageSpeedCheck={pageSpeedSetupCheck}
         source={liveSetupData.source}
       />
-      <ConnectorSyncTriggerPanel siteId={siteId} triggerFeedback={triggerFeedback} />
+      <ConnectorSyncTriggerPanel
+        canRunSync={canRunSync}
+        siteId={siteId}
+        triggerFeedback={triggerFeedback}
+      />
       <section aria-label="커넥터 동기화 실행" style={tableSectionStyle}>
         <header style={tableHeaderStyle}>
           <div>
@@ -355,9 +402,11 @@ function ConnectorCommandCenterPanel({
 }
 
 function ConnectorOperationsPanel({
+  canRunSync,
   operations,
   siteId
 }: {
+  readonly canRunSync: boolean;
   readonly operations: readonly ConnectorOperationGuidance[];
   readonly siteId: string;
 }) {
@@ -396,10 +445,16 @@ function ConnectorOperationsPanel({
             <p style={{ color: "#475569", fontSize: 12, lineHeight: 1.45, margin: "6px 0 0" }}>
               {item.nextAction}
             </p>
-            <form action={action} style={{ marginTop: 14 }}>
-              <input name="providers" type="hidden" value={item.provider} />
-              <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
-            </form>
+            {canRunSync ? (
+              <form action={action} style={{ marginTop: 14 }}>
+                <input name="providers" type="hidden" value={item.provider} />
+                <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
+              </form>
+            ) : (
+              <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 14 }}>
+                조회 전용
+              </span>
+            )}
           </article>
         ))}
       </div>
@@ -470,102 +525,215 @@ function PageSpeedSetupPanel({
   );
 }
 
-function GoogleOAuthPanel({
-  oauthErrorMessage,
-  oauthSource,
-  oauthStatuses,
-  siteId
+function ProviderBindingsPanel({
+  accounts,
+  bindingStatus,
+  canManage,
+  connectors,
+  loadFailed,
+  oauthStatus,
+  siteId,
 }: {
-  readonly oauthErrorMessage: string | null;
-  readonly oauthSource: string;
-  readonly oauthStatuses: ReturnType<typeof summarizeConnectorOAuthProviders>;
+  readonly accounts: readonly ProviderAccountSummary[];
+  readonly bindingStatus: string | undefined;
+  readonly canManage: boolean;
+  readonly connectors: readonly SiteConnector[];
+  readonly loadFailed: boolean;
+  readonly oauthStatus: string | undefined;
   readonly siteId: string;
 }) {
-  const apiBaseUrl = getApiBaseUrl();
-  const appBaseUrl = process.env.SEARCHOPS_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? null;
-  const returnTo = appBaseUrl ? `${appBaseUrl}/sites/${siteId}/connectors` : null;
-
-  const oauthUrl = (providers: string) => {
-    if (!apiBaseUrl) return null;
-    // 웹 라우트 핸들러 경유 — 서버사이드에서 owner 토큰으로 인증 URL을 받아 Google로
-    // 리다이렉트한다. (API start는 인증 게이트라 브라우저 직접 접근 시 401.)
-    const base = `/sites/${siteId}/connectors/google/oauth/start?providers=${providers}`;
-    return returnTo ? `${base}&returnTo=${encodeURIComponent(returnTo)}` : base;
-  };
-
-  const gscUrl = oauthUrl("gsc");
-  const ga4Url = oauthUrl("ga4");
-  const bothUrl = oauthUrl("gsc,ga4");
+  const connectorByProvider = new Map(connectors.map((item) => [item.provider, item]));
+  const googleAccounts = accounts.filter((account) => account.provider === "google");
+  const bingAccounts = accounts.filter((account) => account.provider === "bing");
+  const geoAccounts = accounts.filter(
+    (account) => account.provider.startsWith("geo_") && account.status === "connected",
+  );
+  const oauthPath = createGoogleOAuthStartPath(siteId, ["gsc", "ga4"]);
+  const feedbackMessage = {
+    deleted: "사이트 연결을 해제했습니다.",
+    failed: "사이트 연결 요청을 처리하지 못했습니다.",
+    saved: "사이트 연결을 저장했습니다.",
+  }[bindingStatus ?? ""] ?? (
+    oauthStatus === "connected" ? "Google 계정을 연결했습니다." : null
+  );
 
   return (
-    <section aria-label="Google OAuth 연결" style={oauthPanelStyle}>
-      <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Google OAuth 연결</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
-          GSC·GA4 데이터를 live로 수집하려면 Google 계정을 연결하세요. 연결된 계정이 해당 속성의 뷰어 이상 권한을 가져야 합니다.
-        </p>
-        {!apiBaseUrl ? (
-          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
-            SEARCHOPS_API_BASE_URL 환경변수가 설정되지 않아 OAuth URL을 생성할 수 없습니다.
+    <section aria-label="사이트 Provider 연결" style={bindingSectionStyle}>
+      <header style={bindingHeaderStyle}>
+        <div>
+          <h3 style={{ fontSize: 18, margin: 0 }}>사이트 Provider 연결</h3>
+          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            현재 역할: {canManage ? "변경 가능" : "조회 전용"}
           </p>
+          {loadFailed ? <p style={bindingErrorStyle}>연결 정보를 불러오지 못했습니다.</p> : null}
+          {feedbackMessage ? <p aria-live="polite" style={bindingFeedbackStyle}>{feedbackMessage}</p> : null}
+        </div>
+        {canManage && oauthPath ? (
+          <a href={oauthPath} style={oauthLinkButtonStyle}>Google 연결 / 재연결</a>
         ) : null}
-        {oauthErrorMessage ? (
-          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
-            OAuth 상태 조회 실패: {oauthErrorMessage}
-          </p>
-        ) : null}
-      </div>
-      <div style={oauthButtonGroupStyle}>
-        {gscUrl ? (
-          <a href={gscUrl} style={oauthLinkButtonStyle}>
-            GSC 연결
-          </a>
-        ) : null}
-        {ga4Url ? (
-          <a href={ga4Url} style={oauthLinkButtonStyle}>
-            GA4 연결
-          </a>
-        ) : null}
-        {bothUrl ? (
-          <a href={bothUrl} style={{ ...oauthLinkButtonStyle, fontWeight: 700 }}>
-            GSC + GA4 함께 연결
-          </a>
-        ) : null}
-      </div>
-      <div style={oauthStatusGridStyle}>
-        {oauthStatuses.map((item) => (
-          <div key={item.provider} style={oauthStatusItemStyle}>
-            <div style={oauthStatusHeaderStyle}>
-              <strong>{formatConnectorProvider(item.provider)}</strong>
-              <OAuthStatusPill label={formatConnectorOAuthStatus(item.status)} tone={getConnectorOAuthTone(item.status)} />
-            </div>
-            <p style={{ ...mutedTextStyle, fontSize: 12, margin: "7px 0 0" }}>
-              {item.credential?.externalAccountEmail ?? "연결된 Google 계정 없음"}
-            </p>
-            <p style={{ ...mutedTextStyle, fontSize: 12, margin: "4px 0 0" }}>
-              만료: {formatConnectorOAuthDate(item.credential?.tokenExpiresAt ?? null)}
-            </p>
-          </div>
-        ))}
-        <span
-          style={{
-            ...pillStyle,
-            background: oauthSource === "api" ? "#ecfdf5" : "#eef2ff",
-            color: oauthSource === "api" ? "#047857" : "#3730a3",
-            justifySelf: "start"
-          }}
-        >
-          {oauthSource === "api" ? "OAuth API 데이터" : "OAuth 데모 데이터"}
-        </span>
+      </header>
+      <div style={bindingRowsStyle}>
+        <ConnectorBindingControl
+          accounts={filterGoogleAccounts(googleAccounts, "gsc")}
+          canManage={canManage}
+          connector={connectorByProvider.get("gsc") ?? null}
+          label="GSC"
+          placeholder="sc-domain:example.com 또는 URL-prefix"
+          provider="gsc"
+          siteId={siteId}
+        />
+        <ConnectorBindingControl
+          accounts={filterGoogleAccounts(googleAccounts, "ga4")}
+          canManage={canManage}
+          connector={connectorByProvider.get("ga4") ?? null}
+          label="GA4"
+          placeholder="123456789 또는 properties/123456789"
+          provider="ga4"
+          siteId={siteId}
+        />
+        <ConnectorBindingControl
+          accounts={bingAccounts.filter((account) => account.status === "connected")}
+          canManage={canManage}
+          connector={connectorByProvider.get("bing") ?? null}
+          label="Bing"
+          placeholder="https://example.com/"
+          provider="bing"
+          siteId={siteId}
+        />
+        <ReadonlyBindingRow label="PageSpeed" status="SearchOps 플랫폼 관리" />
+        <ReadonlyBindingRow
+          label="GEO"
+          status={
+            geoAccounts.length > 0
+              ? `조직 BYOK: ${geoAccounts.map((account) => formatProviderAccountProvider(account.provider)).join(", ")}`
+              : "SearchOps 플랫폼"
+          }
+        />
       </div>
     </section>
   );
 }
 
+function ConnectorBindingControl({
+  accounts,
+  canManage,
+  connector,
+  label,
+  placeholder,
+  provider,
+  siteId,
+}: {
+  readonly accounts: readonly ProviderAccountSummary[];
+  readonly canManage: boolean;
+  readonly connector: SiteConnector | null;
+  readonly label: string;
+  readonly placeholder: string;
+  readonly provider: SiteConnectorProvider;
+  readonly siteId: string;
+}) {
+  const saveAction = saveSiteConnectorAction.bind(null, siteId);
+  const deleteAction = deleteSiteConnectorAction.bind(null, siteId);
+  const selectedAccount = accounts.find((account) => account.id === connector?.providerAccountId);
+  const status = connector?.status ?? "needs_configuration";
+
+  return (
+    <div className={bindingStyles.bindingRow}>
+      <div>
+        <strong>{label}</strong>
+        <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 4 }}>
+          {formatSiteConnectorStatus(status)}
+        </span>
+      </div>
+      {canManage ? (
+        <form action={saveAction} className={bindingStyles.bindingForm}>
+          <input name="provider" type="hidden" value={provider} />
+          <label htmlFor={`${siteId}-${provider}-account`}>계정</label>
+          <select
+            defaultValue={selectedAccount?.id ?? ""}
+            disabled={accounts.length === 0}
+            id={`${siteId}-${provider}-account`}
+            name="providerAccountId"
+            required
+            style={bindingInputStyle}
+          >
+            <option value="">선택</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.displayName}{account.accountEmail ? ` (${account.accountEmail})` : ""}
+              </option>
+            ))}
+          </select>
+          <label htmlFor={`${siteId}-${provider}-resource`}>리소스</label>
+          <input
+            defaultValue={connector?.externalResourceId ?? ""}
+            id={`${siteId}-${provider}-resource`}
+            name="externalResourceId"
+            placeholder={placeholder}
+            required
+            style={bindingInputStyle}
+            type={provider === "bing" ? "url" : "text"}
+          />
+          <ConnectorBindingSubmitButton disabled={accounts.length === 0} label="저장" />
+        </form>
+      ) : (
+        <div className={bindingStyles.bindingReadOnly}>
+          <span>{selectedAccount?.displayName ?? "계정 미지정"}</span>
+          <span>{connector?.externalResourceId ?? "리소스 미지정"}</span>
+        </div>
+      )}
+      {canManage && connector ? (
+        <form action={deleteAction}>
+          <input name="provider" type="hidden" value={provider} />
+          <ConnectorBindingSubmitButton label="해제" tone="danger" />
+        </form>
+      ) : <span />}
+    </div>
+  );
+}
+
+function ReadonlyBindingRow({ label, status }: { readonly label: string; readonly status: string }) {
+  return (
+    <div className={bindingStyles.bindingRow}>
+      <strong>{label}</strong>
+      <span className={bindingStyles.readonlyStatus}>{status}</span>
+    </div>
+  );
+}
+
+function filterGoogleAccounts(
+  accounts: readonly ProviderAccountSummary[],
+  provider: "gsc" | "ga4",
+): ProviderAccountSummary[] {
+  const scopes = provider === "gsc"
+    ? [
+        "https://www.googleapis.com/auth/webmasters",
+        "https://www.googleapis.com/auth/webmasters.readonly",
+      ]
+    : [
+        "https://www.googleapis.com/auth/analytics",
+        "https://www.googleapis.com/auth/analytics.readonly",
+      ];
+  return accounts.filter(
+    (account) => account.status === "connected" && scopes.some((scope) => account.scopes.includes(scope)),
+  );
+}
+
+function formatSiteConnectorStatus(status: SiteConnector["status"]): string {
+  return {
+    connected: "연결됨",
+    error: "확인 필요",
+    expired: "만료",
+    needs_configuration: "설정 필요",
+    revoked: "해제됨",
+  }[status];
+}
+
 function ConnectorSyncTriggerPanel({
+  canRunSync,
   siteId,
   triggerFeedback
 }: {
+  readonly canRunSync: boolean;
   readonly siteId: string;
   readonly triggerFeedback: ReturnType<typeof getConnectorSyncTriggerFeedback>;
 }) {
@@ -584,29 +752,35 @@ function ConnectorSyncTriggerPanel({
           </p>
         ) : null}
       </div>
-      <form action={action} style={triggerFormStyle}>
-        <fieldset style={providerFieldsetStyle}>
-          <legend style={providerLegendStyle}>Provider</legend>
-          {connectorProviderOptions.map((provider) => (
-            <label key={provider} style={providerOptionStyle}>
-              <input defaultChecked name="providers" type="checkbox" value={provider} />
-              <span>{formatConnectorProvider(provider)}</span>
-            </label>
-          ))}
-        </fieldset>
-        <ConnectorSyncSubmitButton />
-      </form>
-      <div style={quickProviderActionsStyle}>
-        {connectorProviderOptions.map((provider) => (
-          <form action={action} key={provider}>
-            <input name="providers" type="hidden" value={provider} />
-            <ProviderSyncSubmitButton
-              label={`${formatConnectorProvider(provider)}만 실행`}
-              style={quickProviderButtonStyle}
-            />
+      {canRunSync ? (
+        <>
+          <form action={action} style={triggerFormStyle}>
+            <fieldset style={providerFieldsetStyle}>
+              <legend style={providerLegendStyle}>Provider</legend>
+              {connectorProviderOptions.map((provider) => (
+                <label key={provider} style={providerOptionStyle}>
+                  <input defaultChecked name="providers" type="checkbox" value={provider} />
+                  <span>{formatConnectorProvider(provider)}</span>
+                </label>
+              ))}
+            </fieldset>
+            <ConnectorSyncSubmitButton />
           </form>
-        ))}
-      </div>
+          <div style={quickProviderActionsStyle}>
+            {connectorProviderOptions.map((provider) => (
+              <form action={action} key={provider}>
+                <input name="providers" type="hidden" value={provider} />
+                <ProviderSyncSubmitButton
+                  label={`${formatConnectorProvider(provider)}만 실행`}
+                  style={quickProviderButtonStyle}
+                />
+              </form>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p style={{ ...mutedTextStyle, fontSize: 13, margin: 0 }}>조회 전용</p>
+      )}
     </section>
   );
 }
@@ -640,22 +814,6 @@ function ResultStatusPill({
     ok: { background: "#ecfdf5", color: "#047857" },
     partial: { background: "#fff7ed", color: "#c2410c" },
     setup: { background: "#fefce8", color: "#a16207" }
-  }[tone];
-
-  return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
-}
-
-function OAuthStatusPill({
-  label,
-  tone
-}: {
-  readonly label: string;
-  readonly tone: ConnectorOAuthTone;
-}) {
-  const toneStyle = {
-    connected: { background: "#ecfdf5", color: "#047857" },
-    missing: { background: "#f8fafc", color: "#475569" },
-    risk: { background: "#fef2f2", color: "#b91c1c" }
   }[tone];
 
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
@@ -838,16 +996,37 @@ const providerCardMetaValueStyle = {
   overflowWrap: "anywhere"
 } as const;
 
-const oauthPanelStyle = {
-  alignItems: "start",
+const bindingSectionStyle = {
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  display: "grid",
-  gap: 16,
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   marginTop: 14,
-  padding: 16
+  overflow: "hidden",
 } as const;
+
+const bindingHeaderStyle = {
+  alignItems: "center",
+  borderBottom: "1px solid #dbe4ef",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+  justifyContent: "space-between",
+  padding: 16,
+} as const;
+
+const bindingRowsStyle = { display: "grid" } as const;
+
+const bindingInputStyle = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
+  fontSize: 13,
+  minHeight: 38,
+  minWidth: 0,
+  padding: "8px 10px",
+  width: "100%",
+} as const;
+
+const bindingErrorStyle = { color: "#b91c1c", fontSize: 13, margin: "8px 0 0" } as const;
+const bindingFeedbackStyle = { color: "#047857", fontSize: 13, margin: "8px 0 0" } as const;
 
 const liveSetupPanelStyle = {
   alignItems: "start",
@@ -865,33 +1044,6 @@ const liveSetupStatusBoxStyle = {
   display: "flex",
   flexDirection: "column",
   minWidth: 220
-} as const;
-
-const oauthButtonGroupStyle = {
-  alignItems: "center",
-  display: "flex",
-  flexWrap: "wrap" as const,
-  gap: 8
-} as const;
-
-const oauthStatusGridStyle = {
-  display: "grid",
-  gap: 10,
-  gridColumn: "1 / -1",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
-} as const;
-
-const oauthStatusItemStyle = {
-  border: "1px solid #dbe4ef",
-  borderRadius: 8,
-  padding: 12
-} as const;
-
-const oauthStatusHeaderStyle = {
-  alignItems: "center",
-  display: "flex",
-  gap: 8,
-  justifyContent: "space-between"
 } as const;
 
 const oauthLinkButtonStyle = {

@@ -28,6 +28,7 @@ export const siteRouteItems = [
 export const appRouteItems = [
   { href: "/sites", label: "Sites", summary: "사이트 운영 현황" },
   { href: "/ops", label: "Ops", summary: "운영 관제 콘솔" },
+  { href: "/ops/integrations", label: "Integrations", summary: "Provider 계정과 사이트 연결" },
   { href: "/onboarding", label: "Onboarding", summary: "초기 설정 흐름" },
   { href: "/sites/site_demo_rejuel/connectors", label: "Connectors", summary: "live 동기화 제어" }
 ] as const;

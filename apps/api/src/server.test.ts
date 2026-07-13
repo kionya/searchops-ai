@@ -692,7 +692,7 @@ function createFakeProviderAccountService(
       return { requiredScopes: [] };
     },
     async listAccounts() {
-      return [googleOAuthProviderAccount];
+      return [{ ...googleOAuthProviderAccount, bindingCount: 0 }];
     },
     async deleteAccount() {},
     async listSiteConnectors() {
@@ -5422,7 +5422,7 @@ describe("api foundation", () => {
           return { requiredScopes: [] };
         },
         async listAccounts() {
-          return [providerAccount];
+          return [{ ...providerAccount, bindingCount: 0 }];
         },
         async deleteAccount() {},
         async listSiteConnectors() {
@@ -5504,7 +5504,9 @@ describe("api foundation", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ providerAccounts: [providerAccount] });
+      expect(response.json()).toEqual({
+        providerAccounts: [{ ...providerAccount, bindingCount: 0 }],
+      });
       expectNoCredentialFields(response.json());
     });
 
@@ -5671,7 +5673,7 @@ describe("api foundation", () => {
         providerService({
           async listAccounts(input) {
             calls.push({ method: "listAccounts", input });
-            return [providerAccount];
+            return [{ ...providerAccount, bindingCount: 0 }];
           },
           async createApiKeyAccount(input) {
             calls.push({ method: "createApiKeyAccount", input });

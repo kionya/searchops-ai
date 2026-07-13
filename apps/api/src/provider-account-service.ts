@@ -18,6 +18,7 @@ import {
   UpsertSiteConnectorRequestSchema,
   type ProviderAccountMetadata,
   type ProviderAccountProvider,
+  type ProviderAccountSummary,
   type SiteConnector,
   type SiteConnectorProvider,
   type UpdateProviderAccountMetadataRequest,
@@ -167,7 +168,7 @@ export interface ProviderAccountService {
   prepareGoogleConnectors(input: z.input<typeof PrepareGoogleConnectorsInputSchema>): Promise<{
     readonly requiredScopes: readonly string[];
   }>;
-  listAccounts(input: { readonly organizationId: string }): Promise<ProviderAccountMetadata[]>;
+  listAccounts(input: { readonly organizationId: string }): Promise<ProviderAccountSummary[]>;
   deleteAccount(input: {
     readonly organizationId: string;
     readonly providerAccountId: string;
@@ -407,7 +408,18 @@ export function createProviderAccountService({
 
     async listAccounts(input) {
       const organizationId = parseBoundary(IdSchema, input.organizationId);
-      return mapStoreErrors(() => store.listAccounts(organizationId));
+      const accounts = await mapStoreErrors(() => store.listAccounts(organizationId));
+      return Promise.all(
+        accounts.map(async (account) => ({
+          ...account,
+          bindingCount: await mapStoreErrors(() =>
+            store.countAccountBindings({
+              organizationId,
+              providerAccountId: account.id,
+            }),
+          ),
+        })),
+      );
     },
 
     async deleteAccount(input) {
@@ -482,7 +494,11 @@ function normalizeExternalResource(provider: SiteConnectorProvider, value: strin
     return `sc-domain:${domain}`;
   }
 
-  return normalizeHttpUrl(value);
+  const normalized = normalizeHttpUrl(value);
+  if (provider === "bing" && !normalized.startsWith("https://")) {
+    throw new ProviderAccountServiceError("validation_error");
+  }
+  return normalized;
 }
 
 async function validateGoogleConnectorScopes(input: {

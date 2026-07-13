@@ -108,6 +108,11 @@ export const ProviderAccountMetadataSchema = z
   .strict();
 export type ProviderAccountMetadata = z.infer<typeof ProviderAccountMetadataSchema>;
 
+export const ProviderAccountSummarySchema = ProviderAccountMetadataSchema.extend({
+  bindingCount: z.number().int().nonnegative(),
+}).strict();
+export type ProviderAccountSummary = z.infer<typeof ProviderAccountSummarySchema>;
+
 export const SiteConnectorSchema = z
   .object({
     id: IdSchema,
@@ -172,7 +177,7 @@ export type UpsertSiteConnectorRequest = z.infer<typeof UpsertSiteConnectorReque
 
 export const ProviderAccountListResponseSchema = z
   .object({
-    providerAccounts: z.array(ProviderAccountMetadataSchema),
+    providerAccounts: z.array(ProviderAccountSummarySchema),
   })
   .strict();
 export type ProviderAccountListResponse = z.infer<typeof ProviderAccountListResponseSchema>;
