@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   AuthVerificationError,
+  canManageProviderCredentials,
   createHmacJwtIdpTokenVerifier,
   createJwksRs256IdpTokenVerifier,
+  mapIdpClaimsToUserContext,
   parseJwksJson,
 } from "./auth.js";
 
@@ -33,6 +35,7 @@ describe("IdP token verification", () => {
     expect(verifier.verify(token)).toEqual({
       email: "owner@example.com",
       organizationId: "org_demo",
+      principalType: "user",
       provider: "auth0",
       role: "owner",
       subject: "idp_owner_1",
@@ -94,11 +97,77 @@ describe("IdP token verification", () => {
     expect(verifier.verify(token)).toEqual({
       email: "owner@example.com",
       organizationId: "org_demo",
+      principalType: "user",
       provider: "auth0",
       role: "owner",
       subject: "idp_owner_1",
     });
   });
+
+  it("prefers the top-level Supabase user_role claim and maps a user principal", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+    const claims = verifier.verify(
+      signJwt({
+        organization_id: "org_demo",
+        role: "authenticated",
+        sub: "supabase_owner_1",
+        user_metadata: { organization_id: "org_untrusted", role: "viewer" },
+        user_role: "owner",
+      }),
+    );
+
+    expect(mapIdpClaimsToUserContext(claims)).toMatchObject({
+      organizationId: "org_demo",
+      principalType: "user",
+      role: "owner",
+      userId: "supabase_owner_1",
+    });
+  });
+
+  it("maps token_use service while preserving configured role-claim compatibility", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "searchops_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "service_dashboard",
+          token_use: "service",
+        }),
+      ),
+    ).toMatchObject({ principalType: "service", role: "admin" });
+  });
+
+  it("keeps existing non-Supabase role tokens compatible as user principals", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({ organization_id: "org_demo", role: "editor", sub: "legacy_editor" }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "editor" });
+  });
+});
+
+describe("provider credential authorization", () => {
+  it.each(["owner", "admin", "system"] as const)(
+    "allows a user %s principal",
+    (role) => {
+      expect(canManageProviderCredentials({ principalType: "user", role })).toBe(true);
+    },
+  );
+
+  it.each(["editor", "viewer"] as const)("rejects a user %s principal", (role) => {
+    expect(canManageProviderCredentials({ principalType: "user", role })).toBe(false);
+  });
+
+  it.each(["owner", "admin", "system", "editor", "viewer"] as const)(
+    "rejects every service %s principal",
+    (role) => {
+      expect(canManageProviderCredentials({ principalType: "service", role })).toBe(false);
+    },
+  );
 });
 
 function signJwt(payload: Record<string, unknown>) {

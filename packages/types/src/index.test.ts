@@ -85,6 +85,7 @@ import {
   KeywordSchema,
   KeywordTargetSchema,
   LinkSignalSchema,
+  AuthPrincipalTypeSchema,
   IdpClaimMappingInputSchema,
   MockUserContextSchema,
   NormalizedUrlSchema,
@@ -419,6 +420,7 @@ describe("types foundation", () => {
       MockUserContextSchema.parse({ userId: "usr_1", organizationId: "org_1", source: "mock" }),
     ).toEqual({
       email: null,
+      principalType: "user",
       provider: null,
       userId: "usr_1",
       organizationId: "org_1",
@@ -442,7 +444,21 @@ describe("types foundation", () => {
       organizationId: "org_1",
       role: "editor",
       email: "editor@example.com",
+      principalType: "user",
     });
+  });
+
+  it("validates explicit service principals", () => {
+    expect(AuthPrincipalTypeSchema.parse("service")).toBe("service");
+    expect(
+      IdpClaimMappingInputSchema.parse({
+        organizationId: "org_1",
+        principalType: "service",
+        provider: "searchops",
+        role: "owner",
+        subject: "service_1",
+      }).principalType,
+    ).toBe("service");
   });
 
   it("fails env validation with clear field names", () => {

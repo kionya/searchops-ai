@@ -125,6 +125,7 @@ import {
   AuthVerificationError,
   canAccessOrganization,
   canManageOperations,
+  canManageProviderCredentials,
   canWriteWithRole,
   type AuthContextResolver,
   resolveAuthenticatedUserContext,
@@ -445,7 +446,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return false;
     }
 
-    if (isWriteRequest(request) && !canManageOperations(userContext.role)) {
+    if (isWriteRequest(request) && !canManageProviderCredentials(userContext)) {
       sendForbidden(reply, "User role cannot manage provider credentials");
       return false;
     }

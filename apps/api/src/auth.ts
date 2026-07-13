@@ -14,6 +14,7 @@ import {
   IdpClaimMappingInputSchema,
   MockUserContextSchema,
   type AuthenticatedUserContext,
+  type AuthPrincipalType,
   type AuthRole,
   type IdpClaimMappingInput,
 } from "@searchops/types";
@@ -388,14 +389,20 @@ function mapJwtPayloadToIdpClaims({
   readonly provider: string;
   readonly roleClaim: string;
 }) {
+  const preferredRoleClaim =
+    typeof payload.user_role === "string" && payload.user_role.length > 0
+      ? payload.user_role
+      : readStringClaim(payload, roleClaim);
+
   return IdpClaimMappingInputSchema.parse({
     email: typeof payload.email === "string" ? payload.email : null,
     organizationId: readStringClaim(payload, organizationIdClaim),
+    principalType: payload.token_use === "service" ? "service" : "user",
     provider:
       typeof payload.provider === "string" && payload.provider.length > 0
         ? payload.provider
         : provider,
-    role: readStringClaim(payload, roleClaim),
+    role: preferredRoleClaim,
     subject: readStringClaim(payload, "sub"),
   });
 }
@@ -408,6 +415,7 @@ export function mapIdpClaimsToUserContext(claims: IdpClaimMappingInput) {
   return AuthenticatedUserContextSchema.parse({
     email: claims.email,
     organizationId: claims.organizationId,
+    principalType: claims.principalType,
     provider: claims.provider,
     role: claims.role,
     source: "idp",
@@ -430,11 +438,19 @@ export function canManageOperations(role: AuthRole) {
   return role === "admin" || role === "owner" || role === "system";
 }
 
+export function canManageProviderCredentials(context: {
+  readonly principalType: AuthPrincipalType;
+  readonly role: AuthRole;
+}) {
+  return context.principalType === "user" && canManageOperations(context.role);
+}
+
 function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
   const provider = readHeader(request, "x-searchops-idp-provider");
   const subject = readHeader(request, "x-searchops-idp-subject");
   const organizationId = readHeader(request, "x-searchops-idp-organization-id");
   const role = readHeader(request, "x-searchops-idp-role");
+  const principalType = readHeader(request, "x-searchops-idp-principal-type");
   const email = readHeader(request, "x-searchops-idp-email");
 
   if (
@@ -442,6 +458,7 @@ function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
     subject === undefined &&
     organizationId === undefined &&
     role === undefined &&
+    principalType === undefined &&
     email === undefined
   ) {
     return null;
@@ -450,6 +467,7 @@ function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
   return IdpClaimMappingInputSchema.parse({
     email: email ?? null,
     organizationId,
+    principalType,
     provider,
     role,
     subject,

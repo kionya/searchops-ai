@@ -1763,6 +1763,10 @@ export const AuthRoleSchema = z.enum(["admin", "editor", "owner", "system", "vie
 
 export type AuthRole = z.infer<typeof AuthRoleSchema>;
 
+export const AuthPrincipalTypeSchema = z.enum(["user", "service"]);
+
+export type AuthPrincipalType = z.infer<typeof AuthPrincipalTypeSchema>;
+
 export const AuthContextSourceSchema = z.enum(["idp", "mock"]);
 
 export type AuthContextSource = z.infer<typeof AuthContextSourceSchema>;
@@ -1771,6 +1775,7 @@ export const AuthenticatedUserContextSchema = z.object({
   userId: IdSchema,
   organizationId: IdSchema,
   role: AuthRoleSchema.default("admin"),
+  principalType: AuthPrincipalTypeSchema.default("user"),
   source: AuthContextSourceSchema,
   provider: z.string().min(1).nullable().default(null),
   email: z.string().email().nullable().default(null),
@@ -1789,6 +1794,7 @@ export const IdpClaimMappingInputSchema = z.object({
   subject: IdSchema,
   organizationId: IdSchema,
   role: AuthRoleSchema,
+  principalType: AuthPrincipalTypeSchema.default("user"),
   email: z.string().email().nullable().default(null),
 });
 

@@ -47,6 +47,7 @@ import {
 import {
   createHmacJwtIdpTokenVerifier,
   createRequestAuthContextResolver,
+  type AuthContextResolver,
 } from "./auth.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
 import {
@@ -1461,6 +1462,7 @@ describe("api foundation", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       email: null,
+      principalType: "user",
       provider: null,
       userId: "user_test",
       organizationId: "org_demo",
@@ -1486,6 +1488,7 @@ describe("api foundation", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       email: "editor@example.com",
+      principalType: "user",
       provider: "auth0",
       userId: "idp_user_1",
       organizationId: "org_demo",
@@ -4466,8 +4469,12 @@ describe("api foundation", () => {
       };
     }
 
-    function buildProviderServer(service?: ProviderAccountService) {
+    function buildProviderServer(
+      service?: ProviderAccountService,
+      authContextResolver?: AuthContextResolver,
+    ) {
       return buildApiServer({
+        authContextResolver,
         providerAccountService: service,
         repository: createMemoryRepository({
           organizations: [seededOrganization, otherOrganization],
@@ -4586,6 +4593,42 @@ describe("api foundation", () => {
       expect(calls).toBe(0);
       expectNoCredentialFields(response.json());
     });
+
+    it.each(["owner", "admin", "system"] as const)(
+      "rejects a service %s provider-account mutation before service access",
+      async (role) => {
+        let calls = 0;
+        const response = await buildProviderServer(
+          providerService({
+            async createApiKeyAccount() {
+              calls += 1;
+              return providerAccount;
+            },
+          }),
+          () => ({
+            email: null,
+            organizationId: "org_demo",
+            principalType: "service",
+            provider: "searchops",
+            role,
+            source: "idp",
+            userId: `service_${role}`,
+          }),
+        ).inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          payload: {
+            provider: "bing",
+            displayName: "Bing primary",
+            apiKey: "request-secret",
+          },
+        });
+
+        expect(response.statusCode).toBe(403);
+        expect(calls).toBe(0);
+        expectNoCredentialFields(response.json(), ["request-secret"]);
+      },
+    );
 
     it("rejects cross-organization account paths before service access", async () => {
       let calls = 0;
@@ -4990,6 +5033,38 @@ describe("api foundation", () => {
         payload: {
           providerAccountId: "pa_google",
           externalResourceId: "123456789",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects a service owner connector mutation before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            calls += 1;
+            return siteConnector;
+          },
+        }),
+        () => ({
+          email: null,
+          organizationId: "org_demo",
+          principalType: "service",
+          provider: "searchops",
+          role: "owner",
+          source: "idp",
+          userId: "service_owner",
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        payload: {
+          externalResourceId: "123456789",
+          providerAccountId: "pa_google",
         },
       });
 

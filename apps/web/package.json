@@ -13,6 +13,8 @@
   "dependencies": {
     "@eslint/js": "^9.27.0",
     "@searchops/types": "workspace:*",
+    "@supabase/ssr": "0.12.1",
+    "@supabase/supabase-js": "2.110.3",
     "@types/node": "^22.15.18",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",

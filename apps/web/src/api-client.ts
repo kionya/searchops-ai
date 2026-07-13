@@ -12,11 +12,14 @@ function base64UrlJson(value: unknown): string {
 
 function mintServiceToken(secret: string): string {
   const issuedAt = Math.floor(Date.now() / 1000);
+  const role = process.env.SEARCHOPS_API_SERVICE_ROLE?.trim() || "owner";
   const header = base64UrlJson({ alg: "HS256", typ: "JWT" });
   const payload = base64UrlJson({
     sub: process.env.SEARCHOPS_API_SERVICE_SUBJECT?.trim() || "user_demo_owner",
     organization_id: process.env.SEARCHOPS_API_SERVICE_ORG?.trim() || "org_demo",
-    role: process.env.SEARCHOPS_API_SERVICE_ROLE?.trim() || "owner",
+    role,
+    token_use: "service",
+    user_role: role,
     iat: issuedAt,
     exp: issuedAt + TOKEN_TTL_SECONDS,
   });
@@ -56,6 +59,31 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
       headers.set(key, value);
     }
   }
+
+  return fetch(input, { cache: "no-store", ...init, headers });
+}
+
+export class ApiAuthenticationRequiredError extends Error {
+  readonly code = "authentication_required" as const;
+
+  constructor() {
+    super("Authentication is required.");
+    this.name = "ApiAuthenticationRequiredError";
+  }
+}
+
+export async function apiFetchAsUser(
+  input: string,
+  accessToken: string | null | undefined,
+  init: RequestInit = {},
+): Promise<Response> {
+  const token = accessToken?.trim();
+  if (!token) {
+    throw new ApiAuthenticationRequiredError();
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${token}`);
 
   return fetch(input, { cache: "no-store", ...init, headers });
 }
