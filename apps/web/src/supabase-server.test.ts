@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   cookies: vi.fn(),
   createServerClient: vi.fn(),
+  noStore: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({ cookies: mocks.cookies }));
+vi.mock("next/cache", () => ({ unstable_noStore: mocks.noStore }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: mocks.createServerClient }));
 
 import { getSupabaseServerClient } from "./supabase-server";
@@ -107,6 +109,10 @@ describe("getSupabaseServerClient", () => {
     mocks.createServerClient.mockReturnValue({ id: "client" });
 
     await getSupabaseServerClient();
+    expect(mocks.noStore).toHaveBeenCalledOnce();
+    expect(mocks.noStore.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createServerClient.mock.invocationCallOrder[0]!,
+    );
     expect(() =>
       getCookieAdapter().setAll([{ name: "session", value: "new", options: {} }], {}),
     ).not.toThrow();

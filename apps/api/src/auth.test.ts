@@ -104,7 +104,7 @@ describe("IdP token verification", () => {
     });
   });
 
-  it("prefers the top-level Supabase user_role claim and maps a user principal", () => {
+  it("uses a valid top-level user_role for the Supabase authenticated role", () => {
     const verifier = createHmacJwtIdpTokenVerifier({ secret });
     const claims = verifier.verify(
       signJwt({
@@ -137,6 +137,124 @@ describe("IdP token verification", () => {
         }),
       ),
     ).toMatchObject({ principalType: "service", role: "admin" });
+  });
+
+  it("maps an explicit token_use user as a user principal", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "explicit_user",
+          token_use: "user",
+        }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "viewer" });
+  });
+
+  it.each(["backend", 42])("rejects unsupported token_use value %j", (tokenUse) => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+    const verify = () =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "owner",
+          sub: "ambiguous_principal",
+          token_use: tokenUse,
+        }),
+      );
+
+    expect(verify).toThrow(AuthVerificationError);
+    expect(verify).toThrow("Bearer token has unsupported token_use.");
+  });
+
+  it("rejects conflicting valid role and user_role claims", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(() =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "conflicting_user",
+          user_role: "owner",
+        }),
+      ),
+    ).toThrow("Bearer token contains conflicting role claims.");
+  });
+
+  it("accepts matching valid role and user_role claims", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "matching_user",
+          user_role: "viewer",
+        }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "viewer" });
+  });
+
+  it.each([undefined, "invalid-role"])(
+    "rejects Supabase authenticated tokens without a valid user_role (%j)",
+    (userRole) => {
+      const verifier = createHmacJwtIdpTokenVerifier({ secret });
+      const payload: Record<string, unknown> = {
+        organization_id: "org_demo",
+        role: "authenticated",
+        sub: "supabase_user",
+      };
+      if (userRole !== undefined) {
+        payload.user_role = userRole;
+      }
+
+      expect(() => verifier.verify(signJwt(payload))).toThrow(
+        "Bearer token is missing a valid user_role.",
+      );
+    },
+  );
+
+  it("keeps a configured custom role claim authoritative", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "searchops_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "custom_role_user",
+        }),
+      ),
+    ).toMatchObject({ role: "admin" });
+    expect(() =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "conflicting_custom_role_user",
+          user_role: "owner",
+        }),
+      ),
+    ).toThrow("Bearer token contains conflicting role claims.");
+  });
+
+  it("parses user_role directly when it is the configured role claim", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "user_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          sub: "direct_user_role",
+          user_role: "editor",
+        }),
+      ),
+    ).toMatchObject({ role: "editor" });
   });
 
   it("keeps existing non-Supabase role tokens compatible as user principals", () => {

@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { unstable_noStore as noStore } from "next/cache";
 import { cookies } from "next/headers";
 
 export interface PublicSupabaseConfig {
@@ -25,6 +26,9 @@ function isServerComponentCookieWriteError(error: unknown): boolean {
 }
 
 export async function getSupabaseServerClient() {
+  // Middleware owns SSR response headers; server callers disable caching here.
+  noStore();
+
   const config = getPublicSupabaseConfig();
   if (config === null) {
     return null;
