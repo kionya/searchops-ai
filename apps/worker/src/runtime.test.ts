@@ -13,7 +13,8 @@ import {
   createCrawlJobProcessor,
   createGeoAnswerMonitorJobProcessor,
   createSchemaRichResultValidationJobProcessor,
-  formatWorkerFailureLog
+  formatWorkerFailureLog,
+  shouldEnableGeoLiveApis
 } from "./runtime.js";
 
 const html = `
@@ -211,6 +212,7 @@ describe("worker runtime", () => {
   it("processes BullMQ GEO answer monitor job data through persistence", async () => {
     const creates: unknown[] = [];
     const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityOwnership: createOwnedGeoVisibilityPort(creates),
       geoVisibilityReport: {
         async create(args) {
           creates.push(args);
@@ -218,35 +220,7 @@ describe("worker runtime", () => {
         }
       }
     };
-    const processor = createGeoAnswerMonitorJobProcessor(persistenceClient, {
-      async monitorGeoAnswers(input) {
-        expect(input.providers).toEqual(["chatgpt"]);
-        const observations = [
-          {
-            provider: "chatgpt" as const,
-            query: "best seo clinic",
-            locale: "ko-KR",
-            answerText: "Example Clinic is cited as a strong SEO clinic.",
-            citedUrls: ["https://exampleclinic.com/services/seo"],
-            observedAt: "2026-05-26T00:00:00.000Z",
-            source: "connector" as const
-          }
-        ];
-
-        return {
-          observations,
-          results: [
-            {
-              provider: "chatgpt",
-              status: "ok",
-              observations,
-              generatedBy: "connector",
-              liveExternalApis: "enabled"
-            }
-          ]
-        };
-      }
-    });
+    const processor = createGeoAnswerMonitorJobProcessor(persistenceClient);
 
     const result = await processor({
       data: {
@@ -273,12 +247,12 @@ describe("worker runtime", () => {
       monitorResults: [
         {
           provider: "chatgpt",
-          generatedBy: "connector"
+          generatedBy: "fixture"
         }
       ],
       visibilityReport: {
         generatedBy: "deterministic",
-        status: "strong"
+        observations: [expect.objectContaining({ source: "fixture" })]
       }
     });
     expect(creates).toHaveLength(1);
@@ -287,6 +261,7 @@ describe("worker runtime", () => {
   it("forwards GEO job organization and site identity to the per-job resolver", async () => {
     const resolvedJobs: unknown[] = [];
     const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityOwnership: createOwnedGeoVisibilityPort([]),
       geoVisibilityReport: {
         async create(args) {
           return args;
@@ -330,6 +305,51 @@ describe("worker runtime", () => {
     expect(result.monitorResults).toEqual([
       expect.objectContaining({ provider: "gemini", status: "setup_required" })
     ]);
+  });
+
+  it("does not forward a foreign GEO site to the per-job resolver", async () => {
+    let resolverCalls = 0;
+    let writes = 0;
+    const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityOwnership: {
+        async verify() { return false; },
+        async persist() { writes += 1; return false; }
+      },
+      geoVisibilityReport: {
+        async create(args) { writes += 1; return args; }
+      }
+    };
+    const processor = createGeoAnswerMonitorJobProcessor(persistenceClient, {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        resolverCalls += 1;
+        return { adapters: {}, credentialSources: {}, failures: {} };
+      }
+    });
+
+    await expect(processor({ data: geoRuntimeJob() })).rejects.toThrow(
+      "geo_site_ownership_mismatch",
+    );
+    expect(resolverCalls).toBe(0);
+    expect(writes).toBe(0);
+  });
+
+  it("enables GEO live mode only for supported platform keys or encrypted BYOK", () => {
+    expect(
+      shouldEnableGeoLiveApis({ geoPlatformApiKeys: { geo_chatgpt: "platform-key" } }),
+    ).toBe(true);
+    expect(shouldEnableGeoLiveApis({ credentialStorageMode: "encrypted" })).toBe(true);
+    expect(
+      shouldEnableGeoLiveApis({
+        bingApiKey: "unrelated-bing-key",
+        pagespeedApiKey: "unrelated-pagespeed-key",
+      } as never),
+    ).toBe(false);
+    expect(
+      shouldEnableGeoLiveApis({
+        geoPlatformApiKeys: { geo_copilot: "unsupported-key" },
+      } as never),
+    ).toBe(false);
   });
 
   it("processes BullMQ schema rich-result validation job data through persistence", async () => {
@@ -459,5 +479,38 @@ function createOwnedConnectorSyncPort(
     async verify() {
       return true;
     }
+  };
+}
+
+function createOwnedGeoVisibilityPort(
+  writes: unknown[],
+): GeoVisibilityPersistenceClient["geoVisibilityOwnership"] {
+  return {
+    async persist(input) {
+      writes.push(input.result);
+      return true;
+    },
+    async verify() {
+      return true;
+    }
+  };
+}
+
+function geoRuntimeJob() {
+  return {
+    organizationId: "org_geo_runtime",
+    siteId: "site_geo_runtime",
+    siteDomain: "exampleclinic.com",
+    requestedByUserId: "user_geo",
+    observedAt: "2026-07-14T00:00:00.000Z",
+    providers: ["gemini" as const],
+    target: {
+      siteId: "site_geo_runtime",
+      brandName: "Example Clinic",
+      domain: "exampleclinic.com",
+      locale: "ko-KR",
+      market: "KR"
+    },
+    queries: [{ query: "best seo clinic", locale: "ko-KR" }]
   };
 }

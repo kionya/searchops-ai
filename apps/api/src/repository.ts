@@ -969,6 +969,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         mentionRate: input.visibilityReport.mentionRate,
         citationRate: input.visibilityReport.citationRate,
         competitorCitationRate: input.visibilityReport.competitorCitationRate,
+        credentialSources: {},
         queryCount: input.visibilityReport.queryCount,
         providerCount: input.visibilityReport.providerCount,
         observations: input.visibilityReport.observations,

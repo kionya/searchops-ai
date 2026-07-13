@@ -1355,7 +1355,42 @@ export const GeoAnswerMonitorResultSchema = z.union([
     observations: z.array(GeoAnswerObservationSchema).length(0),
     error: GeoAnswerMonitorAccountMissingErrorSchema,
   }).strict(),
-]);
+]).superRefine((result, context) => {
+  const expectedSource = result.generatedBy === "fixture" ? "fixture" : "connector";
+  const expectedLiveExternalApis =
+    result.generatedBy === "fixture" ? "disabled" : "enabled";
+
+  if (result.liveExternalApis !== expectedLiveExternalApis) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "GEO generation mode must match live external API mode",
+      path: ["liveExternalApis"],
+    });
+  }
+  if (result.generatedBy === "fixture" && result.observations.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Fixture GEO results require fixture observations",
+      path: ["observations"],
+    });
+  }
+  for (const [index, observation] of result.observations.entries()) {
+    if (observation.provider !== result.provider) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO observation provider must match result provider",
+        path: ["observations", index, "provider"],
+      });
+    }
+    if (observation.source !== expectedSource) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO observation source must match generation mode",
+        path: ["observations", index, "source"],
+      });
+    }
+  }
+});
 
 export type GeoAnswerMonitorResult = z.infer<typeof GeoAnswerMonitorResultSchema>;
 
@@ -1386,27 +1421,30 @@ export const GeoVisibilityReportSchema = z.object({
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
 
-export const GeoVisibilityReportRecordSchema = z.object({
-  id: IdSchema,
-  siteId: IdSchema,
-  brandName: NonEmptyStringSchema,
-  domain: DomainSchema,
-  locale: z.string().min(2),
-  market: z.string().min(2),
-  status: GeoVisibilityStatusSchema,
-  score: PercentageScoreSchema,
-  mentionRate: PercentageScoreSchema,
-  citationRate: PercentageScoreSchema,
-  competitorCitationRate: PercentageScoreSchema,
-  queryCount: z.number().int().nonnegative(),
-  providerCount: z.number().int().nonnegative(),
-  observations: z.array(GeoAnswerObservationSchema),
-  citations: z.array(GeoCitationSchema),
-  checks: z.array(GeoVisibilityCheckSchema).min(1),
-  generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema,
-  createdAt: IsoDateTimeSchema,
-});
+export const GeoVisibilityReportRecordSchema = z
+  .object({
+    id: IdSchema,
+    siteId: IdSchema,
+    brandName: NonEmptyStringSchema,
+    domain: DomainSchema,
+    locale: z.string().min(2),
+    market: z.string().min(2),
+    status: GeoVisibilityStatusSchema,
+    score: PercentageScoreSchema,
+    mentionRate: PercentageScoreSchema,
+    citationRate: PercentageScoreSchema,
+    competitorCitationRate: PercentageScoreSchema,
+    credentialSources: GeoCredentialSourcesSchema,
+    queryCount: z.number().int().nonnegative(),
+    providerCount: z.number().int().nonnegative(),
+    observations: z.array(GeoAnswerObservationSchema),
+    citations: z.array(GeoCitationSchema),
+    checks: z.array(GeoVisibilityCheckSchema).min(1),
+    generatedBy: z.literal("deterministic"),
+    evaluatedAt: IsoDateTimeSchema,
+    createdAt: IsoDateTimeSchema,
+  })
+  .strict();
 
 export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
 
@@ -1444,18 +1482,36 @@ export type CreateGeoVisibilityReportWorkOrderResponse = z.infer<
   typeof CreateGeoVisibilityReportWorkOrderResponseSchema
 >;
 
-export const GeoAnswerMonitorJobPayloadSchema = z.object({
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  target: GeoTargetSchema,
-  queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
-  observedAt: IsoDateTimeSchema,
-  providers: GeoAnswerMonitorProviderListSchema.default([
-    ...DefaultGeoAnswerMonitorProviders,
-  ]),
-});
+export const GeoAnswerMonitorJobPayloadSchema = z
+  .object({
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    target: GeoTargetSchema,
+    queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
+    observedAt: IsoDateTimeSchema,
+    providers: GeoAnswerMonitorProviderListSchema.default([
+      ...DefaultGeoAnswerMonitorProviders,
+    ]),
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.target.siteId !== payload.siteId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO target site must match job site",
+        path: ["target", "siteId"],
+      });
+    }
+    if (payload.target.domain !== payload.siteDomain) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO target domain must match job site domain",
+        path: ["target", "domain"],
+      });
+    }
+  });
 
 export type GeoAnswerMonitorJobPayload = z.infer<typeof GeoAnswerMonitorJobPayloadSchema>;
 
@@ -1467,10 +1523,23 @@ export const GeoAnswerMonitorJobResultSchema = z
     requestedByUserId: IdSchema,
     observedAt: IsoDateTimeSchema,
     providers: GeoAnswerMonitorProviderListSchema,
+    credentialSources: GeoCredentialSourcesSchema,
     monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
     visibilityReport: GeoVisibilityReportSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((result, context) => {
+    const requestedProviders = new Set(result.providers);
+    for (const provider of Object.keys(result.credentialSources)) {
+      if (!requestedProviders.has(provider as GeoAnswerMonitorProvider)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "GEO credential sources must contain requested providers only",
+          path: ["credentialSources", provider],
+        });
+      }
+    }
+  });
 
 export type GeoAnswerMonitorJobResult = z.infer<typeof GeoAnswerMonitorJobResultSchema>;
 

@@ -315,6 +315,7 @@ const seededGeoVisibilityReport: GeoVisibilityReportRecord = {
   mentionRate: 67,
   citationRate: 67,
   competitorCitationRate: 33,
+  credentialSources: {},
   queryCount: 3,
   providerCount: 2,
   observations: [
@@ -3532,7 +3533,7 @@ describe("api foundation", () => {
         target: {
           siteId: "site_seed",
           brandName: "Example Clinic",
-          domain: "answers.exampleclinic.com",
+          domain: "exampleclinic.com",
           locale: "ko-KR",
           market: "KR",
         },
@@ -3561,7 +3562,7 @@ describe("api foundation", () => {
           target: {
             siteId: "site_seed",
             brandName: "Example Clinic",
-            domain: "answers.exampleclinic.com",
+            domain: "exampleclinic.com",
           },
         },
       },

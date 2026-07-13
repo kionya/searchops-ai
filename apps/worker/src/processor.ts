@@ -31,6 +31,7 @@ import {
   persistCrawlJobResult,
   persistSchemaRecommendationRecheck,
   verifyConnectorSyncRunOwnership,
+  verifyGeoVisibilitySiteOwnership,
   type CredentialKeyring,
   type CrawlAnalysisPersistenceClient,
   type ConnectorSyncPersistenceClient,
@@ -47,6 +48,7 @@ import {
   CrawlJobResultSchema,
   GeoAnswerMonitorJobPayloadSchema,
   GeoAnswerMonitorJobResultSchema,
+  GeoAnswerMonitorResultSchema,
   SchemaRichResultValidationJobPayloadSchema,
   SchemaRichResultValidationJobResultSchema,
   type ConnectorSyncJobPayload,
@@ -60,6 +62,7 @@ import {
   type GeoAnswerMonitorJobResult,
   type GeoAnswerMonitorProvider,
   type GeoAnswerMonitorResult,
+  type GeoCredentialSources,
   type SchemaRichResultValidationJobPayload,
   type SchemaRichResultValidationJobResult,
   type SchemaRichResultValidationResult
@@ -311,8 +314,9 @@ export async function processGeoAnswerMonitorJob(
     target: payload.target,
   };
   let monitorResult: GeoAnswerMonitorBatchResult;
+  let credentialSources: GeoCredentialSources = {};
   if (liveExternalApis === "disabled") {
-    monitorResult = await (options.monitorGeoAnswers ?? monitorFixtureGeoAnswersBatch)(request);
+    monitorResult = await monitorFixtureGeoAnswersBatch(request);
   } else {
     let resolved: ResolvedGeoAdapters;
     try {
@@ -328,6 +332,10 @@ export async function processGeoAnswerMonitorJob(
         ),
       };
     }
+    credentialSources = filterGeoCredentialSources(
+      resolved.credentialSources,
+      payload.providers,
+    );
     monitorResult = await monitorLiveGeoAnswers(request, resolved);
   }
   const visibilityReport =
@@ -350,6 +358,7 @@ export async function processGeoAnswerMonitorJob(
     requestedByUserId: payload.requestedByUserId,
     observedAt: payload.observedAt,
     providers: payload.providers,
+    credentialSources,
     monitorResults: [...monitorResult.results],
     visibilityReport
   });
@@ -415,11 +424,15 @@ async function monitorLiveGeoAnswers(
         return geoProviderFailureResult(provider, "account_missing");
       }
       try {
-        const result = await adapter.monitor({
+        const parsedResult = GeoAnswerMonitorResultSchema.safeParse(await adapter.monitor({
           observedAt: request.observedAt,
           queries: request.queries,
           target: request.target,
-        });
+        }));
+        if (!parsedResult.success) {
+          return geoProviderFailureResult(provider, "provider_request_failed");
+        }
+        const result = parsedResult.data;
         if (
           result.generatedBy !== "connector" ||
           result.liveExternalApis !== "enabled" ||
@@ -508,9 +521,45 @@ export async function processAndPersistGeoAnswerMonitorJob(
   persistenceClient: GeoVisibilityPersistenceClient,
   options: ProcessGeoAnswerMonitorJobOptions = {},
 ): Promise<GeoAnswerMonitorJobResult> {
-  const result = await processGeoAnswerMonitorJob(input, options);
-  await persistGeoAnswerMonitorJobResult(persistenceClient, result);
+  const payload = GeoAnswerMonitorJobPayloadSchema.parse(input);
+  let owned: boolean;
+  try {
+    owned = await verifyGeoVisibilitySiteOwnership(persistenceClient, {
+      organizationId: payload.organizationId,
+      siteId: payload.siteId,
+    });
+  } catch {
+    throw new Error("geo_site_ownership_verification_failed");
+  }
+  if (!owned) {
+    throw new Error("geo_site_ownership_mismatch");
+  }
+
+  const result = await processGeoAnswerMonitorJob(payload, options);
+  try {
+    await persistGeoAnswerMonitorJobResult(persistenceClient, result);
+  } catch (error) {
+    if (error instanceof Error && error.message === "geo_site_ownership_mismatch") {
+      throw error;
+    }
+    throw new Error("geo_visibility_persistence_failed");
+  }
   return result;
+}
+
+function filterGeoCredentialSources(
+  sources: GeoCredentialSources,
+  providers: readonly GeoAnswerMonitorProvider[],
+): GeoCredentialSources {
+  const requested = new Set(providers);
+  const filtered: GeoCredentialSources = {};
+  for (const provider of ["chatgpt", "claude", "gemini", "perplexity"] as const) {
+    const source = sources[provider];
+    if (requested.has(provider) && (source === "encrypted" || source === "platform")) {
+      filtered[provider] = source;
+    }
+  }
+  return filtered;
 }
 
 export async function processSchemaRichResultValidationJob(

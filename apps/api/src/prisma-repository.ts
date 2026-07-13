@@ -1811,6 +1811,7 @@ function toGeoVisibilityReportRecord(
     mentionRate: record.mentionRate,
     citationRate: record.citationRate,
     competitorCitationRate: record.competitorCitationRate,
+    credentialSources: record.credentialSources,
     queryCount: record.queryCount,
     providerCount: record.providerCount,
     observations: record.observations,

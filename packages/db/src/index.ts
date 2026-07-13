@@ -143,6 +143,9 @@ export {
   buildGeoVisibilityReportCreateArgs,
   createPrismaGeoVisibilityPersistenceClient,
   persistGeoAnswerMonitorJobResult,
+  verifyGeoVisibilitySiteOwnership,
+  type GeoVisibilityOwnershipInput,
+  type GeoVisibilityOwnershipPort,
   type GeoVisibilityPersistenceClient,
   type GeoVisibilityReportCreateArgs,
   type PersistGeoAnswerMonitorJobResultOutput

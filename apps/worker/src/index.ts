@@ -11,11 +11,22 @@ import {
   createCrawlWorker,
   createGeoAnswerMonitorWorker,
   createSchemaRichResultValidationWorker,
-  formatWorkerFailureLog
+  formatWorkerFailureLog,
+  shouldEnableGeoLiveApis
 } from "./runtime.js";
 
 const env = parseSearchOpsEnv(process.env);
 const connectorLiveExternalApis = shouldEnableConnectorLiveApis(env);
+const geoPlatformApiKeys = {
+  geo_chatgpt: env.SEARCHOPS_GEO_CHATGPT_API_KEY,
+  geo_claude: env.SEARCHOPS_GEO_CLAUDE_API_KEY,
+  geo_gemini: env.SEARCHOPS_GEO_GEMINI_API_KEY,
+  geo_perplexity: env.SEARCHOPS_GEO_PERPLEXITY_API_KEY
+};
+const geoLiveExternalApis = shouldEnableGeoLiveApis({
+  credentialStorageMode: env.SEARCHOPS_CREDENTIAL_STORAGE_MODE,
+  geoPlatformApiKeys
+});
 const credentialKeyring =
   env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
     ? undefined
@@ -53,19 +64,14 @@ const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker({
   processorOptions: {
     credentialKeyring,
     credentialStorageMode: env.SEARCHOPS_CREDENTIAL_STORAGE_MODE,
-    geoPlatformApiKeys: {
-      geo_chatgpt: env.SEARCHOPS_GEO_CHATGPT_API_KEY,
-      geo_claude: env.SEARCHOPS_GEO_CLAUDE_API_KEY,
-      geo_gemini: env.SEARCHOPS_GEO_GEMINI_API_KEY,
-      geo_perplexity: env.SEARCHOPS_GEO_PERPLEXITY_API_KEY
-    },
+    geoPlatformApiKeys,
     geoProviderModels: {
       chatgpt: env.SEARCHOPS_GEO_CHATGPT_MODEL,
       claude: env.SEARCHOPS_GEO_CLAUDE_MODEL,
       gemini: env.SEARCHOPS_GEO_GEMINI_MODEL,
       perplexity: env.SEARCHOPS_GEO_PERPLEXITY_MODEL
     },
-    liveExternalApis: connectorLiveExternalApis ? "enabled" : "disabled"
+    liveExternalApis: geoLiveExternalApis ? "enabled" : "disabled"
   }
 });
 

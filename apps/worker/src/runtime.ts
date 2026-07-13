@@ -53,6 +53,7 @@ import {
 } from "./processor.js";
 import {
   createDbProviderCredentialResolverStore,
+  createPlatformGeoProviderResolver,
   createProviderCredentialResolver,
   createRedisProviderAccountRefreshLock,
   type RedisProviderAccountRefreshLockClient
@@ -100,6 +101,21 @@ export interface CreateSchemaRichResultValidationWorkerOptions {
   readonly failedAt?: () => Date;
   readonly processorOptions?: ProcessSchemaRichResultValidationJobOptions;
   readonly queueName?: string;
+}
+
+export function shouldEnableGeoLiveApis(options: {
+  readonly credentialStorageMode?: ProcessGeoAnswerMonitorJobOptions["credentialStorageMode"];
+  readonly geoPlatformApiKeys?: ProcessGeoAnswerMonitorJobOptions["geoPlatformApiKeys"];
+}): boolean {
+  if (options.credentialStorageMode !== undefined) {
+    return true;
+  }
+  return (["geo_chatgpt", "geo_claude", "geo_gemini", "geo_perplexity"] as const).some(
+    (provider) => {
+      const key = options.geoPlatformApiKeys?.[provider];
+      return typeof key === "string" && key.trim().length > 0;
+    },
+  );
 }
 
 export function formatWorkerFailureLog(_error: unknown) {
@@ -330,16 +346,21 @@ export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWork
   const configuredResolver = options.processorOptions?.resolveGeoProviderAdapters;
   const runtimeResolver =
     configuredResolver === undefined &&
-    options.processorOptions?.liveExternalApis === "enabled" &&
-    options.processorOptions.credentialKeyring !== undefined
-      ? createProviderCredentialResolver({
-          fetch: options.processorOptions.fetch,
-          geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
-          geoProviderModels: options.processorOptions.geoProviderModels,
-          keyring: options.processorOptions.credentialKeyring,
-          storageMode: options.processorOptions.credentialStorageMode ?? "encrypted",
-          store: createDbProviderCredentialResolverStore(connectorPersistenceClient)
-        })
+    options.processorOptions?.liveExternalApis === "enabled"
+      ? options.processorOptions.credentialKeyring !== undefined
+        ? createProviderCredentialResolver({
+            fetch: options.processorOptions.fetch,
+            geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
+            geoProviderModels: options.processorOptions.geoProviderModels,
+            keyring: options.processorOptions.credentialKeyring,
+            storageMode: options.processorOptions.credentialStorageMode ?? "encrypted",
+            store: createDbProviderCredentialResolverStore(connectorPersistenceClient)
+          })
+        : createPlatformGeoProviderResolver({
+            fetch: options.processorOptions.fetch,
+            geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
+            geoProviderModels: options.processorOptions.geoProviderModels,
+          })
       : undefined;
   const processorOptions: ProcessGeoAnswerMonitorJobOptions = {
     ...options.processorOptions,

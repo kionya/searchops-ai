@@ -1767,6 +1767,54 @@ describe("types foundation", () => {
     expect(() =>
       GeoAnswerMonitorResultSchema.parse({
         provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "claude",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "connector",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "connector",
+          },
+        ],
+        generatedBy: "fixture",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
         status: "failed",
         observations: [
           {
@@ -1876,6 +1924,7 @@ describe("types foundation", () => {
       competitorCitationRate: visibilityReport.competitorCitationRate,
       queryCount: visibilityReport.queryCount,
       providerCount: visibilityReport.providerCount,
+      credentialSources: { chatgpt: "encrypted" },
       observations: visibilityReport.observations,
       citations: visibilityReport.citations,
       checks: visibilityReport.checks,
@@ -1883,6 +1932,13 @@ describe("types foundation", () => {
       evaluatedAt: visibilityReport.evaluatedAt,
       createdAt: "2026-05-24T00:00:00.000Z",
     });
+    expect(record.credentialSources).toEqual({ chatgpt: "encrypted" });
+    expect(() =>
+      GeoVisibilityReportRecordSchema.parse({
+        ...record,
+        credentialSources: { chatgpt: "plaintext" },
+      }),
+    ).toThrow();
 
     expect(
       CreateGeoVisibilityReportResponseSchema.parse({
@@ -1945,6 +2001,19 @@ describe("types foundation", () => {
       GeoVisibilityReportSchema.parse({
         ...visibilityReport,
         generatedBy: "llm",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [],
+        generatedBy: "fixture",
+        liveExternalApis: "disabled",
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
       }),
     ).toThrow();
   });
@@ -2017,6 +2086,24 @@ describe("types foundation", () => {
     });
 
     expect(payload.providers).toEqual(["chatgpt", "perplexity"]);
+    expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        target: { ...payload.target, siteId: "site_foreign" },
+      }).success,
+    ).toBe(false);
+    expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        target: { ...payload.target, domain: "foreign.example" },
+      }).success,
+    ).toBe(false);
+    expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        unexpected: "tenant-secret",
+      }).success,
+    ).toBe(false);
     const jobResult = GeoAnswerMonitorJobResultSchema.parse({
       organizationId: "org_1",
       siteId: "site_1",
@@ -2024,12 +2111,26 @@ describe("types foundation", () => {
       requestedByUserId: "user_1",
       observedAt: "2026-05-26T00:00:00.000Z",
       providers: ["chatgpt"],
+      credentialSources: { chatgpt: "encrypted" },
       monitorResults: [monitorResult],
       visibilityReport,
     });
+    expect(jobResult.credentialSources).toEqual({ chatgpt: "encrypted" });
     expect(jobResult.visibilityReport.generatedBy).toBe("deterministic");
     expect(() =>
       GeoAnswerMonitorJobResultSchema.parse({ ...jobResult, apiKey: "tenant-secret" }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorJobResultSchema.parse({
+        ...jobResult,
+        credentialSources: { claude: "platform" },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorJobResultSchema.parse({
+        ...jobResult,
+        credentialSources: { chatgpt: "plaintext" },
+      }),
     ).toThrow();
     expect(
       QueueGeoAnswerMonitorRequestSchema.parse({

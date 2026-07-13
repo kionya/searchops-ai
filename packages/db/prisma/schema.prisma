@@ -458,6 +458,7 @@ model GeoVisibilityReport {
   mentionRate            Int
   citationRate           Int
   competitorCitationRate Int
+  credentialSources      Json     @default("{}")
   queryCount             Int
   providerCount          Int
   observations           Json     @default("[]")

@@ -1884,10 +1884,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    if (!isDomainAllowedForSite(input.target.domain, site.domain)) {
+    if (input.target.domain !== site.domain) {
       reply.status(400).send({
         error: "validation_error",
-        message: "GEO monitor target domain must be the site domain or one of its subdomains",
+        message: "GEO monitor target domain must match the site domain",
       });
       return;
     }

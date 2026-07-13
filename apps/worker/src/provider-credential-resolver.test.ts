@@ -17,6 +17,7 @@ import type {
 
 import {
   createProviderCredentialResolver,
+  createPlatformGeoProviderResolver,
   createRedisProviderAccountRefreshLock,
   type ProviderCredentialResolverStore,
 } from "./provider-credential-resolver.js";
@@ -119,7 +120,6 @@ describe("provider credential resolver", () => {
   });
 
   it.each([
-    ["cross-tenant", { organizationId: "org_b" }],
     ["non-default", { isDefault: false }],
     ["revoked", { status: "revoked" as const }],
   ])("does not decrypt a %s GEO account and uses the platform key", async (_name, change) => {
@@ -153,6 +153,47 @@ describe("provider credential resolver", () => {
     expect(resolved.credentialSources).toEqual({ chatgpt: "platform" });
     expect(resolved.failures).toEqual({});
     expect(authorizationHeaders).toEqual(["Bearer platform-key"]);
+  });
+
+  it.each([
+    ["cross-tenant", { organizationId: "org_b" }],
+    ["wrong-provider", { provider: "geo_claude" as const }],
+    ["wrong-auth", { authType: "oauth2" }],
+    ["malformed-secret", { credentialIv: "not-base64" }],
+  ])("fails closed for a non-null %s GEO account invariant mismatch", async (_name, change) => {
+    const authorizationHeaders: string[] = [];
+    const unsafeAccount = {
+      ...encryptedGeoAccount("must-not-decrypt"),
+      ...change,
+    };
+    const baseStore = createStore({
+      sites: [{ id: "site_a", organizationId: "org_a" }],
+    });
+    const resolver = createProviderCredentialResolver({
+      fetch: successfulGeoFetch(authorizationHeaders),
+      geoPlatformApiKeys: { geo_chatgpt: "platform-key" },
+      keyring,
+      storageMode: "encrypted",
+      store: {
+        ...baseStore,
+        async getDefaultGeoProviderAccount() {
+          return unsafeAccount as never;
+        },
+      },
+    });
+
+    const resolved = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt"]),
+    );
+
+    expect(resolved).toEqual({
+      adapters: {},
+      credentialSources: {},
+      failures: { chatgpt: "provider_request_failed" },
+    });
+    expect(authorizationHeaders).toEqual([]);
+    expect(JSON.stringify(resolved)).not.toContain("must-not-decrypt");
+    expect(JSON.stringify(resolved)).not.toContain("platform-key");
   });
 
   it("returns a safe failure when a valid default GEO account cannot be decrypted", async () => {
@@ -217,6 +258,27 @@ describe("provider credential resolver", () => {
       },
     ]);
     expect(JSON.stringify(resolved)).not.toContain("claude-platform-key");
+  });
+
+  it("creates only requested supported adapters in platform-only GEO mode", async () => {
+    const authorizationHeaders: string[] = [];
+    const resolver = createPlatformGeoProviderResolver({
+      fetch: successfulGeoFetch(authorizationHeaders),
+      geoPlatformApiKeys: {
+        geo_chatgpt: "chatgpt-platform-key",
+        geo_copilot: "unsupported-key",
+      } as never,
+    });
+
+    const resolved = await resolver.resolveGeoProviderAdapters(
+      geoJob("org_a", "site_a", ["chatgpt", "copilot"]),
+    );
+    await resolved.adapters.chatgpt?.monitor(geoMonitorRequest("site_a"));
+
+    expect(Object.keys(resolved.adapters)).toEqual(["chatgpt"]);
+    expect(resolved.credentialSources).toEqual({ chatgpt: "platform" });
+    expect(resolved.failures).toEqual({ copilot: "account_missing" });
+    expect(authorizationHeaders).toEqual(["Bearer chatgpt-platform-key"]);
   });
 
   it("maps every supported GEO monitor provider to its account provider", async () => {

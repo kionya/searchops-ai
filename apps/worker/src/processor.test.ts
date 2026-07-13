@@ -1365,7 +1365,8 @@ describe("processCrawlJob", () => {
     expect(JSON.stringify(runUpdates)).not.toContain("credential_keyring_invalid");
   });
 
-  it("processes GEO answer monitor jobs through an injected monitor adapter", async () => {
+  it("does not invoke an injected GEO monitor callback when live APIs are disabled", async () => {
+    let monitorCalls = 0;
     const result = await processGeoAnswerMonitorJob(
       {
         organizationId: "org_geo",
@@ -1384,44 +1385,15 @@ describe("processCrawlJob", () => {
         queries: [{ query: "best seo clinic", locale: "ko-KR" }]
       },
       {
-        async monitorGeoAnswers(input) {
-          expect(input).toMatchObject({
-            observedAt: "2026-05-26T00:00:00.000Z",
-            providers: ["chatgpt"],
-            target: {
-              siteId: "site_geo",
-              domain: "exampleclinic.com"
-            }
-          });
-
-          const observations = [
-            {
-              provider: "chatgpt" as const,
-              query: "best seo clinic",
-              locale: "ko-KR",
-              answerText: "Example Clinic is cited for SEO clinic research.",
-              citedUrls: ["https://exampleclinic.com/services/seo"],
-              observedAt: "2026-05-26T00:00:00.000Z",
-              source: "connector" as const
-            }
-          ];
-
-          return {
-            observations,
-            results: [
-              {
-                provider: "chatgpt",
-                status: "ok",
-                observations,
-                generatedBy: "connector",
-                liveExternalApis: "enabled"
-              }
-            ]
-          };
+        liveExternalApis: "disabled",
+        async monitorGeoAnswers() {
+          monitorCalls += 1;
+          throw new Error("live callback must not run");
         }
       },
     );
 
+    expect(monitorCalls).toBe(0);
     expect(result).toMatchObject({
       organizationId: "org_geo",
       siteId: "site_geo",
@@ -1429,16 +1401,13 @@ describe("processCrawlJob", () => {
       monitorResults: [
         {
           provider: "chatgpt",
-          generatedBy: "connector",
-          liveExternalApis: "enabled"
+          generatedBy: "fixture",
+          liveExternalApis: "disabled"
         }
       ],
       visibilityReport: {
         generatedBy: "deterministic",
-        status: "strong",
-        score: 90,
-        mentionRate: 100,
-        citationRate: 100
+        mentionRate: 100
       }
     });
   });
@@ -1557,8 +1526,77 @@ describe("processCrawlJob", () => {
       },
     ]);
     expect(result.visibilityReport.observations).toHaveLength(1);
+    expect(result.credentialSources).toEqual({ chatgpt: "encrypted", claude: "platform" });
     expect(JSON.stringify(result)).not.toContain("tenant-secret");
     expect(JSON.stringify(result)).not.toContain("provider.test");
+  });
+
+  it("isolates a malformed GEO adapter result and preserves another provider's success", async () => {
+    const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt", "claude"]), {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        return {
+          adapters: {
+            chatgpt: {
+              liveExternalApis: "enabled",
+              provider: "chatgpt",
+              async monitor(request) {
+                return {
+                  generatedBy: "connector",
+                  liveExternalApis: "enabled",
+                  observations: [
+                    {
+                      answerText: "Example Clinic is cited.",
+                      citedUrls: [],
+                      locale: "ko-KR",
+                      observedAt: request.observedAt!,
+                      provider: "chatgpt",
+                      query: request.queries[0]!.query,
+                      source: "connector",
+                    },
+                  ],
+                  provider: "chatgpt",
+                  status: "ok",
+                };
+              },
+            },
+            claude: {
+              liveExternalApis: "enabled",
+              provider: "claude",
+              async monitor() {
+                return {
+                  body: "api_key=tenant-secret",
+                  generatedBy: "connector",
+                  liveExternalApis: "enabled",
+                  observations: [],
+                  provider: "claude",
+                  status: "ok",
+                } as never;
+              },
+            },
+          },
+          credentialSources: { chatgpt: "platform", claude: "encrypted" },
+          failures: {},
+        };
+      },
+    });
+
+    expect(result.monitorResults).toEqual([
+      expect.objectContaining({ provider: "chatgpt", status: "ok" }),
+      {
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "claude",
+        status: "failed",
+      },
+    ]);
+    expect(result.credentialSources).toEqual({ chatgpt: "platform", claude: "encrypted" });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
   });
 
   it("rejects fixture-sourced observations returned by a live GEO adapter", async () => {
@@ -1655,11 +1693,74 @@ describe("processCrawlJob", () => {
       ["claude", "ok"],
     ]);
     expect(result.monitorResults.every((item) => item.generatedBy === "fixture")).toBe(true);
+    expect(result.credentialSources).toEqual({});
+  });
+
+  it("rejects foreign GEO site ownership before resolver or persistence calls", async () => {
+    let resolverCalls = 0;
+    let persistenceCalls = 0;
+    const persistenceClient = {
+      geoVisibilityOwnership: {
+        async verify(input: unknown) {
+          expect(input).toEqual({ organizationId: "org_geo", siteId: "site_geo" });
+          return false;
+        },
+        async persist() {
+          persistenceCalls += 1;
+          return false;
+        },
+      },
+      geoVisibilityReport: {
+        async create() {
+          persistenceCalls += 1;
+        },
+      },
+    } as unknown as GeoVisibilityPersistenceClient;
+
+    await expect(
+      processAndPersistGeoAnswerMonitorJob(geoJob(["chatgpt"]), persistenceClient, {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
+          resolverCalls += 1;
+          return { adapters: {}, credentialSources: {}, failures: {} };
+        },
+      }),
+    ).rejects.toThrow("geo_site_ownership_mismatch");
+    expect(resolverCalls).toBe(0);
+    expect(persistenceCalls).toBe(0);
+  });
+
+  it("rejects GEO target identity mismatches before resolver execution", async () => {
+    let resolverCalls = 0;
+    const mismatched = {
+      ...geoJob(["chatgpt"]),
+      target: { ...geoJob(["chatgpt"]).target, domain: "foreign.example" },
+    };
+
+    await expect(
+      processGeoAnswerMonitorJob(mismatched, {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
+          resolverCalls += 1;
+          return { adapters: {}, credentialSources: {}, failures: {} };
+        },
+      }),
+    ).rejects.toThrow();
+    expect(resolverCalls).toBe(0);
   });
 
   it("persists GEO answer monitor results through the DB boundary", async () => {
     const creates: unknown[] = [];
     const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityOwnership: {
+        async verify() {
+          return true;
+        },
+        async persist(input) {
+          creates.push(input.result);
+          return true;
+        },
+      },
       geoVisibilityReport: {
         async create(args) {
           creates.push(args);
@@ -1687,30 +1788,36 @@ describe("processCrawlJob", () => {
       },
       persistenceClient,
       {
-        async monitorGeoAnswers() {
-          const observations = [
-            {
-              provider: "perplexity" as const,
-              query: "medical seo checklist",
-              locale: "ko-KR",
-              answerText: "Example Clinic publishes a medical SEO checklist.",
-              citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
-              observedAt: "2026-05-26T01:00:00.000Z",
-              source: "connector" as const
-            }
-          ];
-
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
           return {
-            observations,
-            results: [
-              {
+            adapters: {
+              perplexity: {
                 provider: "perplexity",
-                status: "ok",
-                observations,
-                generatedBy: "connector",
-                liveExternalApis: "enabled"
-              }
-            ]
+                liveExternalApis: "enabled",
+                async monitor(request) {
+                  return {
+                    provider: "perplexity",
+                    status: "ok",
+                    observations: [
+                      {
+                        provider: "perplexity",
+                        query: "medical seo checklist",
+                        locale: "ko-KR",
+                        answerText: "Example Clinic publishes a medical SEO checklist.",
+                        citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
+                        observedAt: request.observedAt!,
+                        source: "connector",
+                      },
+                    ],
+                    generatedBy: "connector",
+                    liveExternalApis: "enabled",
+                  };
+                },
+              },
+            },
+            credentialSources: { perplexity: "platform" },
+            failures: {},
           };
         }
       },
@@ -1719,13 +1826,12 @@ describe("processCrawlJob", () => {
     expect(result.visibilityReport.generatedBy).toBe("deterministic");
     expect(creates).toHaveLength(1);
     expect(creates[0]).toMatchObject({
-      data: {
-        brandName: "Example Clinic",
-        domain: "exampleclinic.com",
+      credentialSources: { perplexity: "platform" },
+      siteId: "site_geo",
+      visibilityReport: {
         generatedBy: "deterministic",
-        siteId: "site_geo",
-        status: "strong"
-      }
+        status: "strong",
+      },
     });
   });
 
