@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CompleteGoogleOAuthResponseSchema,
   CredentialStorageModeSchema,
   ProviderAccountDetailResponseSchema,
   ProviderAccountListResponseSchema,
@@ -198,5 +199,39 @@ describe("provider credential contracts", () => {
     expect(() => schema.parse({ [key]: responseValue({ ...siteConnector, config: { accessToken: "fake-access-token" } }) })).toThrow();
     expect(() => schema.parse({ [key]: responseValue(siteConnector) })).not.toThrow();
     expect(() => schema.parse({ [key]: responseValue({ ...siteConnector, config: { credentialCiphertext: "fake-ciphertext" } }) })).toThrow();
+  });
+
+  it("accepts only metadata in the Google OAuth completion response", () => {
+    const completion = {
+      account: providerAccount,
+      siteConnectors: [
+        {
+          ...siteConnector,
+          externalResourceId: null,
+          status: "needs_configuration" as const,
+        },
+      ],
+      status: "connected" as const,
+    };
+
+    expect(CompleteGoogleOAuthResponseSchema.parse(completion)).toEqual(completion);
+
+    for (const leaked of [
+      { account: { ...providerAccount, accessToken: "access-secret" } },
+      { account: { ...providerAccount, refreshToken: "refresh-secret" } },
+      { account: { ...providerAccount, credentialCiphertext: "ciphertext-secret" } },
+      { account: { ...providerAccount, credentialIv: "iv-secret" } },
+      { account: { ...providerAccount, credentialAuthTag: "tag-secret" } },
+      { account: { ...providerAccount, encryptionKeyId: "key-secret" } },
+      {
+        siteConnectors: [
+          { ...siteConnector, config: { nested: { apiKey: "api-key-secret" } } },
+        ],
+      },
+    ]) {
+      expect(() =>
+        CompleteGoogleOAuthResponseSchema.parse({ ...completion, ...leaked }),
+      ).toThrow();
+    }
   });
 });

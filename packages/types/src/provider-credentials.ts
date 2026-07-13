@@ -185,3 +185,14 @@ export const SiteConnectorDetailResponseSchema = z
   })
   .strict();
 export type SiteConnectorDetailResponse = z.infer<typeof SiteConnectorDetailResponseSchema>;
+
+export const CompleteGoogleOAuthResponseSchema = z
+  .object({
+    account: ProviderAccountMetadataSchema,
+    siteConnectors: z.array(SiteConnectorSchema),
+    status: z.literal("connected"),
+  })
+  .strict();
+export type CompleteGoogleOAuthResponse = z.infer<
+  typeof CompleteGoogleOAuthResponseSchema
+>;

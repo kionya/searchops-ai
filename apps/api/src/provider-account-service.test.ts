@@ -19,6 +19,7 @@ import type {
 import {
   ProviderAccountServiceError,
   createProviderAccountService,
+  type ProviderAccountService,
 } from "./provider-account-service.js";
 
 const now = "2026-07-14T00:00:00.000Z";
@@ -910,6 +911,76 @@ describe("ProviderAccountService", () => {
     ).rejects.toEqual(
       new ProviderAccountServiceError("provider_account_provider_mismatch"),
     );
+  });
+
+  it.each(["gsc", "ga4"] as const)(
+    "creates a %s placeholder with a null resource for Google OAuth",
+    async (provider) => {
+      const calls: Parameters<ProviderCredentialStore["upsertSiteConnector"]>[0][] = [];
+      const service = createProviderAccountService({
+        keyring: keyring(),
+        store: createStore({
+          async upsertSiteConnector(input) {
+            calls.push(input);
+            return connector(provider, {
+              externalResourceId: null,
+              organizationId: input.organizationId,
+              providerAccountId: input.providerAccountId,
+              siteId: input.siteId,
+              status: "needs_configuration",
+            });
+          },
+        }),
+      });
+
+      await expect(
+        service.upsertSiteConnector({
+          externalResourceId: null,
+          organizationId: "org_a",
+          provider,
+          providerAccountId: "pa_google",
+          siteId: "site_a",
+        }),
+      ).resolves.toMatchObject({
+        externalResourceId: null,
+        provider,
+        status: "needs_configuration",
+      });
+      expect(calls).toEqual([
+        {
+          externalResourceId: null,
+          organizationId: "org_a",
+          provider,
+          providerAccountId: "pa_google",
+          siteId: "site_a",
+        },
+      ]);
+    },
+  );
+
+  it("rejects a null Bing resource before persistence", async () => {
+    let writes = 0;
+    const service = createProviderAccountService({
+      keyring: keyring(),
+      store: createStore({
+        async upsertSiteConnector(input) {
+          writes += 1;
+          return connector(input.provider);
+        },
+      }),
+    });
+    const invalidInput = {
+      externalResourceId: null,
+      organizationId: "org_a",
+      provider: "bing",
+      providerAccountId: "pa_bing",
+      siteId: "site_a",
+    } as unknown as Parameters<ProviderAccountService["upsertSiteConnector"]>[0];
+
+    await expect(
+      service.upsertSiteConnector(invalidInput),
+    ).rejects.toEqual(new ProviderAccountServiceError("validation_error"));
+    expect(writes).toBe(0);
   });
 
   it("maps an atomic store scope guard when bindings change after service validation", async () => {

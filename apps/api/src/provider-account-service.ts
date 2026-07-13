@@ -73,6 +73,15 @@ const UpsertSiteConnectorInputSchema = SiteConnectorLookupInputSchema.extend({
   provider: SiteConnectorProviderSchema,
   ...UpsertSiteConnectorRequestSchema.shape,
 });
+const UpsertGooglePlaceholderInputSchema = SiteConnectorLookupInputSchema.extend({
+  externalResourceId: z.null(),
+  provider: GoogleConnectorProviderSchema,
+  providerAccountId: IdSchema,
+});
+const InternalUpsertSiteConnectorInputSchema = z.union([
+  UpsertSiteConnectorInputSchema,
+  UpsertGooglePlaceholderInputSchema,
+]);
 const GoogleAccountInputSchema = z
   .object({
     accessToken: z.string().min(1),
@@ -155,13 +164,23 @@ export interface ProviderAccountService {
     readonly organizationId: string;
     readonly siteId: string;
   }): Promise<SiteConnector[]>;
-  upsertSiteConnector(input: {
-    readonly externalResourceId: string;
-    readonly organizationId: string;
-    readonly provider: SiteConnectorProvider;
-    readonly providerAccountId: string;
-    readonly siteId: string;
-  }): Promise<SiteConnector>;
+  upsertSiteConnector(
+    input:
+      | {
+          readonly externalResourceId: string;
+          readonly organizationId: string;
+          readonly provider: SiteConnectorProvider;
+          readonly providerAccountId: string;
+          readonly siteId: string;
+        }
+      | {
+          readonly externalResourceId: null;
+          readonly organizationId: string;
+          readonly provider: "gsc" | "ga4";
+          readonly providerAccountId: string;
+          readonly siteId: string;
+        },
+  ): Promise<SiteConnector>;
   deleteSiteConnector(input: {
     readonly organizationId: string;
     readonly provider: SiteConnectorProvider;
@@ -382,11 +401,11 @@ export function createProviderAccountService({
     },
 
     async upsertSiteConnector(input) {
-      const parsed = parseBoundary(UpsertSiteConnectorInputSchema, input);
-      const externalResourceId = normalizeExternalResource(
-        parsed.provider,
-        parsed.externalResourceId,
-      );
+      const parsed = parseBoundary(InternalUpsertSiteConnectorInputSchema, input);
+      const externalResourceId =
+        parsed.externalResourceId === null
+          ? null
+          : normalizeExternalResource(parsed.provider, parsed.externalResourceId);
       return mapStoreErrors(() =>
         store.upsertSiteConnector({
           organizationId: parsed.organizationId,
