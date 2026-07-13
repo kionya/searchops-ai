@@ -1,7 +1,7 @@
 # Multi-tenant provider credentials design
 
 Date: 2026-07-13
-Status: Approved design, pending written-spec review
+Status: Approved for implementation planning
 
 ## 1. Objective
 
