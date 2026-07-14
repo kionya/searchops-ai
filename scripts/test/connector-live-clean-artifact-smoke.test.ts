@@ -44,6 +44,18 @@ describe("connector live clean-artifact smoke", () => {
     assertOutsideAndTrackedState(fixture, trackedBefore);
   }, 30_000);
 
+  it("removes generated output when an artifact was originally absent", () => {
+    const fixture = createTransactionFixture({ absentArtifactIndex: 2 });
+    const trackedBefore = readTrackedStatus();
+
+    const result = runFixtureSmoke(fixture);
+
+    expect(result.status).toBe(0);
+    expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
+    expect(existsSync(resolve(fixture.repoRoot, artifactPaths[2]))).toBe(false);
+    assertOutsideAndTrackedState(fixture, trackedBefore);
+  }, 30_000);
+
   it("reports missing corepack and restores artifact hashes and tracked state", () => {
     const pathDirectory = createLocalTemporaryDirectory("path-");
     symlinkSync(resolveExecutable("git"), join(pathDirectory, "git"));
@@ -272,8 +284,10 @@ interface TransactionFixture {
 }
 
 function createTransactionFixture({
+  absentArtifactIndex,
   symlinkPackagesOutside = false,
 }: {
+  readonly absentArtifactIndex?: number;
   readonly symlinkPackagesOutside?: boolean;
 } = {}): TransactionFixture {
   const containerRoot = createLocalTemporaryDirectory("fixture-");
@@ -287,6 +301,9 @@ function createTransactionFixture({
     symlinkSync(outsideRoot, join(fixtureRepoRoot, "packages"));
   } else {
     for (const [index, artifactPath] of artifactPaths.entries()) {
+      if (index === absentArtifactIndex) {
+        continue;
+      }
       const target = resolve(fixtureRepoRoot, artifactPath);
       mkdirSync(join(target, "nested"), { recursive: true });
       writeFileSync(join(target, "fixture.txt"), `original-${index}\n`);
