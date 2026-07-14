@@ -14,20 +14,41 @@
 
 ### Vercel Web
 
-아래 값만 Web 프로젝트의 Production 환경에 넣는다. Supabase publishable key는 브라우저 공개를 전제로 한 값이며 service-role key가 아니다.
+Web 프로젝트에는 현재 Web runtime이 실제로 소비하는 아래 두 범주의 값만 넣는다. 공개 설정과 서버 전용 secret을 같은 것으로 취급하지 않는다.
 
 <!-- VERCEL_ENV_BEGIN -->
+
+#### 브라우저 공개 가능 설정
+
+<!-- VERCEL_PUBLIC_CONFIG_BEGIN -->
+
 - `SEARCHOPS_API_BASE_URL=https://api.searchops.example`
 - `SEARCHOPS_PUBLIC_APP_URL=https://app.searchops.example`
 - `NEXT_PUBLIC_SUPABASE_URL=https://project-ref.supabase.co`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_synthetic_example`
+<!-- VERCEL_PUBLIC_CONFIG_END -->
+
+Supabase publishable key는 브라우저 공개를 전제로 한 값이며 service-role key가 아니다. `NEXT_PUBLIC_` 값은 client bundle에 노출될 수 있다.
+
+#### Web 서버 전용 secret
+
+<!-- VERCEL_SERVER_SECRETS_BEGIN -->
+
+- `SEARCHOPS_IDP_JWT_HS256_SECRET`: 남아 있는 service-auth ops 서버 호출용
+- `SEARCHOPS_OPS_ALERT_SINK_TOKEN`: Web alert sink의 bearer 검증용
+- `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`: Web log-drain sink의 bearer 검증용
+
+세 값은 non-`NEXT_PUBLIC` 서버 전용 secret이다. Client Component에서 읽거나 브라우저 bundle, 응답, 로그에 노출하면 안 된다.
+
+<!-- VERCEL_SERVER_SECRETS_END -->
 <!-- VERCEL_ENV_END -->
 
-Vercel에는 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `REDIS_URL`, credential encryption keyring, Google client secret/state secret, provider API key, 고객 token, GA4 Property ID, Bing key를 넣지 않는다. `turbo run build` 또는 Vercel build가 이 server-only 값들을 요구한다면 Web 설정으로 우회하지 말고 build dependency를 수정한다. Vercel이 관리하는 production runtime을 사용하므로 `NODE_ENV`도 수동으로 덮어쓰지 않는다.
+Vercel에는 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `REDIS_URL`, credential encryption keyring, Google client secret/state secret, provider API key, 고객 token, 고객 ID, GA4 Property ID, Bing key를 넣지 않는다. `turbo run build` 또는 Vercel build가 이 금지된 backend 값을 요구한다면 Web 설정으로 우회하지 말고 build dependency를 수정한다. Vercel이 관리하는 production runtime을 사용하므로 `NODE_ENV`도 수동으로 덮어쓰지 않는다.
 
 ### Railway API
 
 <!-- RAILWAY_API_ENV_BEGIN -->
+
 필수 runtime:
 
 - `NODE_ENV=production`
@@ -71,6 +92,7 @@ Google OAuth 앱:
 ### Railway Worker
 
 <!-- RAILWAY_WORKER_ENV_BEGIN -->
+
 필수 runtime:
 
 - `NODE_ENV=production`
@@ -170,7 +192,7 @@ corepack pnpm db:migrate:status
 
 ### 4.6 Web 배포
 
-마지막으로 Web을 배포한다. Vercel에는 browser-safe 값만 있는지 확인하고 ProviderAccount/SiteConnector UI와 user-principal `/ops/readiness` 호출을 확인한다.
+마지막으로 Web을 배포한다. Vercel에는 브라우저 공개 가능 설정과 위에 명시한 Web 서버 전용 secret만 있고 DB/Redis/encryption/provider/customer secret은 없는지 확인한다. ProviderAccount/SiteConnector UI와 user-principal `/ops/readiness` 호출도 확인한다.
 
 ### 4.7 Backfill dry-run, apply, reconcile
 

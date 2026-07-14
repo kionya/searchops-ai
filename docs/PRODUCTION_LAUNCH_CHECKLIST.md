@@ -5,6 +5,8 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 ## Phase 6 Connectors
 
 - [ ] API and Worker use the same `dual`/`encrypted` storage mode and active/previous encryption keyring; Vercel has none of these values.
+- [ ] Vercel public config is limited to the documented API/app/Supabase browser-safe values; `NEXT_PUBLIC_` values are treated as client-visible.
+- [ ] Vercel server-only secrets include the currently consumed `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`, and `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`; none is exposed through client code or a `NEXT_PUBLIC_` alias.
 - [ ] Google OAuth client ID/secret/redirect/state are on Railway API; the same client ID/secret are on Railway Worker for refresh.
 - [ ] Organization Google/Bing/GEO credentials exist only as encrypted `ProviderAccount` payloads.
 - [ ] Each site has the exact GSC property, numeric GA4 Property ID, and verified Bing resource in `SiteConnector` metadata.

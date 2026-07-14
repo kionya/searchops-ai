@@ -97,9 +97,11 @@ describe("operational readiness", () => {
       },
     });
 
-    expect(dualReport.items.find((item) => item.id === "credential-storage-cutover")).toMatchObject({
-      status: "manual_followup",
-    });
+    expect(dualReport.items.find((item) => item.id === "credential-storage-cutover")).toMatchObject(
+      {
+        status: "manual_followup",
+      },
+    );
     expect(
       dualReport.items.find((item) => item.id === "credential-storage-cutover")?.summary,
     ).toMatch(/경고|legacy/i);
@@ -174,12 +176,16 @@ describe("operational readiness", () => {
       generatedAt,
     });
 
-    expect(missing.items.find((item) => item.id === "credential-encryption-keyring")).toMatchObject({
-      status: "blocked",
-    });
-    expect(invalid.items.find((item) => item.id === "credential-encryption-keyring")).toMatchObject({
-      status: "blocked",
-    });
+    expect(missing.items.find((item) => item.id === "credential-encryption-keyring")).toMatchObject(
+      {
+        status: "blocked",
+      },
+    );
+    expect(invalid.items.find((item) => item.id === "credential-encryption-keyring")).toMatchObject(
+      {
+        status: "blocked",
+      },
+    );
     expect(valid.items.find((item) => item.id === "credential-encryption-keyring")).toMatchObject({
       status: "configured",
     });
@@ -212,12 +218,22 @@ describe("connector provisioning documentation", () => {
     }
   });
 
-  it("documents a browser-safe Vercel block and exact rollout commands", () => {
+  it("separates Vercel public config from required server-only Web secrets", () => {
     const provisioning = readRepoFile("docs/PROVISIONING_RUNBOOK.md");
     const vercelBlock = betweenMarkers(
       provisioning,
       "<!-- VERCEL_ENV_BEGIN -->",
       "<!-- VERCEL_ENV_END -->",
+    );
+    const publicConfigBlock = betweenMarkers(
+      vercelBlock,
+      "<!-- VERCEL_PUBLIC_CONFIG_BEGIN -->",
+      "<!-- VERCEL_PUBLIC_CONFIG_END -->",
+    );
+    const serverSecretsBlock = betweenMarkers(
+      vercelBlock,
+      "<!-- VERCEL_SERVER_SECRETS_BEGIN -->",
+      "<!-- VERCEL_SERVER_SECRETS_END -->",
     );
 
     for (const forbiddenKey of [
@@ -232,14 +248,28 @@ describe("connector provisioning documentation", () => {
     ]) {
       expect(vercelBlock).not.toContain(forbiddenKey);
     }
-    for (const allowedKey of [
+    for (const publicConfigKey of [
       "SEARCHOPS_API_BASE_URL",
       "SEARCHOPS_PUBLIC_APP_URL",
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     ]) {
-      expect(vercelBlock).toContain(allowedKey);
+      expect(publicConfigBlock).toContain(publicConfigKey);
     }
+    for (const serverSecretKey of [
+      "SEARCHOPS_IDP_JWT_HS256_SECRET",
+      "SEARCHOPS_OPS_ALERT_SINK_TOKEN",
+      "SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN",
+    ]) {
+      expect(serverSecretsBlock).toContain(serverSecretKey);
+      expect(publicConfigBlock).not.toContain(serverSecretKey);
+    }
+    expect(serverSecretsBlock).toMatch(/server-only|서버 전용/i);
+    expect(serverSecretsBlock).toMatch(/client|브라우저/i);
+  });
+
+  it("documents exact rollout commands", () => {
+    const provisioning = readRepoFile("docs/PROVISIONING_RUNBOOK.md");
 
     for (const command of [
       "corepack pnpm db:migrate:status",
@@ -255,6 +285,22 @@ describe("connector provisioning documentation", () => {
     expect(provisioning).toContain("openssl rand -base64 32");
     expect(provisioning).toMatch(/7일|seven days/i);
     expect(provisioning).toMatch(/별도 승인|separate approval/i);
+  });
+
+  it("keeps tracked progress aligned with Vercel and Worker runtime ownership", () => {
+    const progress = readRepoFile("progress.md");
+
+    for (const serverSecretKey of [
+      "SEARCHOPS_IDP_JWT_HS256_SECRET",
+      "SEARCHOPS_OPS_ALERT_SINK_TOKEN",
+      "SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN",
+    ]) {
+      expect(progress).toContain(serverSecretKey);
+    }
+    expect(progress).not.toMatch(/(?:worker\+api|API\+Worker).{0,120}SEARCHOPS_GEO_/is);
+    expect(progress).not.toMatch(/SEARCHOPS_GEO_.{0,120}(?:worker\+api|API\+Worker)/is);
+    expect(progress).not.toContain(".superpowers/sdd/task-12-fix-report.md");
+    expect(progress).not.toMatch(/Vercel.{0,160}(?:만 사용|only four)/is);
   });
 
   it("documents one production sequence and separates initial, routine, and emergency keys", () => {
