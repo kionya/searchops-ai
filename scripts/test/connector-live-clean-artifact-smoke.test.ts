@@ -32,6 +32,18 @@ afterEach(() => {
 });
 
 describe("connector live clean-artifact smoke", () => {
+  it("restores every original artifact after a successful fixture operation", () => {
+    const fixture = createTransactionFixture();
+    const trackedBefore = readTrackedStatus();
+
+    const result = runFixtureSmoke(fixture);
+
+    expect(result.status).toBe(0);
+    expect(collectDiagnostic(result)).toContain("Connector live clean-artifact smoke passed.");
+    expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
+    assertOutsideAndTrackedState(fixture, trackedBefore);
+  }, 30_000);
+
   it("reports missing corepack and restores artifact hashes and tracked state", () => {
     const pathDirectory = createLocalTemporaryDirectory("path-");
     symlinkSync(resolveExecutable("git"), join(pathDirectory, "git"));
@@ -93,42 +105,29 @@ describe("connector live clean-artifact smoke", () => {
     expect(readTrackedStatus()).toBe(trackedBefore);
   }, 30_000);
 
-  it("restores earlier artifacts when a later backup copy fails", () => {
+  it("restores earlier artifacts when moving a later original fails", () => {
     const fixture = createTransactionFixture();
     const trackedBefore = readTrackedStatus();
 
-    const result = runFixtureSmoke(fixture, "backup-copy:1");
+    const result = runFixtureSmoke(fixture, "original-move:1");
     const diagnostic = collectDiagnostic(result);
 
     expect(result.status).not.toBe(0);
-    expect(diagnostic).toContain("connector_live_clean_artifact_backup_failed");
+    expect(diagnostic).toContain("connector_live_clean_artifact_original_move_failed");
     expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
     assertOutsideAndTrackedState(fixture, trackedBefore);
   }, 30_000);
 
-  it("recovers a partially mutated target when original removal fails after backup", () => {
+  it("retains the exact original backup when moving generated output to quarantine fails", () => {
     const fixture = createTransactionFixture();
     const trackedBefore = readTrackedStatus();
 
-    const result = runFixtureSmoke(fixture, "original-remove-partial:0");
-    const diagnostic = collectDiagnostic(result);
-
-    expect(result.status).not.toBe(0);
-    expect(diagnostic).toContain("connector_live_clean_artifact_original_remove_failed");
-    expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
-    assertOutsideAndTrackedState(fixture, trackedBefore);
-  }, 30_000);
-
-  it("retains an exact repo-local recovery backup when restoration copy fails", () => {
-    const fixture = createTransactionFixture();
-    const trackedBefore = readTrackedStatus();
-
-    const result = runFixtureSmoke(fixture, "restore-copy:0");
+    const result = runFixtureSmoke(fixture, "quarantine-move:0");
     const diagnostic = collectDiagnostic(result);
     const recoveryPath = readRecoveryPath(diagnostic, fixture.repoRoot);
 
     expect(result.status).not.toBe(0);
-    expect(diagnostic).toContain("connector_live_clean_artifact_restore_failed");
+    expect(diagnostic).toContain("connector_live_clean_artifact_quarantine_move_failed");
     expect(snapshotTree(recoveryPath)).toEqual(fixture.artifactsBefore[artifactPaths[0]]);
     for (const unaffectedPath of artifactPaths.slice(1)) {
       expect(snapshotTree(resolve(fixture.repoRoot, unaffectedPath))).toEqual(
@@ -138,38 +137,37 @@ describe("connector live clean-artifact smoke", () => {
     assertOutsideAndTrackedState(fixture, trackedBefore);
   }, 30_000);
 
-  it("retains the verified backup when backup cleanup fails", () => {
+  it("retains an exact repo-local recovery backup when original restoration fails", () => {
     const fixture = createTransactionFixture();
     const trackedBefore = readTrackedStatus();
 
-    const result = runFixtureSmoke(fixture, "backup-cleanup:0");
+    const result = runFixtureSmoke(fixture, "original-restore:0");
     const diagnostic = collectDiagnostic(result);
     const recoveryPath = readRecoveryPath(diagnostic, fixture.repoRoot);
 
     expect(result.status).not.toBe(0);
-    expect(diagnostic).toContain("connector_live_clean_artifact_backup_cleanup_failed");
-    expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
-    expect(snapshotTree(recoveryPath)).toEqual(fixture.artifactsBefore[artifactPaths[0]]);
-    assertOutsideAndTrackedState(fixture, trackedBefore);
-  }, 30_000);
-
-  it("rolls back the quarantined target and retains backup when restore install fails", () => {
-    const fixture = createTransactionFixture();
-    const trackedBefore = readTrackedStatus();
-
-    const result = runFixtureSmoke(fixture, "restore-install:0");
-    const diagnostic = collectDiagnostic(result);
-    const recoveryPath = readRecoveryPath(diagnostic, fixture.repoRoot);
-
-    expect(result.status).not.toBe(0);
-    expect(diagnostic).toContain("connector_live_clean_artifact_restore_failed");
-    expect(existsSync(resolve(fixture.repoRoot, artifactPaths[0]))).toBe(true);
+    expect(diagnostic).toContain("connector_live_clean_artifact_original_restore_failed");
     expect(snapshotTree(recoveryPath)).toEqual(fixture.artifactsBefore[artifactPaths[0]]);
     for (const unaffectedPath of artifactPaths.slice(1)) {
       expect(snapshotTree(resolve(fixture.repoRoot, unaffectedPath))).toEqual(
         fixture.artifactsBefore[unaffectedPath],
       );
     }
+    assertOutsideAndTrackedState(fixture, trackedBefore);
+  }, 30_000);
+
+  it("restores originals before reporting quarantine cleanup failure", () => {
+    const fixture = createTransactionFixture();
+    const trackedBefore = readTrackedStatus();
+
+    const result = runFixtureSmoke(fixture, "quarantine-cleanup:0");
+    const diagnostic = collectDiagnostic(result);
+    const quarantinePath = readQuarantinePath(diagnostic, fixture.repoRoot);
+
+    expect(result.status).not.toBe(0);
+    expect(diagnostic).toContain("connector_live_clean_artifact_quarantine_cleanup_failed");
+    expect(snapshotArtifactPaths(fixture.repoRoot)).toEqual(fixture.artifactsBefore);
+    expect(existsSync(quarantinePath)).toBe(true);
     assertOutsideAndTrackedState(fixture, trackedBefore);
   }, 30_000);
 
@@ -341,6 +339,16 @@ function collectDiagnostic(result: ReturnType<typeof spawnSync>) {
 
 function readRecoveryPath(diagnostic: string, fixtureRepoRoot: string) {
   const match = /manualRecoveryPath=([^\s;]+)/.exec(diagnostic);
+  expect(match?.[1]).toBeTruthy();
+  const relativePath = match?.[1] ?? "";
+  expect(isAbsolute(relativePath)).toBe(false);
+  const absolutePath = resolve(fixtureRepoRoot, relativePath);
+  expect(relative(fixtureRepoRoot, absolutePath)).not.toMatch(/^\.\.(?:\/|$)/);
+  return absolutePath;
+}
+
+function readQuarantinePath(diagnostic: string, fixtureRepoRoot: string) {
+  const match = /retainedQuarantinePath=([^\s;]+)/.exec(diagnostic);
   expect(match?.[1]).toBeTruthy();
   const relativePath = match?.[1] ?? "";
   expect(isAbsolute(relativePath)).toBe(false);

@@ -124,10 +124,9 @@ function createFixtureFault(failure: string | undefined) {
   if (failure === undefined) {
     return undefined;
   }
-  const match =
-    /^(backup-copy|original-remove-partial|restore-copy|restore-install|backup-cleanup):(\d+)$/.exec(
-      failure,
-    );
+  const match = /^(original-move|quarantine-move|original-restore|quarantine-cleanup):(\d+)$/.exec(
+    failure,
+  );
   if (match === null) {
     throw new Error(`connector_live_clean_artifact_unknown_fixture_fault:${failure}`);
   }
@@ -138,22 +137,17 @@ function createFixtureFault(failure: string | undefined) {
     if (event.artifactIndex !== artifactIndex) {
       return;
     }
-    if (fault === "backup-copy" && event.point === "before-backup-copy") {
-      throw new Error("injected_later_backup_copy_failure");
+    if (fault === "original-move" && event.point === "before-original-move") {
+      throw new Error("injected_later_original_move_failure");
     }
-    if (fault === "original-remove-partial" && event.point === "before-original-remove") {
-      rmSync(join(event.targetPath, "fixture.txt"), { force: true });
-      writeFileSync(join(event.targetPath, "partial-mutation.txt"), "partial\n");
-      throw new Error("injected_partial_original_remove_failure");
+    if (fault === "quarantine-move" && event.point === "before-quarantine-move") {
+      throw new Error("injected_quarantine_move_failure");
     }
-    if (fault === "restore-copy" && event.point === "before-restore-copy") {
-      throw new Error("injected_restore_copy_failure");
+    if (fault === "original-restore" && event.point === "before-original-restore") {
+      throw new Error("injected_original_restore_failure");
     }
-    if (fault === "restore-install" && event.point === "before-restore-install") {
-      throw new Error("injected_restore_install_failure");
-    }
-    if (fault === "backup-cleanup" && event.point === "before-backup-cleanup") {
-      throw new Error("injected_backup_cleanup_failure");
+    if (fault === "quarantine-cleanup" && event.point === "before-quarantine-cleanup") {
+      throw new Error("injected_quarantine_cleanup_failure");
     }
   };
 }

@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
-  cpSync,
   lstatSync,
-  lutimesSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -13,7 +10,6 @@ import {
   renameSync,
   rmSync,
   rmdirSync,
-  utimesSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -27,17 +23,17 @@ export const connectorLiveArtifactPaths = [
 export type ConnectorLiveArtifactPath = (typeof connectorLiveArtifactPaths)[number];
 
 export type ArtifactTransactionFaultPoint =
-  | "before-backup-copy"
-  | "before-original-remove"
-  | "before-restore-copy"
-  | "before-restore-install"
-  | "before-backup-cleanup";
+  | "before-original-move"
+  | "before-quarantine-move"
+  | "before-original-restore"
+  | "before-quarantine-cleanup";
 
 export interface ArtifactTransactionFaultEvent {
   readonly artifactIndex: number;
   readonly artifactPath: ConnectorLiveArtifactPath;
   readonly backupPath: string;
   readonly point: ArtifactTransactionFaultPoint;
+  readonly quarantinePath: string;
   readonly targetPath: string;
 }
 
@@ -60,26 +56,14 @@ interface ArtifactSnapshot {
   readonly metadataHash: string;
 }
 
-interface TreeMetadata {
-  readonly kind: "directory" | "file" | "symlink";
-  readonly mode: number;
-  readonly mtimeNs: bigint;
-  readonly relativePath: string;
-}
-
 interface ArtifactState extends ArtifactTarget {
   readonly artifactIndex: number;
   readonly backupPath: string;
   readonly existed: boolean;
-  readonly metadata: readonly TreeMetadata[];
   readonly originalSnapshot?: ArtifactSnapshot;
   readonly quarantinePath: string;
-  readonly restoreStagePath: string;
-  backupComplete: boolean;
-  backupVerified: boolean;
-  originalRemoved: boolean;
+  originalMoved: boolean;
   restoreComplete: boolean;
-  restoreVerified: boolean;
 }
 
 const backupBaseRelativePath = ".searchops-smoke-backups";
@@ -103,25 +87,26 @@ export function runConnectorLiveArtifactTransaction<T>({
   assertSafePath(validatedRoot, backupBase);
   mkdirSync(backupBase, { recursive: true });
   assertSafePath(validatedRoot, backupBase);
+
   const backupRoot = mkdtempSync(join(backupBase, "run-"));
-  assertSafePath(validatedRoot, backupRoot);
+  const originalsRoot = join(backupRoot, "originals");
+  const quarantineRoot = join(backupRoot, "quarantine");
+  mkdirSync(originalsRoot);
+  mkdirSync(quarantineRoot);
+  assertSafePath(validatedRoot, originalsRoot);
+  assertSafePath(validatedRoot, quarantineRoot);
 
   const states: ArtifactState[] = artifactTargets.map((target, artifactIndex) => {
     const existed = pathExists(target.absolutePath);
     return {
       ...target,
       artifactIndex,
-      backupComplete: false,
-      backupPath: join(backupRoot, `backup-${artifactIndex}`),
-      backupVerified: false,
+      backupPath: join(originalsRoot, String(artifactIndex)),
       existed,
-      metadata: existed ? captureTreeMetadata(target.absolutePath) : [],
       ...(existed ? { originalSnapshot: snapshotTree(target.absolutePath) } : {}),
-      originalRemoved: false,
-      quarantinePath: join(backupRoot, `quarantine-${artifactIndex}`),
+      originalMoved: false,
+      quarantinePath: join(quarantineRoot, String(artifactIndex)),
       restoreComplete: false,
-      restoreStagePath: join(backupRoot, `restore-${artifactIndex}`),
-      restoreVerified: false,
     };
   });
 
@@ -130,24 +115,30 @@ export function runConnectorLiveArtifactTransaction<T>({
   const recoveryErrors: Error[] = [];
 
   try {
-    prepareArtifacts(validatedRoot, states, injectFault);
+    moveOriginalsToBackup(validatedRoot, states, injectFault);
     operationResult = runOperation({ artifactTargets, repositoryRoot: validatedRoot });
   } catch (error) {
     operationError = error;
   } finally {
     for (const state of states) {
-      recoverArtifact(validatedRoot, state, injectFault, recoveryErrors);
+      restoreArtifact(validatedRoot, state, injectFault, recoveryErrors);
     }
-    cleanupEmptyTransactionDirectories(validatedRoot, backupRoot, backupBase, recoveryErrors);
+
+    if (states.every((state) => artifactRestored(state))) {
+      cleanupQuarantines(validatedRoot, states, injectFault, recoveryErrors);
+    }
+    cleanupEmptyTransactionDirectories(
+      validatedRoot,
+      [originalsRoot, quarantineRoot, backupRoot, backupBase],
+      recoveryErrors,
+    );
   }
 
   const retainedBackups = states
     .filter(
       (state) =>
-        state.backupComplete &&
-        state.backupVerified &&
-        pathExists(state.backupPath) &&
         state.originalSnapshot !== undefined &&
+        pathExists(state.backupPath) &&
         snapshotsEqual(snapshotTree(state.backupPath), state.originalSnapshot),
     )
     .map((state) => relative(validatedRoot, state.backupPath));
@@ -161,16 +152,12 @@ export function runConnectorLiveArtifactTransaction<T>({
   const retainedQuarantines = states
     .filter((state) => pathExists(state.quarantinePath))
     .map((state) => relative(validatedRoot, state.quarantinePath));
-  const retainedStages = states
-    .filter((state) => pathExists(state.restoreStagePath))
-    .map((state) => relative(validatedRoot, state.restoreStagePath));
 
   if (
     recoveryErrors.length > 0 ||
     retainedBackups.length > 0 ||
     retainedPartialBackups.length > 0 ||
-    retainedQuarantines.length > 0 ||
-    retainedStages.length > 0
+    retainedQuarantines.length > 0
   ) {
     const diagnostic = [
       "connector_live_clean_artifact_transaction_failed",
@@ -179,7 +166,6 @@ export function runConnectorLiveArtifactTransaction<T>({
       ...retainedBackups.map((path) => `manualRecoveryPath=${path}`),
       ...retainedPartialBackups.map((path) => `retainedPartialBackupPath=${path}`),
       ...retainedQuarantines.map((path) => `retainedQuarantinePath=${path}`),
-      ...retainedStages.map((path) => `retainedRestoreStagePath=${path}`),
     ]
       .filter(Boolean)
       .join("\n");
@@ -194,115 +180,145 @@ export function runConnectorLiveArtifactTransaction<T>({
   return operationResult as T;
 }
 
-function prepareArtifacts(
+function moveOriginalsToBackup(
   repositoryRoot: string,
   states: readonly ArtifactState[],
   injectFault: (event: ArtifactTransactionFaultEvent) => void,
 ) {
   for (const state of states) {
     if (!state.existed) {
-      state.originalRemoved = true;
       continue;
     }
 
     try {
-      assertSafePath(repositoryRoot, state.absolutePath);
-      assertSafePath(repositoryRoot, state.backupPath);
-      injectFault(toFaultEvent(state, "before-backup-copy"));
-      cpSync(state.absolutePath, state.backupPath, copyOptions);
-      state.backupComplete = true;
-      restoreTreeMetadata(repositoryRoot, state.backupPath, state.metadata);
-      state.backupVerified = snapshotsEqual(
-        snapshotTree(state.backupPath),
-        requireOriginalSnapshot(state),
-      );
-      if (!state.backupVerified) {
-        throw new Error("backup_verification_failed");
+      injectFault(toFaultEvent(state, "before-original-move"));
+      safeRename(repositoryRoot, state.absolutePath, state.backupPath);
+      state.originalMoved = true;
+      if (!backupMatchesOriginal(state)) {
+        throw new Error("moved_original_verification_failed");
       }
     } catch (error) {
       throw new Error(
-        `connector_live_clean_artifact_backup_failed:${state.relativePath}: ${formatUnknownError(error)}`,
-        { cause: error },
-      );
-    }
-
-    try {
-      assertSafePath(repositoryRoot, state.absolutePath);
-      injectFault(toFaultEvent(state, "before-original-remove"));
-      assertSafePath(repositoryRoot, state.absolutePath);
-      safeRemove(repositoryRoot, state.absolutePath);
-      state.originalRemoved = true;
-    } catch (error) {
-      throw new Error(
-        `connector_live_clean_artifact_original_remove_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+        `connector_live_clean_artifact_original_move_failed:${state.relativePath}: ${formatUnknownError(error)}`,
         { cause: error },
       );
     }
   }
 }
 
-function recoverArtifact(
+function restoreArtifact(
   repositoryRoot: string,
   state: ArtifactState,
   injectFault: (event: ArtifactTransactionFaultEvent) => void,
   recoveryErrors: Error[],
 ) {
-  if (state.existed && !state.backupComplete) {
-    if (targetMatchesOriginal(state)) {
-      state.restoreComplete = true;
-      state.restoreVerified = true;
-    } else {
+  if (!state.existed) {
+    quarantineGeneratedTarget(repositoryRoot, state, injectFault, recoveryErrors);
+    return;
+  }
+
+  if (!state.originalMoved) {
+    state.restoreComplete = targetMatchesOriginal(state);
+    if (!state.restoreComplete) {
       recoveryErrors.push(
-        new Error(
-          `connector_live_clean_artifact_unrecoverable_without_backup:${state.relativePath}`,
-        ),
+        new Error(`connector_live_clean_artifact_original_not_preserved:${state.relativePath}`),
       );
     }
     return;
   }
 
-  if (state.existed && state.backupComplete) {
-    if (!state.backupVerified) {
-      if (targetMatchesOriginal(state)) {
-        state.restoreComplete = true;
-        state.restoreVerified = true;
-      }
-      recoveryErrors.push(
-        new Error(`connector_live_clean_artifact_backup_unverified:${state.relativePath}`),
-      );
-      return;
-    }
+  if (!backupMatchesOriginal(state)) {
+    recoveryErrors.push(
+      new Error(`connector_live_clean_artifact_backup_unverified:${state.relativePath}`),
+    );
+    return;
+  }
 
-    if (targetMatchesOriginal(state)) {
-      state.restoreComplete = true;
-      state.restoreVerified = true;
-    } else {
-      try {
-        restoreFromBackup(repositoryRoot, state, injectFault);
-      } catch (error) {
-        recoveryErrors.push(
-          new Error(
-            `connector_live_clean_artifact_restore_failed:${state.relativePath}: ${formatUnknownError(error)}`,
-            { cause: error },
-          ),
-        );
-      }
-    }
-  } else if (!state.existed) {
+  if (pathExists(state.absolutePath)) {
     try {
-      restoreAbsentTarget(repositoryRoot, state);
+      injectFault(toFaultEvent(state, "before-quarantine-move"));
+      safeRename(repositoryRoot, state.absolutePath, state.quarantinePath);
     } catch (error) {
       recoveryErrors.push(
         new Error(
-          `connector_live_clean_artifact_restore_absent_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+          `connector_live_clean_artifact_quarantine_move_failed:${state.relativePath}: ${formatUnknownError(error)}`,
           { cause: error },
         ),
       );
+      return;
     }
   }
 
-  if (state.restoreVerified && pathExists(state.quarantinePath)) {
+  try {
+    injectFault(toFaultEvent(state, "before-original-restore"));
+    safeRename(repositoryRoot, state.backupPath, state.absolutePath);
+    state.originalMoved = false;
+    state.restoreComplete = true;
+  } catch (error) {
+    recoveryErrors.push(
+      new Error(
+        `connector_live_clean_artifact_original_restore_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+        { cause: error },
+      ),
+    );
+    rollbackQuarantine(repositoryRoot, state, recoveryErrors);
+  }
+}
+
+function quarantineGeneratedTarget(
+  repositoryRoot: string,
+  state: ArtifactState,
+  injectFault: (event: ArtifactTransactionFaultEvent) => void,
+  recoveryErrors: Error[],
+) {
+  if (!pathExists(state.absolutePath)) {
+    state.restoreComplete = true;
+    return;
+  }
+
+  try {
+    injectFault(toFaultEvent(state, "before-quarantine-move"));
+    safeRename(repositoryRoot, state.absolutePath, state.quarantinePath);
+    state.restoreComplete = true;
+  } catch (error) {
+    recoveryErrors.push(
+      new Error(
+        `connector_live_clean_artifact_quarantine_move_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+        { cause: error },
+      ),
+    );
+  }
+}
+
+function rollbackQuarantine(repositoryRoot: string, state: ArtifactState, recoveryErrors: Error[]) {
+  if (pathExists(state.absolutePath) || !pathExists(state.quarantinePath)) {
+    return;
+  }
+
+  try {
+    safeRename(repositoryRoot, state.quarantinePath, state.absolutePath);
+  } catch (error) {
+    recoveryErrors.push(
+      new Error(
+        `connector_live_clean_artifact_quarantine_rollback_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+        { cause: error },
+      ),
+    );
+  }
+}
+
+function cleanupQuarantines(
+  repositoryRoot: string,
+  states: readonly ArtifactState[],
+  injectFault: (event: ArtifactTransactionFaultEvent) => void,
+  recoveryErrors: Error[],
+) {
+  for (const state of states) {
+    if (!pathExists(state.quarantinePath)) {
+      continue;
+    }
     try {
+      injectFault(toFaultEvent(state, "before-quarantine-cleanup"));
       safeRemove(repositoryRoot, state.quarantinePath);
     } catch (error) {
       recoveryErrors.push(
@@ -313,21 +329,24 @@ function recoverArtifact(
       );
     }
   }
+}
 
-  if (
-    state.backupComplete &&
-    state.backupVerified &&
-    state.restoreComplete &&
-    state.restoreVerified &&
-    !pathExists(state.quarantinePath)
-  ) {
+function cleanupEmptyTransactionDirectories(
+  repositoryRoot: string,
+  paths: readonly string[],
+  recoveryErrors: Error[],
+) {
+  for (const path of paths) {
+    if (!pathExists(path) || readdirSync(path).length > 0) {
+      continue;
+    }
     try {
-      injectFault(toFaultEvent(state, "before-backup-cleanup"));
-      safeRemove(repositoryRoot, state.backupPath);
+      assertSafePath(repositoryRoot, path);
+      rmdirSync(path);
     } catch (error) {
       recoveryErrors.push(
         new Error(
-          `connector_live_clean_artifact_backup_cleanup_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+          `connector_live_clean_artifact_backup_root_cleanup_failed:${relative(repositoryRoot, path)}: ${formatUnknownError(error)}`,
           { cause: error },
         ),
       );
@@ -335,97 +354,30 @@ function recoverArtifact(
   }
 }
 
-function restoreFromBackup(
-  repositoryRoot: string,
-  state: ArtifactState,
-  injectFault: (event: ArtifactTransactionFaultEvent) => void,
-) {
-  if (pathExists(state.restoreStagePath) || pathExists(state.quarantinePath)) {
-    throw new Error("transaction_restore_paths_not_empty");
+function artifactRestored(state: ArtifactState) {
+  if (!state.restoreComplete) {
+    return false;
   }
-
-  assertSafePath(repositoryRoot, state.backupPath);
-  assertSafePath(repositoryRoot, state.restoreStagePath);
-  injectFault(toFaultEvent(state, "before-restore-copy"));
-  cpSync(state.backupPath, state.restoreStagePath, copyOptions);
-  restoreTreeMetadata(repositoryRoot, state.restoreStagePath, state.metadata);
-  if (!snapshotsEqual(snapshotTree(state.restoreStagePath), requireOriginalSnapshot(state))) {
-    throw new Error("restore_stage_verification_failed");
+  if (state.existed) {
+    return !state.originalMoved && !pathExists(state.backupPath) && pathExists(state.absolutePath);
   }
-
-  let quarantined = false;
-  if (pathExists(state.absolutePath)) {
-    safeRename(repositoryRoot, state.absolutePath, state.quarantinePath);
-    quarantined = true;
-  }
-
-  try {
-    injectFault(toFaultEvent(state, "before-restore-install"));
-    safeRename(repositoryRoot, state.restoreStagePath, state.absolutePath);
-  } catch (error) {
-    if (quarantined && !pathExists(state.absolutePath) && pathExists(state.quarantinePath)) {
-      safeRename(repositoryRoot, state.quarantinePath, state.absolutePath);
-    }
-    throw error;
-  }
-
-  state.restoreComplete = true;
-  state.restoreVerified = targetMatchesOriginal(state);
-  if (!state.restoreVerified) {
-    throw new Error("restored_target_verification_failed");
-  }
+  return !pathExists(state.absolutePath);
 }
 
-function restoreAbsentTarget(repositoryRoot: string, state: ArtifactState) {
-  if (pathExists(state.absolutePath)) {
-    if (pathExists(state.quarantinePath)) {
-      throw new Error("absent_restore_quarantine_not_empty");
-    }
-    safeRename(repositoryRoot, state.absolutePath, state.quarantinePath);
-  }
-  state.restoreComplete = true;
-  state.restoreVerified = !pathExists(state.absolutePath);
-  if (!state.restoreVerified) {
-    throw new Error("absent_target_verification_failed");
-  }
+function backupMatchesOriginal(state: ArtifactState) {
+  return (
+    state.originalSnapshot !== undefined &&
+    pathExists(state.backupPath) &&
+    snapshotsEqual(snapshotTree(state.backupPath), state.originalSnapshot)
+  );
 }
 
-function cleanupEmptyTransactionDirectories(
-  repositoryRoot: string,
-  backupRoot: string,
-  backupBase: string,
-  recoveryErrors: Error[],
-) {
-  tryRemoveEmptyDirectory(repositoryRoot, backupRoot, recoveryErrors);
-  tryRemoveEmptyDirectory(repositoryRoot, backupBase, recoveryErrors);
-}
-
-function tryRemoveEmptyDirectory(repositoryRoot: string, path: string, recoveryErrors: Error[]) {
-  if (!pathExists(path) || readdirSync(path).length > 0) {
-    return;
-  }
-  try {
-    assertSafePath(repositoryRoot, path);
-    rmdirSync(path);
-  } catch (error) {
-    recoveryErrors.push(
-      new Error(
-        `connector_live_clean_artifact_backup_root_cleanup_failed:${relative(repositoryRoot, path)}: ${formatUnknownError(error)}`,
-        { cause: error },
-      ),
-    );
-  }
-}
-
-const copyOptions = {
-  preserveTimestamps: true,
-  recursive: true,
-  verbatimSymlinks: true,
-} as const;
-
-function safeRemove(repositoryRoot: string, path: string) {
-  assertSafePath(repositoryRoot, path);
-  rmSync(path, { force: true, recursive: true });
+function targetMatchesOriginal(state: ArtifactState) {
+  return (
+    state.originalSnapshot !== undefined &&
+    pathExists(state.absolutePath) &&
+    snapshotsEqual(snapshotTree(state.absolutePath), state.originalSnapshot)
+  );
 }
 
 function safeRename(repositoryRoot: string, source: string, destination: string) {
@@ -434,11 +386,15 @@ function safeRename(repositoryRoot: string, source: string, destination: string)
   renameSync(source, destination);
 }
 
+function safeRemove(repositoryRoot: string, path: string) {
+  assertSafePath(repositoryRoot, path);
+  rmSync(path, { force: true, recursive: true });
+}
+
 function validateRepositoryRoot(repositoryRoot: string) {
   const lexicalRoot = resolve(repositoryRoot);
   const resolvedRoot = realpathSync(lexicalRoot);
-  const stat = lstatSync(resolvedRoot);
-  if (!stat.isDirectory()) {
+  if (!lstatSync(resolvedRoot).isDirectory()) {
     throw new Error(`connector_live_clean_artifact_repo_root_invalid:${repositoryRoot}`);
   }
   return resolvedRoot;
@@ -485,8 +441,7 @@ function assertSafePath(repositoryRoot: string, path: string) {
         `connector_live_clean_artifact_symlink_component:${relative(repositoryRoot, currentPath)}`,
       );
     }
-    const resolvedPath = realpathSync(currentPath);
-    assertLexicallyContained(repositoryRoot, resolvedPath);
+    assertLexicallyContained(repositoryRoot, realpathSync(currentPath));
   }
 }
 
@@ -549,82 +504,8 @@ function hashPath(
   metadataHash.update(`file:${stat.mode}:${stat.mtimeNs / 1_000n}:${stat.size}`);
 }
 
-function captureTreeMetadata(rootPath: string) {
-  const entries: TreeMetadata[] = [];
-  visit(rootPath, "");
-  return entries;
-
-  function visit(path: string, relativePath: string) {
-    const stat = lstatSync(path, { bigint: true });
-    const kind = stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory" : "file";
-    entries.push({ kind, mode: Number(stat.mode), mtimeNs: stat.mtimeNs, relativePath });
-    if (kind === "directory") {
-      for (const entry of readdirSync(path).sort()) {
-        visit(join(path, entry), join(relativePath, entry));
-      }
-    }
-  }
-}
-
-function restoreTreeMetadata(
-  repositoryRoot: string,
-  rootPath: string,
-  metadata: readonly TreeMetadata[],
-) {
-  const entries = [...metadata].sort((left, right) => {
-    if (left.kind === "directory" && right.kind !== "directory") {
-      return 1;
-    }
-    if (left.kind !== "directory" && right.kind === "directory") {
-      return -1;
-    }
-    return right.relativePath.length - left.relativePath.length;
-  });
-
-  for (const entry of entries) {
-    const path = resolve(rootPath, entry.relativePath);
-    const timestamp = nanosecondsToSeconds(entry.mtimeNs);
-    assertSafePath(repositoryRoot, path);
-    if (entry.kind === "symlink") {
-      lutimesSync(path, timestamp, timestamp);
-      continue;
-    }
-    chmodSync(path, entry.mode);
-    utimesSync(path, timestamp, timestamp);
-  }
-}
-
-function nanosecondsToSeconds(value: bigint) {
-  const nanosecondsPerSecond = 1_000_000_000n;
-  const nanosecondsPerMicrosecond = 1_000n;
-  const microsecondMidpoint = 500n;
-  const portableValue =
-    (value / nanosecondsPerMicrosecond) * nanosecondsPerMicrosecond + microsecondMidpoint;
-  return (
-    Number(portableValue / nanosecondsPerSecond) +
-    Number(portableValue % nanosecondsPerSecond) / Number(nanosecondsPerSecond)
-  );
-}
-
-function targetMatchesOriginal(state: ArtifactState) {
-  return (
-    state.originalSnapshot !== undefined &&
-    pathExists(state.absolutePath) &&
-    snapshotsEqual(snapshotTree(state.absolutePath), state.originalSnapshot)
-  );
-}
-
 function snapshotsEqual(left: ArtifactSnapshot, right: ArtifactSnapshot) {
   return left.contentHash === right.contentHash && left.metadataHash === right.metadataHash;
-}
-
-function requireOriginalSnapshot(state: ArtifactState) {
-  if (state.originalSnapshot === undefined) {
-    throw new Error(
-      `connector_live_clean_artifact_original_snapshot_missing:${state.relativePath}`,
-    );
-  }
-  return state.originalSnapshot;
 }
 
 function pathExists(path: string) {
@@ -648,6 +529,7 @@ function toFaultEvent(
     artifactPath: state.relativePath,
     backupPath: state.backupPath,
     point,
+    quarantinePath: state.quarantinePath,
     targetPath: state.absolutePath,
   };
 }
