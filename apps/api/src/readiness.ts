@@ -5,10 +5,16 @@ import {
   type OperationalReadinessResponse,
   type OperationalReadinessStatus,
 } from "@searchops/types";
+import {
+  parseCredentialKeyring,
+  type ConnectorCredentialReadinessSnapshot,
+} from "@searchops/db";
 
 export interface CreateOperationalReadinessInput {
+  readonly connectorCredentials?: ConnectorCredentialReadinessSnapshot;
   readonly env: NodeJS.ProcessEnv;
   readonly generatedAt: Date;
+  readonly workerEnv?: NodeJS.ProcessEnv;
 }
 
 interface ReadinessInput {
@@ -24,10 +30,20 @@ interface ReadinessInput {
 }
 
 export function createOperationalReadiness({
+  connectorCredentials,
   env,
   generatedAt,
+  workerEnv,
 }: CreateOperationalReadinessInput): OperationalReadinessResponse {
-  const items = readinessInputs.map((item) => createReadinessItem(item, env));
+  const items = [
+    createCredentialKeyringItem(env),
+    createWorkerTargetVerificationItem(workerEnv),
+    createCredentialMigrationItem(connectorCredentials),
+    createCredentialCutoverItem(env, connectorCredentials),
+    ...readinessInputs.map((item) =>
+      createReadinessItem(item, env, workerEnv, connectorCredentials),
+    ),
+  ];
   const summary = {
     blocked: countStatus(items, "blocked"),
     configured: countStatus(items, "configured"),
@@ -50,41 +66,53 @@ const readinessInputs: readonly ReadinessInput[] = [
     id: "live-gsc",
     title: "GSC 실서비스 credential",
     summary: "Google Search Console 기반 검색어/페이지 데이터를 live connector adapter 뒤에서 수집합니다.",
-    nextAction: "배포 secret에 Google OAuth client env를 등록하고 사이트 connector OAuth를 완료하세요.",
-    requiredAny: [
-      "SEARCHOPS_GSC_ACCESS_TOKEN",
-      "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
-      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
-    ],
+    nextAction: "조직 integrations에서 Google 계정을 연결하고 사이트에 GSC 속성을 선택하세요.",
   },
   {
     category: "connectors",
     id: "live-ga4",
     title: "GA4 실서비스 credential",
     summary: "GA4 page/session/conversion 데이터를 connector sync에 연결합니다.",
-    nextAction: "GA4 property id와 Google OAuth client env를 배포 환경에 등록하세요.",
-    requiredAll: ["SEARCHOPS_GA4_PROPERTY_ID"],
-    requiredAny: [
-      "SEARCHOPS_GA4_ACCESS_TOKEN",
-      "SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON",
-      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
-    ],
+    nextAction: "조직 integrations에서 Google 계정을 연결하고 사이트에 숫자 GA4 Property ID를 선택하세요.",
   },
   {
     category: "connectors",
     id: "live-pagespeed",
     title: "PageSpeed 실서비스 credential",
     summary: "PageSpeed Insights API를 connector adapter 뒤에서 호출할 수 있게 합니다.",
-    nextAction: "SEARCHOPS_PAGESPEED_API_KEY를 등록하세요.",
-    requiredAll: ["SEARCHOPS_PAGESPEED_API_KEY"],
+    nextAction: "선택적으로 Railway Worker에 SEARCHOPS_PAGESPEED_API_KEY를 등록하세요.",
+    envKeys: ["SEARCHOPS_PAGESPEED_API_KEY"],
   },
   {
     category: "connectors",
     id: "live-bing",
     title: "Bing 실서비스 credential",
     summary: "Bing URL/search metrics를 connector adapter 뒤에서 정규화합니다.",
-    nextAction: "SEARCHOPS_BING_API_KEY를 등록하세요.",
-    requiredAll: ["SEARCHOPS_BING_API_KEY"],
+    nextAction: "조직 integrations에서 Bing 계정을 연결하고 사이트에 검증된 리소스를 선택하세요.",
+  },
+  {
+    category: "connectors",
+    id: "google-oauth-platform",
+    title: "Google OAuth 앱 설정",
+    summary: "API OAuth 연결에 필요한 플랫폼 앱 credential을 검증합니다.",
+    nextAction: "Railway API에 OAuth client ID/secret, redirect URI, state secret을 설정하세요.",
+    requiredAll: [
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET",
+      "SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI",
+      "SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET",
+    ],
+  },
+  {
+    category: "connectors",
+    id: "google-worker-refresh-platform",
+    title: "Worker Google token refresh 앱 설정",
+    summary: "Worker가 조직별 Google refresh token을 갱신할 때 사용하는 플랫폼 client credential입니다.",
+    nextAction: "Railway Worker에 API와 같은 Google OAuth client ID/secret을 설정하세요.",
+    requiredAll: [
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID",
+      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET",
+    ],
   },
   {
     category: "connectors",
@@ -115,12 +143,7 @@ const readinessInputs: readonly ReadinessInput[] = [
     id: "gsc-keyword-discovery",
     title: "GSC 기반 키워드 발견",
     summary: "persisted GSC connector result를 keyword discovery 후보로 변환합니다.",
-    nextAction: "GSC OAuth 연결이 완료되면 keyword discovery를 실행하세요.",
-    requiredAny: [
-      "SEARCHOPS_GSC_ACCESS_TOKEN",
-      "SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON",
-      "SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID"
-    ],
+    nextAction: "사이트 GSC connector가 connected 상태가 되면 keyword discovery를 실행하세요.",
   },
   {
     category: "keyword_aeo",
@@ -398,9 +421,30 @@ const readinessInputs: readonly ReadinessInput[] = [
   },
 ];
 
-function createReadinessItem(input: ReadinessInput, env: NodeJS.ProcessEnv): OperationalReadinessItem {
+function createReadinessItem(
+  input: ReadinessInput,
+  apiEnv: NodeJS.ProcessEnv,
+  workerEnv: NodeJS.ProcessEnv | undefined,
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): OperationalReadinessItem {
   const envKeys = [...(input.requiredAll ?? []), ...(input.requiredAny ?? []), ...(input.envKeys ?? [])];
-  const status = input.status ?? inferStatus(input, env);
+  const tenantProvider = tenantProviderByItemId[input.id];
+  const isWorkerItem = workerReadinessItemIds.has(input.id);
+  const env = isWorkerItem ? workerEnv : apiEnv;
+  const status =
+    tenantProvider === undefined
+      ? env === undefined
+        ? "manual_followup"
+        : input.id === "live-pagespeed"
+        ? hasEnv(env, "SEARCHOPS_PAGESPEED_API_KEY")
+          ? "configured"
+          : "manual_followup"
+        : input.id === "geo-live-providers"
+          ? inferOptionalPlatformStatus(input, env)
+          : input.status ?? inferStatus(input, env)
+      : (connectorCredentials?.configuredByProvider[tenantProvider] ?? 0) > 0
+        ? "configured"
+        : "needs_provisioning";
 
   return {
     category: input.category,
@@ -408,8 +452,211 @@ function createReadinessItem(input: ReadinessInput, env: NodeJS.ProcessEnv): Ope
     id: input.id,
     nextAction: input.nextAction,
     status,
-    summary: input.summary,
+    summary:
+      isWorkerItem && env === undefined
+        ? `${input.summary} API process에서는 Worker target 설정을 검증할 수 없습니다.`
+        : input.summary,
     title: input.title,
+  };
+}
+
+const workerReadinessItemIds = new Set([
+  "geo-live-providers",
+  "google-worker-refresh-platform",
+  "live-pagespeed",
+  "rich-result-live-validator",
+]);
+
+const tenantProviderByItemId: Readonly<
+  Partial<Record<string, keyof ConnectorCredentialReadinessSnapshot["configuredByProvider"]>>
+> = {
+  "gsc-keyword-discovery": "gsc",
+  "live-bing": "bing",
+  "live-ga4": "ga4",
+  "live-gsc": "gsc",
+};
+
+const credentialKeyringEnvKeys = [
+  "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID",
+  "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY",
+  "SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON",
+  "SEARCHOPS_CREDENTIAL_STORAGE_MODE",
+];
+
+function createCredentialKeyringItem(env: NodeJS.ProcessEnv): OperationalReadinessItem {
+  const base = {
+    category: "hardening" as const,
+    envKeys: credentialKeyringEnvKeys,
+    id: "credential-encryption-keyring",
+    title: "Provider credential encryption keyring",
+  };
+
+  if (!hasEnv(env, "SEARCHOPS_CREDENTIAL_STORAGE_MODE")) {
+    return {
+      ...base,
+      nextAction: "Railway API와 Worker에 같은 storage mode와 active/previous keyring을 설정하세요.",
+      status: "needs_provisioning",
+      summary: "암호화 credential 저장 모드가 아직 설정되지 않았습니다.",
+    };
+  }
+  const mode = env.SEARCHOPS_CREDENTIAL_STORAGE_MODE?.trim();
+  if (mode !== "dual" && mode !== "encrypted") {
+    return {
+      ...base,
+      nextAction: "SEARCHOPS_CREDENTIAL_STORAGE_MODE를 dual 또는 encrypted로 설정하세요.",
+      status: "blocked",
+      summary: "Provider credential storage mode가 유효하지 않습니다.",
+    };
+  }
+
+  try {
+    parseCredentialKeyring({
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID,
+          }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY,
+          }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON,
+          }),
+    });
+    return {
+      ...base,
+      nextAction: "API와 Worker의 active key ID, key material, previous key JSON이 동일한지 배포 설정에서 대조하세요.",
+      status: "configured",
+      summary: "현재 프로세스의 active/previous encryption keyring 형식과 키 길이가 유효합니다.",
+    };
+  } catch {
+    return {
+      ...base,
+      nextAction: "32-byte base64 active key와 중복되지 않는 previous key JSON을 Railway API와 Worker에 동일하게 설정하세요.",
+      status: "blocked",
+      summary: "설정된 provider credential encryption keyring의 의미 검증에 실패했습니다.",
+    };
+  }
+}
+
+function createWorkerTargetVerificationItem(
+  workerEnv: NodeJS.ProcessEnv | undefined,
+): OperationalReadinessItem {
+  return {
+    category: "hardening",
+    envKeys: ["DATABASE_URL", "REDIS_URL", ...credentialKeyringEnvKeys],
+    id: "worker-target-verification",
+    nextAction:
+      workerEnv === undefined
+        ? "Worker deployment env 또는 검증된 safe readiness signal을 별도로 제공해 런타임과 keyring을 대조하세요."
+        : "Worker runtime과 API/Worker keyring parity를 connector live setup report에서 확인하세요.",
+    status: workerEnv === undefined ? "manual_followup" : "configured",
+    summary:
+      workerEnv === undefined
+        ? "API process에서는 Worker deployment 설정을 검증할 수 없습니다."
+        : "Worker target 환경이 별도로 제공되었습니다.",
+    title: "Worker deployment target verification",
+  };
+}
+
+function createCredentialMigrationItem(
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): OperationalReadinessItem {
+  const unmigrated = connectorCredentials?.unmigratedLegacyCredentials;
+  const base = {
+    category: "connectors" as const,
+    envKeys: [] as string[],
+    id: "credential-legacy-migration",
+    title: "Legacy credential migration",
+  };
+
+  if (unmigrated === undefined) {
+    return {
+      ...base,
+      nextAction: "검증된 사용자로 /ops/readiness를 호출해 조직별 migration 잔량을 확인하세요.",
+      status: "needs_provisioning",
+      summary: "DB-free platform 검사에서는 조직별 unmigrated legacy credential 수를 조회하지 않습니다.",
+    };
+  }
+  if (unmigrated > 0) {
+    return {
+      ...base,
+      nextAction: "Backfill dry-run/apply/reconcile을 완료해 unmigrated legacy credential을 0건으로 만드세요.",
+      status: "manual_followup",
+      summary: `이 조직에 아직 migration되지 않은 legacy credential이 ${unmigrated}건 있습니다.`,
+    };
+  }
+  return {
+    ...base,
+    nextAction: "최근 7일 실제 legacy 사용 관측값을 cutover 항목에서 별도로 확인하세요.",
+    status: "configured",
+    summary: "이 조직의 unmigrated legacy credential은 0건입니다.",
+  };
+}
+
+function createCredentialCutoverItem(
+  env: NodeJS.ProcessEnv,
+  connectorCredentials: ConnectorCredentialReadinessSnapshot | undefined,
+): OperationalReadinessItem {
+  const mode = env.SEARCHOPS_CREDENTIAL_STORAGE_MODE?.trim();
+  const observedLegacyFallbacks = connectorCredentials?.observedLegacyFallbacks;
+  const base = {
+    category: "connectors" as const,
+    envKeys: ["SEARCHOPS_CREDENTIAL_STORAGE_MODE"],
+    id: "credential-storage-cutover",
+    title: "Encrypted credential cutover",
+  };
+
+  if (mode !== "dual" && mode !== "encrypted") {
+    return {
+      ...base,
+      nextAction: "마이그레이션 전 API와 Worker에 SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual을 설정하세요.",
+      status: "needs_provisioning",
+      summary: "Provider credential storage mode가 아직 설정되지 않았습니다.",
+    };
+  }
+  if (observedLegacyFallbacks === undefined) {
+    return {
+      ...base,
+      nextAction: "검증된 사용자로 /ops/readiness를 호출해 조직별 fallback metadata를 확인하세요.",
+      status: "needs_provisioning",
+      summary: "로컬 platform 검사에서는 조직별 최근 7일 legacy 사용 상태를 조회하지 않습니다.",
+    };
+  }
+  if (observedLegacyFallbacks > 0) {
+    return mode === "encrypted"
+      ? {
+          ...base,
+          nextAction: "API와 Worker를 dual로 롤백하고 최근 7일 관측 legacy 사용을 0으로 만든 뒤 다시 cutover하세요.",
+          status: "blocked",
+          summary: "Encrypted mode인데 조직의 최근 7일 sync에 legacy credential 사용이 관측되어 cutover ready가 아닙니다.",
+        }
+      : {
+          ...base,
+          nextAction: "관측된 fallback 원인을 해결하고 최근 7일 legacy 사용이 0건이 될 때까지 dual mode를 유지하세요.",
+          status: "manual_followup",
+          summary: "경고: dual mode 조직의 최근 7일 sync에 legacy credential 사용이 관측됐습니다.",
+        };
+  }
+
+  return {
+    ...base,
+    nextAction:
+      mode === "dual"
+        ? "백업과 검증을 완료한 뒤 encrypted mode cutover 승인을 진행하세요."
+        : "7일간 zero-legacy 상태와 refresh/decryption 오류를 관찰하세요.",
+    status: mode === "dual" ? "ready" : "configured",
+    summary:
+      mode === "dual"
+        ? "조직의 최근 7일 sync metadata에서 관측된 legacy 사용이 0건입니다."
+        : "Encrypted storage mode이며 최근 7일 관측 legacy 사용이 0건입니다.",
   };
 }
 
@@ -419,6 +666,15 @@ function inferStatus(input: ReadinessInput, env: NodeJS.ProcessEnv): Operational
     input.requiredAny === undefined || input.requiredAny.some((key) => hasEnv(env, key));
 
   return allConfigured && anyConfigured ? "configured" : "needs_provisioning";
+}
+
+function inferOptionalPlatformStatus(
+  input: ReadinessInput,
+  env: NodeJS.ProcessEnv,
+): OperationalReadinessStatus {
+  return (input.requiredAny ?? []).some((key) => hasEnv(env, key))
+    ? "configured"
+    : "manual_followup";
 }
 
 function hasEnv(env: NodeJS.ProcessEnv, key: string) {

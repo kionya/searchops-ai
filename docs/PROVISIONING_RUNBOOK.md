@@ -1,136 +1,256 @@
-# Provisioning Runbook — env 키 목록 & Railway/Vercel/Supabase 설정 절차
+# Provisioning Runbook
 
-> `/ops/readiness`의 "프로비저닝 필요" 항목을 실제로 해결하기 위한 운영 절차서.
-> 상위 정책은 [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md), 수동 런북은 [RUNBOOKS.md](./RUNBOOKS.md) 참조.
-> 모든 env 키는 `packages/types/src/index.ts`의 `SearchOpsEnvSchema`(283–314행)에서 검증된 실제 키 이름이다.
+이 문서는 SearchOps AI의 Web(Vercel), API(Railway), Worker(Railway), PostgreSQL/Auth(Supabase)를 실제 운영에 배치할 때 사용하는 절차다. 모든 예시는 합성 값이며 실제 secret, 고객 ID, token을 파일, 문서, 스크린샷, Git에 남기지 않는다.
 
-## 0. 핵심 원칙 (먼저 읽을 것)
+## 1. 먼저 구분할 것
 
-1. **`/ops/readiness`의 초록 배지 = "env 키가 존재함"일 뿐, "기능이 작동함"이 아니다** (`apps/api/src/readiness.ts` `inferStatus`는 존재 여부만 검사). 완료 기준은 배지가 아니라 실제 동작 검증이다.
-2. **서비스는 3개**: **API**(Railway), **Worker**(Railway, 별도 서비스), **Web**(Vercel). env는 서비스별로 따로 설정한다.
-3. **부팅 필수 2개**: `DATABASE_URL`, `REDIS_URL`은 `.optional()`이 아님 → 없으면 API·Worker **둘 다 부팅 크래시**.
-4. **죽은 env(설정해도 무효)**: `SEARCHOPS_GEO_*`, `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`, `SEARCHOPS_ERROR_MONITORING_DSN`, `SEARCHOPS_UPTIME_CHECK_URL`, `*_ACCESS_TOKEN`, `*_SERVICE_ACCOUNT_JSON`, `SEARCHOPS_CMS_API_TOKEN` — 스키마에 없거나 기능 코드가 안 읽음. **설정 금지/무의미**.
+- 플랫폼 readiness: DB, Redis, IdP, Google OAuth 앱, encryption keyring처럼 서비스가 부팅하고 암호화 credential을 처리하기 위한 설정이다.
+- 조직/사이트 readiness: 조직의 `ProviderAccount`와 사이트의 `SiteConnector` 상태다. GSC 속성, GA4 Property ID, Bing 고객 key/resource, GEO BYOK는 여기에 속한다.
+- 로컬 `corepack pnpm check:connector-live`는 DB를 조회하지 않고 runtime/platform env만 검사한다.
+- 인증된 `GET /ops/readiness`는 검증된 user principal의 `organizationId`로만 tenant snapshot을 조회한다. 요청 query/body로 다른 조직을 지정할 수 없다.
+- API/Worker는 동일한 `SEARCHOPS_CREDENTIAL_STORAGE_MODE`와 active/previous encryption keyring을 사용한다. Vercel에는 encryption key를 절대 넣지 않는다.
 
----
+## 2. 서비스별 env 배치
 
-## 1. 서비스별 env 키 매트릭스
+### Vercel Web
 
-### 1-A. API 서비스 (Railway)
+Web 프로젝트에는 현재 Web runtime이 실제로 소비하는 아래 두 범주의 값만 넣는다. 공개 설정과 서버 전용 secret을 같은 것으로 취급하지 않는다.
 
-| env 키 | 필수도 | 형식/값 | 효과 (코드 근거) |
-|---|---|---|---|
-| `DATABASE_URL` | **필수** | Postgres URL (Supabase) | 부팅 필수. 없으면 크래시 (`types index.ts:284`) |
-| `REDIS_URL` | **필수** | Redis URL (Railway add-on) | 부팅 필수 + 모든 BullMQ 큐·rate limit backing (`index.ts:33-43`) |
-| `NODE_ENV` | **필수** | `production` | rate limit 기본 ON + IdP와 함께 **fail-open 차단** (`index.ts:40,64-65`) |
-| `SEARCHOPS_IDP_JWKS_JSON` | **필수**(택1) | Supabase JWKS JSON (**RSA만**) | RS256 검증기 활성화 (`index.ts:54-59`, `auth.ts:366` ES256 거부) |
-| `SEARCHOPS_IDP_JWT_HS256_SECRET` | (택1·레거시) | HS256 비밀키 | HS256 검증기 (`index.ts:48-53`) |
-| `SEARCHOPS_IDP_ISSUER` | 권장 | `https://<ref>.supabase.co/auth/v1` | 토큰 `iss` 검증 (`auth.ts:333`) |
-| `SEARCHOPS_IDP_AUDIENCE` | 권장 | `authenticated` | 토큰 `aud` 검증 (`auth.ts:337-349`) |
-| `SEARCHOPS_PUBLIC_APP_URL` | **필수** | Web 정규 https origin (끝 `/` 무관) | OAuth 후 returnTo 리다이렉트 (`server.ts:1842`). 없으면 콜백이 raw JSON 노출 |
-| `SEARCHOPS_API_BASE_URL` | 권장 | API 자신의 https origin | connector live-setup 리포트 일관성 (`connector-live-setup.ts:113`) |
-| `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID` | OAuth(원자) | Google OAuth client id | GSC/GA4 핸드셰이크 (`connector-live-setup.ts:16-21`) |
-| `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET` | OAuth(원자) | client secret | 〃 |
-| `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI` | OAuth(원자) | http(s) 절대 URL, Google Console과 **정확히 일치** | 〃 (`connector-live-setup.ts:176-190`) |
-| `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET` | OAuth(원자) | **16자 이상** 난수 | 〃 (`connector-live-setup.ts:192-205`) |
-| `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL` | 권장 | http(s) URL | **alert-routing + error-monitoring-uptime 동시 충족** (`index.ts:75-81`, `readiness.ts:340`) |
-| `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN` | 선택 | Bearer 토큰 | 위 웹훅 인증 |
-| `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL` / `_TOKEN` | 선택(저가치) | http(s) URL | 메트릭 log drain (`index.ts:68-74`) |
-| `SEARCHOPS_RATE_LIMIT_ENABLED` | 선택 | `true`/`false` | 기본: prod=ON (`index.ts:40`) |
-| `SEARCHOPS_RATE_LIMIT_MAX` / `_WINDOW_MS` | 선택 | 정수 | 기본 120 / 60000 (`index.ts:111-112`) |
-| `SEARCHOPS_CMS_WEBHOOK_SECRETS` | defer | **JSON object 문자열** (provider→secret) | CMS 웹훅 서명검증. 잘못 넣으면 전 웹훅 401 |
-| `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL` / `_TOKEN` | defer | http(s) URL | restore drill dispatch (`index.ts:82-88`) |
-| `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL` / `_TOKEN` | defer | http(s) URL | secret rotation dispatch (`index.ts:89-95`) |
-| `PORT` / `SEARCHOPS_API_HOST` | 자동 | Railway가 PORT 주입 | `index.ts:97-98` (보통 손댈 필요 없음) |
+<!-- VERCEL_ENV_BEGIN -->
 
-### 1-B. Worker 서비스 (Railway · API와 별도 서비스)
+#### 브라우저 공개 가능 설정
 
-| env 키 | 필수도 | 형식/값 | 효과 (코드 근거) |
-|---|---|---|---|
-| `DATABASE_URL` | **필수** | API와 동일 | 부팅 필수 (`worker/index.ts:11`) |
-| `REDIS_URL` | **필수** | **API와 같은 인스턴스** | 큐 공유 (`worker/index.ts:12-27`) |
-| `NODE_ENV` | 권장 | `production` | 일관성 |
-| `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID` | live sync | API와 동일 값 | connector sync live 처리 (`worker/index.ts:18`) |
-| `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET` | live sync | API와 동일 값 | 〃 (`worker/index.ts:19`) |
-| `SEARCHOPS_GA4_PROPERTY_ID` | live sync | **숫자만** (`^\d+$`, G-… 아님) | GA4 sync (`worker/index.ts:17`, 검증 `connector-live-setup.ts:277`) |
-| `SEARCHOPS_PAGESPEED_API_KEY` | live sync | Google API key | PageSpeed sync (`worker/index.ts:21`) |
-| `SEARCHOPS_BING_API_KEY` | defer | Bing Webmaster key | Bing sync (`worker/index.ts:16`) |
+<!-- VERCEL_PUBLIC_CONFIG_BEGIN -->
 
-> ⚠️ **워커 live 모드 전환**: 위 5개 중 **아무거나 1개라도** 설정되면 워커 connector sync가 전체 live 모드로 바뀐다(`worker/index.ts:65-72`). 그리고 Google OAuth가 **부분 설정**(quad 중 일부만)이면 live 게이트가 **blocked**된다(`connector-live-setup.ts:430-447`). → Google 키는 반드시 **원자적으로(4개 한 번에)** 넣을 것.
+- `SEARCHOPS_API_BASE_URL=https://api.searchops.example`
+- `SEARCHOPS_PUBLIC_APP_URL=https://app.searchops.example`
+- `NEXT_PUBLIC_SUPABASE_URL=https://project-ref.supabase.co`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_synthetic_example`
+<!-- VERCEL_PUBLIC_CONFIG_END -->
 
-### 1-C. Web 서비스 (Vercel)
+Supabase publishable key는 브라우저 공개를 전제로 한 값이며 service-role key가 아니다. `NEXT_PUBLIC_` 값은 client bundle에 노출될 수 있다.
 
-| env 키 | 필수도 | 형식/값 | 효과 |
-|---|---|---|---|
-| `SEARCHOPS_API_BASE_URL` | **필수** | Railway API https origin | 없으면 web이 데모 모드로 빠짐 (`apps/web/src/api-base-url.ts`) |
-| `SEARCHOPS_PUBLIC_APP_URL` | **필수** | Web 정규 origin (API와 동일 값) | OAuth returnTo 생성 (`connectors/page.tsx:487-493`) |
-| `NEXT_PUBLIC_SUPABASE_URL` | 로그인 구현 시 | `https://<ref>.supabase.co` | ⚠️ 아직 스키마에 없음 — 로그인 UI 구현과 함께 추가 |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 로그인 구현 시 | Supabase anon key | 〃 |
+#### Web 서버 전용 secret
 
----
+<!-- VERCEL_SERVER_SECRETS_BEGIN -->
 
-## 2. 단계별 설정 절차
+- `SEARCHOPS_IDP_JWT_HS256_SECRET`: 남아 있는 service-auth ops 서버 호출용
+- `SEARCHOPS_OPS_ALERT_SINK_TOKEN`: Web alert sink의 bearer 검증용
+- `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`: Web log-drain sink의 bearer 검증용
 
-### Phase 0 — DB 부팅 기반 (Supabase)
-1. Supabase 프로젝트(서울)에서 connection string 확보. **단일 `DATABASE_URL`만 쓰므로**(스키마에 `directUrl` 없음, `schema.prisma:8`) **Session Pooler(5432)** 또는 직접 연결 문자열을 사용한다. Transaction pooler(6543)는 Prisma migrate와 호환 문제 → 피한다.
-2. 운영 DB에 마이그레이션 적용 (로컬/CI에서 운영 `DATABASE_URL`로):
-   ```bash
-   DATABASE_URL=<prod> pnpm db:migrate:deploy
-   DATABASE_URL=<prod> pnpm db:seed
-   DATABASE_URL=<prod> pnpm db:migrate:status   # 검증
-   ```
-3. ⚠️ seed가 만드는 `phaseOneSeedIds`(org_demo)는 Phase 2 전까지 fail-open 상태에서 기본 신원이 된다 → Phase 2를 빨리 닫을 것.
+세 값은 non-`NEXT_PUBLIC` 서버 전용 secret이다. Client Component에서 읽거나 브라우저 bundle, 응답, 로그에 노출하면 안 된다.
 
-### Phase 1 — Redis (Railway)
-1. Railway에 Redis plugin 추가. eviction policy = **`noeviction`** (BullMQ 요구, CHECKLIST:40).
-2. API·Worker 두 서비스에 reference variable로 주입: `REDIS_URL=${{Redis.REDIS_URL}}`.
-3. 두 서비스 재배포 → 로그 `SearchOps API listening` / `SearchOps worker listening` 확인.
+<!-- VERCEL_SERVER_SECRETS_END -->
+<!-- VERCEL_ENV_END -->
 
-### Phase 2 — 실제 인증 (Supabase Auth) + 🔴 fail-open 차단
-1. Supabase Auth 활성화, 로그인 provider(이메일/OAuth) 설정.
-2. **custom access token hook**(Postgres 함수)으로 JWT에 클레임 주입: `sub`, `email`, `organization_id`, `role`. **`role`은 반드시** `admin|editor|owner|system|viewer` 중 하나(`AuthRoleSchema`).
-3. JWKS 확보: `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` → **RSA(RS256)인지 확인**.
-   - RSA면 → `SEARCHOPS_IDP_JWKS_JSON`에 JSON 전체, `SEARCHOPS_IDP_ISSUER=https://<ref>.supabase.co/auth/v1`, `SEARCHOPS_IDP_AUDIENCE=authenticated`.
-   - 레거시 공유 HS256면 → `SEARCHOPS_IDP_JWT_HS256_SECRET`. (ES256은 검증기가 거부)
-4. **fail-open 차단 = env 2개 동시 충족(코드 변경 불필요)**:
-   - `NODE_ENV=production` **그리고** IdP env 설정 → `index.ts:60-67`이 `allowMockFallback=false`, `allowTrustedHeaders=false`로 리졸버 생성 → `x-mock-*`/`x-searchops-idp-*` 사칭·익명 admin 차단.
-   - ⚠️ 둘 중 **하나만** 설정하면 안 닫힘: IdP만 있고 NODE_ENV≠production이면 mock fallback 유지, NODE_ENV만 production이고 IdP 없으면 `index.ts:44`가 resolver를 undefined로 만들어 `server.ts:287` fail-open으로 빠진다.
-5. **단, 코드 작업 1건 동반 필수**: Web에 로그인 UI + 모든 API 요청에 `Authorization: Bearer <jwt>` 전달 구현(현재 없음). fail-open을 닫으면 토큰 없는 요청은 전부 401 → 로그인 구현과 **같은 배포로 함께** 나가야 앱이 안 깨진다.
-6. 검증: 두 조직/두 사용자 스모크 계정으로 ① 교차 조직 접근 차단 ② viewer write 차단 ③ 로그인 라운드트립 성공 확인.
+Vercel에는 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `REDIS_URL`, credential encryption keyring, Google client secret/state secret, provider API key, 고객 token, 고객 ID, GA4 Property ID, Bing key를 넣지 않는다. `turbo run build` 또는 Vercel build가 이 금지된 backend 값을 요구한다면 Web 설정으로 우회하지 말고 build dependency를 수정한다. Vercel이 관리하는 production runtime을 사용하므로 `NODE_ENV`도 수동으로 덮어쓰지 않는다.
 
-### Phase 3 — 도메인/정규 URL (Vercel)
-1. Vercel 커스텀 도메인 추가 → 레지스트라에 DNS 레코드(서브도메인 CNAME→cname.vercel-dns.com) → HTTPS 자동 발급(전파 대기).
-2. `SEARCHOPS_PUBLIC_APP_URL`(=Web origin)과 `SEARCHOPS_API_BASE_URL`(=Railway API origin)을 **Vercel(Web)과 Railway(API) 양쪽 동일**하게 설정.
-3. Web 재배포 + API 재시작.
+### Railway API
 
-### Phase 4 — 관측/알림
-1. Slack/Discord/webhook 등 알림 수신 URL을 `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`(API)에 설정 → **alert-routing + error-monitoring-uptime 동시 해결**.
-2. **실질 다운 감지는 env가 아님**: 외부 uptime 모니터(예: Better Stack/UptimeRobot)를 API `GET /health`에 연결. (내부 알림은 `/ops/metrics-export` 호출 시점에만 발동 = fire-on-read)
+<!-- RAILWAY_API_ENV_BEGIN -->
 
-### Phase 5 — Google 커넥터 (GSC + GA4 + keyword discovery)
-1. Google Cloud 프로젝트 생성 → **Search Console API + Analytics Data API + PageSpeed Insights API** 사용 설정.
-2. OAuth consent screen 구성 → **OAuth 2.0 Web 클라이언트** 생성 → CLIENT_ID/SECRET 확보.
-3. Authorized redirect URI = API OAuth 콜백 URL. 이 값을 `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI`에 **정확히 동일**하게.
-4. `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET` = `openssl rand -hex 32`(16자 이상).
-5. **API 서비스**에 quad 4개 + **Worker 서비스**에 CLIENT_ID/SECRET + `SEARCHOPS_GA4_PROPERTY_ID`(숫자) + (Phase 6) PageSpeed.
-6. ⚠️ 연결은 **테넌트별 UI OAuth 흐름**으로 완료해야 실데이터가 들어온다(env만으로는 readiness만 초록, 데이터 0).
+필수 runtime:
 
-### Phase 6 — PageSpeed
-1. Google Cloud에서 API key 생성 → `SEARCHOPS_PAGESPEED_API_KEY`를 **Worker**에 설정.
-2. Google OAuth quad 완료 **후** 추가(부분 quad 상태에서 추가하면 워커 게이트 blocked).
+- `NODE_ENV=production`
+- `DATABASE_URL`: Supabase runtime PostgreSQL URL
+- `REDIS_URL`: API와 Worker가 공유하는 Railway Redis URL
+- `SEARCHOPS_API_BASE_URL=https://api.searchops.example`
+- `SEARCHOPS_PUBLIC_APP_URL=https://app.searchops.example`
 
-### Defer (출시 후)
-- `SEARCHOPS_BING_API_KEY`(Worker), `SEARCHOPS_CMS_WEBHOOK_SECRETS`(API) — 고객 수요 시.
-- `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`, `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL` — 수신 리시버 없음 → 출시는 RUNBOOKS.md 수동 절차.
-- `geo-live-providers`, `rich-result-live-validator` — **엔지니어링 필요**(env 스키마 미존재). env만 넣어도 무효.
-- `organization-invite` — 하드코딩 manual_followup. `canLaunch=false`를 묶고 있으므로 코드 전환 필요(MVP는 수동 멤버십 seed).
+Supabase IdP:
 
----
+- `SEARCHOPS_IDP_JWKS_JSON`: Supabase JWKS JSON 전체
+- `SEARCHOPS_IDP_ISSUER=https://project-ref.supabase.co/auth/v1`
+- `SEARCHOPS_IDP_AUDIENCE=authenticated`
+- 레거시 HS256 프로젝트만 `SEARCHOPS_IDP_JWT_HS256_SECRET`을 JWKS 대신 사용
 
-## 3. 출시 전 최종 검증 체크리스트
-- [ ] API·Worker 둘 다 정상 부팅 (DATABASE_URL/REDIS_URL OK)
-- [ ] `NODE_ENV=production` + IdP env → 익명 요청이 401, `x-mock-*` 헤더 사칭 차단됨을 실제 호출로 확인
-- [ ] Web 로그인 → Bearer 전달 → 보호 라우트 접근 라운드트립 성공
-- [ ] 커스텀 도메인 HTTPS + `PUBLIC_APP_URL`/`API_BASE_URL` 양쪽 일치
-- [ ] 알림 웹훅 + 외부 `/health` uptime 모니터 동작
-- [ ] (선택) Google OAuth: 사이트 1개 OAuth 완료 후 GSC 단독 sync 성공
-- [ ] `/ops/readiness` & `/ops/productization`에서 launch-blocking 0 확인 (단, 죽은 env로 초록 만들지 말 것)
+Provider credential storage:
+
+- `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual` 또는 cutover 후 `encrypted`
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID=prod-v1`
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY`: 32-byte base64 값
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON={}` 또는 rotation 중 이전 key map
+
+Google OAuth 앱:
+
+- `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`
+- `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`
+- `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI=https://api.searchops.example/connectors/google/oauth/callback`
+- `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET`
+
+선택 API-owned secret:
+
+- `SEARCHOPS_CMS_WEBHOOK_SECRETS`
+- `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL`, `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN`
+- `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`, `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN`
+- `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`, `SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN`
+- `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL`, `SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN`
+<!-- RAILWAY_API_ENV_END -->
+
+`NODE_ENV=production`은 개발용 mock/trusted-header fallback을 허용하지 않는 배포 경계이며 production rate limiting 기본값도 활성화한다. 단, IdP verifier가 함께 설정되어야 실제 bearer token을 검증할 수 있다.
+
+### Railway Worker
+
+<!-- RAILWAY_WORKER_ENV_BEGIN -->
+
+필수 runtime:
+
+- `NODE_ENV=production`
+- `DATABASE_URL`: API와 같은 Supabase 데이터베이스
+- `REDIS_URL`: API와 같은 Redis 인스턴스
+- `SEARCHOPS_CREDENTIAL_STORAGE_MODE`: API와 같은 값
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID`: API와 같은 값
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY`: API와 같은 값
+- `SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON`: API와 같은 값
+
+Google refresh 앱:
+
+- `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`: API와 같은 OAuth client
+- `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`: API와 같은 OAuth client secret
+
+선택 SearchOps-funded 플랫폼 key:
+
+- `SEARCHOPS_PAGESPEED_API_KEY`
+- `SEARCHOPS_GEO_CHATGPT_API_KEY`
+- `SEARCHOPS_GEO_CLAUDE_API_KEY`
+- `SEARCHOPS_GEO_GEMINI_API_KEY`
+- `SEARCHOPS_GEO_PERPLEXITY_API_KEY`
+
+선택 Worker-only adapter 설정:
+
+- `SEARCHOPS_GEO_CHATGPT_MODEL`
+- `SEARCHOPS_GEO_CLAUDE_MODEL`
+- `SEARCHOPS_GEO_GEMINI_MODEL`
+- `SEARCHOPS_GEO_PERPLEXITY_MODEL`
+- `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`
+- `SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN`
+<!-- RAILWAY_WORKER_ENV_END -->
+
+Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Google token, 조직 GEO BYOK를 넣지 않는다. Worker는 각 job의 `organizationId`와 `siteId`로 encrypted `ProviderAccount`/`SiteConnector`를 조회한다.
+
+### Supabase
+
+- PostgreSQL database와 Auth를 소유한다.
+- runtime용 `DATABASE_URL`과 migration용 `DIRECT_DATABASE_URL`을 운영자에게 제공한다. migration 실행 환경에서만 두 값을 주입한다.
+- JWKS, issuer, audience를 Railway API의 IdP verifier에 제공한다.
+- custom access token hook은 표준 `role=authenticated`를 유지하고 top-level `organization_id`, `user_role`, `sub`, `email`을 발급한다. `user_role`은 `owner|admin|editor|viewer|system` 중 하나다.
+- Prisma migration의 적용 주체는 운영 deploy 절차다. Vercel Web이 migration을 실행하지 않는다.
+- Worker runtime secret을 일반 테이블에 평문 저장하지 않는다. 예외는 AES-256-GCM으로 암호화된 `ProviderAccount` payload와 비밀이 아닌 connector metadata뿐이다.
+
+## 3. DB와 Redis를 어디에 넣는가
+
+1. Supabase에서 runtime connection URL을 준비해 Railway API와 Worker의 `DATABASE_URL`에 각각 설정한다.
+2. migration 명령을 실행하는 운영자 환경에는 migrate-compatible direct/session URL을 `DIRECT_DATABASE_URL`로 주입한다.
+3. Railway Redis를 생성하고 같은 reference variable을 API와 Worker의 `REDIS_URL`에 설정한다.
+4. Redis eviction policy가 BullMQ에 맞는 `noeviction`인지 확인한다.
+5. Web/Vercel에는 DB와 Redis URL을 넣지 않는다.
+
+`DATABASE_URL`이 없으면 API와 Worker가 PostgreSQL을 사용할 수 없고, `REDIS_URL`이 없으면 API queue/rate-limit와 Worker BullMQ가 같은 작업 흐름을 공유할 수 없다. 두 값은 Railway의 두 서비스에 각각 저장해야 하며 한 서비스에만 넣는 것으로는 충분하지 않다.
+
+## 4. Production rollout 순서
+
+아래 순서는 변경하지 않는다. 각 단계의 증거를 기록한 뒤 다음 단계로 이동한다.
+
+### 4.1 Backup과 status
+
+1. Supabase의 복구 가능한 backup을 생성한다.
+2. 별도 scratch DB restore 검증이 성공해야 한다.
+3. release commit과 현재 migration 상태를 기록한다.
+
+```bash
+corepack pnpm db:migrate:status
+```
+
+Backup/restore 증거가 없으면 이후 migration, backfill, cutover를 실행하지 않는다.
+
+### 4.2 Initial encryption key
+
+최초 rollout에서만 운영자 terminal로 다음 명령을 실행한다.
+
+```bash
+openssl rand -base64 32
+```
+
+출력을 파일로 저장하지 않고 Railway API와 Worker의 `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` secret 입력란에 직접 같은 값으로 붙여 넣는다. 문서, 메모, 스크린샷, shell history 공유, Git, Vercel에는 넣지 않는다. 두 서비스에 같은 active key ID, key material, previous-key JSON, `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`을 설정한다. 이 단계는 routine/emergency rotation이 아니다.
+
+### 4.3 Additive migrate
+
+평문 필드를 삭제하지 않는 additive migration만 적용한다.
+
+```bash
+corepack pnpm db:migrate:deploy
+corepack pnpm db:migrate:status
+```
+
+### 4.4 API 배포
+
+새 schema를 읽고 `dual` read/write를 제공하는 API를 먼저 배포한다. Health, verified user auth, exact-tenant readiness snapshot, keyring semantic validation을 확인한다.
+
+### 4.5 Worker 배포
+
+같은 `dual` mode/keyring을 가진 Worker를 다음에 배포한다. Queue 소비, tenant credential resolution, refresh, `credentialSources` summary 기록을 확인한다.
+
+### 4.6 Web 배포
+
+마지막으로 Web을 배포한다. Vercel에는 브라우저 공개 가능 설정과 위에 명시한 Web 서버 전용 secret만 있고 DB/Redis/encryption/provider/customer secret은 없는지 확인한다. ProviderAccount/SiteConnector UI와 user-principal `/ops/readiness` 호출도 확인한다.
+
+### 4.7 Backfill dry-run, apply, reconcile
+
+API, Worker, Web 배포가 모두 확인된 뒤에만 실행한다. 각 실행의 대상, 성공, skip, failure 수를 기록한다.
+
+```bash
+corepack pnpm credentials:migrate -- --dry-run
+corepack pnpm credentials:migrate -- --apply --batch-size=100
+corepack pnpm credentials:migrate -- --dry-run
+```
+
+마지막 dry-run은 reconcile 증거다. 인증된 `/ops/readiness`의 `unmigratedLegacyCredentials`도 0이어야 한다.
+
+### 4.8 Validate
+
+```bash
+corepack pnpm check:connector-live
+corepack pnpm check:connector-live -- --deployment --api-env-file=scripts/dev/api.env.example --worker-env-file=scripts/dev/worker.env.example --json
+```
+
+CLI는 DB-free platform 검사이며 API/Worker 파일을 합치지 않는다. 실제 운영 값은 Railway secret에서 주입하고 파일, 문서, 스크린샷, Git에 남기지 않는다. 조직별 GSC/GA4/Bing과 migration 상태는 verified owner/admin user로 `/ops/readiness`와 `/ops/integrations`에서 확인한다. `unmigratedLegacyCredentials`는 이관 잔량이고 `observedLegacyFallbacks`는 정확한 조직의 문서화된 관측 창에서 실제 사용된 legacy credential 수다.
+
+두 개 이상의 서로 다른 사이트로 GSC/GA4 resource 격리, Bing account/resource, GEO BYOK 우선순위, PageSpeed 플랫폼 key를 검증한다. Backfill 잔량 0만으로 cutover를 승인하지 않는다.
+
+### 4.9 Encrypted cutover
+
+`unmigratedLegacyCredentials=0`이고 현재 관측 범위의 `observedLegacyFallbacks=0`인 상태에서 API와 Worker의 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=encrypted`를 함께 변경한다. API, Worker, Web 순서로 재배포하고 각 단계에서 health/auth/queue/readiness를 확인한다.
+
+### 4.10 Seven-day zero-observed-legacy
+
+Encrypted cutover 뒤 최소 7일 동안 `observedLegacyFallbacks=0`, refresh error 0, decryption error 0을 관찰한다. 관측 창은 정확한 조직의 `ConnectorSyncRun.summary.credentialSources`를 기준으로 하며 malformed summary는 readiness 근거로 사용하지 않는다.
+
+### 4.11 Separate destructive approval
+
+7일 증거가 완료되어도 legacy table/read path를 자동 삭제하지 않는다. 별도 contract migration 계획, 별도 코드 리뷰, backup 재확인, 운영자 명시 승인이 모두 있어야 destructive SQL을 실행할 수 있다.
+
+## 5. Rollback
+
+Encrypted cutover에서 decryption, refresh, 또는 미이관 credential 문제가 발생하면 API와 Worker를 함께 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`로 되돌리고 API, Worker, Web 순서로 재배포한다. Previous key를 제거하지 말고 backup과 오류 metadata를 보존한 상태에서 backfill과 readiness를 다시 검사한다.
+
+## 6. Key lifecycle
+
+### Routine key rotation
+
+정상적인 주기 교체에서는 새 active key를 API/Worker에 함께 추가하고 기존 active key를 previous map으로 옮긴 뒤 다음 순서로 재암호화한다.
+
+```bash
+corepack pnpm credentials:rotate -- --dry-run
+corepack pnpm credentials:rotate -- --apply --batch-size=100
+corepack pnpm credentials:rotate -- --dry-run
+```
+
+Reconcile과 API/Worker parity가 확인될 때까지 previous key를 제거하지 않는다.
+
+### Emergency key rotation
+
+노출 가능성이 있으면 affected provider token/API key를 provider에서 먼저 revoke/reissue한다. 그 다음 새 encryption key를 API/Worker에 함께 배포하고 위 rotate dry-run/apply/reconcile을 실행한다. 암호화 key rotation만으로 이미 노출된 provider credential을 무효화할 수는 없다. 사고 기록과 별도 보안 승인을 남긴다.
+
+## 7. Legacy env의 임시 범위
+
+`SEARCHOPS_GA4_PROPERTY_ID`, `SEARCHOPS_BING_API_KEY`, `SEARCHOPS_GSC_ACCESS_TOKEN`, `SEARCHOPS_GA4_ACCESS_TOKEN`, `SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON`, `SEARCHOPS_GA4_SERVICE_ACCOUNT_JSON`은 `dual` migration 기간의 기존 fallback 입력으로만 간주한다. 새 고객/사이트 설정에는 사용하지 않는다. 모든 대상이 encrypted account/site binding으로 이관되고 7일 zero-legacy 관찰을 통과한 뒤 별도 승인된 contract migration에서 제거한다.

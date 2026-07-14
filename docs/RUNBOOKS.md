@@ -78,8 +78,10 @@ Purpose:
 - Catch missing runtime dependencies before traffic reaches the release.
 
 Required environment:
-- `DATABASE_URL`
-- `REDIS_URL`
+- Railway API and Worker each receive `NODE_ENV=production`, `DATABASE_URL`, and the same `REDIS_URL`.
+- Railway API and Worker receive the same `SEARCHOPS_CREDENTIAL_STORAGE_MODE`, active encryption key ID/material, and previous-key JSON. Vercel receives none of them.
+- Railway API receives Google OAuth client ID/secret/redirect/state values and IdP verification values.
+- Railway Worker receives the same Google client ID/secret for refresh, plus optional PageSpeed and SearchOps-funded GEO platform keys.
 - `SEARCHOPS_CMS_WEBHOOK_SECRETS` when CMS webhooks are enabled.
 - `SEARCHOPS_RATE_LIMIT_ENABLED`, `SEARCHOPS_RATE_LIMIT_MAX`, and `SEARCHOPS_RATE_LIMIT_WINDOW_MS` when API rate limits are enabled.
 - `SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL` and optional token when metrics exports should post to a provider log drain.
@@ -88,8 +90,9 @@ Required environment:
 - `SEARCHOPS_IDP_JWKS_JSON`, optional issuer, and optional audience when the API verifies RS256/JWKS bearer tokens directly.
 - `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL` and optional token when restore drills are scheduled by an external executor.
 - `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL` and optional token when secret rotations are executed by an external secret manager workflow.
-- Provider credentials only in deployment secret storage, never in fixtures or committed files.
-- External IdP verification can happen before traffic reaches the API through trusted `x-searchops-idp-*` claims, or inside the API runtime with the configured HS256 or RS256/JWKS bearer-token verifier.
+- Platform-owned provider credentials stay in Railway secret storage, never in fixtures or committed files.
+- Customer Google/Bing/GEO credentials are encrypted `ProviderAccount` payloads; GSC/GA4/Bing resources are metadata-only `SiteConnector` bindings.
+- Production verifies bearer tokens inside the API with the configured HS256 or RS256/JWKS verifier. Trusted `x-searchops-idp-*` headers are local/test-only and are disabled by `NODE_ENV=production`.
 
 Pre-deploy checks:
 1. Run `corepack pnpm verify` on the release commit.
@@ -139,38 +142,38 @@ If Redis eviction warnings continue:
 3. Keep rate-limit counters and BullMQ queues separate if an edge/provider cache requires volatile eviction policies.
 4. Record the Redis provider, plan, region, and eviction policy in deployment notes.
 
-## 자사 데이터 커넥터 설정 점검
+## Tenant Connector Checks
 
-목적:
-- GSC/PageSpeed 정상 동작은 유지하면서 GA4, Bing, CMS 문제를 코드 장애와 설정 문제로 구분한다.
-- 커넥터 화면에서 provider를 하나씩 실행해 어느 연결이 막히는지 바로 확인한다.
+Purpose:
+- Separate platform failures from organization account and site resource configuration.
+- Verify that one job resolves only the account and resource bound to its `organizationId` and `siteId`.
 
-공통 확인:
-1. worker 런타임에서 live connector를 켠 상태인지 확인한다. API/worker readiness에서 live provider credential 항목을 함께 본다.
-2. 커넥터 화면에서 `GA4만 실행`, `Bing만 실행`, `CMS만 실행` 버튼으로 provider별 재실행을 먼저 한다.
-3. `setup_required`는 아직 설정이 없다는 뜻이다. 장애로 처리하지 말고 아래 설정을 완료한 뒤 해당 provider만 다시 실행한다.
-4. `failed`는 provider API가 실제로 거절한 상태다. summary의 `providerErrors.<provider>.code`, `operatorMessage`, `nextAction`을 우선 확인한다.
+Platform preflight:
+1. Run `corepack pnpm check:connector-live`. This is a DB-free runtime/platform check.
+2. Confirm API and Worker have the same storage mode and active/previous encryption keyring.
+3. Confirm the API has all four Google OAuth app values and the Worker has the same client ID/secret for refresh.
+4. Treat PageSpeed and SearchOps-funded GEO keys as optional Worker platform credentials.
 
-GA4:
-1. Railway worker에 `SEARCHOPS_GA4_PROPERTY_ID`를 설정한다.
-2. 값은 GA4 관리 > 속성 세부정보에 있는 숫자 Property ID다. `G-...` 측정 ID나 `GTM-...` 컨테이너 ID를 넣으면 안 된다.
-3. API 런타임에는 `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`, `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI`, `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET`이 필요하다.
-4. OAuth로 연결한 Google 계정을 GA4 관리 > 속성 액세스 관리에 추가한다. 최소 권한은 뷰어, 운영 분석까지 보려면 분석가 권한을 권장한다.
-5. `ga4_property_id_invalid`가 나오면 `SEARCHOPS_GA4_PROPERTY_ID`가 잘못된 것이다.
-6. `ga4_property_access_denied`가 나오면 Property ID 형식은 통과했지만 OAuth Google 계정이 해당 GA4 속성에 접근하지 못한다. 권한을 추가한 뒤 OAuth를 다시 연결하고 GA4만 재실행한다.
+Tenant readiness:
+1. Sign in as the organization owner/admin and open `/ops/integrations`.
+2. Connect the Google or Bing `ProviderAccount`; add organization GEO BYOK only when the customer supplies it.
+3. On each site connector screen, bind the exact GSC property, numeric GA4 Property ID, and verified Bing resource.
+4. Open authenticated `/ops/readiness`. `live-gsc`, `live-ga4`, and `live-bing` come from metadata-only tenant snapshot counts, not global Worker env.
+5. Run one provider at a time. `setup_required` means account/resource metadata is incomplete; `failed` means a normalized provider failure occurred.
+6. Confirm sync/dead-letter/log output contains no token, API key, encryption envelope, provider response body, or URL with credential query parameters.
 
-Bing:
-1. Bing Webmaster Tools > API Access에서 API Key를 발급한다.
-2. Railway worker 환경변수 `SEARCHOPS_BING_API_KEY`에 저장하고 worker를 재배포한다.
-3. `bing_api_key_missing`은 환경변수가 비어 있는 상태다.
-4. `bing_invalid_api_key` 또는 `InvalidApiKey`는 코드 문제가 아니라 Bing Webmaster API Key가 틀렸거나 폐기된 상태다. 새 키로 교체한 뒤 Bing만 재실행한다.
-5. `bing_service_unavailable` 또는 503 HTML 응답은 API Key 문제가 아니라 Bing Webmaster API/중간 게이트웨이의 일시 장애 가능성이 높다. 5-10분 뒤 Bing만 재실행하고, 반복되면 Bing Webmaster Tools 상태와 Railway outbound 네트워크를 확인한다.
+Dual-mode migration:
+1. Follow the single order in `PROVISIONING_RUNBOOK.md`: backup/status/key, additive migrate, API, Worker, Web, then backfill dry-run/apply/reconcile.
+2. `unmigratedLegacyCredentials` is migration completeness; make it zero without using it as evidence of actual runtime use.
+3. Keep `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual` while `observedLegacyFallbacks > 0` or any recent sync reports `credentialSources.*=legacy`.
+4. Set both API and Worker to `encrypted` only after migration validation and observed use are zero.
+5. Observe exact-organization sync summaries for seven days after cutover. If encrypted mode reports fallback or decryption errors, roll API, Worker, and Web back in that order with both runtimes in `dual`.
+6. Plaintext legacy table removal requires a separate destructive approval after the observation window.
 
 CMS:
-1. 현재 live CMS fetch connector는 미구성 상태다. 이 상태는 `failed`가 아니라 `setup_required`로 본다.
-2. CMS 데이터를 자동 반영하려면 `SEARCHOPS_CMS_WEBHOOK_SECRETS`를 provider별 JSON object로 설정하고 CMS webhook을 연결한다.
-3. WordPress, Webflow, generic headless CMS webhook payload는 connector boundary에서 정규화된다.
-4. CMS API에서 직접 live fetch가 필요하면 provider-specific CMS adapter를 추가한 뒤 CMS만 재실행한다.
+1. A missing live CMS fetch connector is `setup_required`, not a provider failure.
+2. Configure provider-scoped `SEARCHOPS_CMS_WEBHOOK_SECRETS` on Railway API when CMS webhooks are enabled.
+3. WordPress, Webflow, and generic headless payloads are normalized at the connector boundary.
 
 ## Secret Rotation
 

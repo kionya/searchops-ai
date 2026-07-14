@@ -6,19 +6,39 @@ import {
   type OperationalReadinessStatus,
 } from "@searchops/types";
 
-import { apiFetch } from "./api-client";
+import { ApiAuthenticationRequiredError, apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import type { ProviderUserContext } from "./provider-accounts";
 
 export type { OperationalReadinessCategory } from "@searchops/types";
 
 export type OperationalReadinessSource = "api" | "fixture";
 export type OperationalReadinessTone = "good" | "neutral" | "risk";
+export type OperationalReadinessLoadStatus =
+  | "authorization_unavailable"
+  | "ready"
+  | "store_unavailable";
 
-export interface OperationalReadinessDashboard {
-  readonly errorMessage: string | null;
+export interface OperationalReadinessReadyDashboard {
+  readonly errorMessage: null;
   readonly readiness: OperationalReadinessResponse;
   readonly source: OperationalReadinessSource;
+  readonly status: "ready";
 }
+
+export type OperationalReadinessDashboard =
+  | OperationalReadinessReadyDashboard
+  | {
+      readonly errorMessage: string;
+      readonly readiness: null;
+      readonly source: "api";
+      readonly status: "authorization_unavailable" | "store_unavailable";
+    };
+
+export const readinessUnavailableMessages = {
+  authorization_unavailable: "인증 정보를 확인할 수 없습니다. 다시 로그인하세요.",
+  store_unavailable: "준비도 저장소를 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
+} as const;
 
 const demoReadinessItems = [
   createDemoItem("live-gsc", "connectors", "GSC 실서비스 credential", "needs_provisioning"),
@@ -70,39 +90,62 @@ export const demoOperationalReadiness = OperationalReadinessResponseSchema.parse
   summary: createReadinessSummary(demoReadinessItems),
 });
 
-export async function loadOperationalReadiness(): Promise<OperationalReadinessDashboard> {
+export async function loadOperationalReadiness(
+  context: ProviderUserContext,
+): Promise<OperationalReadinessDashboard> {
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoOperationalReadinessDashboard();
+    return createUnavailableDashboard("store_unavailable");
   }
 
   try {
-    const response = await apiFetch(`${apiBaseUrl}/ops/readiness`, {
-      cache: "no-store",
-    });
+    const response = await apiFetchAsUser(
+      `${apiBaseUrl}/ops/readiness`,
+      context.accessToken,
+      {
+        cache: "no-store",
+      },
+    );
     if (!response.ok) {
-      throw new Error(`운영 준비도 요청 실패: ${response.status}`);
+      return createUnavailableDashboard(
+        response.status === 401 || response.status === 403
+          ? "authorization_unavailable"
+          : "store_unavailable",
+      );
     }
 
     return {
       errorMessage: null,
       readiness: OperationalReadinessResponseSchema.parse(await response.json()),
       source: "api",
+      status: "ready",
     };
   } catch (error) {
-    return {
-      ...createDemoOperationalReadinessDashboard(),
-      errorMessage:
-        error instanceof Error ? error.message : "운영 준비도 요청에 실패했습니다.",
-    };
+    return createUnavailableDashboard(
+      error instanceof ApiAuthenticationRequiredError
+        ? "authorization_unavailable"
+        : "store_unavailable",
+    );
   }
 }
 
-export function createDemoOperationalReadinessDashboard(): OperationalReadinessDashboard {
+export function createDemoOperationalReadinessDashboard(): OperationalReadinessReadyDashboard {
   return {
     errorMessage: null,
     readiness: demoOperationalReadiness,
     source: "fixture",
+    status: "ready",
+  };
+}
+
+function createUnavailableDashboard(
+  status: "authorization_unavailable" | "store_unavailable",
+): OperationalReadinessDashboard {
+  return {
+    errorMessage: readinessUnavailableMessages[status],
+    readiness: null,
+    source: "api",
+    status,
   };
 }
 

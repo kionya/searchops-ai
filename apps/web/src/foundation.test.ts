@@ -9,20 +9,24 @@ import {
 } from "@searchops/types";
 
 import {
+  appRouteItems,
   dashboardPlaceholders,
   getSiteDashboardPath,
-  loadDashboardSite,
+  loadDashboardSiteAsUser,
   siteRouteItems
 } from "./dashboard-shell";
 import { getApiBaseUrl } from "./api-base-url";
 import {
   createDemoConnectorLiveSetupData,
+  findPageSpeedLiveSetupCheck,
   formatConnectorLiveSetupStatus,
   getConnectorLiveSetupTone,
   getPageSpeedLiveSetupCheck,
-  loadConnectorLiveSetupData
+  loadConnectorLiveSetupData,
+  loadConnectorLiveSetupDataAsUser,
 } from "./connector-live-setup";
 import {
+  createGoogleOAuthStartPath,
   createDemoConnectorOAuthData,
   formatConnectorOAuthStatus,
   getConnectorOAuthTone,
@@ -38,7 +42,7 @@ import {
   getConnectorSyncRunTone,
   getConnectorSyncTriggerFeedback,
   getConnectorSyncProviderErrorGuidance,
-  loadConnectorSyncHistory,
+  loadConnectorSyncHistoryAsUser,
   summarizeConnectorCommandCenter,
   summarizeConnectorOperations,
   summarizeConnectorSyncHistory,
@@ -220,6 +224,30 @@ describe("web foundation", () => {
     expect(productName).toBe("SearchOps AI");
   });
 
+  it("includes the integration operations route in app navigation", () => {
+    expect(appRouteItems).toContainEqual({
+      href: "/ops/integrations",
+      label: "Integrations",
+      summary: "Provider 계정과 사이트 연결",
+    });
+  });
+
+  it("builds a same-origin authenticated Google OAuth start path", () => {
+    vi.stubEnv("SEARCHOPS_PUBLIC_APP_URL", "https://app.searchops.test");
+
+    const path = createGoogleOAuthStartPath(
+      "site_1",
+      ["gsc", "ga4"],
+      "/ops/integrations",
+    );
+    const url = new URL(path ?? "", "https://app.searchops.test");
+
+    expect(url.pathname).toBe("/sites/site_1/connectors/google/oauth/start");
+    expect(url.searchParams.get("providers")).toBe("gsc,ga4");
+    expect(url.searchParams.get("returnTo")).toBe("https://app.searchops.test/ops/integrations");
+    expect(createGoogleOAuthStartPath("site_1", ["gsc"], "https://evil.test/steal")).toBeNull();
+  });
+
   it("can validate the dashboard site fixture shape", () => {
     expect(SiteSchema.parse(demoSite)).toMatchObject({ domain: "example-clinic.com" });
   });
@@ -329,9 +357,12 @@ describe("web foundation", () => {
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "http://api.test");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith("/sites/site_api_clinic")) {
+          expect(new Headers(init?.headers).get("authorization")).toBe(
+            "Bearer current-user-token",
+          );
           return new Response(
             JSON.stringify({
               id: "site_api_clinic",
@@ -351,7 +382,12 @@ describe("web foundation", () => {
       }),
     );
 
-    await expect(loadDashboardSite("site_api_clinic")).resolves.toMatchObject({
+    await expect(loadDashboardSiteAsUser({
+      accessToken: "current-user-token",
+      organizationId: "org_demo",
+      role: "viewer",
+      userId: "user_demo",
+    }, "site_api_clinic")).resolves.toMatchObject({
       domain: "gangnam.rejuel.com",
       id: "site_api_clinic",
       name: "리쥬엘의원 강남"
@@ -881,21 +917,71 @@ describe("web foundation", () => {
   it("loads operational readiness through the API response contract", async () => {
     const fixture = createDemoOperationalReadinessDashboard().readiness;
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubEnv("SEARCHOPS_IDP_JWT_HS256_SECRET", "service-secret-must-not-be-used");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/ops/readiness");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
 
         return Response.json(fixture);
       }),
     );
 
-    const dashboard = await loadOperationalReadiness();
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "current-user-token",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+    if (dashboard.readiness === null) {
+      throw new Error("expected readiness API data");
+    }
     const grouped = groupReadinessByCategory(dashboard.readiness.items);
 
     expect(dashboard.source).toBe("api");
     expect(grouped.connectors.length).toBeGreaterThan(0);
     expect(formatReadinessStatus("needs_provisioning")).toBe("프로비저닝 필요");
+  });
+
+  it.each([
+    [403, "authorization_unavailable"],
+    [503, "store_unavailable"],
+  ] as const)("fails readiness closed for API status %s", async (status, expectedStatus) => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status })));
+
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "current-user-token",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+
+    expect(dashboard).toMatchObject({ readiness: null, status: expectedStatus });
+    expect(JSON.stringify(dashboard)).not.toContain("live-gsc");
+    expect(JSON.stringify(dashboard)).not.toContain("fixture");
+  });
+
+  it("fails readiness closed as authorization unavailable without a user access token", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dashboard = await loadOperationalReadiness({
+      accessToken: "",
+      organizationId: "org_a",
+      role: "owner",
+      userId: "user_a",
+    });
+
+    expect(dashboard).toMatchObject({
+      readiness: null,
+      status: "authorization_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("summarizes productization readiness and onboarding fixtures", () => {
@@ -2034,6 +2120,7 @@ describe("web foundation", () => {
         partialProviders: 0,
         providerErrors: {
           gsc: {
+            code: "gsc_oauth_missing",
             message: "GSC OAuth credential is missing for this site."
           }
         },
@@ -2199,24 +2286,39 @@ describe("web foundation", () => {
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/sites/site_1/connectors/oauth");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
         return Response.json({
           credentials: data.credentials
         });
       }),
     );
 
-    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
+    await expect(loadConnectorOAuthData("site_1", {
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "viewer",
+      userId: "user_demo",
+    })).resolves.toMatchObject({
       credentials: data.credentials,
       errorMessage: null,
       source: "api"
     });
   });
 
-  it("falls back to fixture Google connector OAuth data without an API base URL", async () => {
-    await expect(loadConnectorOAuthData("site_1")).resolves.toMatchObject({
-      source: "fixture"
+  it("fails closed without fixture OAuth data when the API base URL is missing", async () => {
+    await expect(loadConnectorOAuthData("site_1", {
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "viewer",
+      userId: "user_demo",
+    })).resolves.toEqual({
+      credentials: [],
+      errorMessage: "OAuth 상태를 불러오지 못했습니다.",
+      source: "api",
     });
   });
 
@@ -2237,8 +2339,11 @@ describe("web foundation", () => {
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/ops/connector-live-setup");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
         return Response.json({
           generatedAt: "2026-05-27T00:00:00.000Z",
           environment: "deployment",
@@ -2268,10 +2373,15 @@ describe("web foundation", () => {
       }),
     );
 
-    const data = await loadConnectorLiveSetupData();
+    const data = await loadConnectorLiveSetupDataAsUser({
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "viewer",
+      userId: "user_demo",
+    });
 
     expect(data.source).toBe("api");
-    expect(getPageSpeedLiveSetupCheck(data.report).status).toBe("ready");
+    expect(findPageSpeedLiveSetupCheck(data.report)?.status).toBe("ready");
   });
 
   it("falls back to fixture PageSpeed live setup data without an API base URL", async () => {
@@ -2293,8 +2403,11 @@ describe("web foundation", () => {
     vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
 
         if (url.endsWith("/sites/site_1/connector-sync-runs")) {
           return Response.json({
@@ -2313,7 +2426,12 @@ describe("web foundation", () => {
       }),
     );
 
-    const history = await loadConnectorSyncHistory("site_1");
+    const history = await loadConnectorSyncHistoryAsUser({
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "viewer",
+      userId: "user_demo",
+    }, "site_1");
 
     expect(history.source).toBe("api");
     expect(history.runs).toHaveLength(1);
@@ -2333,6 +2451,9 @@ describe("web foundation", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(String(input)).toBe("https://api.searchops.test/sites/site_1/connector-sync-runs");
         expect(init?.method).toBe("POST");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          "Bearer current-user-token",
+        );
         expect(JSON.parse(String(init?.body))).toEqual({ providers: ["gsc", "pagespeed"] });
 
         return Response.json({
@@ -2361,7 +2482,12 @@ describe("web foundation", () => {
       }),
     );
 
-    await expect(triggerConnectorSync("site_1", ["gsc", "pagespeed"])).resolves.toMatchObject({
+    await expect(triggerConnectorSync({
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "editor",
+      userId: connectorSyncRun.requestedByUserId,
+    }, "site_1", ["gsc", "pagespeed"])).resolves.toMatchObject({
       connectorSyncRunId: "sync_queued",
       jobId: "job_queued",
       source: "api",
@@ -2372,14 +2498,41 @@ describe("web foundation", () => {
     );
   });
 
-  it("keeps connector sync trigger deterministic without an API base URL", async () => {
-    await expect(triggerConnectorSync("site_1", ["gsc"])).resolves.toMatchObject({
+  it("fails connector sync trigger closed without an API base URL", async () => {
+    await expect(triggerConnectorSync({
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "editor",
+      userId: "user_demo",
+    }, "site_1", ["gsc"])).resolves.toMatchObject({
       connectorSyncRunId: null,
+      errorMessage: "커넥터 동기화 실행 요청에 실패했습니다.",
       providers: ["gsc"],
-      source: "fixture",
-      status: "fixture"
+      source: "api",
+      status: "failed"
     });
-    expect(getConnectorSyncTriggerFeedback("fixture", undefined)?.tone).toBe("info");
+  });
+
+  it("does not expose connector sync API errors", async () => {
+    vi.stubEnv("SEARCHOPS_API_BASE_URL", "https://api.searchops.test");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("provider-secret-error", { status: 403 })),
+    );
+
+    const result = await triggerConnectorSync({
+      accessToken: "current-user-token",
+      organizationId: demoSite.organizationId,
+      role: "editor",
+      userId: "user_demo",
+    }, "site_1", ["gsc"]);
+
+    expect(result).toMatchObject({
+      errorMessage: "커넥터 동기화 실행 요청에 실패했습니다.",
+      source: "api",
+      status: "failed",
+    });
+    expect(JSON.stringify(result)).not.toContain("provider-secret-error");
   });
 
   it("summarizes deterministic compliance dashboard fixtures", () => {

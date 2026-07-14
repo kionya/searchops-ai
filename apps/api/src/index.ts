@@ -1,5 +1,9 @@
 import { parseSearchOpsEnv } from "@searchops/types";
-import { createSearchOpsPrismaClient } from "@searchops/db";
+import {
+  createPrismaProviderCredentialStore,
+  createSearchOpsPrismaClient,
+  parseCredentialKeyring
+} from "@searchops/db";
 
 import {
   createBullMqConnectorSyncQueue,
@@ -24,12 +28,43 @@ import {
 } from "./operations-hardening.js";
 import { createIoredisApiRateLimitStore } from "./redis-rate-limit.js";
 import { createGoogleConnectorOAuthClientFromEnv } from "./google-oauth.js";
+import { createIoredisGoogleOAuthStateStore } from "./google-oauth-state-store.js";
 import { createPrismaRepository } from "./prisma-repository.js";
+import { createProviderAccountService } from "./provider-account-service.js";
 import { buildApiServer } from "./server.js";
 
 const env = parseSearchOpsEnv(process.env);
 const googleOAuthClient = createGoogleConnectorOAuthClientFromEnv(process.env);
+const googleOAuthStateStore =
+  googleOAuthClient === undefined
+    ? undefined
+    : createIoredisGoogleOAuthStateStore({ redisUrl: env.REDIS_URL });
 const prisma = createSearchOpsPrismaClient();
+const credentialKeyring =
+  env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
+    ? undefined
+    : parseCredentialKeyring({
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+          ? {}
+          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
+        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+          ? {}
+          : {
+              SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+                env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
+            })
+      });
+const providerCredentialStore = createPrismaProviderCredentialStore(prisma);
+const providerAccountService =
+  credentialKeyring === undefined
+    ? undefined
+    : createProviderAccountService({
+        keyring: credentialKeyring,
+        store: providerCredentialStore
+      });
 const crawlRunQueue = createBullMqCrawlRunQueue({ redisUrl: env.REDIS_URL });
 const connectorSyncQueue = createBullMqConnectorSyncQueue({ redisUrl: env.REDIS_URL });
 const geoAnswerMonitorQueue = createBullMqGeoAnswerMonitorQueue({ redisUrl: env.REDIS_URL });
@@ -104,8 +139,11 @@ const server = buildApiServer({
   deadLetterJobStore,
   geoAnswerMonitorQueue,
   googleOAuthClient,
+  googleOAuthStateStore,
   operationalAlertRouter,
   operationalLogDrain,
+  providerAccountService,
+  providerCredentialStore,
   rateLimit: {
     enabled: rateLimitEnabled,
     maxRequests: env.SEARCHOPS_RATE_LIMIT_MAX ?? 120,
@@ -122,6 +160,7 @@ server.addHook("onClose", async () => {
   await crawlRunQueue.close();
   await deadLetterJobStore.close();
   await geoAnswerMonitorQueue.close();
+  await googleOAuthStateStore?.close();
   await rateLimitStore?.close();
   await schemaRichResultValidationQueue.close();
   await prisma.$disconnect();

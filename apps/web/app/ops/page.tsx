@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import {
   AppWorkspaceFrame,
@@ -17,10 +18,18 @@ import {
 import { loadOperationalReadiness } from "../../src/operational-readiness";
 import { loadOperationsHardeningDashboard } from "../../src/operations-hardening-dashboard";
 import { loadProductizationDashboard } from "../../src/productization-dashboard";
+import { getCurrentProviderUser } from "../../src/provider-accounts";
 
 export default async function OperationsHubPage() {
+  let context;
+  try {
+    context = await getCurrentProviderUser();
+  } catch {
+    redirect("/login?next=%2Fops");
+  }
+
   const [readiness, observability, deadLetter, hardening, productization] = await Promise.all([
-    loadOperationalReadiness(),
+    loadOperationalReadiness(context),
     loadObservabilityDashboard(),
     loadDeadLetterOperations(),
     loadOperationsHardeningDashboard(),
@@ -32,7 +41,7 @@ export default async function OperationsHubPage() {
     hardeningSummary: hardening.summary,
     observabilitySummary: observability.summary,
     productizationSummary: productization.productization.summary,
-    readinessSummary: readiness.readiness.summary
+    readinessSummary: readiness.readiness?.summary ?? unavailableReadinessSummary
   });
   const signalSummary = summarizeOperatorConsoleSignals(signals);
 
@@ -97,6 +106,15 @@ export default async function OperationsHubPage() {
     </AppWorkspaceFrame>
   );
 }
+
+const unavailableReadinessSummary = {
+  blocked: 1,
+  configured: 0,
+  manualFollowup: 0,
+  needsProvisioning: 0,
+  ready: 0,
+  total: 1,
+} as const;
 
 function OperatorSignalCard({
   index,

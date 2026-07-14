@@ -4,9 +4,14 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 
 ## Phase 6 Connectors
 
-- GSC, GA4, PageSpeed, Bing, and CMS live credentials must be stored only in deployment secret storage.
-- GSC/GA4 service account user grants can be skipped when Google rejects service account emails; use the Google OAuth flow instead.
-- Google OAuth requires `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`, `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI`, and `SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET` in the API runtime.
+- [ ] API and Worker use the same `dual`/`encrypted` storage mode and active/previous encryption keyring; Vercel has none of these values.
+- [ ] Vercel public config is limited to the documented API/app/Supabase browser-safe values; `NEXT_PUBLIC_` values are treated as client-visible.
+- [ ] Vercel server-only secrets include the currently consumed `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`, and `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`; none is exposed through client code or a `NEXT_PUBLIC_` alias.
+- [ ] Google OAuth client ID/secret/redirect/state are on Railway API; the same client ID/secret are on Railway Worker for refresh.
+- [ ] Organization Google/Bing/GEO credentials exist only as encrypted `ProviderAccount` payloads.
+- [ ] Each site has the exact GSC property, numeric GA4 Property ID, and verified Bing resource in `SiteConnector` metadata.
+- [ ] No new customer or site depends on global GA4 Property ID, global Bing key, customer access token, or service-account JSON env.
+- [ ] PageSpeed and SearchOps-funded GEO keys remain optional Worker platform credentials.
 - Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default in tests.
 - Connector sync must tolerate partial provider failure and keep provider-level result status for operations review.
 
@@ -24,7 +29,7 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 
 ## Phase 9 GEO
 
-- Live AI answer providers require provider credentials and connector adapter wiring.
+- Organization BYOK takes precedence over optional SearchOps-funded Worker platform keys and is decrypted only for the provider call.
 - GEO observation collection should support manual/fixture inputs and live provider batch collection.
 - Work order creation can be explicit per report or bulk, but should remain deterministic and idempotent.
 
@@ -36,6 +41,13 @@ This checklist tracks the remaining SearchOps AI work from Phase 6 through produ
 
 ## Phase 11 Production Hardening
 
+- [ ] A restorable Supabase backup is verified before the credential schema migration/backfill.
+- [ ] Initial key generation is recorded separately from routine/emergency rotation; key output was pasted directly into Railway API/Worker secrets only.
+- [ ] Additive migration status/deploy/status is recorded before application deployment.
+- [ ] Deployment order is API, Worker, then Web; credential backfill dry-run/apply/reconcile runs only afterward.
+- [ ] `unmigratedLegacyCredentials=0` and `observedLegacyFallbacks=0` are verified as separate readiness facts before encrypted cutover.
+- [ ] Encrypted mode is observed for at least seven days with zero observed legacy use and no unexpected refresh/decryption error.
+- [ ] Rollback returns both API and Worker to `dual` and redeploys API, Worker, Web; plaintext legacy table removal requires a separate plan and explicit approval.
 - Redis-backed rate limiting is wired in the API runtime and requires a Redis provider suitable for shared counters.
 - BullMQ Redis must use `noeviction`.
 - Observability log drain, alert routing, restore drill scheduler, secret manager executor, and IdP JWKS/issuer/audience remain deployment provisioning tasks.

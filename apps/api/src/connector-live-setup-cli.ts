@@ -4,13 +4,24 @@ import { fileURLToPath } from "node:url";
 import { createConnectorLiveSetupCliEnv } from "./connector-live-setup-cli-env.js";
 import { createConnectorLiveSetupReport, summarizeConnectorLiveSetupFailure } from "./connector-live-setup.js";
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 const environment = args.has("--deployment") ? "deployment" : "local";
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const apiEnvFile = readOption(rawArgs, "--api-env-file");
+const workerEnvFile = readOption(rawArgs, "--worker-env-file");
+const cliEnv = createConnectorLiveSetupCliEnv({
+  ...(apiEnvFile === undefined ? {} : { apiEnvFile }),
+  baseEnv: process.env,
+  environment,
+  repoRoot,
+  ...(workerEnvFile === undefined ? {} : { workerEnvFile }),
+});
 const report = createConnectorLiveSetupReport({
-  env: createConnectorLiveSetupCliEnv({ baseEnv: process.env, environment, repoRoot }),
+  apiEnv: cliEnv.apiEnv,
   environment,
   generatedAt: new Date(),
+  ...(cliEnv.workerEnv === undefined ? {} : { workerEnv: cliEnv.workerEnv }),
 });
 
 if (args.has("--json")) {
@@ -43,4 +54,14 @@ function printTextReport() {
     console.log(`  next: ${check.nextAction}`);
     console.log(`  env: ${check.envKeys.join(", ")}`);
   }
+}
+
+function readOption(args: readonly string[], name: string) {
+  const inline = args.find((arg) => arg.startsWith(`${name}=`));
+  if (inline !== undefined) {
+    return inline.slice(name.length + 1);
+  }
+
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
 }

@@ -9,6 +9,53 @@ export {
 export type { Prisma } from "./generated/prisma/index.js";
 
 export {
+  CredentialDecryptionError,
+  decryptProviderCredential,
+  encryptProviderCredential,
+  parseCredentialKeyring,
+  type CredentialContext,
+  type CredentialKeyring,
+  type CredentialKeyringEnvironment,
+  type EncryptedProviderCredential
+} from "./credential-crypto.js";
+
+export {
+  createPrismaProviderCredentialStore,
+  deriveCanonicalProviderAccountId,
+  ProviderCredentialStoreError,
+  type AccountLookupStoreInput,
+  type ConnectorCredentialReadinessSnapshot,
+  type CreateApiKeyAccountStoreInput,
+  type DeleteAccountStoreInput,
+  type DeleteSiteConnectorStoreInput,
+  type ProviderAccountSecretRecord,
+  type ProviderCredentialStore,
+  type ProviderCredentialStoreErrorCode,
+  type ProviderCredentialStorePrismaPort,
+  type ProviderCredentialStorePrismaTransactionPort,
+  type ReplaceCredentialStoreInput,
+  type SiteConnectorLookupStoreInput,
+  type UpsertGoogleAccountStoreInput,
+  type UpsertSiteConnectorStoreInput,
+  type UpdateProviderAccountMetadataStoreInput
+} from "./provider-credential-store.js";
+
+export {
+  createPrismaProviderCredentialMaintenanceStore,
+  migrateLegacyProviderCredentials,
+  rotateProviderCredentialEncryption,
+  type CredentialMaintenanceCliOptions,
+  type CredentialMaintenanceOptions,
+  type CredentialMaintenanceSummary,
+  type LegacyCredentialInspection,
+  type LegacyProviderCredentialMigrationOptions,
+  type ProviderCredentialMaintenancePrismaPort,
+  type ProviderCredentialMaintenancePrismaTransactionPort,
+  type ProviderCredentialMaintenanceStore,
+  type ProviderCredentialMaintenanceTransaction
+} from "./provider-credential-migration.js";
+
+export {
   buildUrlRecordUpsertArgs,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
@@ -31,23 +78,43 @@ export {
 } from "./crawl.js";
 
 export {
+  applyProviderFeedbackForConnectorSync,
   buildConnectorSyncResultUpsertArgs,
   classifyConnectorSyncRunStatus,
   createConnectorSyncRun,
   createPrismaConnectorSyncPersistenceClient,
+  getDefaultGeoProviderAccountForSync,
+  getProviderAccountForConnectorSync,
+  getSiteConnectorForConnectorSync,
+  getSiteForConnectorSync,
   listConnectorOAuthCredentialsForSync,
   markConnectorSyncRunFailed,
   persistConnectorSyncJobResult,
   updateConnectorOAuthCredentialForSync,
+  updateProviderAccountCredentialForConnectorSync,
+  verifyConnectorSyncRunOwnership,
   type ConnectorOAuthCredentialUpdateArgs,
   type ConnectorOAuthCredentialFindManyArgs,
   type ConnectorOAuthCredentialForSync,
   type ConnectorSyncPersistenceClient,
+  type ConnectorSyncOwnershipPort,
+  type ConnectorSyncProviderAccountCredentialUpdateInput,
+  type ConnectorSyncProviderAccountLookupInput,
+  type ConnectorSyncProviderCredentialPort,
+  type ConnectorSyncProviderFeedbackInput,
   type ConnectorSyncResultUpsertArgs,
   type ConnectorSyncRunCreateArgs,
+  type ConnectorSyncRunOwnershipInput,
   type ConnectorSyncRunUpdateArgs,
+  type ConnectorSyncSiteConnectorLookupInput,
+  type ConnectorSyncSiteLookupInput,
+  type ConnectorSyncSiteRecord,
+  type GeoProviderAccountLookupInput,
+  type GeoProviderAccountProvider,
   type MarkConnectorSyncRunFailedOutput,
-  type PersistConnectorSyncJobResultOutput
+  type PersistConnectorSyncJobResultOutput,
+  type ProviderAccountForConnectorSync,
+  type ProviderAccountForGeoSync
 } from "./connector-sync.js";
 
 export {
@@ -76,6 +143,9 @@ export {
   buildGeoVisibilityReportCreateArgs,
   createPrismaGeoVisibilityPersistenceClient,
   persistGeoAnswerMonitorJobResult,
+  verifyGeoVisibilitySiteOwnership,
+  type GeoVisibilityOwnershipInput,
+  type GeoVisibilityOwnershipPort,
   type GeoVisibilityPersistenceClient,
   type GeoVisibilityReportCreateArgs,
   type PersistGeoAnswerMonitorJobResultOutput

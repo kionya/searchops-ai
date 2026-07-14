@@ -43,6 +43,36 @@ export function ConnectorSyncSubmitButton() {
   );
 }
 
+export function ConnectorBindingSubmitButton({
+  disabled = false,
+  label,
+  tone = "primary",
+}: {
+  readonly disabled?: boolean;
+  readonly label: string;
+  readonly tone?: "danger" | "primary";
+}) {
+  const { pending } = useFormStatus();
+  const inactive = disabled || pending;
+  return (
+    <button
+      aria-busy={pending}
+      disabled={inactive}
+      style={{
+        ...bindingButtonStyle,
+        background: tone === "danger" ? "#ffffff" : "#111827",
+        borderColor: tone === "danger" ? "#fecaca" : "#111827",
+        color: tone === "danger" ? "#b91c1c" : "#ffffff",
+        cursor: inactive ? "not-allowed" : "pointer",
+        opacity: inactive ? 0.55 : 1,
+      }}
+      type="submit"
+    >
+      {pending ? "처리 중" : label}
+    </button>
+  );
+}
+
 const submitWrapperStyle = {
   alignItems: "end",
   display: "grid",
@@ -65,6 +95,16 @@ const statusTextStyle = {
   fontSize: 12,
   minHeight: 16,
   textAlign: "right"
+} as const;
+
+const bindingButtonStyle = {
+  border: "1px solid",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 800,
+  minHeight: 38,
+  padding: "8px 12px",
+  whiteSpace: "nowrap",
 } as const;
 
 function getButtonStyle(pending: boolean) {

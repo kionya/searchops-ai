@@ -14,6 +14,7 @@ import {
   IdpClaimMappingInputSchema,
   MockUserContextSchema,
   type AuthenticatedUserContext,
+  type AuthPrincipalType,
   type AuthRole,
   type IdpClaimMappingInput,
 } from "@searchops/types";
@@ -388,16 +389,63 @@ function mapJwtPayloadToIdpClaims({
   readonly provider: string;
   readonly roleClaim: string;
 }) {
+  const role = resolveJwtAuthRole(payload, roleClaim);
+  const principalType = resolveJwtPrincipalType(payload);
+
   return IdpClaimMappingInputSchema.parse({
     email: typeof payload.email === "string" ? payload.email : null,
     organizationId: readStringClaim(payload, organizationIdClaim),
+    principalType,
     provider:
       typeof payload.provider === "string" && payload.provider.length > 0
         ? payload.provider
         : provider,
-    role: readStringClaim(payload, roleClaim),
+    role,
     subject: readStringClaim(payload, "sub"),
   });
+}
+
+function resolveJwtPrincipalType(payload: Record<string, unknown>): AuthPrincipalType {
+  if (!Object.prototype.hasOwnProperty.call(payload, "token_use")) {
+    return "user";
+  }
+
+  if (payload.token_use === "user" || payload.token_use === "service") {
+    return payload.token_use;
+  }
+
+  throw new AuthVerificationError("Bearer token has unsupported token_use.");
+}
+
+function resolveJwtAuthRole(payload: Record<string, unknown>, roleClaim: string): AuthRole {
+  const configuredRoleValue = readStringClaim(payload, roleClaim);
+  const configuredRole = AuthRoleSchema.safeParse(configuredRoleValue);
+
+  if (roleClaim === "user_role") {
+    if (configuredRole.success) {
+      return configuredRole.data;
+    }
+    throw new AuthVerificationError("Bearer token has invalid user_role.");
+  }
+
+  const hasUserRole = Object.prototype.hasOwnProperty.call(payload, "user_role");
+  const userRole = AuthRoleSchema.safeParse(payload.user_role);
+
+  if (configuredRole.success) {
+    if (hasUserRole && userRole.success && userRole.data !== configuredRole.data) {
+      throw new AuthVerificationError("Bearer token contains conflicting role claims.");
+    }
+    return configuredRole.data;
+  }
+
+  if (configuredRoleValue === "authenticated") {
+    if (userRole.success) {
+      return userRole.data;
+    }
+    throw new AuthVerificationError("Bearer token is missing a valid user_role.");
+  }
+
+  throw new AuthVerificationError(`Bearer token has invalid ${roleClaim}.`);
 }
 
 function readIdpClaimsFromHeaders(request: FastifyRequest) {
@@ -408,6 +456,7 @@ export function mapIdpClaimsToUserContext(claims: IdpClaimMappingInput) {
   return AuthenticatedUserContextSchema.parse({
     email: claims.email,
     organizationId: claims.organizationId,
+    principalType: claims.principalType,
     provider: claims.provider,
     role: claims.role,
     source: "idp",
@@ -430,11 +479,19 @@ export function canManageOperations(role: AuthRole) {
   return role === "admin" || role === "owner" || role === "system";
 }
 
+export function canManageProviderCredentials(context: {
+  readonly principalType: AuthPrincipalType;
+  readonly role: AuthRole;
+}) {
+  return context.principalType === "user" && canManageOperations(context.role);
+}
+
 function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
   const provider = readHeader(request, "x-searchops-idp-provider");
   const subject = readHeader(request, "x-searchops-idp-subject");
   const organizationId = readHeader(request, "x-searchops-idp-organization-id");
   const role = readHeader(request, "x-searchops-idp-role");
+  const principalType = readHeader(request, "x-searchops-idp-principal-type");
   const email = readHeader(request, "x-searchops-idp-email");
 
   if (
@@ -442,6 +499,7 @@ function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
     subject === undefined &&
     organizationId === undefined &&
     role === undefined &&
+    principalType === undefined &&
     email === undefined
   ) {
     return null;
@@ -450,6 +508,7 @@ function readTrustedIdpClaimsFromHeaders(request: FastifyRequest) {
   return IdpClaimMappingInputSchema.parse({
     email: email ?? null,
     organizationId,
+    principalType,
     provider,
     role,
     subject,

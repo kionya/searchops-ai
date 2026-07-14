@@ -39,15 +39,23 @@ import type {
   WorkOrder,
   WorkOrderDraft
 } from "@searchops/types";
+import { ConnectorSyncEnqueueFailedRunSummarySchema } from "@searchops/types";
+
+export const connectorSyncEnqueueFailureCode = "queue_enqueue_failed" as const;
+export const connectorSyncEnqueueFailureMessage =
+  "Connector sync queue enqueue failed." as const;
+export const connectorSyncEnqueueFailureSummary =
+  ConnectorSyncEnqueueFailedRunSummarySchema.parse({
+    version: 1,
+    error: {
+      code: connectorSyncEnqueueFailureCode,
+      message: connectorSyncEnqueueFailureMessage,
+    },
+  });
 
 export interface CreateConnectorSyncRunInput {
   providers: ConnectorProviderList;
   requestedByUserId: string;
-}
-
-export interface MarkConnectorSyncRunFailedInput {
-  readonly message: string;
-  readonly name?: string;
 }
 
 export interface UpsertConnectorOAuthCredentialInput {
@@ -190,10 +198,7 @@ export interface SearchOpsRepository {
     siteId: string,
     input: CreateConnectorSyncRunInput,
   ): Promise<ConnectorSyncRun | null>;
-  markConnectorSyncRunFailed(
-    id: string,
-    input: MarkConnectorSyncRunFailedInput,
-  ): Promise<ConnectorSyncRun | null>;
+  markConnectorSyncRunFailed(id: string): Promise<ConnectorSyncRun | null>;
   listConnectorSyncRuns(siteId: string): Promise<ConnectorSyncRun[] | null>;
   getConnectorSyncRun(id: string): Promise<ConnectorSyncRunDetail | null>;
   upsertConnectorOAuthCredentials(
@@ -666,7 +671,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     },
 
-    async markConnectorSyncRunFailed(id, input) {
+    async markConnectorSyncRunFailed(id) {
       const connectorSyncRun = connectorSyncRuns.get(id);
       if (!connectorSyncRun) {
         return null;
@@ -676,12 +681,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         ...connectorSyncRun,
         status: "failed",
         endedAt: nowIso(),
-        summary: {
-          error: {
-            message: input.message,
-            name: input.name ?? "Error"
-          }
-        }
+        summary: connectorSyncEnqueueFailureSummary
       };
       connectorSyncRuns.set(id, failedRun);
       return failedRun;
@@ -969,6 +969,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         mentionRate: input.visibilityReport.mentionRate,
         citationRate: input.visibilityReport.citationRate,
         competitorCitationRate: input.visibilityReport.competitorCitationRate,
+        credentialSources: {},
         queryCount: input.visibilityReport.queryCount,
         providerCount: input.visibilityReport.providerCount,
         observations: input.visibilityReport.observations,

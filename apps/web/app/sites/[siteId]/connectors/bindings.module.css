@@ -1,0 +1,60 @@
+.bindingRow {
+  align-items: center;
+  border-top: 1px solid #edf2f7;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  min-height: 78px;
+  padding: 12px 16px;
+}
+
+.bindingForm {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(150px, 0.8fr) auto minmax(220px, 1.2fr) auto;
+  min-width: 0;
+}
+
+.bindingReadOnly {
+  display: grid;
+  font-size: 13px;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.readonlyStatus {
+  color: #64748b;
+  grid-column: span 2;
+}
+
+@media (max-width: 1100px) {
+  .bindingRow {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .bindingForm {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .bindingForm button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .readonlyStatus {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .bindingForm {
+    grid-template-columns: 1fr;
+  }
+
+  .bindingForm button {
+    grid-column: auto;
+    width: 100%;
+  }
+}

@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+import {
+  CredentialSourceSchema,
+  CredentialStorageModeSchema,
+} from "./provider-credentials.js";
+
+export * from "./provider-credentials.js";
+
 export const productName = "SearchOps AI" as const;
 export const crawlQueueName = "searchops-crawl" as const;
 export const connectorQueueName = "searchops-connectors" as const;
@@ -283,6 +290,10 @@ export type SecretRotationExecutionResponse = z.infer<
 export const SearchOpsEnvSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
   REDIS_URL: z.string().url("REDIS_URL must be a valid Redis connection URL"),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: z.string().min(1).optional(),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: z.string().min(1).optional(),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: JsonObjectStringSchema.optional(),
+  SEARCHOPS_CREDENTIAL_STORAGE_MODE: CredentialStorageModeSchema.optional(),
   SEARCHOPS_CMS_WEBHOOK_SECRETS: JsonObjectStringSchema.optional(),
   SEARCHOPS_GA4_ACCESS_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_GA4_PROPERTY_ID: z.string().min(1).optional(),
@@ -373,7 +384,7 @@ export const OperationalReadinessItemSchema = z.object({
   summary: z.string().min(1),
   nextAction: z.string().min(1),
   envKeys: z.array(z.string().min(1)).default([]),
-});
+}).strict();
 
 export type OperationalReadinessItem = z.infer<typeof OperationalReadinessItemSchema>;
 
@@ -384,7 +395,7 @@ export const OperationalReadinessSummarySchema = z.object({
   manualFollowup: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
-});
+}).strict();
 
 export type OperationalReadinessSummary = z.infer<
   typeof OperationalReadinessSummarySchema
@@ -394,7 +405,7 @@ export const OperationalReadinessResponseSchema = z.object({
   generatedAt: IsoDateTimeSchema,
   items: z.array(OperationalReadinessItemSchema),
   summary: OperationalReadinessSummarySchema,
-});
+}).strict();
 
 export type OperationalReadinessResponse = z.infer<
   typeof OperationalReadinessResponseSchema
@@ -491,7 +502,7 @@ export const ConnectorLiveSetupCheckSchema = z.object({
   summary: z.string().min(1),
   nextAction: z.string().min(1),
   envKeys: z.array(z.string().min(1)).default([]),
-});
+}).strict();
 
 export type ConnectorLiveSetupCheck = z.infer<typeof ConnectorLiveSetupCheckSchema>;
 
@@ -502,7 +513,7 @@ export const ConnectorLiveSetupSummarySchema = z.object({
   warnings: z.number().int().nonnegative(),
   blocked: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
-});
+}).strict();
 
 export type ConnectorLiveSetupSummary = z.infer<
   typeof ConnectorLiveSetupSummarySchema
@@ -516,7 +527,7 @@ export const ConnectorLiveSetupReportSchema = z.object({
   canRunLiveConnectorSync: z.boolean(),
   checks: z.array(ConnectorLiveSetupCheckSchema),
   summary: ConnectorLiveSetupSummarySchema,
-});
+}).strict();
 
 export type ConnectorLiveSetupReport = z.infer<
   typeof ConnectorLiveSetupReportSchema
@@ -1217,15 +1228,17 @@ export const GeoCitationSchema = z.object({
 
 export type GeoCitation = z.infer<typeof GeoCitationSchema>;
 
-export const GeoAnswerObservationSchema = z.object({
-  provider: GeoProviderSchema,
-  query: NonEmptyStringSchema,
-  locale: z.string().min(2).default("ko-KR"),
-  answerText: z.string().default(""),
-  citedUrls: z.array(NormalizedUrlSchema).default([]),
-  observedAt: IsoDateTimeSchema,
-  source: GeoObservationSourceSchema.default("manual"),
-});
+export const GeoAnswerObservationSchema = z
+  .object({
+    provider: GeoProviderSchema,
+    query: NonEmptyStringSchema,
+    locale: z.string().min(2).default("ko-KR"),
+    answerText: z.string().default(""),
+    citedUrls: z.array(NormalizedUrlSchema).default([]),
+    observedAt: IsoDateTimeSchema,
+    source: GeoObservationSourceSchema.default("manual"),
+  })
+  .strict();
 
 export type GeoAnswerObservation = z.infer<typeof GeoAnswerObservationSchema>;
 
@@ -1257,11 +1270,126 @@ export type GeoAnswerMonitorProviderList = z.infer<
 
 export const DefaultGeoAnswerMonitorProviders = ["chatgpt", "perplexity"] as const;
 
-export const GeoAnswerMonitorResultSchema = z.object({
+export const GeoCredentialSourceSchema = z.enum(["encrypted", "platform"]);
+
+export type GeoCredentialSource = z.infer<typeof GeoCredentialSourceSchema>;
+
+export const GeoCredentialSourcesSchema = z
+  .object({
+    chatgpt: GeoCredentialSourceSchema.optional(),
+    claude: GeoCredentialSourceSchema.optional(),
+    gemini: GeoCredentialSourceSchema.optional(),
+    perplexity: GeoCredentialSourceSchema.optional(),
+  })
+  .strict();
+
+export type GeoCredentialSources = z.infer<typeof GeoCredentialSourcesSchema>;
+
+const GeoAnswerMonitorAccountMissingErrorSchema = z
+  .object({
+    code: z.literal("account_missing"),
+    message: z.enum([
+      "GEO provider credential is not configured.",
+      "GEO provider live monitoring is unavailable.",
+    ]),
+  })
+  .strict();
+
+const GeoAnswerMonitorRateLimitedErrorSchema = z
+  .object({
+    code: z.literal("provider_rate_limited"),
+    message: z.literal("GEO provider request was rate limited."),
+  })
+  .strict();
+
+const GeoAnswerMonitorRequestFailedErrorSchema = z
+  .object({
+    code: z.literal("provider_request_failed"),
+    message: z.literal("GEO provider request could not be completed safely."),
+  })
+  .strict();
+
+const GeoAnswerMonitorDecryptionFailedErrorSchema = z
+  .object({
+    code: z.literal("credential_decryption_failed"),
+    message: z.literal("GEO provider credential could not be decrypted safely."),
+  })
+  .strict();
+
+const GeoAnswerMonitorFailedProviderErrorSchema = z.union([
+  GeoAnswerMonitorRateLimitedErrorSchema,
+  GeoAnswerMonitorRequestFailedErrorSchema,
+  GeoAnswerMonitorDecryptionFailedErrorSchema,
+]);
+
+export const GeoAnswerMonitorProviderErrorSchema = z.union([
+  GeoAnswerMonitorAccountMissingErrorSchema,
+  GeoAnswerMonitorRateLimitedErrorSchema,
+  GeoAnswerMonitorRequestFailedErrorSchema,
+  GeoAnswerMonitorDecryptionFailedErrorSchema,
+]);
+
+export type GeoAnswerMonitorProviderError = z.infer<
+  typeof GeoAnswerMonitorProviderErrorSchema
+>;
+
+const GeoAnswerMonitorResultBaseSchema = z.object({
   provider: GeoAnswerMonitorProviderSchema,
-  observations: z.array(GeoAnswerObservationSchema).min(1),
   generatedBy: GeoAnswerMonitorGenerationModeSchema,
   liveExternalApis: LiveExternalApiModeSchema,
+});
+
+export const GeoAnswerMonitorResultSchema = z.union([
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("ok").default("ok"),
+    observations: z.array(GeoAnswerObservationSchema).min(1),
+    error: z.never().optional(),
+  }).strict(),
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("failed"),
+    observations: z.array(GeoAnswerObservationSchema).length(0),
+    error: GeoAnswerMonitorFailedProviderErrorSchema,
+  }).strict(),
+  GeoAnswerMonitorResultBaseSchema.extend({
+    status: z.literal("setup_required"),
+    observations: z.array(GeoAnswerObservationSchema).length(0),
+    error: GeoAnswerMonitorAccountMissingErrorSchema,
+  }).strict(),
+]).superRefine((result, context) => {
+  const expectedSource = result.generatedBy === "fixture" ? "fixture" : "connector";
+  const expectedLiveExternalApis =
+    result.generatedBy === "fixture" ? "disabled" : "enabled";
+
+  if (result.liveExternalApis !== expectedLiveExternalApis) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "GEO generation mode must match live external API mode",
+      path: ["liveExternalApis"],
+    });
+  }
+  if (result.generatedBy === "fixture" && result.observations.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Fixture GEO results require fixture observations",
+      path: ["observations"],
+    });
+  }
+  for (const [index, observation] of result.observations.entries()) {
+    if (observation.provider !== result.provider) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO observation provider must match result provider",
+        path: ["observations", index, "provider"],
+      });
+    }
+    if (observation.source !== expectedSource) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO observation source must match generation mode",
+        path: ["observations", index, "source"],
+      });
+    }
+  }
 });
 
 export type GeoAnswerMonitorResult = z.infer<typeof GeoAnswerMonitorResultSchema>;
@@ -1284,7 +1412,7 @@ export const GeoVisibilityReportSchema = z.object({
   competitorCitationRate: PercentageScoreSchema,
   queryCount: z.number().int().nonnegative(),
   providerCount: z.number().int().nonnegative(),
-  observations: z.array(GeoAnswerObservationSchema).min(1),
+  observations: z.array(GeoAnswerObservationSchema),
   citations: z.array(GeoCitationSchema),
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
@@ -1293,27 +1421,30 @@ export const GeoVisibilityReportSchema = z.object({
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
 
-export const GeoVisibilityReportRecordSchema = z.object({
-  id: IdSchema,
-  siteId: IdSchema,
-  brandName: NonEmptyStringSchema,
-  domain: DomainSchema,
-  locale: z.string().min(2),
-  market: z.string().min(2),
-  status: GeoVisibilityStatusSchema,
-  score: PercentageScoreSchema,
-  mentionRate: PercentageScoreSchema,
-  citationRate: PercentageScoreSchema,
-  competitorCitationRate: PercentageScoreSchema,
-  queryCount: z.number().int().nonnegative(),
-  providerCount: z.number().int().nonnegative(),
-  observations: z.array(GeoAnswerObservationSchema).min(1),
-  citations: z.array(GeoCitationSchema),
-  checks: z.array(GeoVisibilityCheckSchema).min(1),
-  generatedBy: z.literal("deterministic"),
-  evaluatedAt: IsoDateTimeSchema,
-  createdAt: IsoDateTimeSchema,
-});
+export const GeoVisibilityReportRecordSchema = z
+  .object({
+    id: IdSchema,
+    siteId: IdSchema,
+    brandName: NonEmptyStringSchema,
+    domain: DomainSchema,
+    locale: z.string().min(2),
+    market: z.string().min(2),
+    status: GeoVisibilityStatusSchema,
+    score: PercentageScoreSchema,
+    mentionRate: PercentageScoreSchema,
+    citationRate: PercentageScoreSchema,
+    competitorCitationRate: PercentageScoreSchema,
+    credentialSources: GeoCredentialSourcesSchema,
+    queryCount: z.number().int().nonnegative(),
+    providerCount: z.number().int().nonnegative(),
+    observations: z.array(GeoAnswerObservationSchema),
+    citations: z.array(GeoCitationSchema),
+    checks: z.array(GeoVisibilityCheckSchema).min(1),
+    generatedBy: z.literal("deterministic"),
+    evaluatedAt: IsoDateTimeSchema,
+    createdAt: IsoDateTimeSchema,
+  })
+  .strict();
 
 export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
 
@@ -1351,31 +1482,64 @@ export type CreateGeoVisibilityReportWorkOrderResponse = z.infer<
   typeof CreateGeoVisibilityReportWorkOrderResponseSchema
 >;
 
-export const GeoAnswerMonitorJobPayloadSchema = z.object({
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  target: GeoTargetSchema,
-  queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
-  observedAt: IsoDateTimeSchema,
-  providers: GeoAnswerMonitorProviderListSchema.default([
-    ...DefaultGeoAnswerMonitorProviders,
-  ]),
-});
+export const GeoAnswerMonitorJobPayloadSchema = z
+  .object({
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    target: GeoTargetSchema,
+    queries: z.array(GeoAnswerMonitorQuerySchema).min(1),
+    observedAt: IsoDateTimeSchema,
+    providers: GeoAnswerMonitorProviderListSchema.default([
+      ...DefaultGeoAnswerMonitorProviders,
+    ]),
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.target.siteId !== payload.siteId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO target site must match job site",
+        path: ["target", "siteId"],
+      });
+    }
+    if (payload.target.domain !== payload.siteDomain) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GEO target domain must match job site domain",
+        path: ["target", "domain"],
+      });
+    }
+  });
 
 export type GeoAnswerMonitorJobPayload = z.infer<typeof GeoAnswerMonitorJobPayloadSchema>;
 
-export const GeoAnswerMonitorJobResultSchema = z.object({
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  observedAt: IsoDateTimeSchema,
-  providers: GeoAnswerMonitorProviderListSchema,
-  monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
-  visibilityReport: GeoVisibilityReportSchema,
-});
+export const GeoAnswerMonitorJobResultSchema = z
+  .object({
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    observedAt: IsoDateTimeSchema,
+    providers: GeoAnswerMonitorProviderListSchema,
+    credentialSources: GeoCredentialSourcesSchema,
+    monitorResults: z.array(GeoAnswerMonitorResultSchema).min(1),
+    visibilityReport: GeoVisibilityReportSchema,
+  })
+  .strict()
+  .superRefine((result, context) => {
+    const requestedProviders = new Set(result.providers);
+    for (const provider of Object.keys(result.credentialSources)) {
+      if (!requestedProviders.has(provider as GeoAnswerMonitorProvider)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "GEO credential sources must contain requested providers only",
+          path: ["credentialSources", provider],
+        });
+      }
+    }
+  });
 
 export type GeoAnswerMonitorJobResult = z.infer<typeof GeoAnswerMonitorJobResultSchema>;
 
@@ -1755,6 +1919,10 @@ export const AuthRoleSchema = z.enum(["admin", "editor", "owner", "system", "vie
 
 export type AuthRole = z.infer<typeof AuthRoleSchema>;
 
+export const AuthPrincipalTypeSchema = z.enum(["user", "service"]);
+
+export type AuthPrincipalType = z.infer<typeof AuthPrincipalTypeSchema>;
+
 export const AuthContextSourceSchema = z.enum(["idp", "mock"]);
 
 export type AuthContextSource = z.infer<typeof AuthContextSourceSchema>;
@@ -1763,6 +1931,7 @@ export const AuthenticatedUserContextSchema = z.object({
   userId: IdSchema,
   organizationId: IdSchema,
   role: AuthRoleSchema.default("admin"),
+  principalType: AuthPrincipalTypeSchema.default("user"),
   source: AuthContextSourceSchema,
   provider: z.string().min(1).nullable().default(null),
   email: z.string().email().nullable().default(null),
@@ -1781,6 +1950,7 @@ export const IdpClaimMappingInputSchema = z.object({
   subject: IdSchema,
   organizationId: IdSchema,
   role: AuthRoleSchema,
+  principalType: AuthPrincipalTypeSchema.default("user"),
   email: z.string().email().nullable().default(null),
 });
 
@@ -2394,14 +2564,215 @@ export const ConnectorSyncStatusSchema = z.enum(["ok", "partial", "failed", "set
 
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 
-export const ConnectorSyncProviderErrorSchema = z.object({
-  code: z.string().min(1).optional(),
-  message: z.string().min(1),
-  name: z.string().min(1).optional(),
-  nextAction: z.string().min(1).optional(),
-  operatorMessage: z.string().min(1).optional(),
-  setupRequired: z.boolean().optional(),
-});
+export interface FixedConnectorSyncProviderError {
+  readonly code: string;
+  readonly message: string;
+  readonly name?: string | undefined;
+  readonly nextAction?: string | undefined;
+  readonly operatorMessage?: string | undefined;
+  readonly setupRequired?: boolean | undefined;
+}
+
+const providerCredentialNextAction =
+  "사이트 커넥터의 계정, 권한, 리소스 설정을 확인한 뒤 해당 provider를 다시 실행하세요.";
+
+const connectorSyncProviderErrorDefinitions = {
+  account_missing: {
+    code: "account_missing",
+    message: "account_missing",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: account_missing",
+    setupRequired: true,
+  },
+  bing_api_key_missing: {
+    code: "bing_api_key_missing",
+    message: "Bing Webmaster API key is missing in the worker runtime.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "Railway worker에 SEARCHOPS_BING_API_KEY를 추가하고 Bing Webmaster Tools의 API Access에서 발급한 키를 넣은 뒤 Bing만 다시 실행하세요.",
+    operatorMessage: "Bing Webmaster API Key가 worker 런타임에 설정되지 않았습니다.",
+    setupRequired: true,
+  },
+  bing_invalid_api_key: {
+    code: "bing_invalid_api_key",
+    message: "Bing Webmaster credential is invalid.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: bing_invalid_api_key",
+    setupRequired: true,
+  },
+  bing_service_unavailable: {
+    code: "bing_service_unavailable",
+    message: "Bing Webmaster provider is temporarily unavailable.",
+    name: "ConnectorProviderError",
+    nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+    operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다.",
+  },
+  cms_live_connector_not_configured: {
+    code: "cms_live_connector_not_configured",
+    message:
+      "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "CMS webhook을 연결하거나 WordPress/Webflow/headless CMS adapter를 추가한 뒤 CMS만 다시 실행하세요.",
+    operatorMessage:
+      "CMS live connector가 아직 구성되지 않았습니다. 현재 상태는 장애가 아니라 설정 필요입니다.",
+    setupRequired: true,
+  },
+  connector_missing: {
+    code: "connector_missing",
+    message: "connector_missing",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: connector_missing",
+    setupRequired: true,
+  },
+  credential_decryption_failed: {
+    code: "credential_decryption_failed",
+    message: "credential_decryption_failed",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: credential_decryption_failed",
+    setupRequired: true,
+  },
+  credential_expired: {
+    code: "credential_expired",
+    message: "credential_expired",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: credential_expired",
+    setupRequired: true,
+  },
+  credential_revoked: {
+    code: "credential_revoked",
+    message: "credential_revoked",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: credential_revoked",
+    setupRequired: true,
+  },
+  ga4_oauth_missing: {
+    code: "ga4_oauth_missing",
+    message: "GA4 OAuth credential is missing for this site.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "사이트 커넥터 화면에서 GA4 OAuth를 다시 연결하고, 연결한 Google 계정이 GA4 속성에 뷰어 이상 권한을 갖는지 확인하세요.",
+    operatorMessage: "이 사이트에 연결된 GA4 OAuth credential이 없습니다.",
+    setupRequired: true,
+  },
+  ga4_property_access_denied: {
+    code: "ga4_property_access_denied",
+    message: "GA4 property access is denied.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "GA4 관리 > 속성 액세스 관리에서 OAuth로 연결한 Google 계정을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.",
+    operatorMessage: "OAuth Google 계정이 현재 GA4 속성에 접근할 권한이 없습니다.",
+  },
+  ga4_property_id_invalid: {
+    code: "ga4_property_id_invalid",
+    message: "GA4 property ID is invalid.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "Railway worker 환경변수 SEARCHOPS_GA4_PROPERTY_ID에는 측정 ID(G-...)나 GTM ID가 아니라 GA4 관리 > 속성 세부정보의 숫자 Property ID를 넣고 GA4만 다시 실행하세요.",
+    operatorMessage:
+      "GA4 Property ID가 잘못되었거나 Google Analytics Data API에서 해당 속성을 찾을 수 없습니다.",
+  },
+  ga4_property_id_missing: {
+    code: "ga4_property_id_missing",
+    message: "GA4 property ID is missing for this site.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "Railway worker 환경변수 SEARCHOPS_GA4_PROPERTY_ID에 GA4 관리 > 속성 세부정보의 숫자 Property ID를 넣고 GA4만 다시 실행하세요.",
+    operatorMessage: "GA4 Property ID가 worker 런타임에 설정되지 않았습니다.",
+    setupRequired: true,
+  },
+  gsc_oauth_missing: {
+    code: "gsc_oauth_missing",
+    message: "GSC OAuth credential is missing for this site.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "사이트 커넥터 화면에서 GSC OAuth를 다시 연결하고 Search Console 속성 권한을 확인하세요.",
+    operatorMessage: "이 사이트에 연결된 GSC OAuth credential이 없습니다.",
+    setupRequired: true,
+  },
+  legacy_connector_provider_failed: {
+    code: "legacy_connector_provider_failed",
+    message: "Connector provider failed.",
+    name: "ConnectorProviderError",
+  },
+  pagespeed_api_key_missing: {
+    code: "pagespeed_api_key_missing",
+    message: "PageSpeed API key is missing in the worker runtime.",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction:
+      "Railway worker에 SEARCHOPS_PAGESPEED_API_KEY를 추가한 뒤 PageSpeed만 다시 실행하세요.",
+    operatorMessage: "PageSpeed API Key가 worker 런타임에 설정되지 않았습니다.",
+    setupRequired: true,
+  },
+  provider_rate_limited: {
+    code: "provider_rate_limited",
+    message: "Connector provider request could not be completed safely.",
+    name: "ConnectorProviderError",
+    nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+    operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다.",
+  },
+  resource_access_denied: {
+    code: "resource_access_denied",
+    message: "resource_access_denied",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: resource_access_denied",
+  },
+  scope_missing: {
+    code: "scope_missing",
+    message: "scope_missing",
+    name: "ConnectorProviderDiagnosticError",
+    nextAction: providerCredentialNextAction,
+    operatorMessage: "Connector credential resolution failed: scope_missing",
+    setupRequired: true,
+  },
+} as const satisfies Record<string, FixedConnectorSyncProviderError>;
+
+const ConnectorSyncCurrentProviderErrorInputSchema = z
+  .object({
+    code: z.string().min(1),
+    message: z.string().min(1).max(1024),
+    name: z.string().min(1).max(128).optional(),
+    nextAction: z.string().min(1).max(2048).optional(),
+    operatorMessage: z.string().min(1).max(2048).optional(),
+    setupRequired: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((error, context) => {
+    if (!Object.prototype.hasOwnProperty.call(connectorSyncProviderErrorDefinitions, error.code)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Unsupported connector error code" });
+    }
+  })
+  .transform((error): FixedConnectorSyncProviderError =>
+    connectorSyncProviderErrorDefinitions[
+      error.code as keyof typeof connectorSyncProviderErrorDefinitions
+    ],
+  );
+
+const ConnectorSyncLegacyProviderErrorInputSchema = z
+  .object({
+    message: z.string().min(1).max(1024),
+    name: z.string().min(1).max(128).optional(),
+    nextAction: z.string().min(1).max(2048).optional(),
+    operatorMessage: z.string().min(1).max(2048).optional(),
+    setupRequired: z.boolean().optional(),
+  })
+  .strict()
+  .transform(
+    (): FixedConnectorSyncProviderError =>
+      connectorSyncProviderErrorDefinitions.legacy_connector_provider_failed,
+  );
+
+export const ConnectorSyncProviderErrorSchema = z.union([
+  ConnectorSyncCurrentProviderErrorInputSchema,
+  ConnectorSyncLegacyProviderErrorInputSchema,
+]);
 
 export type ConnectorSyncProviderError = z.infer<typeof ConnectorSyncProviderErrorSchema>;
 
@@ -2411,7 +2782,7 @@ export const ConnectorSyncProviderErrorMapSchema = z.object({
   ga4: ConnectorSyncProviderErrorSchema.optional(),
   gsc: ConnectorSyncProviderErrorSchema.optional(),
   pagespeed: ConnectorSyncProviderErrorSchema.optional(),
-});
+}).strict();
 
 export type ConnectorSyncProviderErrorMap = z.infer<
   typeof ConnectorSyncProviderErrorMapSchema
@@ -2601,6 +2972,7 @@ export const ConnectorRunResultSchema = z
     records: z.array(ConnectorRecordSchema),
     error: ConnectorSyncProviderErrorSchema.optional(),
   })
+  .strict()
   .refine((result) => result.records.every((record) => record.provider === result.provider), {
     message: "Connector run provider must match every normalized record provider",
     path: ["records"],
@@ -2614,26 +2986,98 @@ export const ConnectorRecordCountsByProviderSchema = z.object({
   ga4: NonNegativeIntegerSchema,
   gsc: NonNegativeIntegerSchema,
   pagespeed: NonNegativeIntegerSchema,
-});
+}).strict();
 
 export type ConnectorRecordCountsByProvider = z.infer<typeof ConnectorRecordCountsByProviderSchema>;
 
-export const ConnectorBatchSyncSummarySchema = z.object({
-  failedProviders: NonNegativeIntegerSchema,
-  okProviders: NonNegativeIntegerSchema,
-  partialProviders: NonNegativeIntegerSchema,
-  providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
-  recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
-  setupRequiredProviders: NonNegativeIntegerSchema.default(0),
-  totalProviders: NonNegativeIntegerSchema,
-  totalRecords: NonNegativeIntegerSchema,
-});
+export const ConnectorCredentialSourcesSchema = z
+  .object({
+    bing: CredentialSourceSchema.optional(),
+    cms: CredentialSourceSchema.optional(),
+    ga4: CredentialSourceSchema.optional(),
+    gsc: CredentialSourceSchema.optional(),
+    pagespeed: CredentialSourceSchema.optional(),
+  })
+  .strict();
+
+export type ConnectorCredentialSources = z.infer<typeof ConnectorCredentialSourcesSchema>;
+
+export const ConnectorBatchSyncSummarySchema = z
+  .object({
+    credentialSources: ConnectorCredentialSourcesSchema.optional(),
+    failedProviders: NonNegativeIntegerSchema,
+    okProviders: NonNegativeIntegerSchema,
+    partialProviders: NonNegativeIntegerSchema,
+    providerErrors: ConnectorSyncProviderErrorMapSchema.optional(),
+    recordCountsByProvider: ConnectorRecordCountsByProviderSchema,
+    setupRequiredProviders: NonNegativeIntegerSchema.default(0),
+    totalProviders: NonNegativeIntegerSchema,
+    totalRecords: NonNegativeIntegerSchema,
+  })
+  .strict();
 
 export type ConnectorBatchSyncSummary = z.infer<typeof ConnectorBatchSyncSummarySchema>;
 
+export const ConnectorSyncFailedRunSummarySchema = z
+  .object({
+    version: z.literal(1),
+    error: z
+      .object({
+        code: z.literal("worker_job_failed"),
+        message: z.literal("Worker job failed."),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const ConnectorSyncEnqueueFailedRunSummarySchema = z
+  .object({
+    version: z.literal(1),
+    error: z
+      .object({
+        code: z.literal("queue_enqueue_failed"),
+        message: z.literal("Connector sync queue enqueue failed."),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const ConnectorSyncLegacyCompatibilityRunSummarySchema = z
+  .object({
+    version: z.literal(1),
+    error: z
+      .object({
+        code: z.literal("legacy_connector_sync_failed"),
+        message: z.literal("Connector sync failed."),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ConnectorSyncLegacyFailedRunSummarySchema = z
+  .object({
+    error: z
+      .object({
+        message: z.string().min(1).max(256),
+        name: z.string().min(1).max(64),
+      })
+      .strict(),
+  })
+  .strict()
+  .transform(() => ({
+    version: 1 as const,
+    error: {
+      code: "legacy_connector_sync_failed" as const,
+      message: "Connector sync failed." as const,
+    },
+  }));
+
 export const ConnectorSyncRunSummarySchema = z.union([
   ConnectorBatchSyncSummarySchema,
-  z.record(z.unknown()),
+  ConnectorSyncFailedRunSummarySchema,
+  ConnectorSyncEnqueueFailedRunSummarySchema,
+  ConnectorSyncLegacyCompatibilityRunSummarySchema,
+  ConnectorSyncLegacyFailedRunSummarySchema,
 ]);
 
 export type ConnectorSyncRunSummary = z.infer<typeof ConnectorSyncRunSummarySchema>;
@@ -2667,28 +3111,32 @@ export const ConnectorSyncRunSchema = z.object({
 
 export type ConnectorSyncRun = z.infer<typeof ConnectorSyncRunSchema>;
 
-export const ConnectorSyncJobPayloadSchema = z.object({
-  connectorSyncRunId: IdSchema,
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  fetchedAt: IsoDateTimeSchema,
-  providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
-});
+export const ConnectorSyncJobPayloadSchema = z
+  .object({
+    connectorSyncRunId: IdSchema,
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    fetchedAt: IsoDateTimeSchema,
+    providers: ConnectorProviderListSchema.default([...DefaultConnectorProviders]),
+  })
+  .strict();
 
 export type ConnectorSyncJobPayload = z.infer<typeof ConnectorSyncJobPayloadSchema>;
 
-export const ConnectorSyncJobResultSchema = z.object({
-  connectorSyncRunId: IdSchema,
-  organizationId: IdSchema,
-  siteId: IdSchema,
-  siteDomain: DomainSchema,
-  requestedByUserId: IdSchema,
-  fetchedAt: IsoDateTimeSchema,
-  results: z.array(ConnectorRunResultSchema),
-  summary: ConnectorBatchSyncSummarySchema,
-});
+export const ConnectorSyncJobResultSchema = z
+  .object({
+    connectorSyncRunId: IdSchema,
+    organizationId: IdSchema,
+    siteId: IdSchema,
+    siteDomain: DomainSchema,
+    requestedByUserId: IdSchema,
+    fetchedAt: IsoDateTimeSchema,
+    results: z.array(ConnectorRunResultSchema),
+    summary: ConnectorBatchSyncSummarySchema,
+  })
+  .strict();
 
 export type ConnectorSyncJobResult = z.infer<typeof ConnectorSyncJobResultSchema>;
 
@@ -2748,6 +3196,19 @@ export const CreateConnectorSyncRunResponseSchema = z.object({
 });
 
 export type CreateConnectorSyncRunResponse = z.infer<typeof CreateConnectorSyncRunResponseSchema>;
+
+export const ConnectorSyncEnqueueFailureResponseSchema = z
+  .object({
+    version: z.literal(1),
+    error: z.literal("queue_enqueue_failed"),
+    message: z.literal("Connector sync queue enqueue failed."),
+    connectorSyncRun: ConnectorSyncRunSchema,
+  })
+  .strict();
+
+export type ConnectorSyncEnqueueFailureResponse = z.infer<
+  typeof ConnectorSyncEnqueueFailureResponseSchema
+>;
 
 export const ConnectorSyncRunListResponseSchema = z.object({
   connectorSyncRuns: z.array(ConnectorSyncRunSchema),

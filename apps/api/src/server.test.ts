@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   AeoReadinessReportRecord,
@@ -14,14 +14,20 @@ import type {
   GeoVisibilityReportRecord,
   KeywordDiscoveryCandidateRecord,
   Organization,
+  ProviderAccountMetadata,
   SchemaRecommendationRecord,
   SeoIssue,
   Site,
+  SiteConnector,
   UrlRecord,
   WorkOrder,
 } from "@searchops/types";
 import { CmsContentUpdatedEventRequestSchema } from "@searchops/types";
 import { normalizeCmsWebhookPayload } from "@searchops/connectors";
+import type {
+  ConnectorCredentialReadinessSnapshot,
+  ProviderCredentialStore,
+} from "@searchops/db";
 
 import {
   createMemoryConnectorSyncQueue,
@@ -35,14 +41,20 @@ import type { ApiRateLimitStore } from "./rate-limit.js";
 import { createMemoryRepository } from "./repository.js";
 import { buildApiServer } from "./server.js";
 import {
+  ProviderAccountServiceError,
+  type ProviderAccountService,
+} from "./provider-account-service.js";
+import {
   createCmsNativeWebhookSignature,
   createCmsWebhookSignature,
 } from "./webhook-security.js";
 import {
   createHmacJwtIdpTokenVerifier,
   createRequestAuthContextResolver,
+  type AuthContextResolver,
 } from "./auth.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
+import type { GoogleOAuthStateStore } from "./google-oauth-state-store.js";
 import {
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
@@ -307,6 +319,7 @@ const seededGeoVisibilityReport: GeoVisibilityReportRecord = {
   mentionRate: 67,
   citationRate: 67,
   competitorCitationRate: 33,
+  credentialSources: {},
   queryCount: 3,
   providerCount: 2,
   observations: [
@@ -539,6 +552,7 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
         authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=fake_state&scope=${input.providers.join("+")}`,
         providers: input.providers,
         state: "fake_state",
+        stateIdentifier: "start-nonce",
         stateExpiresAt: "2026-05-27T00:10:00.000Z",
       };
     },
@@ -550,6 +564,7 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
         accessToken: "access_token",
         expiresAt: "2026-05-27T01:00:00.000Z",
         externalAccountEmail: "owner@example.com",
+        externalAccountId: "google-sub-123",
         refreshToken: "refresh_token",
         scopes: [
           "https://www.googleapis.com/auth/webmasters.readonly",
@@ -564,7 +579,7 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
       }
       return {
         issuedAt: "2026-05-27T00:00:00.000Z",
-        nonce: "nonce",
+        nonce: "callback-nonce",
         organizationId: seededSite.organizationId,
         providers: ["gsc", "ga4"],
         requestedByUserId: "user_connector",
@@ -575,18 +590,169 @@ function createFakeGoogleOAuthClient(): GoogleConnectorOAuthClient {
   };
 }
 
-function buildConnectorOAuthTestContext() {
+function createFakeGoogleOAuthStateStore(
+  initialIdentifiers: readonly string[] = ["callback-nonce"],
+): GoogleOAuthStateStore {
+  const active = new Set(initialIdentifiers);
+  return {
+    async issue(input) {
+      if (active.has(input.identifier)) {
+        return false;
+      }
+      active.add(input.identifier);
+      return true;
+    },
+    async consume(identifier) {
+      if (!active.has(identifier)) {
+        return false;
+      }
+      active.delete(identifier);
+      return true;
+    },
+  };
+}
+
+const googleOAuthProviderAccount: ProviderAccountMetadata = {
+  id: "pa_google_canonical",
+  organizationId: "org_demo",
+  provider: "google",
+  authType: "oauth2",
+  externalAccountId: "google-sub-123",
+  accountEmail: "owner@example.com",
+  displayName: "owner@example.com",
+  status: "connected",
+  scopes: [
+    "https://www.googleapis.com/auth/analytics.readonly",
+    "https://www.googleapis.com/auth/webmasters.readonly",
+  ],
+  tokenExpiresAt: "2026-05-27T01:00:00.000Z",
+  isDefault: false,
+  legacyCredentialId: null,
+  connectedByUserId: "user_connector",
+  connectedAt: "2026-05-27T00:00:00.000Z",
+  createdAt: "2026-05-27T00:00:00.000Z",
+  updatedAt: "2026-05-27T00:00:00.000Z",
+  credentialSource: "encrypted",
+};
+
+function googleOAuthPlaceholder(provider: "gsc" | "ga4"): SiteConnector {
+  return {
+    id: `connector_${provider}`,
+    organizationId: seededSite.organizationId,
+    siteId: seededSite.id,
+    provider,
+    providerAccountId: googleOAuthProviderAccount.id,
+    externalResourceId: null,
+    config: {},
+    status: "needs_configuration",
+    lastErrorCode: null,
+    lastCheckedAt: null,
+    createdAt: "2026-05-27T00:00:00.000Z",
+    updatedAt: "2026-05-27T00:00:00.000Z",
+  };
+}
+
+function googleOAuthConnectorFromInput(
+  input: Parameters<ProviderAccountService["upsertSiteConnector"]>[0],
+): SiteConnector {
+  const metadata = input as typeof input & {
+    readonly config?: SiteConnector["config"];
+    readonly lastCheckedAt?: string | null;
+    readonly lastErrorCode?: string | null;
+    readonly status?: SiteConnector["status"];
+  };
+  return {
+    ...googleOAuthPlaceholder(input.provider as "gsc" | "ga4"),
+    config: metadata.config ?? {},
+    externalResourceId: input.externalResourceId,
+    lastCheckedAt: metadata.lastCheckedAt ?? null,
+    lastErrorCode: metadata.lastErrorCode ?? null,
+    organizationId: input.organizationId,
+    providerAccountId: input.providerAccountId,
+    siteId: input.siteId,
+    status:
+      metadata.status ??
+      (input.externalResourceId === null ? "needs_configuration" : "connected"),
+  };
+}
+
+function createFakeProviderAccountService(
+  overrides: Partial<ProviderAccountService> = {},
+): ProviderAccountService {
+  return {
+    async createApiKeyAccount() {
+      return googleOAuthProviderAccount;
+    },
+    async updateAccountMetadata() {
+      return googleOAuthProviderAccount;
+    },
+    async replaceApiKeyCredential() {
+      return googleOAuthProviderAccount;
+    },
+    async upsertGoogleAccount() {
+      return googleOAuthProviderAccount;
+    },
+    async prepareGoogleConnectors() {
+      return { requiredScopes: [] };
+    },
+    async listAccounts() {
+      return [{ ...googleOAuthProviderAccount, bindingCount: 0 }];
+    },
+    async deleteAccount() {},
+    async listSiteConnectors() {
+      return [];
+    },
+    async upsertSiteConnector(input) {
+      if (input.provider !== "gsc" && input.provider !== "ga4") {
+        throw new ProviderAccountServiceError("validation_error");
+      }
+      return googleOAuthConnectorFromInput(input);
+    },
+    async deleteSiteConnector() {},
+    ...overrides,
+  };
+}
+
+function buildConnectorOAuthTestContext(options: {
+  readonly authContextResolver?: AuthContextResolver;
+  readonly googleOAuthClient?: GoogleConnectorOAuthClient;
+  readonly googleOAuthStateStore?: GoogleOAuthStateStore;
+  readonly includeGoogleOAuthClient?: boolean;
+  readonly includeGoogleOAuthStateStore?: boolean;
+  readonly includeProviderAccountService?: boolean;
+  readonly providerAccountService?: ProviderAccountService;
+  readonly publicAppUrl?: string;
+  readonly sites?: readonly Site[];
+} = {}) {
   const repository = createMemoryRepository({
-    organizations: [seededOrganization],
-    sites: [seededSite],
+    organizations: [seededOrganization, otherOrganization],
+    sites: [...(options.sites ?? [seededSite])],
   });
+  const googleOAuthClient = options.googleOAuthClient ?? createFakeGoogleOAuthClient();
+  const googleOAuthStateStore =
+    options.googleOAuthStateStore ?? createFakeGoogleOAuthStateStore();
+  const providerAccountService =
+    options.providerAccountService ?? createFakeProviderAccountService();
   const server = buildApiServer({
+    authContextResolver: options.authContextResolver,
     currentTime: () => new Date("2026-05-27T00:00:00.000Z"),
-    googleOAuthClient: createFakeGoogleOAuthClient(),
+    googleOAuthClient:
+      options.includeGoogleOAuthClient === false ? undefined : googleOAuthClient,
+    googleOAuthStateStore:
+      options.includeGoogleOAuthStateStore === false ? undefined : googleOAuthStateStore,
+    providerAccountService:
+      options.includeProviderAccountService === false ? undefined : providerAccountService,
+    publicAppUrl: options.publicAppUrl,
     repository,
   });
 
-  return { repository, server };
+  return {
+    googleOAuthClient,
+    googleOAuthStateStore,
+    providerAccountService,
+    repository,
+    server,
+  };
 }
 
 function buildGeoAnswerMonitorTestContext() {
@@ -955,9 +1121,30 @@ describe("api foundation", () => {
     ]);
   });
 
-  it("reports operational readiness for remaining production wiring", async () => {
+  it("loads operational readiness only for the verified user organization", async () => {
+    const organizations: string[] = [];
+    const connectorCredentials = {
+      configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
+      encryptedAccounts: 2,
+      unmigratedLegacyCredentials: 0,
+      observedLegacyFallbacks: 0,
+      credentialCiphertext: "must-not-leak",
+    } as unknown as ConnectorCredentialReadinessSnapshot;
     const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
       currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      providerCredentialStore: readinessStore(async (organizationId) => {
+        organizations.push(organizationId);
+        return connectorCredentials;
+      }),
       repository: createMemoryRepository({
         organizations: [seededOrganization],
         sites: [seededSite],
@@ -965,15 +1152,125 @@ describe("api foundation", () => {
     });
     const response = await server.inject({
       method: "GET",
-      url: "/ops/readiness",
+      url: "/ops/readiness?organizationId=org_other",
     });
     const payload = response.json();
 
     expect(response.statusCode).toBe(200);
+    expect(organizations).toEqual(["org_demo"]);
     expect(payload.generatedAt).toBe("2026-05-26T00:00:00.000Z");
     expect(payload.summary.total).toBeGreaterThanOrEqual(20);
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("live-gsc");
     expect(payload.items.map((item: { id: string }) => item.id)).toContain("idp-verification");
+    expect(payload.items.find((item: { id: string }) => item.id === "live-ga4").status).toBe(
+      "configured",
+    );
+    expect(JSON.stringify(payload)).not.toContain("must-not-leak");
+    expect(JSON.stringify(payload)).not.toContain("credentialCiphertext");
+  });
+
+  it("loads readiness from the organization in a verified bearer principal", async () => {
+    const organizations: string[] = [];
+    const server = buildApiServer({
+      authContextResolver: createRequestAuthContextResolver({
+        allowMockFallback: false,
+        allowTrustedHeaders: false,
+        tokenVerifier: createHmacJwtIdpTokenVerifier({
+          audience: "searchops-api",
+          currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+          issuer: "https://idp.example.com/",
+          organizationIdClaim: "org_id",
+          provider: "supabase",
+          secret: "idp_secret",
+        }),
+      }),
+      providerCredentialStore: readinessStore(async (organizationId) => {
+        organizations.push(organizationId);
+        return {
+          configuredByProvider: { gsc: 0, ga4: 0, bing: 1 },
+          encryptedAccounts: 1,
+          unmigratedLegacyCredentials: 0,
+          observedLegacyFallbacks: 0,
+        };
+      }),
+      repository: createMemoryRepository({
+        organizations: [seededOrganization, otherOrganization],
+        sites: [seededSite, otherSite],
+      }),
+    });
+    const token = createSignedIdpToken({
+      aud: "searchops-api",
+      email: "owner@example.test",
+      exp: 1_779_756_000,
+      iss: "https://idp.example.com/",
+      org_id: "org_other",
+      role: "owner",
+      sub: "idp_owner_other",
+    });
+
+    const response = await server.inject({
+      headers: { authorization: `Bearer ${token}` },
+      method: "GET",
+      url: "/ops/readiness?organizationId=org_demo",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(organizations).toEqual(["org_other"]);
+    expect(response.json().items.find((item: { id: string }) => item.id === "live-bing")).toMatchObject({
+      status: "configured",
+    });
+  });
+
+  it("rejects service and unverified mock principals from tenant readiness", async () => {
+    let snapshotCalls = 0;
+    const providerCredentialStore = readinessStore(async () => {
+      snapshotCalls += 1;
+      return {
+        configuredByProvider: { gsc: 0, ga4: 0, bing: 0 },
+        encryptedAccounts: 0,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
+      };
+    });
+
+    for (const principal of [
+      { principalType: "service" as const, source: "idp" as const },
+      { principalType: "user" as const, source: "mock" as const },
+    ]) {
+      const server = buildApiServer({
+        authContextResolver: () => ({
+          email: null,
+          organizationId: "org_demo",
+          provider: principal.source === "idp" ? "searchops" : null,
+          role: "system",
+          userId: "principal_1",
+          ...principal,
+        }),
+        providerCredentialStore,
+      });
+      const response = await server.inject({ method: "GET", url: "/ops/readiness" });
+
+      expect(response.statusCode).toBe(403);
+    }
+    expect(snapshotCalls).toBe(0);
+  });
+
+  it("does not fall back to global readiness when the credential store is unavailable", async () => {
+    const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
+    });
+    const response = await server.inject({ method: "GET", url: "/ops/readiness" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ error: "credential_readiness_unavailable" });
   });
 
   it("reports productization readiness without live provider calls", async () => {
@@ -1021,9 +1318,28 @@ describe("api foundation", () => {
       SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI: "https://api.searchops.test/connectors/google/oauth/callback",
       SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET: "super-secret-state",
       SEARCHOPS_PUBLIC_APP_URL: "http://localhost:3000",
+      SEARCHOPS_CREDENTIAL_STORAGE_MODE: "encrypted",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "v1",
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: "{}",
     };
     const server = buildApiServer({
+      authContextResolver: () => ({
+        email: "owner@example.test",
+        organizationId: "org_demo",
+        principalType: "user",
+        provider: "supabase",
+        role: "owner",
+        source: "idp",
+        userId: "user_owner",
+      }),
       currentTime: () => new Date("2026-06-07T00:00:00.000Z"),
+      providerCredentialStore: readinessStore(async () => ({
+        configuredByProvider: { gsc: 1, ga4: 1, bing: 1 },
+        encryptedAccounts: 2,
+        unmigratedLegacyCredentials: 0,
+        observedLegacyFallbacks: 0,
+      })),
       repository: createMemoryRepository({
         organizations: [seededOrganization],
         sites: [seededSite],
@@ -1039,10 +1355,17 @@ describe("api foundation", () => {
 
       expect(response.statusCode).toBe(200);
       expect(payload.generatedAt).toBe("2026-06-07T00:00:00.000Z");
-      expect(payload.liveExternalApis).toBe("enabled");
+      expect(payload.liveExternalApis).toBe("disabled");
+      expect(payload.canRunLiveConnectorSync).toBe(false);
       expect(payload.checks.map((check: { id: string }) => check.id)).toContain(
         "google-oauth-env",
       );
+      expect(
+        payload.checks.find((check: { id: string }) => check.id === "google-worker-refresh-env"),
+      ).toMatchObject({ status: "warning" });
+      expect(
+        payload.checks.find((check: { id: string }) => check.id === "worker-live-mode-gate"),
+      ).toMatchObject({ status: "warning" });
       expect(JSON.stringify(payload)).not.toContain("super-secret");
     } finally {
       process.env = originalEnv;
@@ -1455,6 +1778,7 @@ describe("api foundation", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       email: null,
+      principalType: "user",
       provider: null,
       userId: "user_test",
       organizationId: "org_demo",
@@ -1480,6 +1804,7 @@ describe("api foundation", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       email: "editor@example.com",
+      principalType: "user",
       provider: "auth0",
       userId: "idp_user_1",
       organizationId: "org_demo",
@@ -2055,9 +2380,14 @@ describe("api foundation", () => {
   });
 
   it("marks connector sync runs failed when queue enqueue fails", async () => {
+    const secretQueueError =
+      "redis://default:tenant-secret@cache.internal:6379/0?token=queue-secret";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const connectorSyncQueue: ConnectorSyncQueue = {
       async enqueueConnectorSync() {
-        throw new Error("redis enqueue unavailable");
+        throw new Error(secretQueueError, {
+          cause: { response: "authorization=Bearer queue-secret" },
+        });
       },
     };
     const repository = createMemoryRepository({
@@ -2078,14 +2408,17 @@ describe("api foundation", () => {
 
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({
+      version: 1,
       error: "queue_enqueue_failed",
+      message: "Connector sync queue enqueue failed.",
       connectorSyncRun: {
         id: "sync_0001",
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "redis enqueue unavailable",
-            name: "Error",
+            code: "queue_enqueue_failed",
+            message: "Connector sync queue enqueue failed.",
           },
         },
       },
@@ -2094,12 +2427,26 @@ describe("api foundation", () => {
       connectorSyncRun: {
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "redis enqueue unavailable",
+            code: "queue_enqueue_failed",
+            message: "Connector sync queue enqueue failed.",
           },
         },
       },
     });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[api] connector sync enqueue failed code=queue_enqueue_failed run=sync_0001",
+    );
+    const publicAndDurableOutput = JSON.stringify({
+      logs: consoleError.mock.calls,
+      response: response.json(),
+      run: await repository.getConnectorSyncRun("sync_0001"),
+    });
+    expect(publicAndDurableOutput).not.toContain("tenant-secret");
+    expect(publicAndDurableOutput).not.toContain("queue-secret");
+    expect(publicAndDurableOutput).not.toContain("cache.internal");
+    consoleError.mockRestore();
   });
 
   it("validates connector sync provider lists", async () => {
@@ -2194,66 +2541,856 @@ describe("api foundation", () => {
     });
   });
 
-  it("starts Google OAuth for GSC and GA4 connectors", async () => {
-    const { server } = buildConnectorOAuthTestContext();
-    const response = await server.inject({
-      method: "GET",
-      url: "/sites/site_seed/connectors/google/oauth/start?providers=gsc,ga4&format=json",
-      headers: {
-        "x-mock-user-id": "user_connector",
+  describe("canonical Google OAuth", () => {
+    const userHeaders = (role: "owner" | "admin" | "editor" | "viewer" | "system") => ({
+      "x-mock-organization-id": "org_demo",
+      "x-mock-user-id": `user_${role}`,
+      "x-mock-user-role": role,
+    });
+
+    it.each(["owner", "admin", "system"] as const)(
+      "allows a user %s to start Google OAuth with exact signed context",
+      async (role) => {
+        const client = createFakeGoogleOAuthClient();
+        const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
+        const { googleOAuthStateStore, server } = buildConnectorOAuthTestContext({
+          googleOAuthClient: client,
+          publicAppUrl: "https://app.searchops.test",
+        });
+        const issue = vi.spyOn(googleOAuthStateStore, "issue");
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed&providers=gsc,ga4&format=json&returnTo=https%3A%2F%2Fapp.searchops.test%2Fsites%2Fsite_seed%2Fconnectors",
+          headers: userHeaders(role),
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          authorizationUrl: expect.stringContaining("https://accounts.google.com/o/oauth2/v2/auth"),
+          providers: ["gsc", "ga4"],
+          stateExpiresAt: "2026-05-27T00:10:00.000Z",
+        });
+        expect(createAuthorizationUrl).toHaveBeenCalledWith({
+          organizationId: "org_demo",
+          providers: ["gsc", "ga4"],
+          requestedByUserId: `user_${role}`,
+          returnTo: "https://app.searchops.test/sites/site_seed/connectors",
+          siteId: "site_seed",
+        });
+        expect(issue).toHaveBeenCalledWith({
+          expiresAt: "2026-05-27T00:10:00.000Z",
+          identifier: "start-nonce",
+        });
       },
+    );
+
+    it.each(["editor", "viewer"] as const)(
+      "rejects a user %s before the Google client is called",
+      async (role) => {
+        const client = createFakeGoogleOAuthClient();
+        const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
+        const { server } = buildConnectorOAuthTestContext({ googleOAuthClient: client });
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed",
+          headers: userHeaders(role),
+        });
+
+        expect(response.statusCode).toBe(403);
+        expect(createAuthorizationUrl).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["owner", "admin", "editor", "viewer", "system"] as const)(
+      "rejects a service %s before the Google client is called",
+      async (role) => {
+        const client = createFakeGoogleOAuthClient();
+        const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
+        const { server } = buildConnectorOAuthTestContext({
+          authContextResolver: () => ({
+            email: null,
+            organizationId: "org_demo",
+            principalType: "service",
+            provider: "searchops",
+            role,
+            source: "idp",
+            userId: `service_${role}`,
+          }),
+          googleOAuthClient: client,
+        });
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed",
+        });
+
+        expect(response.statusCode).toBe(403);
+        expect(createAuthorizationUrl).not.toHaveBeenCalled();
+      },
+    );
+
+    it("validates site ownership and returnTo origin before Google client access", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        publicAppUrl: "https://app.searchops.test",
+        sites: [seededSite, otherSite],
+      });
+
+      const foreignSite = await server.inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_other",
+        headers: userHeaders("owner"),
+      });
+      const foreignReturnTo = await server.inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed&returnTo=https%3A%2F%2Fevil.test%2Fsteal",
+        headers: userHeaders("owner"),
+      });
+
+      expect(foreignSite.statusCode).toBe(404);
+      expect(foreignReturnTo.statusCode).toBe(400);
+      expect(foreignReturnTo.body).not.toContain("evil.test");
+      expect(createAuthorizationUrl).not.toHaveBeenCalled();
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      authorizationUrl: expect.stringContaining("https://accounts.google.com/o/oauth2/v2/auth"),
-      providers: ["gsc", "ga4"],
-      stateExpiresAt: "2026-05-27T00:10:00.000Z",
-    });
-  });
+    it.each([
+      [false, true, true],
+      [true, false, true],
+      [true, true, false],
+    ] as const)(
+      "returns a generic 503 when OAuth dependencies are unavailable",
+      async (
+        includeGoogleOAuthClient,
+        includeProviderAccountService,
+        includeGoogleOAuthStateStore,
+      ) => {
+        const { server } = buildConnectorOAuthTestContext({
+          includeGoogleOAuthClient,
+          includeGoogleOAuthStateStore,
+          includeProviderAccountService,
+        });
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed",
+          headers: userHeaders("owner"),
+        });
 
-  it("stores Google OAuth callback credentials without returning tokens", async () => {
-    const { server } = buildConnectorOAuthTestContext();
-    const response = await server.inject({
-      method: "GET",
-      url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toEqual({
+          error: "oauth_service_unavailable",
+          message: "Google OAuth service is unavailable",
+        });
+      },
+    );
+
+    it.each([false, "throw"] as const)(
+      "fails closed without exposing authorization state when registration returns %s",
+      async (failure) => {
+        const stateStore: GoogleOAuthStateStore = {
+          async issue() {
+            if (failure === "throw") {
+              throw new Error("redis-registration-detail");
+            }
+            return false;
+          },
+          async consume() {
+            return false;
+          },
+        };
+        const { server } = buildConnectorOAuthTestContext({
+          googleOAuthStateStore: stateStore,
+        });
+        const response = await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts/google/oauth/start?siteId=site_seed&format=json",
+          headers: userHeaders("owner"),
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toEqual({
+          error: "oauth_state_store_unavailable",
+          message: "Google OAuth state could not be registered",
+        });
+        expect(response.body).not.toContain("accounts.google.com");
+        expect(response.body).not.toContain("fake_state");
+        expect(response.body).not.toContain("redis-registration-detail");
+      },
+    );
+
+    it("keeps the site start route as a compatibility redirect without calling Google", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const createAuthorizationUrl = vi.spyOn(client, "createAuthorizationUrl");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        publicAppUrl: "https://app.searchops.test",
+      });
+      const response = await server.inject({
+        method: "GET",
+        url: "/sites/site_seed/connectors/google/oauth/start?providers=ga4&format=json&returnTo=https%3A%2F%2Fapp.searchops.test%2Freturn",
+        headers: userHeaders("owner"),
+      });
+
+      expect(response.statusCode).toBe(302);
+      const location = new URL(response.headers.location!, "http://localhost");
+      expect(location.pathname).toBe(
+        "/organizations/org_demo/provider-accounts/google/oauth/start",
+      );
+      expect(Object.fromEntries(location.searchParams)).toEqual({
+        format: "json",
+        providers: "ga4",
+        returnTo: "https://app.searchops.test/return",
+        siteId: "site_seed",
+      });
+      expect(createAuthorizationUrl).not.toHaveBeenCalled();
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      status: "connected",
-      credentials: [
-        {
-          provider: "ga4",
-          status: "connected",
-          externalAccountEmail: "owner@example.com",
+    it("upserts the canonical account and exact unconfigured placeholders without legacy writes", async () => {
+      const accountInputs: Parameters<ProviderAccountService["upsertGoogleAccount"]>[0][] = [];
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      const service = createFakeProviderAccountService({
+        async upsertGoogleAccount(input) {
+          accountInputs.push(input);
+          return googleOAuthProviderAccount;
         },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          return googleOAuthPlaceholder(input.provider as "gsc" | "ga4");
+        },
+      });
+      const { repository, server } = buildConnectorOAuthTestContext({
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(accountInputs).toEqual([
         {
+          accessToken: "access_token",
+          actorUserId: "user_connector",
+          displayName: "owner@example.com",
+          organizationId: "org_demo",
+          refreshToken: "refresh_token",
+          scopes: [
+            "https://www.googleapis.com/auth/webmasters.readonly",
+            "https://www.googleapis.com/auth/analytics.readonly",
+          ],
+          selectedProviders: ["gsc", "ga4"],
+          status: "connected",
+          tokenExpiresAt: "2026-05-27T01:00:00.000Z",
+          tokenType: "Bearer",
+          verifiedAccountEmail: "owner@example.com",
+          verifiedExternalAccountId: "google-sub-123",
+        },
+      ]);
+      expect(connectorInputs).toEqual([
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
           provider: "gsc",
-          status: "connected",
-          externalAccountEmail: "owner@example.com",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
         },
-      ],
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      expect(legacyWrite).not.toHaveBeenCalled();
+      expect(response.json()).toEqual({
+        account: googleOAuthProviderAccount,
+        siteConnectors: [googleOAuthPlaceholder("gsc"), googleOAuthPlaceholder("ga4")],
+        status: "connected",
+      });
+      const serialized = response.body;
+      for (const forbidden of [
+        "access_token",
+        "refresh_token",
+        "accessToken",
+        "refreshToken",
+        "credentialCiphertext",
+        "credentialIv",
+        "credentialAuthTag",
+        "encryptionKeyId",
+      ]) {
+        expect(serialized).not.toContain(forbidden);
+      }
     });
-    expect(response.json().credentials[0]).not.toHaveProperty("accessToken");
 
-    const listResponse = await server.inject({
-      method: "GET",
-      url: "/sites/site_seed/connectors/oauth",
+    it("accepts Google extension query params while verifying and consuming state", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const verifyState = vi.spyOn(client, "verifyState");
+      const { googleOAuthStateStore, server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+      });
+      const consume = vi.spyOn(googleOAuthStateStore, "consume");
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123&scope=openid%20email&authuser=0&prompt=consent&hd=example.com&future_google_param=ignored-secret",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(verifyState).toHaveBeenCalledWith("fake_state");
+      expect(consume).toHaveBeenCalledWith("callback-nonce");
+      expect(response.body).not.toContain("ignored-secret");
+      expect(response.body).not.toContain("future_google_param");
     });
-    expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json().credentials).toHaveLength(2);
-  });
 
-  it("rejects invalid Google OAuth callback state", async () => {
-    const { server } = buildConnectorOAuthTestContext();
-    const response = await server.inject({
-      method: "GET",
-      url: "/connectors/google/oauth/callback?state=bad_state&code=code_123",
+    it("preserves exact same-account metadata and creates a new-provider placeholder", async () => {
+      const configuredGsc: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        config: { resourceResolution: "legacy_auto" },
+        externalResourceId: "sc-domain:configured.example",
+        lastCheckedAt: "2026-05-26T23:55:00.000Z",
+        lastErrorCode: "google_permission_denied",
+        providerAccountId: googleOAuthProviderAccount.id,
+        status: "error",
+      };
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      const listInputs: Parameters<ProviderAccountService["listSiteConnectors"]>[0][] = [];
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors(input) {
+          listInputs.push(input);
+          return [configuredGsc];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          return googleOAuthConnectorFromInput(input);
+        },
+      });
+      const { repository, server } = buildConnectorOAuthTestContext({
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-a",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(listInputs).toEqual([{ organizationId: "org_demo", siteId: "site_seed" }]);
+      expect(connectorInputs).toEqual([
+        {
+          config: { resourceResolution: "legacy_auto" },
+          externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: "2026-05-26T23:55:00.000Z",
+          lastErrorCode: "google_permission_denied",
+          organizationId: "org_demo",
+          provider: "gsc" as const,
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+          status: "error",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4" as const,
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      expect(response.json()).toMatchObject({
+        siteConnectors: [
+          {
+            config: { resourceResolution: "legacy_auto" },
+            externalResourceId: "sc-domain:configured.example",
+            lastCheckedAt: "2026-05-26T23:55:00.000Z",
+            lastErrorCode: "google_permission_denied",
+            provider: "gsc",
+            status: "error",
+          },
+          {
+            config: {},
+            externalResourceId: null,
+            lastCheckedAt: null,
+            lastErrorCode: null,
+            provider: "ga4",
+            status: "needs_configuration",
+          },
+        ],
+      });
+      expect(legacyWrite).not.toHaveBeenCalled();
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json().message).toContain("invalid state");
+    it("does not transfer connector metadata across Google accounts or tenants", async () => {
+      const oldAccountConnector: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        config: { resourceResolution: "legacy_auto" },
+        externalResourceId: "sc-domain:old-account.example",
+        lastCheckedAt: "2026-05-26T23:50:00.000Z",
+        lastErrorCode: "old-account-error",
+        providerAccountId: "pa_previous_google",
+        status: "revoked",
+      };
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      const listInputs: Parameters<ProviderAccountService["listSiteConnectors"]>[0][] = [];
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors(input) {
+          listInputs.push(input);
+          return [
+            oldAccountConnector,
+            {
+              ...oldAccountConnector,
+              organizationId: "org_foreign",
+              providerAccountId: googleOAuthProviderAccount.id,
+            },
+            {
+              ...oldAccountConnector,
+              providerAccountId: googleOAuthProviderAccount.id,
+              siteId: "site_foreign",
+            },
+          ];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          return googleOAuthConnectorFromInput(input);
+        },
+      });
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockReturnValue({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "callback-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      });
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        providerAccountService: service,
+      });
+
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-switch",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(listInputs).toEqual([{ organizationId: "org_demo", siteId: "site_seed" }]);
+      expect(connectorInputs).toEqual([
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      expect(response.json()).toMatchObject({
+        siteConnectors: [
+          {
+            config: {},
+            externalResourceId: null,
+            lastCheckedAt: null,
+            lastErrorCode: null,
+            organizationId: "org_demo",
+            providerAccountId: "pa_google_canonical",
+            siteId: "site_seed",
+            status: "needs_configuration",
+          },
+        ],
+      });
+    });
+
+    it("rejects replay before provider calls and consumes provider-declined callbacks", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const service = createFakeProviderAccountService();
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const stateStore = createFakeGoogleOAuthStateStore();
+      const consume = vi.spyOn(stateStore, "consume");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: stateStore,
+        providerAccountService: service,
+      });
+
+      const declined = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&error=access_denied&error_description=provider-secret&scope=openid",
+      });
+      const replay = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=different-valid-code",
+      });
+
+      expect(declined.statusCode).toBe(400);
+      expect(declined.json()).toEqual({
+        error: "oauth_error",
+        message: "Google OAuth authorization was not completed",
+      });
+      expect(declined.body).not.toContain("provider-secret");
+      expect(replay.statusCode).toBe(400);
+      expect(replay.json()).toEqual({
+        error: "oauth_state_replayed",
+        message: "Google OAuth state is invalid or already used",
+      });
+      expect(consume).toHaveBeenCalledTimes(2);
+      expect(exchange).not.toHaveBeenCalled();
+      expect(accountUpsert).not.toHaveBeenCalled();
+    });
+
+    it("does not consume a malformed completion missing code and provider error", async () => {
+      const stateStore = createFakeGoogleOAuthStateStore();
+      const consume = vi.spyOn(stateStore, "consume");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthStateStore: stateStore,
+      });
+
+      const malformed = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&scope=openid",
+      });
+      const valid = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code-after-malformed",
+      });
+
+      expect(malformed.statusCode).toBe(400);
+      expect(consume).toHaveBeenCalledTimes(1);
+      expect(valid.statusCode).toBe(200);
+    });
+
+    it("returns scope_missing without connector or legacy writes", async () => {
+      let connectorWrites = 0;
+      const service = createFakeProviderAccountService({
+        async upsertGoogleAccount() {
+          throw new ProviderAccountServiceError("scope_missing");
+        },
+        async upsertSiteConnector() {
+          connectorWrites += 1;
+          return googleOAuthPlaceholder("gsc");
+        },
+      });
+      const { repository, server } = buildConnectorOAuthTestContext({
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: "scope_missing",
+        message: "Required provider scope is missing",
+      });
+      expect(connectorWrites).toBe(0);
+      expect(legacyWrite).not.toHaveBeenCalled();
+    });
+
+    it("requires a fresh OAuth state to idempotently repair a partial connector failure", async () => {
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockImplementation((state) => ({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: state === "partial-state" ? "partial-nonce" : "retry-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc", "ga4"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      }));
+      const stateStore = createFakeGoogleOAuthStateStore([
+        "partial-nonce",
+        "retry-nonce",
+      ]);
+      const configuredGsc: SiteConnector = {
+        ...googleOAuthPlaceholder("gsc"),
+        externalResourceId: "sc-domain:configured.example",
+        status: "connected",
+      };
+      const existing: SiteConnector[] = [configuredGsc];
+      const connectorInputs: Parameters<ProviderAccountService["upsertSiteConnector"]>[0][] = [];
+      let failGa4 = true;
+      const service = createFakeProviderAccountService({
+        async listSiteConnectors() {
+          return [...existing];
+        },
+        async upsertSiteConnector(input) {
+          connectorInputs.push(input);
+          if (input.provider === "ga4" && failGa4) {
+            failGa4 = false;
+            throw new Error("binding-failure-access-token-sentinel");
+          }
+          const saved =
+            input.provider === "gsc"
+              ? { ...configuredGsc, providerAccountId: input.providerAccountId }
+              : googleOAuthPlaceholder("ga4");
+          const index = existing.findIndex((connector) => connector.provider === input.provider);
+          if (index === -1) {
+            existing.push(saved);
+          } else {
+            existing[index] = saved;
+          }
+          return saved;
+        },
+      });
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const { repository, server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: stateStore,
+        providerAccountService: service,
+      });
+      const legacyWrite = vi.spyOn(repository, "upsertConnectorOAuthCredentials");
+
+      const partial = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=partial-state&code=partial-code",
+      });
+      const replay = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=partial-state&code=replay-code",
+      });
+      const repaired = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=retry-state&code=retry-code",
+      });
+
+      expect(partial.statusCode).toBe(502);
+      expect(partial.json()).toEqual({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
+      });
+      expect(partial.body).not.toContain("binding-failure-access-token-sentinel");
+      expect(partial.body).not.toContain('"status":"connected"');
+      expect(replay.statusCode).toBe(400);
+      expect(replay.json()).toMatchObject({ error: "oauth_state_replayed" });
+      expect(repaired.statusCode).toBe(200);
+      expect(accountUpsert).toHaveBeenCalledTimes(2);
+      expect(connectorInputs).toEqual([
+        {
+          config: {},
+          externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: null,
+          lastErrorCode: null,
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+          status: "connected",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+        {
+          config: {},
+          externalResourceId: "sc-domain:configured.example",
+          lastCheckedAt: null,
+          lastErrorCode: null,
+          organizationId: "org_demo",
+          provider: "gsc",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+          status: "connected",
+        },
+        {
+          externalResourceId: null,
+          organizationId: "org_demo",
+          provider: "ga4",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        },
+      ]);
+      for (const input of connectorInputs) {
+        expect(input).toMatchObject({
+          organizationId: "org_demo",
+          providerAccountId: "pa_google_canonical",
+          siteId: "site_seed",
+        });
+      }
+      expect(legacyWrite).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when state consumption storage is unavailable", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const service = createFakeProviderAccountService();
+      const accountUpsert = vi.spyOn(service, "upsertGoogleAccount");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        googleOAuthStateStore: {
+          async issue() {
+            return true;
+          },
+          async consume() {
+            throw new Error("redis-consume-detail-sentinel");
+          },
+        },
+        providerAccountService: service,
+      });
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        error: "oauth_state_store_unavailable",
+        message: "Google OAuth state could not be consumed",
+      });
+      expect(response.body).not.toContain("redis-consume-detail-sentinel");
+      expect(exchange).not.toHaveBeenCalled();
+      expect(accountUpsert).not.toHaveBeenCalled();
+    });
+
+    it("returns generic callback failures without provider details or token values", async () => {
+      const failingClient = createFakeGoogleOAuthClient();
+      vi.spyOn(failingClient, "exchangeCodeForTokens").mockRejectedValue(
+        new Error("userinfo failed with access_token and refresh_token"),
+      );
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: failingClient,
+        googleOAuthStateStore: {
+          async issue() {
+            return true;
+          },
+          async consume() {
+            return true;
+          },
+        },
+      });
+      const userinfoFailure = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+      const oauthQueryError = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&error=provider_secret_detail",
+      });
+      const invalidState = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=bad_state&code=code_123",
+      });
+
+      expect(userinfoFailure.statusCode).toBe(502);
+      expect(userinfoFailure.json()).toEqual({
+        error: "oauth_exchange_failed",
+        message: "Google OAuth authorization could not be completed",
+      });
+      expect(oauthQueryError.statusCode).toBe(400);
+      expect(oauthQueryError.json()).toEqual({
+        error: "oauth_error",
+        message: "Google OAuth authorization was not completed",
+      });
+      expect(invalidState.statusCode).toBe(400);
+      expect(invalidState.json()).toEqual({
+        error: "validation_error",
+        message: "Google OAuth state is invalid or expired",
+      });
+      expect(userinfoFailure.body).not.toContain("access_token");
+      expect(userinfoFailure.body).not.toContain("refresh_token");
+      expect(oauthQueryError.body).not.toContain("provider_secret_detail");
+    });
+
+    it("returns 503 before exchange when the provider account service is missing", async () => {
+      const client = createFakeGoogleOAuthClient();
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const { server } = buildConnectorOAuthTestContext({
+        googleOAuthClient: client,
+        includeProviderAccountService: false,
+      });
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        error: "oauth_service_unavailable",
+        message: "Google OAuth service is unavailable",
+      });
+      expect(exchange).not.toHaveBeenCalled();
+    });
+
+    it("rejects a callback whose signed site and organization no longer match", async () => {
+      const client = createFakeGoogleOAuthClient();
+      vi.spyOn(client, "verifyState").mockReturnValue({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "callback-nonce",
+        organizationId: "org_other",
+        providers: ["gsc"],
+        requestedByUserId: "user_connector",
+        returnTo: null,
+        siteId: "site_seed",
+      });
+      const exchange = vi.spyOn(client, "exchangeCodeForTokens");
+      const { server } = buildConnectorOAuthTestContext({ googleOAuthClient: client });
+      const response = await server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "not_found", message: "OAuth site not found" });
+      expect(exchange).not.toHaveBeenCalled();
+    });
+
+    it("revalidates same-origin callback redirects and rejects a foreign origin", async () => {
+      const safeClient = createFakeGoogleOAuthClient();
+      vi.spyOn(safeClient, "verifyState").mockReturnValue({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "callback-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc", "ga4"],
+        requestedByUserId: "user_connector",
+        returnTo: "https://app.searchops.test/sites/site_seed/connectors?tab=google",
+        siteId: "site_seed",
+      });
+      const safe = buildConnectorOAuthTestContext({
+        googleOAuthClient: safeClient,
+        publicAppUrl: "https://app.searchops.test",
+      });
+      const safeResponse = await safe.server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+      const safeLocation = new URL(safeResponse.headers.location!);
+      expect(safeResponse.statusCode).toBe(302);
+      expect(safeLocation.origin).toBe("https://app.searchops.test");
+      expect(safeLocation.searchParams.get("connectorOAuth")).toBe("connected");
+      expect(safeLocation.searchParams.get("providers")).toBe("gsc,ga4");
+
+      const foreignClient = createFakeGoogleOAuthClient();
+      vi.spyOn(foreignClient, "verifyState").mockReturnValue({
+        issuedAt: "2026-05-27T00:00:00.000Z",
+        nonce: "callback-nonce",
+        organizationId: "org_demo",
+        providers: ["gsc"],
+        requestedByUserId: "user_connector",
+        returnTo: "https://evil.test/steal",
+        siteId: "site_seed",
+      });
+      const foreign = buildConnectorOAuthTestContext({
+        googleOAuthClient: foreignClient,
+        publicAppUrl: "https://app.searchops.test",
+      });
+      const foreignResponse = await foreign.server.inject({
+        method: "GET",
+        url: "/connectors/google/oauth/callback?state=fake_state&code=code_123",
+      });
+
+      expect(foreignResponse.statusCode).toBe(400);
+      expect(foreignResponse.json()).toEqual({
+        error: "validation_error",
+        message: "OAuth return URL is invalid",
+      });
+      expect(foreignResponse.body).not.toContain("evil.test");
+      expect(foreignResponse.headers.location).toBeUndefined();
+    });
   });
 
   it("creates deterministic AEO readiness reports and persists them", async () => {
@@ -2557,7 +3694,7 @@ describe("api foundation", () => {
         target: {
           siteId: "site_seed",
           brandName: "Example Clinic",
-          domain: "answers.exampleclinic.com",
+          domain: "exampleclinic.com",
           locale: "ko-KR",
           market: "KR",
         },
@@ -2586,7 +3723,7 @@ describe("api foundation", () => {
           target: {
             siteId: "site_seed",
             brandName: "Example Clinic",
-            domain: "answers.exampleclinic.com",
+            domain: "exampleclinic.com",
           },
         },
       },
@@ -4389,5 +5526,946 @@ describe("api foundation", () => {
 
     const accepted = await server.inject({ method: "POST", url: `/invites/${sent[0]!.token}/accept` });
     expect(accepted.statusCode).toBe(409);
+  });
+
+  describe("provider accounts and site connectors", () => {
+    const providerAccount: ProviderAccountMetadata = {
+      id: "pa_api_key",
+      organizationId: "org_demo",
+      provider: "bing",
+      authType: "api_key",
+      externalAccountId: null,
+      accountEmail: null,
+      displayName: "Bing primary",
+      status: "connected",
+      scopes: [],
+      tokenExpiresAt: null,
+      isDefault: false,
+      legacyCredentialId: null,
+      connectedByUserId: "user_owner",
+      connectedAt: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+      credentialSource: "encrypted",
+    };
+    const siteConnector: SiteConnector = {
+      id: "connector_ga4",
+      organizationId: "org_demo",
+      siteId: "site_seed",
+      provider: "ga4",
+      providerAccountId: "pa_google",
+      externalResourceId: "properties/123456789",
+      config: {},
+      status: "connected",
+      lastErrorCode: null,
+      lastCheckedAt: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+
+    function providerService(
+      overrides: Partial<ProviderAccountService> = {},
+    ): ProviderAccountService {
+      return {
+        async createApiKeyAccount() {
+          return providerAccount;
+        },
+        async updateAccountMetadata() {
+          return providerAccount;
+        },
+        async replaceApiKeyCredential() {
+          return providerAccount;
+        },
+        async upsertGoogleAccount() {
+          return { ...providerAccount, provider: "google", authType: "oauth2" };
+        },
+        async prepareGoogleConnectors() {
+          return { requiredScopes: [] };
+        },
+        async listAccounts() {
+          return [{ ...providerAccount, bindingCount: 0 }];
+        },
+        async deleteAccount() {},
+        async listSiteConnectors() {
+          return [siteConnector];
+        },
+        async upsertSiteConnector() {
+          return siteConnector;
+        },
+        async deleteSiteConnector() {},
+        ...overrides,
+      };
+    }
+
+    function buildProviderServer(
+      service?: ProviderAccountService,
+      authContextResolver?: AuthContextResolver,
+    ) {
+      return buildApiServer({
+        authContextResolver,
+        providerAccountService: service,
+        repository: createMemoryRepository({
+          organizations: [seededOrganization, otherOrganization],
+          sites: [seededSite, otherSite],
+        }),
+      });
+    }
+
+    function authHeaders(role: "owner" | "admin" | "editor" | "viewer" | "system") {
+      return {
+        "x-mock-organization-id": "org_demo",
+        "x-mock-user-id": `user_${role}`,
+        "x-mock-user-role": role,
+      };
+    }
+
+    function expectNoCredentialFields(
+      value: unknown,
+      forbiddenValues: readonly string[] = [],
+    ) {
+      const forbiddenKeys = new Set([
+        "apikey",
+        "accesstoken",
+        "refreshtoken",
+        "ciphertext",
+        "credentialciphertext",
+        "iv",
+        "credentialiv",
+        "tag",
+        "credentialauthtag",
+        "encryptionkeyid",
+      ]);
+
+      function visit(current: unknown) {
+        if (Array.isArray(current)) {
+          current.forEach(visit);
+          return;
+        }
+        if (typeof current !== "object" || current === null) {
+          return;
+        }
+        for (const [key, nested] of Object.entries(current)) {
+          expect(forbiddenKeys.has(key.toLowerCase())).toBe(false);
+          visit(nested);
+        }
+      }
+
+      visit(value);
+      const serialized = JSON.stringify(value);
+      forbiddenValues.forEach((forbiddenValue) => {
+        expect(serialized).not.toContain(forbiddenValue);
+      });
+    }
+
+    it("allows viewer metadata reads and keeps the response credential-free", async () => {
+      const response = await buildProviderServer(providerService()).inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        providerAccounts: [{ ...providerAccount, bindingCount: 0 }],
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it.each(["owner", "admin", "system"] as const)(
+      "allows %s to create an API-key account",
+      async (role) => {
+        let actorUserId: string | undefined;
+        const response = await buildProviderServer(
+          providerService({
+            async createApiKeyAccount(input) {
+              actorUserId = input.actorUserId;
+              return providerAccount;
+            },
+          }),
+        ).inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          headers: authHeaders(role),
+          payload: {
+            provider: "bing",
+            displayName: "Bing primary",
+            apiKey: "request-secret",
+          },
+        });
+
+        expect(response.statusCode).toBe(201);
+        expect(actorUserId).toBe(`user_${role}`);
+        expectNoCredentialFields(response.json());
+      },
+    );
+
+    it("rejects editor provider-account mutations before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async createApiKeyAccount() {
+            calls += 1;
+            return providerAccount;
+          },
+        }),
+      ).inject({
+        method: "POST",
+        url: "/organizations/org_demo/provider-accounts/bing/api-key",
+        headers: authHeaders("editor"),
+        payload: {
+          provider: "bing",
+          displayName: "Bing primary",
+          apiKey: "request-secret",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it.each(["owner", "admin", "system"] as const)(
+      "rejects a service %s provider-account mutation before service access",
+      async (role) => {
+        let calls = 0;
+        const response = await buildProviderServer(
+          providerService({
+            async createApiKeyAccount() {
+              calls += 1;
+              return providerAccount;
+            },
+          }),
+          () => ({
+            email: null,
+            organizationId: "org_demo",
+            principalType: "service",
+            provider: "searchops",
+            role,
+            source: "idp",
+            userId: `service_${role}`,
+          }),
+        ).inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          payload: {
+            provider: "bing",
+            displayName: "Bing primary",
+            apiKey: "request-secret",
+          },
+        });
+
+        expect(response.statusCode).toBe(403);
+        expect(calls).toBe(0);
+        expectNoCredentialFields(response.json(), ["request-secret"]);
+      },
+    );
+
+    it("rejects cross-organization account paths before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listAccounts() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/organizations/org_other/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects API-key body/path provider mismatches", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async createApiKeyAccount() {
+            calls += 1;
+            return providerAccount;
+          },
+        }),
+      ).inject({
+        method: "POST",
+        url: "/organizations/org_demo/provider-accounts/bing/api-key",
+        headers: authHeaders("owner"),
+        payload: {
+          provider: "geo_chatgpt",
+          displayName: "Mismatch",
+          apiKey: "request-secret",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("supports strict metadata updates and API-key replacement", async () => {
+      const service = providerService();
+      const server = buildProviderServer(service);
+      const patchResponse = await server.inject({
+        method: "PATCH",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("admin"),
+        payload: { displayName: "Renamed" },
+      });
+      const replaceResponse = await server.inject({
+        method: "PUT",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+        headers: authHeaders("owner"),
+        payload: { apiKey: "new-request-secret" },
+      });
+
+      expect(patchResponse.statusCode).toBe(200);
+      expect(replaceResponse.statusCode).toBe(200);
+      expectNoCredentialFields(patchResponse.json());
+      expectNoCredentialFields(replaceResponse.json());
+    });
+
+    it("forwards exact tenant and resource identifiers through all eight routes", async () => {
+      const calls: Array<{ method: string; input: unknown }> = [];
+      const server = buildProviderServer(
+        providerService({
+          async listAccounts(input) {
+            calls.push({ method: "listAccounts", input });
+            return [{ ...providerAccount, bindingCount: 0 }];
+          },
+          async createApiKeyAccount(input) {
+            calls.push({ method: "createApiKeyAccount", input });
+            return providerAccount;
+          },
+          async updateAccountMetadata(input) {
+            calls.push({ method: "updateAccountMetadata", input });
+            return providerAccount;
+          },
+          async replaceApiKeyCredential(input) {
+            calls.push({ method: "replaceApiKeyCredential", input });
+            return providerAccount;
+          },
+          async deleteAccount(input) {
+            calls.push({ method: "deleteAccount", input });
+          },
+          async listSiteConnectors(input) {
+            calls.push({ method: "listSiteConnectors", input });
+            return [siteConnector];
+          },
+          async upsertSiteConnector(input) {
+            calls.push({ method: "upsertSiteConnector", input });
+            return siteConnector;
+          },
+          async deleteSiteConnector(input) {
+            calls.push({ method: "deleteSiteConnector", input });
+          },
+        }),
+      );
+
+      const responses = [
+        await server.inject({
+          method: "GET",
+          url: "/organizations/org_demo/provider-accounts",
+          headers: authHeaders("viewer"),
+        }),
+        await server.inject({
+          method: "POST",
+          url: "/organizations/org_demo/provider-accounts/bing/api-key",
+          headers: authHeaders("owner"),
+          payload: {
+            apiKey: "route-create-secret",
+            displayName: "Bing primary",
+            provider: "bing",
+          },
+        }),
+        await server.inject({
+          method: "PATCH",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key",
+          headers: authHeaders("admin"),
+          payload: { displayName: "Renamed" },
+        }),
+        await server.inject({
+          method: "PUT",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+          headers: authHeaders("owner"),
+          payload: { apiKey: "route-replace-secret" },
+        }),
+        await server.inject({
+          method: "DELETE",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key",
+          headers: authHeaders("owner"),
+        }),
+        await server.inject({
+          method: "GET",
+          url: "/sites/site_seed/connectors",
+          headers: authHeaders("viewer"),
+        }),
+        await server.inject({
+          method: "PUT",
+          url: "/sites/site_seed/connectors/ga4",
+          headers: authHeaders("owner"),
+          payload: {
+            externalResourceId: "123456789",
+            providerAccountId: "pa_google_foreign_check",
+          },
+        }),
+        await server.inject({
+          method: "DELETE",
+          url: "/sites/site_seed/connectors/ga4",
+          headers: authHeaders("owner"),
+        }),
+      ];
+
+      expect(responses.map((response) => response.statusCode)).toEqual([
+        200, 201, 200, 200, 204, 200, 200, 204,
+      ]);
+      expect(calls).toEqual([
+        { method: "listAccounts", input: { organizationId: "org_demo" } },
+        {
+          method: "createApiKeyAccount",
+          input: {
+            accountEmail: null,
+            actorUserId: "user_owner",
+            apiKey: "route-create-secret",
+            displayName: "Bing primary",
+            externalAccountId: null,
+            isDefault: false,
+            organizationId: "org_demo",
+            provider: "bing",
+          },
+        },
+        {
+          method: "updateAccountMetadata",
+          input: {
+            organizationId: "org_demo",
+            providerAccountId: "pa_api_key",
+            update: { displayName: "Renamed" },
+          },
+        },
+        {
+          method: "replaceApiKeyCredential",
+          input: {
+            apiKey: "route-replace-secret",
+            organizationId: "org_demo",
+            providerAccountId: "pa_api_key",
+          },
+        },
+        {
+          method: "deleteAccount",
+          input: { organizationId: "org_demo", providerAccountId: "pa_api_key" },
+        },
+        {
+          method: "listSiteConnectors",
+          input: { organizationId: "org_demo", siteId: "site_seed" },
+        },
+        {
+          method: "upsertSiteConnector",
+          input: {
+            externalResourceId: "123456789",
+            organizationId: "org_demo",
+            provider: "ga4",
+            providerAccountId: "pa_google_foreign_check",
+            siteId: "site_seed",
+          },
+        },
+        {
+          method: "deleteSiteConnector",
+          input: { organizationId: "org_demo", provider: "ga4", siteId: "site_seed" },
+        },
+      ]);
+      responses.forEach((response) => {
+        if (response.body.length > 0) {
+          expectNoCredentialFields(response.json(), [
+            "route-create-secret",
+            "route-replace-secret",
+          ]);
+        }
+      });
+    });
+
+    it("maps same-site foreign-account binding rejection without changing route tenant IDs", async () => {
+      let received: Parameters<ProviderAccountService["upsertSiteConnector"]>[0] | undefined;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector(input) {
+            received = input;
+            throw new ProviderAccountServiceError("provider_account_not_in_organization");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/gsc",
+        headers: authHeaders("owner"),
+        payload: {
+          externalResourceId: "sc-domain:example.com",
+          providerAccountId: "pa_other_tenant",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: "provider_account_not_in_organization",
+      });
+      expect(received).toEqual({
+        externalResourceId: "sc-domain:example.com",
+        organizationId: "org_demo",
+        provider: "gsc",
+        providerAccountId: "pa_other_tenant",
+        siteId: "site_seed",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("maps rejected Bing default PATCH to validation_error without a mutation response", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async updateAccountMetadata() {
+            throw new ProviderAccountServiceError("validation_error");
+          },
+        }),
+      ).inject({
+        method: "PATCH",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("owner"),
+        payload: { isDefault: true },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: "validation_error",
+        message: "Provider account request is invalid",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("maps credential decryption failures to a redacted stable 500 without logging details", async () => {
+      const rawSentinel = "raw-replacement-sentinel";
+      const encryptedSentinels = [
+        "ciphertext-sentinel",
+        "iv-sentinel",
+        "tag-sentinel",
+        "key-id-sentinel",
+      ];
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      try {
+        const response = await buildProviderServer(
+          providerService({
+            async replaceApiKeyCredential() {
+              throw new ProviderAccountServiceError("credential_decryption_failed");
+            },
+          }),
+        ).inject({
+          method: "PUT",
+          url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+          headers: authHeaders("owner"),
+          payload: { apiKey: rawSentinel },
+        });
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json()).toEqual({
+          error: "credential_decryption_failed",
+          message: "Stored provider credential could not be read",
+        });
+        expectNoCredentialFields(response.json(), [rawSentinel, ...encryptedSentinels]);
+        expect(JSON.stringify(consoleError.mock.calls)).not.toContain(rawSentinel);
+        encryptedSentinels.forEach((sentinel) => {
+          expect(JSON.stringify(consoleError.mock.calls)).not.toContain(sentinel);
+        });
+        expect(consoleError).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("maps provider credential concurrency exhaustion to a redacted stable 409", async () => {
+      const rawSentinel = "raw-concurrent-replacement-sentinel";
+      const response = await buildProviderServer(
+        providerService({
+          async replaceApiKeyCredential(input) {
+            expect(input).toEqual({
+              apiKey: rawSentinel,
+              organizationId: "org_demo",
+              providerAccountId: "pa_api_key",
+            });
+            throw new ProviderAccountServiceError("provider_account_concurrent_update");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key/credential",
+        headers: authHeaders("owner"),
+        payload: { apiKey: rawSentinel },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: "provider_account_concurrent_update",
+        message: "Provider account was updated concurrently",
+      });
+      expectNoCredentialFields(response.json(), [
+        rawSentinel,
+        "ciphertext-concurrent-sentinel",
+        "iv-concurrent-sentinel",
+        "tag-concurrent-sentinel",
+        "key-id-concurrent-sentinel",
+      ]);
+    });
+
+    it("maps in-use account deletion to 409 without credential fields", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async deleteAccount() {
+            throw new ProviderAccountServiceError("account_in_use");
+          },
+        }),
+      ).inject({
+        method: "DELETE",
+        url: "/organizations/org_demo/provider-accounts/pa_api_key",
+        headers: authHeaders("owner"),
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error: "account_in_use",
+        message: "Provider account is in use",
+      });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("derives site tenant access and allows viewer connector reads", async () => {
+      const response = await buildProviderServer(providerService()).inject({
+        method: "GET",
+        url: "/sites/site_seed/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ siteConnectors: [siteConnector] });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects editor connector mutations before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            calls += 1;
+            return siteConnector;
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        headers: authHeaders("editor"),
+        payload: {
+          providerAccountId: "pa_google",
+          externalResourceId: "123456789",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects a service owner connector mutation before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            calls += 1;
+            return siteConnector;
+          },
+        }),
+        () => ({
+          email: null,
+          organizationId: "org_demo",
+          principalType: "service",
+          provider: "searchops",
+          role: "owner",
+          source: "idp",
+          userId: "service_owner",
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        payload: {
+          externalResourceId: "123456789",
+          providerAccountId: "pa_google",
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects cross-tenant connector reads before service access", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listSiteConnectors() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/sites/site_other/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("rejects malformed connector resources before service persistence", async () => {
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector() {
+            throw new ProviderAccountServiceError("validation_error");
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/ga4",
+        headers: authHeaders("owner"),
+        payload: {
+          providerAccountId: "pa_google",
+          externalResourceId: "properties/not-digits",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+      expectNoCredentialFields(response.json());
+    });
+
+    it("keeps internal connector metadata fields out of the public PUT body", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async upsertSiteConnector(input) {
+            calls += 1;
+            return { ...siteConnector, provider: input.provider };
+          },
+        }),
+      ).inject({
+        method: "PUT",
+        url: "/sites/site_seed/connectors/gsc",
+        headers: authHeaders("owner"),
+        payload: {
+          config: { resourceResolution: "legacy_auto" },
+          externalResourceId: "sc-domain:example.com",
+          providerAccountId: "pa_google",
+          status: "connected",
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+      expect(calls).toBe(0);
+    });
+
+    it("returns 404 for missing sites without calling the provider service", async () => {
+      let calls = 0;
+      const response = await buildProviderServer(
+        providerService({
+          async listSiteConnectors() {
+            calls += 1;
+            return [];
+          },
+        }),
+      ).inject({
+        method: "GET",
+        url: "/sites/site_missing/connectors",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(calls).toBe(0);
+      expectNoCredentialFields(response.json());
+    });
+
+    it("returns a redacted 503 when provider credential storage is unavailable", async () => {
+      const response = await buildProviderServer(undefined).inject({
+        method: "GET",
+        url: "/organizations/org_demo/provider-accounts",
+        headers: authHeaders("viewer"),
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        error: "provider_account_service_unavailable",
+        message: "Provider account service is unavailable",
+      });
+      expectNoCredentialFields(response.json());
+    });
+  });
+});
+
+function installApiEntrypointMocks(options: {
+  readonly credentialStorageMode?: "encrypted";
+  readonly googleOAuthConfigured?: boolean;
+  readonly keyringError?: Error;
+}) {
+  vi.resetModules();
+  vi.restoreAllMocks();
+
+  const parseSearchOpsEnv = vi.fn(() => ({
+    DATABASE_URL: "postgresql://localhost/searchops_test",
+    NODE_ENV: "test",
+    REDIS_URL: "redis://localhost:6379",
+    SEARCHOPS_CREDENTIAL_STORAGE_MODE: options.credentialStorageMode,
+    SEARCHOPS_RATE_LIMIT_ENABLED: false,
+  }));
+  const parseCredentialKeyring = vi.fn(() => {
+    if (options.keyringError !== undefined) {
+      throw options.keyringError;
+    }
+    return { activeKeyId: "test-key", keys: new Map() };
+  });
+  const prisma = { $disconnect: vi.fn().mockResolvedValue(undefined) };
+  const createSearchOpsPrismaClient = vi.fn(() => prisma);
+  const providerStore = { kind: "provider-store" };
+  const createPrismaProviderCredentialStore = vi.fn(() => providerStore);
+  const providerAccountService = { kind: "provider-account-service" };
+  const createProviderAccountService = vi.fn(() => providerAccountService);
+  const googleOAuthClient = { kind: "google-oauth-client" };
+  const createGoogleConnectorOAuthClientFromEnv = vi.fn(() =>
+    options.googleOAuthConfigured === true ? googleOAuthClient : undefined,
+  );
+  const googleOAuthStateStore = {
+    close: vi.fn().mockResolvedValue(undefined),
+    consume: vi.fn(),
+    issue: vi.fn(),
+  };
+  const createIoredisGoogleOAuthStateStore = vi.fn(() => googleOAuthStateStore);
+  const repository = { kind: "repository" };
+  const createPrismaRepository = vi.fn(() => repository);
+  const closeable = () => ({ close: vi.fn().mockResolvedValue(undefined) });
+  const server = {
+    addHook: vi.fn(),
+    listen: vi.fn().mockResolvedValue(undefined),
+  };
+  const buildApiServer = vi.fn(() => server);
+
+  vi.doMock("@searchops/types", () => ({ parseSearchOpsEnv }));
+  vi.doMock("@searchops/db", () => ({
+    createPrismaProviderCredentialStore,
+    createSearchOpsPrismaClient,
+    parseCredentialKeyring,
+  }));
+  vi.doMock("./bullmq-queue.js", () => ({
+    createBullMqConnectorSyncQueue: vi.fn(closeable),
+    createBullMqCrawlRunQueue: vi.fn(closeable),
+    createBullMqGeoAnswerMonitorQueue: vi.fn(closeable),
+    createBullMqSchemaRichResultValidationQueue: vi.fn(closeable),
+  }));
+  vi.doMock("./auth.js", () => ({
+    createHmacJwtIdpTokenVerifier: vi.fn(),
+    createJwksRs256IdpTokenVerifier: vi.fn(),
+    createRequestAuthContextResolver: vi.fn(),
+    parseJwksJson: vi.fn(),
+  }));
+  vi.doMock("./dead-letter-store.js", () => ({
+    createBullMqDeadLetterJobStore: vi.fn(closeable),
+  }));
+  vi.doMock("./observability.js", () => ({
+    createHttpOperationalAlertRouter: vi.fn(),
+    createHttpOperationalLogDrain: vi.fn(),
+  }));
+  vi.doMock("./operations-hardening.js", () => ({
+    createHttpBackupRestoreDrillScheduler: vi.fn(),
+    createHttpSecretRotationExecutor: vi.fn(),
+  }));
+  vi.doMock("./redis-rate-limit.js", () => ({
+    createIoredisApiRateLimitStore: vi.fn(),
+  }));
+  vi.doMock("./google-oauth.js", () => ({
+    createGoogleConnectorOAuthClientFromEnv,
+  }));
+  vi.doMock("./google-oauth-state-store.js", () => ({
+    createIoredisGoogleOAuthStateStore,
+  }));
+  vi.doMock("./prisma-repository.js", () => ({ createPrismaRepository }));
+  vi.doMock("./provider-account-service.js", () => ({ createProviderAccountService }));
+  vi.doMock("./server.js", () => ({ buildApiServer }));
+  vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+  return {
+    buildApiServer,
+    createIoredisGoogleOAuthStateStore,
+    createPrismaProviderCredentialStore,
+    createProviderAccountService,
+    googleOAuthStateStore,
+    parseCredentialKeyring,
+    server,
+  };
+}
+
+function readinessStore(
+  getCredentialReadinessSnapshot: ProviderCredentialStore["getCredentialReadinessSnapshot"],
+): Pick<ProviderCredentialStore, "getCredentialReadinessSnapshot"> {
+  return { getCredentialReadinessSnapshot };
+}
+
+describe.sequential("provider credential startup wiring", () => {
+  it("keeps metadata readiness available without enabling credential decryption", async () => {
+    const mocks = installApiEntrypointMocks({});
+
+    await import("./index.js");
+
+    expect(mocks.parseCredentialKeyring).not.toHaveBeenCalled();
+    expect(mocks.createPrismaProviderCredentialStore).toHaveBeenCalledOnce();
+    expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
+    expect(mocks.createIoredisGoogleOAuthStateStore).not.toHaveBeenCalled();
+    expect(mocks.buildApiServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleOAuthStateStore: undefined,
+        providerAccountService: undefined,
+        providerCredentialStore: { kind: "provider-store" },
+      }),
+    );
+    expect(mocks.server.listen).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before server construction when configured keyring parsing fails", async () => {
+    const keyringError = new Error("malformed credential keyring");
+    const mocks = installApiEntrypointMocks({
+      credentialStorageMode: "encrypted",
+      keyringError,
+    });
+
+    await expect(import("./index.js")).rejects.toBe(keyringError);
+
+    expect(mocks.parseCredentialKeyring).toHaveBeenCalledOnce();
+    expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
+    expect(mocks.createProviderAccountService).not.toHaveBeenCalled();
+    expect(mocks.buildApiServer).not.toHaveBeenCalled();
+    expect(mocks.server.listen).not.toHaveBeenCalled();
+  });
+
+  it("wires a Redis OAuth state store only when Google OAuth is configured and closes it", async () => {
+    const mocks = installApiEntrypointMocks({ googleOAuthConfigured: true });
+
+    await import("./index.js");
+
+    expect(mocks.createIoredisGoogleOAuthStateStore).toHaveBeenCalledWith({
+      redisUrl: "redis://localhost:6379",
+    });
+    expect(mocks.buildApiServer).toHaveBeenCalledWith(
+      expect.objectContaining({ googleOAuthStateStore: mocks.googleOAuthStateStore }),
+    );
+    const onClose = mocks.server.addHook.mock.calls.find(
+      ([hookName]) => hookName === "onClose",
+    )?.[1] as (() => Promise<void>) | undefined;
+    expect(onClose).toBeTypeOf("function");
+    await onClose?.();
+    expect(mocks.googleOAuthStateStore.close).toHaveBeenCalledOnce();
   });
 });

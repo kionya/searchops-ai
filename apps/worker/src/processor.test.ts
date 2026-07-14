@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  CrawlAnalysisPersistenceClient,
-  ConnectorSyncPersistenceClient,
-  CrawlPersistenceClient,
-  GeoVisibilityPersistenceClient,
-  SchemaRichResultValidationPersistenceClient,
-  SchemaRecommendationRecheckPersistenceClient
+import {
+  parseCredentialKeyring,
+  type ConnectorOAuthCredentialForSync,
+  type ConnectorSyncPersistenceClient,
+  type CrawlAnalysisPersistenceClient,
+  type CrawlPersistenceClient,
+  type GeoVisibilityPersistenceClient,
+  type SchemaRichResultValidationPersistenceClient,
+  type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 
 import {
@@ -37,6 +39,12 @@ const normalHtml = `
   </body>
 </html>
 `;
+
+const credentialKeyring = parseCredentialKeyring({
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: "test-v1",
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON: "{}"
+});
 
 const analysisHtml = `
 <!doctype html>
@@ -703,6 +711,7 @@ describe("processCrawlJob", () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -752,22 +761,21 @@ describe("processCrawlJob", () => {
   });
 
   it("reads stored OAuth credentials when live connector sync is enabled", async () => {
+    const legacyProviderQueries: string[][] = [];
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorOAuthCredential: {
         async findMany(args) {
-          expect(args).toEqual({
-            where: {
-              provider: {
-                in: ["gsc", "ga4"]
-              },
-              siteId: "site_live",
-              status: "connected"
-            }
+          expect(args.where).toMatchObject({
+            organizationId: "org_live",
+            siteId: "site_live",
+            status: "connected"
           });
+          legacyProviderQueries.push([...(args.where.provider?.in ?? [])]);
 
-          return [
+          const credentials: ConnectorOAuthCredentialForSync[] = [
             {
               accessToken: "gsc_token",
               externalAccountEmail: null,
@@ -787,6 +795,9 @@ describe("processCrawlJob", () => {
               tokenType: "Bearer"
             }
           ];
+          return credentials.filter((credential) =>
+            args.where.provider?.in.includes(credential.provider),
+          );
         },
         async update(args) {
           return {
@@ -814,7 +825,8 @@ describe("processCrawlJob", () => {
           resultUpserts.push(args);
           return args;
         }
-      }
+      },
+      providerCredentials: createEmptyProviderCredentialPort()
     };
 
     const result = await processAndPersistConnectorSyncJob(
@@ -829,6 +841,7 @@ describe("processCrawlJob", () => {
       },
       persistenceClient,
       {
+        credentialKeyring,
         fetch: (async (url) => {
           const value = String(url);
 
@@ -907,6 +920,7 @@ describe("processCrawlJob", () => {
       okProviders: 3,
       totalRecords: 3
     });
+    expect(legacyProviderQueries).toEqual([["gsc"], ["ga4"]]);
     expect(resultUpserts).toHaveLength(3);
     expect(runUpdates[0]).toMatchObject({
       data: {
@@ -916,9 +930,10 @@ describe("processCrawlJob", () => {
     });
   });
 
-  it("refreshes expired Google OAuth credentials before live connector sync", async () => {
+  it("uses the account-scoped resolver output for live connector sync", async () => {
     const credentialUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort([], []),
       connectorOAuthCredential: {
         async findMany() {
           return [
@@ -977,18 +992,6 @@ describe("processCrawlJob", () => {
         fetch: (async (url, init) => {
           calls.push(String(url));
 
-          if (String(url).includes("oauth2.googleapis.com")) {
-            expect(String(init?.body)).toContain("refresh_token=gsc_refresh");
-            return new Response(
-              JSON.stringify({
-                access_token: "fresh_gsc_token",
-                expires_in: 3600,
-                token_type: "Bearer"
-              }),
-              { status: 200 }
-            );
-          }
-
           expect((init?.headers as Record<string, string>).authorization).toBe(
             "Bearer fresh_gsc_token",
           );
@@ -1015,26 +1018,36 @@ describe("processCrawlJob", () => {
         googleOAuthClientId: "client_id",
         googleOAuthClientSecret: "client_secret",
         liveExternalApis: "enabled",
-        now: () => new Date("2026-05-27T12:10:00.000Z")
+        now: () => new Date("2026-05-27T12:10:00.000Z"),
+        async resolveConnectorProviderConfigs() {
+          credentialUpdates.push({
+            expectedUpdatedAt: "2026-05-27T12:00:00.000Z",
+            providerAccountId: "pa_google"
+          });
+          return {
+            configs: {
+              gsc: {
+                credential: {
+                  accessToken: "fresh_gsc_token",
+                  provider: "gsc",
+                  status: "connected"
+                },
+                propertyId: "https://searchops-ai-web.vercel.app/"
+              }
+            },
+            credentialSources: { gsc: "encrypted" },
+            failures: {}
+          };
+        }
       },
     );
 
     expect(calls).toEqual([
-      "https://oauth2.googleapis.com/token",
       "https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fsearchops-ai-web.vercel.app%2F/searchAnalytics/query"
     ]);
     expect(credentialUpdates[0]).toMatchObject({
-      data: {
-        accessToken: "fresh_gsc_token",
-        tokenExpiresAt: new Date("2026-05-27T13:10:00.000Z"),
-        tokenType: "Bearer"
-      },
-      where: {
-        siteId_provider: {
-          provider: "gsc",
-          siteId: "site_live"
-        }
-      }
+      expectedUpdatedAt: "2026-05-27T12:00:00.000Z",
+      providerAccountId: "pa_google"
     });
     expect(result.results[0]).toMatchObject({
       fixture: false,
@@ -1043,10 +1056,11 @@ describe("processCrawlJob", () => {
     });
   });
 
-  it("scopes Google OAuth refresh failures to provider results", async () => {
+  it("scopes credential resolution failures to provider results", async () => {
     const runUpdates: unknown[] = [];
     const resultUpserts: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, resultUpserts),
       connectorOAuthCredential: {
         async findMany() {
           return [
@@ -1133,17 +1147,31 @@ describe("processCrawlJob", () => {
         googleOAuthClientSecret: "client_secret",
         liveExternalApis: "enabled",
         now: () => new Date("2026-05-27T12:10:00.000Z"),
-        pagespeedApiKey: "pagespeed_key"
+        pagespeedApiKey: "pagespeed_key",
+        async resolveConnectorProviderConfigs() {
+          return {
+            configs: {
+              pagespeed: {
+                apiKey: "pagespeed_key",
+                siteUrl: "searchops-ai-web.vercel.app"
+              }
+            },
+            credentialSources: { pagespeed: "platform" },
+            failures: { gsc: "credential_revoked" }
+          };
+        }
       },
     );
 
     expect(result.results.map((item) => [item.provider, item.status])).toEqual([
-      ["gsc", "failed"],
+      ["gsc", "setup_required"],
       ["pagespeed", "ok"]
     ]);
     expect(result.summary).toMatchObject({
-      failedProviders: 1,
+      credentialSources: { pagespeed: "platform" },
+      failedProviders: 0,
       okProviders: 1,
+      setupRequiredProviders: 1,
       totalProviders: 2
     });
     expect(resultUpserts).toHaveLength(2);
@@ -1158,6 +1186,7 @@ describe("processCrawlJob", () => {
   it("marks connector sync runs failed when connector processing fails", async () => {
     const runUpdates: unknown[] = [];
     const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, []),
       connectorSyncRun: {
         async create(args) {
           return args;
@@ -1192,22 +1221,152 @@ describe("processCrawlJob", () => {
           }
         },
       ),
-    ).rejects.toThrow(/connector failed/);
+    ).rejects.toThrow("worker_job_failed");
 
     expect(runUpdates[0]).toMatchObject({
       where: { id: "sync_failed" },
       data: {
         status: "failed",
         summary: {
+          version: 1,
           error: {
-            message: "connector failed"
+            code: "worker_job_failed",
+            message: "Worker job failed."
           }
         }
       }
     });
+    expect(JSON.stringify(runUpdates)).not.toContain("connector failed");
   });
 
-  it("processes GEO answer monitor jobs through an injected monitor adapter", async () => {
+  it("rejects a foreign connector sync run before provider resolution or writes", async () => {
+    let providerCalls = 0;
+    let persistenceWrites = 0;
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: {
+        async markFailed() { persistenceWrites += 1; return false; },
+        async persist() { persistenceWrites += 1; return false; },
+        async verify() { return false; }
+      },
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { persistenceWrites += 1; return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { persistenceWrites += 1; return args; }
+      }
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_foreign",
+          organizationId: "org_attacker",
+          siteId: "site_attacker",
+          siteDomain: "example.net",
+          requestedByUserId: "user_attacker",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+        {
+          liveExternalApis: "enabled",
+          async resolveConnectorProviderConfigs() {
+            providerCalls += 1;
+            return { configs: {}, credentialSources: {}, failures: {} };
+          }
+        },
+      ),
+    ).rejects.toThrow("connector_sync_run_ownership_mismatch");
+    expect(providerCalls).toBe(0);
+    expect(persistenceWrites).toBe(0);
+  });
+
+  it("sanitizes connector sync ownership lookup failures before they reach the queue", async () => {
+    let persistenceWrites = 0;
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: {
+        async markFailed() { persistenceWrites += 1; return false; },
+        async persist() { persistenceWrites += 1; return false; },
+        async verify() {
+          throw new Error("postgres://user:tenant-secret@db.example.test/searchops");
+        }
+      },
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { persistenceWrites += 1; return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { persistenceWrites += 1; return args; }
+      }
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_lookup_failed",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+      ),
+    ).rejects.toThrow("worker_job_failed");
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_lookup_failed",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+      ),
+    ).rejects.not.toThrow("tenant-secret");
+    expect(persistenceWrites).toBe(0);
+  });
+
+  it("fails encrypted live startup closed when the credential keyring is missing", async () => {
+    const runUpdates: unknown[] = [];
+    const persistenceClient: ConnectorSyncPersistenceClient = {
+      connectorSyncOwnership: createOwnedConnectorSyncPort(runUpdates, []),
+      connectorSyncRun: {
+        async create(args) { return args; },
+        async update(args) { return args; }
+      },
+      connectorSyncResult: {
+        async upsert(args) { return args; }
+      },
+      providerCredentials: createEmptyProviderCredentialPort()
+    };
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_no_keyring",
+          organizationId: "org_1",
+          siteId: "site_1",
+          siteDomain: "example.net",
+          requestedByUserId: "user_1",
+          fetchedAt: "2026-05-22T02:00:00.000Z",
+          providers: ["gsc"]
+        },
+        persistenceClient,
+        { credentialStorageMode: "encrypted", liveExternalApis: "enabled" },
+      ),
+    ).rejects.toThrow("credential_keyring_invalid");
+    expect(runUpdates).toHaveLength(1);
+    expect(JSON.stringify(runUpdates)).not.toContain("credential_keyring_invalid");
+  });
+
+  it("does not invoke an injected GEO monitor callback when live APIs are disabled", async () => {
+    let monitorCalls = 0;
     const result = await processGeoAnswerMonitorJob(
       {
         organizationId: "org_geo",
@@ -1226,43 +1385,15 @@ describe("processCrawlJob", () => {
         queries: [{ query: "best seo clinic", locale: "ko-KR" }]
       },
       {
-        async monitorGeoAnswers(input) {
-          expect(input).toMatchObject({
-            observedAt: "2026-05-26T00:00:00.000Z",
-            providers: ["chatgpt"],
-            target: {
-              siteId: "site_geo",
-              domain: "exampleclinic.com"
-            }
-          });
-
-          const observations = [
-            {
-              provider: "chatgpt" as const,
-              query: "best seo clinic",
-              locale: "ko-KR",
-              answerText: "Example Clinic is cited for SEO clinic research.",
-              citedUrls: ["https://exampleclinic.com/services/seo"],
-              observedAt: "2026-05-26T00:00:00.000Z",
-              source: "connector" as const
-            }
-          ];
-
-          return {
-            observations,
-            results: [
-              {
-                provider: "chatgpt",
-                observations,
-                generatedBy: "connector",
-                liveExternalApis: "enabled"
-              }
-            ]
-          };
+        liveExternalApis: "disabled",
+        async monitorGeoAnswers() {
+          monitorCalls += 1;
+          throw new Error("live callback must not run");
         }
       },
     );
 
+    expect(monitorCalls).toBe(0);
     expect(result).toMatchObject({
       organizationId: "org_geo",
       siteId: "site_geo",
@@ -1270,23 +1401,366 @@ describe("processCrawlJob", () => {
       monitorResults: [
         {
           provider: "chatgpt",
-          generatedBy: "connector",
-          liveExternalApis: "enabled"
+          generatedBy: "fixture",
+          liveExternalApis: "disabled"
         }
       ],
       visibilityReport: {
         generatedBy: "deterministic",
-        status: "strong",
-        score: 90,
-        mentionRate: 100,
-        citationRate: 100
+        mentionRate: 100
       }
     });
+  });
+
+  it("returns setup-required results without fixtures when live GEO credentials are missing", async () => {
+    const result = await processGeoAnswerMonitorJob(
+      geoJob(["claude", "copilot"]),
+      {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters(job) {
+          expect(job).toMatchObject({
+            organizationId: "org_geo",
+            siteId: "site_geo",
+            providers: ["claude", "copilot"],
+          });
+          return {
+            adapters: {},
+            credentialSources: {},
+            failures: { copilot: "account_missing" },
+          };
+        },
+      },
+    );
+
+    expect(result.monitorResults).toEqual([
+      {
+        error: {
+          code: "account_missing",
+          message: "GEO provider live monitoring is unavailable.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "copilot",
+        status: "setup_required",
+      },
+      {
+        error: {
+          code: "account_missing",
+          message: "GEO provider credential is not configured.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "claude",
+        status: "setup_required",
+      },
+    ]);
+    expect(result.visibilityReport.observations).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("fixture");
+  });
+
+  it("isolates live GEO provider failures and preserves another provider's success", async () => {
+    const providerSecret = "https://provider.test?api_key=tenant-secret";
+    const result = await processGeoAnswerMonitorJob(
+      geoJob(["chatgpt", "claude"]),
+      {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
+          return {
+            adapters: {
+              chatgpt: {
+                liveExternalApis: "enabled",
+                provider: "chatgpt",
+                async monitor(request) {
+                  return {
+                    generatedBy: "connector",
+                    liveExternalApis: "enabled",
+                    observations: [
+                      {
+                        answerText: "Example Clinic is cited.",
+                        citedUrls: ["https://exampleclinic.com/services/seo"],
+                        locale: "ko-KR",
+                        observedAt: request.observedAt!,
+                        provider: "chatgpt",
+                        query: request.queries[0]!.query,
+                        source: "connector",
+                      },
+                    ],
+                    provider: "chatgpt",
+                    status: "ok",
+                  };
+                },
+              },
+              claude: {
+                liveExternalApis: "enabled",
+                provider: "claude",
+                async monitor() {
+                  throw new Error(providerSecret, { cause: { body: providerSecret } });
+                },
+              },
+            },
+            credentialSources: { chatgpt: "encrypted", claude: "platform" },
+            failures: {},
+          };
+        },
+      },
+    );
+
+    expect(result.monitorResults).toEqual([
+      expect.objectContaining({
+        observations: [expect.objectContaining({ provider: "chatgpt" })],
+        provider: "chatgpt",
+        status: "ok",
+      }),
+      {
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "claude",
+        status: "failed",
+      },
+    ]);
+    expect(result.visibilityReport.observations).toHaveLength(1);
+    expect(result.credentialSources).toEqual({ chatgpt: "encrypted", claude: "platform" });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    expect(JSON.stringify(result)).not.toContain("provider.test");
+  });
+
+  it("isolates a malformed GEO adapter result and preserves another provider's success", async () => {
+    const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt", "claude"]), {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        return {
+          adapters: {
+            chatgpt: {
+              liveExternalApis: "enabled",
+              provider: "chatgpt",
+              async monitor(request) {
+                return {
+                  generatedBy: "connector",
+                  liveExternalApis: "enabled",
+                  observations: [
+                    {
+                      answerText: "Example Clinic is cited.",
+                      citedUrls: [],
+                      locale: "ko-KR",
+                      observedAt: request.observedAt!,
+                      provider: "chatgpt",
+                      query: request.queries[0]!.query,
+                      source: "connector",
+                    },
+                  ],
+                  provider: "chatgpt",
+                  status: "ok",
+                };
+              },
+            },
+            claude: {
+              liveExternalApis: "enabled",
+              provider: "claude",
+              async monitor() {
+                return {
+                  body: "api_key=tenant-secret",
+                  generatedBy: "connector",
+                  liveExternalApis: "enabled",
+                  observations: [],
+                  provider: "claude",
+                  status: "ok",
+                } as never;
+              },
+            },
+          },
+          credentialSources: { chatgpt: "platform", claude: "encrypted" },
+          failures: {},
+        };
+      },
+    });
+
+    expect(result.monitorResults).toEqual([
+      expect.objectContaining({ provider: "chatgpt", status: "ok" }),
+      {
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "claude",
+        status: "failed",
+      },
+    ]);
+    expect(result.credentialSources).toEqual({ chatgpt: "platform", claude: "encrypted" });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
+  });
+
+  it("rejects fixture-sourced observations returned by a live GEO adapter", async () => {
+    const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt"]), {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        return {
+          adapters: {
+            chatgpt: {
+              liveExternalApis: "enabled",
+              provider: "chatgpt",
+              async monitor(request) {
+                return {
+                  generatedBy: "connector",
+                  liveExternalApis: "enabled",
+                  observations: [
+                    {
+                      answerText: "fixture answer",
+                      citedUrls: [],
+                      locale: "ko-KR",
+                      observedAt: request.observedAt!,
+                      provider: "chatgpt",
+                      query: request.queries[0]!.query,
+                      source: "fixture",
+                    },
+                  ],
+                  provider: "chatgpt",
+                  status: "ok",
+                };
+              },
+            },
+          },
+          credentialSources: { chatgpt: "platform" },
+          failures: {},
+        };
+      },
+    });
+
+    expect(result.monitorResults).toEqual([
+      {
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "chatgpt",
+        status: "failed",
+      },
+    ]);
+  });
+
+  it("maps GEO decryption failures to a fixed safe failed result", async () => {
+    const result = await processGeoAnswerMonitorJob(geoJob(["gemini"]), {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        return {
+          adapters: {},
+          credentialSources: {},
+          failures: { gemini: "credential_decryption_failed" },
+        };
+      },
+    });
+
+    expect(result.monitorResults).toEqual([
+      {
+        error: {
+          code: "credential_decryption_failed",
+          message: "GEO provider credential could not be decrypted safely.",
+        },
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        observations: [],
+        provider: "gemini",
+        status: "failed",
+      },
+    ]);
+  });
+
+  it("preserves deterministic fixture monitoring when live GEO APIs are disabled", async () => {
+    let resolverCalls = 0;
+    const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt", "claude"]), {
+      liveExternalApis: "disabled",
+      async resolveGeoProviderAdapters() {
+        resolverCalls += 1;
+        throw new Error("must not resolve live credentials");
+      },
+    });
+
+    expect(resolverCalls).toBe(0);
+    expect(result.monitorResults.map((item) => [item.provider, item.status])).toEqual([
+      ["chatgpt", "ok"],
+      ["claude", "ok"],
+    ]);
+    expect(result.monitorResults.every((item) => item.generatedBy === "fixture")).toBe(true);
+    expect(result.credentialSources).toEqual({});
+  });
+
+  it("rejects foreign GEO site ownership before resolver or persistence calls", async () => {
+    let resolverCalls = 0;
+    let persistenceCalls = 0;
+    const persistenceClient = {
+      geoVisibilityOwnership: {
+        async verify(input: unknown) {
+          expect(input).toEqual({ organizationId: "org_geo", siteId: "site_geo" });
+          return false;
+        },
+        async persist() {
+          persistenceCalls += 1;
+          return false;
+        },
+      },
+      geoVisibilityReport: {
+        async create() {
+          persistenceCalls += 1;
+        },
+      },
+    } as unknown as GeoVisibilityPersistenceClient;
+
+    await expect(
+      processAndPersistGeoAnswerMonitorJob(geoJob(["chatgpt"]), persistenceClient, {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
+          resolverCalls += 1;
+          return { adapters: {}, credentialSources: {}, failures: {} };
+        },
+      }),
+    ).rejects.toThrow("geo_site_ownership_mismatch");
+    expect(resolverCalls).toBe(0);
+    expect(persistenceCalls).toBe(0);
+  });
+
+  it("rejects GEO target identity mismatches before resolver execution", async () => {
+    let resolverCalls = 0;
+    const mismatched = {
+      ...geoJob(["chatgpt"]),
+      target: { ...geoJob(["chatgpt"]).target, domain: "foreign.example" },
+    };
+
+    await expect(
+      processGeoAnswerMonitorJob(mismatched, {
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
+          resolverCalls += 1;
+          return { adapters: {}, credentialSources: {}, failures: {} };
+        },
+      }),
+    ).rejects.toThrow();
+    expect(resolverCalls).toBe(0);
   });
 
   it("persists GEO answer monitor results through the DB boundary", async () => {
     const creates: unknown[] = [];
     const persistenceClient: GeoVisibilityPersistenceClient = {
+      geoVisibilityOwnership: {
+        async verify() {
+          return true;
+        },
+        async persist(input) {
+          creates.push(input.result);
+          return true;
+        },
+      },
       geoVisibilityReport: {
         async create(args) {
           creates.push(args);
@@ -1314,29 +1788,36 @@ describe("processCrawlJob", () => {
       },
       persistenceClient,
       {
-        async monitorGeoAnswers() {
-          const observations = [
-            {
-              provider: "perplexity" as const,
-              query: "medical seo checklist",
-              locale: "ko-KR",
-              answerText: "Example Clinic publishes a medical SEO checklist.",
-              citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
-              observedAt: "2026-05-26T01:00:00.000Z",
-              source: "connector" as const
-            }
-          ];
-
+        liveExternalApis: "enabled",
+        async resolveGeoProviderAdapters() {
           return {
-            observations,
-            results: [
-              {
+            adapters: {
+              perplexity: {
                 provider: "perplexity",
-                observations,
-                generatedBy: "connector",
-                liveExternalApis: "enabled"
-              }
-            ]
+                liveExternalApis: "enabled",
+                async monitor(request) {
+                  return {
+                    provider: "perplexity",
+                    status: "ok",
+                    observations: [
+                      {
+                        provider: "perplexity",
+                        query: "medical seo checklist",
+                        locale: "ko-KR",
+                        answerText: "Example Clinic publishes a medical SEO checklist.",
+                        citedUrls: ["https://exampleclinic.com/blog/medical-seo-checklist"],
+                        observedAt: request.observedAt!,
+                        source: "connector",
+                      },
+                    ],
+                    generatedBy: "connector",
+                    liveExternalApis: "enabled",
+                  };
+                },
+              },
+            },
+            credentialSources: { perplexity: "platform" },
+            failures: {},
           };
         }
       },
@@ -1345,13 +1826,12 @@ describe("processCrawlJob", () => {
     expect(result.visibilityReport.generatedBy).toBe("deterministic");
     expect(creates).toHaveLength(1);
     expect(creates[0]).toMatchObject({
-      data: {
-        brandName: "Example Clinic",
-        domain: "exampleclinic.com",
+      credentialSources: { perplexity: "platform" },
+      siteId: "site_geo",
+      visibilityReport: {
         generatedBy: "deterministic",
-        siteId: "site_geo",
-        status: "strong"
-      }
+        status: "strong",
+      },
     });
   });
 
@@ -1482,3 +1962,157 @@ describe("processCrawlJob", () => {
     });
   });
 });
+
+describe("processConnectorSyncJob live credential resolution", () => {
+  it("does not use fixtures when site credentials are missing in live mode", async () => {
+    const result = await processConnectorSyncJob(
+      {
+        connectorSyncRunId: "sync_missing_live",
+        organizationId: "org_a",
+        siteId: "site_a",
+        siteDomain: "example.com",
+        requestedByUserId: "user_a",
+        fetchedAt: "2026-07-14T00:00:00.000Z",
+        providers: ["ga4"],
+      },
+      {
+        liveExternalApis: "enabled",
+        async resolveConnectorProviderConfigs() {
+          return {
+            configs: {},
+            credentialSources: {},
+            failures: { ga4: "connector_missing" },
+          };
+        },
+      },
+    );
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        fixture: false,
+        provider: "ga4",
+        status: "setup_required",
+        error: expect.objectContaining({ code: "connector_missing" }),
+      }),
+    ]);
+    expect(result.summary).toMatchObject({
+      credentialSources: {},
+      setupRequiredProviders: 1,
+    });
+  });
+
+  it("feeds normalized live provider outcomes back to the credential resolver", async () => {
+    const writes: unknown[] = [];
+    const payload = {
+      connectorSyncRunId: "sync_outcome",
+      organizationId: "org_a",
+      siteId: "site_a",
+      siteDomain: "example.com",
+      requestedByUserId: "user_a",
+      fetchedAt: "2026-07-14T00:00:00.000Z",
+      providers: ["ga4" as const],
+    };
+
+    await processConnectorSyncJob(payload, {
+      liveExternalApis: "enabled",
+      async recordConnectorProviderOutcomes(job, results) {
+        writes.push({ job, results });
+      },
+      async resolveConnectorProviderConfigs() {
+        return {
+          configs: {},
+          credentialSources: {},
+          failures: { ga4: "credential_expired" },
+        };
+      },
+    });
+
+    expect(writes).toEqual([
+      {
+        job: payload,
+        results: [
+          expect.objectContaining({
+            error: expect.objectContaining({ code: "credential_expired" }),
+            provider: "ga4",
+            status: "setup_required",
+          }),
+        ],
+      },
+    ]);
+  });
+});
+
+function geoJob(providers: readonly ("chatgpt" | "claude" | "gemini" | "copilot" | "perplexity")[]) {
+  return {
+    organizationId: "org_geo",
+    siteId: "site_geo",
+    siteDomain: "exampleclinic.com",
+    requestedByUserId: "user_geo",
+    observedAt: "2026-05-26T00:00:00.000Z",
+    providers: [...providers],
+    target: {
+      siteId: "site_geo",
+      brandName: "Example Clinic",
+      domain: "exampleclinic.com",
+      locale: "ko-KR",
+      market: "KR",
+    },
+    queries: [{ query: "best seo clinic", locale: "ko-KR" }],
+  };
+}
+
+function createEmptyProviderCredentialPort(): NonNullable<
+  ConnectorSyncPersistenceClient["providerCredentials"]
+> {
+  return {
+    async applyProviderFeedback() {
+      return false;
+    },
+    async getProviderAccount() {
+      return null;
+    },
+    async getSite(input) {
+      return { id: input.siteId, organizationId: input.organizationId };
+    },
+    async getSiteConnector() {
+      return null;
+    },
+    async updateProviderAccountCredential() {
+      return null;
+    },
+  };
+}
+
+function createOwnedConnectorSyncPort(
+  runUpdates: unknown[],
+  resultUpserts: unknown[],
+): ConnectorSyncPersistenceClient["connectorSyncOwnership"] {
+  return {
+    async markFailed(input) {
+      runUpdates.push({
+        data: {
+          endedAt: input.endedAt,
+          status: "failed",
+          summary: input.summary
+        },
+        where: { id: input.connectorSyncRunId }
+      });
+      return true;
+    },
+    async persist(input) {
+      resultUpserts.push(...input.result.results);
+      runUpdates.push({
+        data: {
+          endedAt: input.endedAt,
+          status: input.status,
+          summary: input.result.summary
+        },
+        where: { id: input.result.connectorSyncRunId }
+      });
+      return true;
+    },
+    async verify() {
+      return true;
+    }
+  };
+}

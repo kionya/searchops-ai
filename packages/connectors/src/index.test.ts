@@ -6,6 +6,7 @@ import {
   connectorsPackage,
   createAnthropicGeoAnswerClient,
   createConnectorRunResult,
+  createFailedConnectorRunResult,
   createFixtureConnectorAdapter,
   createGeminiGeoAnswerClient,
   createGeoAnswerMonitorBatchRunner,
@@ -47,13 +48,30 @@ import {
   summarizeConnectorRunResults,
   syncFixtureConnector,
   syncFixtureConnectors,
-  syncLiveConnectors
+  syncLiveConnectors,
+  shouldEnableConnectorLiveRuntime
 } from "./index.js";
 
 describe("connectors foundation", () => {
   it("keeps live external APIs disabled by default", () => {
     expect(liveExternalApisDefault).toBe("disabled");
     expect(liveExternalApisEnabled).toBe("enabled");
+  });
+
+  it("uses one connector live-runtime predicate for encrypted accounts and PageSpeed", () => {
+    expect(shouldEnableConnectorLiveRuntime({})).toBe(false);
+    expect(
+      shouldEnableConnectorLiveRuntime({ credentialStorageMode: "encrypted" }),
+    ).toBe(true);
+    expect(
+      shouldEnableConnectorLiveRuntime({ pagespeedApiKey: "platform-pagespeed-key" }),
+    ).toBe(true);
+    expect(
+      shouldEnableConnectorLiveRuntime({
+        credentialStorageMode: "  ",
+        pagespeedApiKey: "  ",
+      }),
+    ).toBe(false);
   });
 
   it("identifies the package", () => {
@@ -668,7 +686,8 @@ describe("connectors foundation", () => {
           source: "connector"
         }
       ],
-      provider: "chatgpt"
+      provider: "chatgpt",
+      status: "ok"
     });
   });
 
@@ -1024,7 +1043,6 @@ describe("connectors foundation", () => {
 
   it("syncs live connectors with OAuth and API key credentials", async () => {
     const result = await syncLiveConnectors({
-      bingApiKey: "bing_key",
       fetchedAt: "2026-05-27T00:00:00.000Z",
       fetch: (async (url) => {
         const value = String(url);
@@ -1099,14 +1117,22 @@ describe("connectors foundation", () => {
           { status: 200 }
         );
       }) as typeof fetch,
-      ga4PropertyId: "123456789",
-      googleOAuthCredentials: [
-        { accessToken: "gsc_token", provider: "gsc", status: "connected" },
-        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
-      ],
-      pagespeedApiKey: "pagespeed_key",
+      providerConfigs: {
+        bing: { apiKey: "bing_key", siteUrl: "searchops-ai-web.vercel.app" },
+        ga4: {
+          credential: { accessToken: "ga4_token", provider: "ga4", status: "connected" },
+          propertyId: "123456789"
+        },
+        gsc: {
+          credential: { accessToken: "gsc_token", provider: "gsc", status: "connected" },
+          propertyId: "https://searchops-ai-web.vercel.app/"
+        },
+        pagespeed: {
+          apiKey: "pagespeed_key",
+          siteUrl: "searchops-ai-web.vercel.app"
+        }
+      },
       providers: ["gsc", "ga4", "pagespeed", "bing"],
-      siteDomain: "searchops-ai-web.vercel.app"
     });
 
     expect(result.results.map((item) => item.provider)).toEqual([
@@ -1123,11 +1149,59 @@ describe("connectors foundation", () => {
     });
   });
 
+  it("builds adapters only from requested provider-specific configs", async () => {
+    const calls: string[] = [];
+    const result = await syncLiveConnectors({
+      credentialSources: { gsc: "encrypted" },
+      fetchedAt: "2026-07-14T00:00:00.000Z",
+      fetch: (async (url) => {
+        calls.push(String(url));
+        return new Response(JSON.stringify({ rows: [] }), { status: 200 });
+      }) as typeof fetch,
+      providerConfigs: {
+        bing: { apiKey: "must-not-be-used", siteUrl: "other.example" },
+        gsc: {
+          credential: { accessToken: "gsc-token", provider: "gsc", status: "connected" },
+          propertyId: "sc-domain:example.com",
+        },
+      },
+      providers: ["gsc"],
+    });
+
+    expect(calls).toEqual([
+      "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query",
+    ]);
+    expect(result.results[0]).toMatchObject({ fixture: false, provider: "gsc", status: "ok" });
+    expect(result.summary).toMatchObject({ credentialSources: { gsc: "encrypted" } });
+  });
+
+  it("returns sanitized per-provider credential failures without fixture substitution", async () => {
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-07-14T00:00:00.000Z",
+      providerConfigs: {},
+      providerFailures: { ga4: "credential_decryption_failed" },
+      providers: ["ga4"],
+    });
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        fixture: false,
+        provider: "ga4",
+        status: "setup_required",
+        error: expect.objectContaining({
+          code: "credential_decryption_failed",
+          setupRequired: true,
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("ciphertext");
+  });
+
   it("marks missing live connector credentials as setup required without throwing", async () => {
     const result = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
+      providerConfigs: {},
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
-      siteDomain: "searchops-ai-web.vercel.app"
     });
 
     expect(result.results.map((item) => [item.provider, item.status])).toEqual([
@@ -1180,11 +1254,17 @@ describe("connectors foundation", () => {
         new Response(JSON.stringify({ error: { message: "Permission denied for property." } }), {
           status: 401
         })) as typeof fetch,
-      googleOAuthCredentials: [
-        { accessToken: "expired_gsc_token", provider: "gsc", status: "connected" }
-      ],
+      providerConfigs: {
+        gsc: {
+          credential: {
+            accessToken: "expired_gsc_token",
+            provider: "gsc",
+            status: "connected"
+          },
+          propertyId: "https://searchops-ai-web.vercel.app/"
+        }
+      },
       providers: ["gsc"],
-      siteDomain: "searchops-ai-web.vercel.app"
     });
 
     expect(result.results).toEqual([
@@ -1193,36 +1273,87 @@ describe("connectors foundation", () => {
         fixture: false,
         provider: "gsc",
         records: [],
-        status: "failed",
+        status: "setup_required",
         error: {
-          message:
-            "Google Search Console request failed with status 401: Permission denied for property.",
-          name: "Error"
+          code: "credential_expired",
+          message: "credential_expired",
+          name: "ConnectorProviderDiagnosticError",
+          nextAction:
+            "사이트 커넥터의 계정, 권한, 리소스 설정을 확인한 뒤 해당 provider를 다시 실행하세요.",
+          operatorMessage: "Connector credential resolution failed: credential_expired",
+          setupRequired: true
         }
       }
     ]);
     expect(result.summary).toMatchObject({
-      failedProviders: 1,
+      failedProviders: 0,
       providerErrors: {
         gsc: {
-          message:
-            "Google Search Console request failed with status 401: Permission denied for property."
+          code: "credential_expired",
+          message: "credential_expired"
         }
       },
+      setupRequiredProviders: 1,
       totalProviders: 1,
       totalRecords: 0
     });
+    expect(JSON.stringify(result)).not.toContain("Permission denied for property");
+  });
+
+  it("does not expose arbitrary external error messages in results or summaries", () => {
+    const secret = "https://provider.test/path?api_key=tenant-secret";
+    const result = createFailedConnectorRunResult(
+      "pagespeed",
+      "2026-05-27T00:00:00.000Z",
+      new Error(secret),
+    );
+    const summary = summarizeConnectorRunResults([result]);
+
+    expect(result.error).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(JSON.stringify({ result, summary })).not.toContain("tenant-secret");
+    expect(JSON.stringify({ result, summary })).not.toContain("api_key");
+  });
+
+  it("normalizes malformed provider JSON without persisting response content", async () => {
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () =>
+        new Response("client_secret=tenant-secret", {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        })) as typeof fetch,
+      providerConfigs: {
+        gsc: {
+          credential: { accessToken: "gsc_token", provider: "gsc", status: "connected" },
+          propertyId: "sc-domain:example.com",
+        },
+      },
+      providers: ["gsc"],
+    });
+
+    expect(result.results[0]).toMatchObject({
+      error: { code: "provider_rate_limited" },
+      fixture: false,
+      provider: "gsc",
+      status: "failed",
+    });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    expect(JSON.stringify(result)).not.toContain("client_secret");
   });
 
   it("diagnoses GA4 property id format separately from OAuth permission failures", async () => {
     const invalidPropertyResult = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
-      ga4PropertyId: "G-J4S923Y2Z5",
-      googleOAuthCredentials: [
-        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
-      ],
+      providerConfigs: {
+        ga4: {
+          credential: { accessToken: "ga4_token", provider: "ga4", status: "connected" },
+          propertyId: "G-J4S923Y2Z5"
+        }
+      },
       providers: ["ga4"],
-      siteDomain: "searchops-ai-web.vercel.app"
     });
 
     expect(invalidPropertyResult.results[0]).toMatchObject({
@@ -1234,7 +1365,6 @@ describe("connectors foundation", () => {
           "GA4 Property ID가 잘못되었거나 Google Analytics Data API에서 해당 속성을 찾을 수 없습니다."
       }
     });
-
     const permissionResult = await syncLiveConnectors({
       fetchedAt: "2026-05-27T00:00:00.000Z",
       fetch: (async () =>
@@ -1247,28 +1377,28 @@ describe("connectors foundation", () => {
           }),
           { status: 403 }
         )) as typeof fetch,
-      ga4PropertyId: "123456789",
-      googleOAuthCredentials: [
-        { accessToken: "ga4_token", provider: "ga4", status: "connected" }
-      ],
+      providerConfigs: {
+        ga4: {
+          credential: { accessToken: "ga4_token", provider: "ga4", status: "connected" },
+          propertyId: "123456789"
+        }
+      },
       providers: ["ga4"],
-      siteDomain: "searchops-ai-web.vercel.app"
     });
 
     expect(permissionResult.results[0]).toMatchObject({
       provider: "ga4",
       status: "failed",
       error: {
-        code: "ga4_property_access_denied",
-        operatorMessage:
-          "OAuth Google 계정이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다."
+        code: "resource_access_denied",
+        operatorMessage: "Connector credential resolution failed: resource_access_denied"
       }
     });
+    expect(JSON.stringify(permissionResult)).not.toContain("sufficient permissions");
   });
 
   it("diagnoses Bing InvalidApiKey as a Railway and Bing Webmaster configuration issue", async () => {
     const result = await syncLiveConnectors({
-      bingApiKey: "invalid_key",
       fetchedAt: "2026-05-27T00:00:00.000Z",
       fetch: (async () =>
         new Response(
@@ -1278,27 +1408,29 @@ describe("connectors foundation", () => {
           }),
           { status: 400 }
         )) as typeof fetch,
-      providers: ["bing"],
-      siteDomain: "searchops-ai-web.vercel.app"
+      providerConfigs: {
+        bing: { apiKey: "invalid_key", siteUrl: "searchops-ai-web.vercel.app" }
+      },
+      providers: ["bing"]
     });
 
     expect(result.results[0]).toMatchObject({
       provider: "bing",
-      status: "failed",
+      status: "setup_required",
       error: {
-        code: "bing_invalid_api_key",
-        operatorMessage: "Bing Webmaster API Key가 유효하지 않습니다."
+        code: "credential_revoked",
+        operatorMessage: "Connector credential resolution failed: credential_revoked"
       }
     });
     expect(result.summary).toMatchObject({
-      failedProviders: 1,
-      setupRequiredProviders: 0
+      failedProviders: 0,
+      setupRequiredProviders: 1
     });
+    expect(JSON.stringify(result)).not.toContain("InvalidApiKey");
   });
 
-  it("diagnoses Bing 5xx HTML responses as temporary service availability issues", async () => {
+  it("normalizes Bing 5xx HTML responses as a safe transient provider failure", async () => {
     const result = await syncLiveConnectors({
-      bingApiKey: "valid_key",
       fetchedAt: "2026-05-27T00:00:00.000Z",
       fetch: (async () =>
         new Response(
@@ -1308,16 +1440,18 @@ describe("connectors foundation", () => {
             status: 503
           }
         )) as typeof fetch,
-      providers: ["bing"],
-      siteDomain: "searchops-ai-web.vercel.app"
+      providerConfigs: {
+        bing: { apiKey: "valid_key", siteUrl: "searchops-ai-web.vercel.app" }
+      },
+      providers: ["bing"]
     });
 
     expect(result.results[0]).toMatchObject({
       provider: "bing",
       status: "failed",
       error: {
-        code: "bing_service_unavailable",
-        operatorMessage: expect.stringContaining("Bing Webmaster API")
+        code: "provider_rate_limited",
+        message: "Connector provider request could not be completed safely."
       }
     });
     expect(result.summary).toMatchObject({

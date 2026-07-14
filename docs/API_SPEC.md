@@ -38,7 +38,7 @@ The Compliance API evaluates deterministic medical advertising risk rules, persi
 
 The API exposes process-local operational metrics, can export request and worker failure metrics for operations tooling, can send exports into injected log drain and alert router adapters, can create deterministic backup restore drill, migration deployment gate, secret rotation, and dead-letter replay plans, can dispatch restore drill and secret rotation runs through configured deployment executors, can enforce Redis-backed request rate limits from validated environment settings, exposes worker dead-letter metadata for operator cleanup and queue-specific replay, and reports launch readiness for provider credentials, production hardening, and productization follow-up. These controls are runtime boundary features and do not change deterministic SEO/AEO/GEO/compliance package behavior.
 
-Tenant access is enforced at the API boundary from the authenticated user context. Local development may provide this context with mock headers (`x-mock-user-id`, `x-mock-organization-id`, `x-mock-user-role`). Deployment runtimes can either provide trusted external IdP claims with `x-searchops-idp-*` headers or configure HS256 JWT bearer verification with `SEARCHOPS_IDP_JWT_HS256_SECRET`, optional issuer, and optional audience. Organization/site routes and site-scoped resource routes use the resolved context for cross-tenant denial and write-role checks.
+Tenant access is enforced at the API boundary from the authenticated user context. Local tests may inject mock context, but production uses a verified bearer token through the configured HS256 or RS256/JWKS verifier. Organization/site routes and site-scoped resource routes use the resolved `organizationId`, principal type, and role for cross-tenant denial and write-role checks. Credential mutation and tenant readiness require a user principal; service principals cannot manage or inspect organization credential readiness.
 
 Productization readiness is exposed as a deterministic operations report. It summarizes external Auth/RBAC provisioning, tenant isolation evidence, invite policy, billing policy, production domain, legal docs, and onboarding status without calling IdP, billing, DNS, or email providers.
 
@@ -60,6 +60,15 @@ Productization readiness is exposed as a deterministic operations report. It sum
 - `POST /ops/dead-letter-jobs/:deadLetterJobId/replay-plan`
 - `POST /ops/dead-letter-jobs/:deadLetterJobId/replay`
 - `GET /auth/context`
+- `GET /organizations/:organizationId/provider-accounts`
+- `PUT /organizations/:organizationId/provider-accounts/:provider/api-key`
+- `PATCH /organizations/:organizationId/provider-accounts/:providerAccountId`
+- `PUT /organizations/:organizationId/provider-accounts/:providerAccountId/credential`
+- `DELETE /organizations/:organizationId/provider-accounts/:providerAccountId`
+- `GET /organizations/:organizationId/provider-accounts/google/oauth/start`
+- `GET /sites/:siteId/site-connectors`
+- `PUT /sites/:siteId/site-connectors/:provider`
+- `DELETE /sites/:siteId/site-connectors/:provider`
 - `GET /organizations`
 - `POST /organizations`
 - `GET /organizations/:organizationId/sites`
@@ -108,14 +117,24 @@ Productization readiness is exposed as a deterministic operations report. It sum
 
 Public APIs must use Zod schemas from `packages/types` or schemas colocated with the API boundary and exported through shared types when reused.
 
-## Auth Stub
+## Operations Readiness
 
-Phase 1 uses mock auth headers only:
+`GET /ops/readiness` requires a verified IdP user principal with an operations role. The API ignores caller-supplied organization identifiers and calls `getCredentialReadinessSnapshot` only with the authenticated user's `organizationId`.
+
+The response remains `OperationalReadinessResponse` and contains metadata-only items and counts. It never returns `ProviderAccount` encrypted fields, token metadata, API keys, customer IDs, or raw provider errors. GSC, GA4, and Bing statuses come from connected `ProviderAccount`/`SiteConnector` metadata. Missing bindings report site configuration work and do not request global Worker environment values.
+
+Platform readiness is separate: runtime DB/Redis, semantically valid encryption keyring, Google OAuth app settings, optional PageSpeed/SearchOps-funded GEO keys, IdP, and operations wiring. `unmigratedLegacyCredentials` reports migration completeness independently. `observedLegacyFallbacks` counts exact-organization `ConnectorSyncRun.summary.credentialSources` entries that used `legacy` in the documented seven-day window. A positive observed value warns in `dual` and blocks `encrypted` cutover.
+
+`GET /ops/connector-live-setup` uses the same verified user snapshot for deployed HTTP requests. It evaluates API process env only and reports Worker runtime, refresh, PageSpeed, and keyring parity as unverified rather than inferring them. The repo-local `corepack pnpm check:connector-live` command deliberately stays DB-free, keeps API and Worker env files separate, and reports tenant metadata as not queried. Both readiness response objects are deeply strict Zod contracts and reject unknown or credential-shaped fields.
+
+## Auth Context
+
+Local tests can inject these mock headers when the API resolver explicitly permits them:
 
 - `x-mock-user-id`
 - `x-mock-organization-id`
 
-If the headers are absent, the API falls back to the Phase 1 seed user context.
+Production must set `NODE_ENV=production` and configure the IdP verifier. Supabase bearer tokens keep standard `role=authenticated` and provide `organization_id` plus an application `user_role` claim. Unknown or service principal types fail closed at credential-management boundaries.
 
 ## Crawl Runs
 
@@ -145,19 +164,19 @@ The response is `202 Accepted` with:
 
 `GET /connector-sync-runs/:connectorSyncRunId` returns `ConnectorSyncRunDetailResponse` with persisted provider results.
 
-Connector sync APIs use the same mock auth context as the rest of the API. Live external API calls stay behind `packages/connectors` adapter ports and are disabled by default; fixture adapters remain the default test and local-development behavior.
+Connector sync APIs use the verified tenant context. Queue payloads contain organization/site/provider metadata only. The Worker resolves encrypted credentials per job, and live external API calls stay behind `packages/connectors` adapter ports. Fixture adapters remain the default test behavior and are never substituted for missing credentials in live mode.
 
 ## Connector OAuth
 
-`GET /sites/:siteId/connectors/google/oauth/start` starts Google OAuth for `gsc`, `ga4`, or both providers. Query parameters:
+`GET /organizations/:organizationId/provider-accounts/google/oauth/start` is the canonical user-authenticated Google OAuth start route for `gsc`, `ga4`, or both providers. `GET /sites/:siteId/connectors/google/oauth/start` remains a site-scoped compatibility redirect. Query parameters:
 
 - `providers` optional comma-separated list. Defaults to `gsc,ga4`.
 - `returnTo` optional absolute URL to redirect to after callback success.
 - `format` optional `redirect` or `json`. Defaults to `redirect`; `json` returns `StartConnectorOAuthResponse`.
 
-`GET /connectors/google/oauth/callback` receives Google's `code` and signed `state`, exchanges the code for tokens, persists provider credentials, and returns `CompleteConnectorOAuthResponse` unless `returnTo` was present.
+`GET /connectors/google/oauth/callback` receives Google's `code` and one-time signed state, consumes the state before provider calls, verifies Google user identity, and stores one canonical encrypted organization account. It creates or preserves site connector metadata only for the same account and returns a metadata-only response unless `returnTo` was present.
 
-`GET /sites/:siteId/connectors/oauth` returns `ConnectorOAuthCredentialListResponse` with token metadata only. Access and refresh tokens are never returned.
+Provider account and site connector routes return strict metadata-only contracts. Access tokens, refresh tokens, API keys, ciphertext, IV, auth tag, encryption key ID, and provider response bodies are never returned.
 
 ## AEO Readiness Reports
 

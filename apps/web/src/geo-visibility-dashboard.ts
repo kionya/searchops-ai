@@ -126,6 +126,7 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
     mentionRate: 100,
     citationRate: 100,
     competitorCitationRate: 0,
+    credentialSources: {},
     queryCount: 3,
     providerCount: 3,
     observations: createDemoGeoObservations(demoSite),
@@ -169,6 +170,7 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
     mentionRate: 67,
     citationRate: 67,
     competitorCitationRate: 33,
+    credentialSources: {},
     queryCount: 3,
     providerCount: 2,
     observations: createDemoGeoObservations(demoSite).map((observation, index) =>

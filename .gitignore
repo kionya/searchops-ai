@@ -19,3 +19,5 @@ packages/db/src/generated/
 backup_*.sql
 /*.sql
 .lazyweb/
+.superpowers/
+.searchops-smoke-backups/

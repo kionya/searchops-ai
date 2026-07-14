@@ -5,10 +5,15 @@ import {
   type ConnectorOAuthProvider,
   type ConnectorOAuthProviderList,
 } from "@searchops/types";
+import { z } from "zod";
 
 const googleAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const googleTokenEndpoint = "https://oauth2.googleapis.com/token";
+const googleUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
 const stateMaxAgeMs = 10 * 60 * 1000;
+const stateFutureSkewMs = 60 * 1000;
+const tokenExchangeErrorMessage = "Google OAuth token exchange failed.";
+const identityVerificationErrorMessage = "Google OAuth identity verification failed.";
 
 export const googleConnectorOAuthScopes = {
   ga4: "https://www.googleapis.com/auth/analytics.readonly",
@@ -37,13 +42,15 @@ export interface GoogleOAuthAuthorization {
   readonly authorizationUrl: string;
   readonly providers: ConnectorOAuthProviderList;
   readonly state: string;
+  readonly stateIdentifier: string;
   readonly stateExpiresAt: string;
 }
 
 export interface GoogleOAuthTokenResult {
   readonly accessToken: string;
   readonly expiresAt: string | null;
-  readonly externalAccountEmail: string | null;
+  readonly externalAccountEmail: string;
+  readonly externalAccountId: string;
   readonly refreshToken: string | null;
   readonly scopes: readonly string[];
   readonly tokenType: string | null;
@@ -64,14 +71,25 @@ export interface CreateGoogleConnectorOAuthClientOptions {
   readonly stateSecret: string;
 }
 
-interface GoogleTokenResponse {
-  readonly access_token?: unknown;
-  readonly expires_in?: unknown;
-  readonly id_token?: unknown;
-  readonly refresh_token?: unknown;
-  readonly scope?: unknown;
-  readonly token_type?: unknown;
-}
+const GoogleTokenResponseSchema = z
+  .object({
+    access_token: z.string().min(1),
+    expires_in: z.number().finite().nonnegative().max(365 * 24 * 60 * 60).optional(),
+    refresh_token: z.string().min(1).optional(),
+    scope: z.string().optional(),
+    token_type: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+const GoogleUserInfoSchema = z
+  .object({
+    sub: z.string().trim().min(1),
+    email: z.string().trim().email(),
+    email_verified: z.literal(true),
+  })
+  .passthrough();
+
+type GoogleTokenResponse = z.infer<typeof GoogleTokenResponseSchema>;
 
 export function createGoogleConnectorOAuthClient({
   clientId,
@@ -110,40 +128,56 @@ export function createGoogleConnectorOAuthClient({
         authorizationUrl: authorizationUrl.toString(),
         providers,
         state,
+        stateIdentifier: statePayload.nonce,
         stateExpiresAt: new Date(issuedAt.getTime() + stateMaxAgeMs).toISOString(),
       };
     },
 
     async exchangeCodeForTokens(code) {
-      const response = await fetchFn(googleTokenEndpoint, {
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          code,
-          grant_type: "authorization_code",
-          redirect_uri: redirectUri,
-        }),
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        method: "POST",
-      });
-      const tokenResponse = (await response.json()) as GoogleTokenResponse & {
-        readonly error?: unknown;
-        readonly error_description?: unknown;
-      };
-      if (!response.ok) {
-        const detail = [tokenResponse.error, tokenResponse.error_description]
-          .filter((part): part is string => typeof part === "string" && part.length > 0)
-          .join(": ");
-        throw new Error(
-          detail.length > 0
-            ? `Google OAuth token exchange failed: ${detail}`
-            : "Google OAuth token exchange failed.",
-        );
+      let tokenResult: Omit<
+        GoogleOAuthTokenResult,
+        "externalAccountEmail" | "externalAccountId"
+      >;
+      try {
+        const response = await fetchFn(googleTokenEndpoint, {
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            grant_type: "authorization_code",
+            redirect_uri: redirectUri,
+          }),
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          method: "POST",
+        });
+        if (!response.ok) {
+          throw new Error(tokenExchangeErrorMessage);
+        }
+        const tokenResponse = GoogleTokenResponseSchema.parse(await response.json());
+        tokenResult = parseGoogleTokenResponse(tokenResponse, currentTime());
+      } catch {
+        throw new Error(tokenExchangeErrorMessage);
       }
 
-      return parseGoogleTokenResponse(tokenResponse, currentTime());
+      try {
+        const response = await fetchFn(googleUserInfoEndpoint, {
+          headers: { authorization: `Bearer ${tokenResult.accessToken}` },
+          method: "GET",
+        });
+        if (!response.ok) {
+          throw new Error(identityVerificationErrorMessage);
+        }
+        const identity = GoogleUserInfoSchema.parse(await response.json());
+        return {
+          ...tokenResult,
+          externalAccountEmail: identity.email,
+          externalAccountId: identity.sub,
+        };
+      } catch {
+        throw new Error(identityVerificationErrorMessage);
+      }
     },
 
     verifyState(state) {
@@ -153,8 +187,12 @@ export function createGoogleConnectorOAuthClient({
         throw new Error("Invalid Google OAuth state timestamp.");
       }
 
-      if (currentTime().getTime() - issuedAtMs > stateMaxAgeMs) {
+      const ageMs = currentTime().getTime() - issuedAtMs;
+      if (ageMs >= stateMaxAgeMs) {
         throw new Error("Google OAuth state expired.");
+      }
+      if (ageMs < -stateFutureSkewMs) {
+        throw new Error("Google OAuth state timestamp is too far in the future.");
       }
 
       return payload;
@@ -234,16 +272,14 @@ function parseGoogleOAuthStatePayload(input: unknown): GoogleOAuthStatePayload {
 function parseGoogleTokenResponse(
   response: GoogleTokenResponse,
   receivedAt: Date,
-): GoogleOAuthTokenResult {
-  const accessToken = requireString(response.access_token, "access_token");
+): Omit<GoogleOAuthTokenResult, "externalAccountEmail" | "externalAccountId"> {
+  const accessToken = response.access_token;
   const scopes =
     typeof response.scope === "string"
       ? response.scope.split(" ").filter((scope) => scope.length > 0)
       : [];
   const expiresInSeconds =
-    typeof response.expires_in === "number" && Number.isFinite(response.expires_in)
-      ? response.expires_in
-      : null;
+    response.expires_in === undefined ? null : response.expires_in;
 
   return {
     accessToken,
@@ -251,37 +287,10 @@ function parseGoogleTokenResponse(
       expiresInSeconds === null
         ? null
         : new Date(receivedAt.getTime() + expiresInSeconds * 1000).toISOString(),
-    externalAccountEmail: parseEmailFromIdToken(response.id_token),
-    refreshToken:
-      typeof response.refresh_token === "string" && response.refresh_token.length > 0
-        ? response.refresh_token
-        : null,
+    refreshToken: response.refresh_token ?? null,
     scopes,
-    tokenType:
-      typeof response.token_type === "string" && response.token_type.length > 0
-        ? response.token_type
-        : null,
+    tokenType: response.token_type ?? null,
   };
-}
-
-function parseEmailFromIdToken(idToken: unknown) {
-  if (typeof idToken !== "string") {
-    return null;
-  }
-
-  const segments = idToken.split(".");
-  if (segments.length < 2 || segments[1] === undefined) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(segments[1], "base64url").toString("utf8")) as {
-      email?: unknown;
-    };
-    return typeof payload.email === "string" ? payload.email : null;
-  } catch {
-    return null;
-  }
 }
 
 function requireString(value: unknown, field: string) {

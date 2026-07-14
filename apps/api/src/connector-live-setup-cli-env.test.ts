@@ -33,10 +33,15 @@ describe("createConnectorLiveSetupCliEnv", () => {
     });
 
     expect(env).toMatchObject({
-      DATABASE_URL: "postgresql://local/db",
-      REDIS_URL: "redis://localhost:6379",
-      SEARCHOPS_API_BASE_URL: "http://localhost:4000",
-      SEARCHOPS_GA4_PROPERTY_ID: "987654321",
+      apiEnv: {
+        DATABASE_URL: "postgresql://local/db",
+        SEARCHOPS_API_BASE_URL: "http://localhost:4000",
+        SEARCHOPS_GA4_PROPERTY_ID: "987654321",
+      },
+      workerEnv: {
+        REDIS_URL: "redis://localhost:6379",
+        SEARCHOPS_GA4_PROPERTY_ID: "123456789",
+      },
     });
   });
 
@@ -47,7 +52,7 @@ describe("createConnectorLiveSetupCliEnv", () => {
 
     expect(
       createConnectorLiveSetupCliEnv({ baseEnv, environment: "deployment", repoRoot }),
-    ).toBe(baseEnv);
+    ).toEqual({ apiEnv: baseEnv, workerEnv: undefined });
   });
 
   it("allows local checks when optional env files are absent", () => {
@@ -59,7 +64,26 @@ describe("createConnectorLiveSetupCliEnv", () => {
         environment: "local",
         repoRoot: createTemporaryRepo(),
       }),
-    ).toMatchObject(baseEnv);
+    ).toEqual({ apiEnv: baseEnv, workerEnv: undefined });
+  });
+
+  it("loads explicitly named deployment targets without merging process values", () => {
+    const repoRoot = createTemporaryRepo();
+    writeFileSync(join(repoRoot, "api.env"), 'DATABASE_URL="postgresql://api/db"\n');
+    writeFileSync(join(repoRoot, "worker.env"), 'REDIS_URL="redis://worker:6379"\n');
+
+    expect(
+      createConnectorLiveSetupCliEnv({
+        apiEnvFile: "api.env",
+        baseEnv: { NODE_ENV: "production", REDIS_URL: "redis://process:6379" },
+        environment: "deployment",
+        repoRoot,
+        workerEnvFile: "worker.env",
+      }),
+    ).toEqual({
+      apiEnv: { DATABASE_URL: "postgresql://api/db" },
+      workerEnv: { REDIS_URL: "redis://worker:6379" },
+    });
   });
 });
 

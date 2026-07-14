@@ -51,6 +51,13 @@ import {
   type ProcessGeoAnswerMonitorJobOptions,
   type ProcessSchemaRichResultValidationJobOptions
 } from "./processor.js";
+import {
+  createDbProviderCredentialResolverStore,
+  createPlatformGeoProviderResolver,
+  createProviderCredentialResolver,
+  createRedisProviderAccountRefreshLock,
+  type RedisProviderAccountRefreshLockClient
+} from "./provider-credential-resolver.js";
 
 export interface CreateCrawlWorkerOptions {
   readonly redisUrl: string;
@@ -94,6 +101,25 @@ export interface CreateSchemaRichResultValidationWorkerOptions {
   readonly failedAt?: () => Date;
   readonly processorOptions?: ProcessSchemaRichResultValidationJobOptions;
   readonly queueName?: string;
+}
+
+export function shouldEnableGeoLiveApis(options: {
+  readonly credentialStorageMode?: ProcessGeoAnswerMonitorJobOptions["credentialStorageMode"];
+  readonly geoPlatformApiKeys?: ProcessGeoAnswerMonitorJobOptions["geoPlatformApiKeys"];
+}): boolean {
+  if (options.credentialStorageMode !== undefined) {
+    return true;
+  }
+  return (["geo_chatgpt", "geo_claude", "geo_gemini", "geo_perplexity"] as const).some(
+    (provider) => {
+      const key = options.geoPlatformApiKeys?.[provider];
+      return typeof key === "string" && key.trim().length > 0;
+    },
+  );
+}
+
+export function formatWorkerFailureLog(_error: unknown) {
+  return "SearchOps worker job failed code=worker_job_failed";
 }
 
 function createDeadLetterQueue(
@@ -249,13 +275,32 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
   const queueName = options.queueName ?? connectorQueueName;
+  const workerRef: {
+    current?: Worker<
+      ConnectorSyncJobPayload,
+      ConnectorSyncJobResult,
+      typeof connectorSyncJobName
+    >;
+  } = {};
+  const refreshLock = options.processorOptions?.refreshLock ??
+    createRedisProviderAccountRefreshLock(async () => {
+      const worker = workerRef.current;
+      if (worker === undefined) {
+        throw new Error("connector_sync_worker_not_ready");
+      }
+      return toRefreshLockClient(await worker.client);
+    });
+  const processorOptions: ProcessConnectorSyncJobOptions = {
+    ...options.processorOptions,
+    refreshLock
+  };
   const worker = new Worker<
     ConnectorSyncJobPayload,
     ConnectorSyncJobResult,
     typeof connectorSyncJobName
   >(
     queueName,
-    createConnectorSyncJobProcessor(persistenceClient, options.processorOptions),
+    createConnectorSyncJobProcessor(persistenceClient, processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {
@@ -263,6 +308,7 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
       }
     },
   );
+  workerRef.current = worker;
   const deadLetterQueue =
     options.enableDeadLetterQueue === false
       ? null
@@ -281,9 +327,52 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
   };
 }
 
+function toRefreshLockClient(
+  client: Awaited<Worker["client"]>,
+): RedisProviderAccountRefreshLockClient {
+  return {
+    eval: (script, numberOfKeys, key, token) =>
+      client.eval(script, numberOfKeys, key, token),
+    async set(key, token, px, ttlMs, nx) {
+      return (await client.set(key, token, px, ttlMs, nx)) === "OK" ? "OK" : null;
+    }
+  };
+}
+
 export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWorkerOptions) {
   const prisma = options.prisma ?? createSearchOpsPrismaClient();
   const persistenceClient = createPrismaGeoVisibilityPersistenceClient(prisma);
+  const connectorPersistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
+  const configuredResolver = options.processorOptions?.resolveGeoProviderAdapters;
+  const runtimeResolver =
+    configuredResolver === undefined &&
+    options.processorOptions?.liveExternalApis === "enabled"
+      ? options.processorOptions.credentialKeyring !== undefined
+        ? createProviderCredentialResolver({
+            fetch: options.processorOptions.fetch,
+            geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
+            geoProviderModels: options.processorOptions.geoProviderModels,
+            keyring: options.processorOptions.credentialKeyring,
+            storageMode: options.processorOptions.credentialStorageMode ?? "encrypted",
+            store: createDbProviderCredentialResolverStore(connectorPersistenceClient)
+          })
+        : createPlatformGeoProviderResolver({
+            fetch: options.processorOptions.fetch,
+            geoPlatformApiKeys: options.processorOptions.geoPlatformApiKeys,
+            geoProviderModels: options.processorOptions.geoProviderModels,
+          })
+      : undefined;
+  const processorOptions: ProcessGeoAnswerMonitorJobOptions = {
+    ...options.processorOptions,
+    ...(configuredResolver !== undefined
+      ? { resolveGeoProviderAdapters: configuredResolver }
+      : runtimeResolver === undefined
+        ? {}
+        : {
+            resolveGeoProviderAdapters:
+              runtimeResolver.resolveGeoProviderAdapters.bind(runtimeResolver)
+          })
+  };
   const queueName = options.queueName ?? geoAnswerMonitorQueueName;
   const worker = new Worker<
     GeoAnswerMonitorJobPayload,
@@ -291,7 +380,7 @@ export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWork
     typeof geoAnswerMonitorJobName
   >(
     queueName,
-    createGeoAnswerMonitorJobProcessor(persistenceClient, options.processorOptions),
+    createGeoAnswerMonitorJobProcessor(persistenceClient, processorOptions),
     {
       concurrency: options.concurrency ?? 2,
       connection: {

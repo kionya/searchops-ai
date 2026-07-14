@@ -6,7 +6,8 @@ import {
 } from "@searchops/types";
 
 import { getApiBaseUrl } from "./api-base-url";
-import { apiFetch } from "./api-client";
+import { apiFetchAsUser } from "./api-client";
+import type { ProviderUserContext } from "./provider-accounts";
 
 export type ConnectorLiveSetupSource = "api" | "fixture";
 export type ConnectorLiveSetupTone = "missing" | "ready" | "risk" | "warning";
@@ -17,32 +18,60 @@ export interface ConnectorLiveSetupData {
   readonly source: ConnectorLiveSetupSource;
 }
 
-export async function loadConnectorLiveSetupData(): Promise<ConnectorLiveSetupData> {
+export interface ProtectedConnectorLiveSetupData {
+  readonly errorMessage: string | null;
+  readonly report: ConnectorLiveSetupReport | null;
+  readonly source: "api";
+}
+
+export async function loadConnectorLiveSetupDataAsUser(
+  context: ProviderUserContext,
+): Promise<ProtectedConnectorLiveSetupData> {
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
-    return createDemoConnectorLiveSetupData();
+    return unavailableProtectedLiveSetup();
   }
 
   try {
-    const response = await apiFetch(`${apiBaseUrl}/ops/connector-live-setup`, {
-      cache: "no-store"
-    });
+    const response = await apiFetchAsUser(
+      `${apiBaseUrl}/ops/connector-live-setup`,
+      context.accessToken,
+      { cache: "no-store" },
+    );
     if (!response.ok) {
-      throw new Error(`Connector live setup request failed: ${response.status}`);
+      return unavailableProtectedLiveSetup();
     }
-
     return {
       errorMessage: null,
       report: ConnectorLiveSetupReportSchema.parse(await response.json()),
-      source: "api"
+      source: "api",
     };
-  } catch (error) {
-    return {
-      ...createDemoConnectorLiveSetupData(),
-      errorMessage:
-        error instanceof Error ? error.message : "Connector live setup request failed"
-    };
+  } catch {
+    return unavailableProtectedLiveSetup();
   }
+}
+
+function unavailableProtectedLiveSetup(): ProtectedConnectorLiveSetupData {
+  return {
+    errorMessage: "Live setup 정보를 불러오지 못했습니다.",
+    report: null,
+    source: "api",
+  };
+}
+
+export function findPageSpeedLiveSetupCheck(
+  report: ConnectorLiveSetupReport | null,
+): ConnectorLiveSetupCheck | null {
+  if (report === null) {
+    return null;
+  }
+  return report.checks.find((check) => check.id === "pagespeed-live-credential") ??
+    report.checks.find((check) => check.area === "pagespeed") ??
+    null;
+}
+
+export async function loadConnectorLiveSetupData(): Promise<ConnectorLiveSetupData> {
+  return createDemoConnectorLiveSetupData();
 }
 
 export function createDemoConnectorLiveSetupData(): ConnectorLiveSetupData {

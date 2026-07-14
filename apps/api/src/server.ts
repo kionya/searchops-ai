@@ -37,8 +37,9 @@ import {
   CmsContentUpdatedEventResponseSchema,
   ComplianceFlagListResponseSchema,
   ComplianceFlagSchema,
-  CompleteConnectorOAuthResponseSchema,
+  CompleteGoogleOAuthResponseSchema,
   ConnectorOAuthCredentialListResponseSchema,
+  ConnectorSyncEnqueueFailureResponseSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
   CreateAeoReadinessReportRequestSchema,
@@ -61,6 +62,7 @@ import {
   CreateKeywordDiscoveryRequestSchema,
   CreateKeywordDiscoveryResponseSchema,
   CreateOrganizationRequestSchema,
+  CreateApiKeyProviderAccountRequestSchema,
   CreateSchemaRecommendationWorkOrderResponseSchema,
   CreateSchemaRecommendationsRequestSchema,
   CreateSchemaRecommendationsResponseSchema,
@@ -77,6 +79,9 @@ import {
   KeywordDiscoveryListResponseSchema,
   MigrationDeploymentGatePlanSchema,
   OrganizationListResponseSchema,
+  ProviderAccountDetailResponseSchema,
+  ProviderAccountListResponseSchema,
+  ProviderAccountProviderSchema,
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
   QueueSchemaRecommendationRecheckCrawlResponseSchema,
@@ -94,12 +99,18 @@ import {
   SecretRotationPlanRequestSchema,
   SeoIssueListResponseSchema,
   SiteListResponseSchema,
+  SiteConnectorDetailResponseSchema,
+  SiteConnectorListResponseSchema,
+  SiteConnectorProviderSchema,
   SiteSchema,
   StartConnectorOAuthRequestSchema,
   StartConnectorOAuthResponseSchema,
   UpdateComplianceFlagRequestSchema,
+  UpdateProviderAccountMetadataRequestSchema,
   UpdateSiteRequestSchema,
   UpdateWorkOrderRequestSchema,
+  UpsertSiteConnectorRequestSchema,
+  ReplaceProviderCredentialRequestSchema,
   UrlRecordListResponseSchema,
   WorkOrderListResponseSchema,
   WorkOrderSchema,
@@ -110,11 +121,16 @@ import {
   type Site,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
+import type {
+  ConnectorCredentialReadinessSnapshot,
+  ProviderCredentialStore,
+} from "@searchops/db";
 
 import {
   AuthVerificationError,
   canAccessOrganization,
   canManageOperations,
+  canManageProviderCredentials,
   canWriteWithRole,
   type AuthContextResolver,
   resolveAuthenticatedUserContext,
@@ -139,6 +155,8 @@ import {
   type ApiRateLimitStore,
 } from "./rate-limit.js";
 import {
+  connectorSyncEnqueueFailureCode,
+  connectorSyncEnqueueFailureMessage,
   type CreateClosedLoopAuditEventInput,
   type SearchOpsRepository,
   createMemoryRepository,
@@ -172,10 +190,30 @@ import { DeadLetterReplayError, replayDeadLetterJob } from "./dead-letter-replay
 import { createConnectorLiveSetupReport } from "./connector-live-setup.js";
 import { createProductizationReadiness } from "./productization-readiness.js";
 import type { GoogleConnectorOAuthClient } from "./google-oauth.js";
+import {
+  createMemoryGoogleOAuthStateStore,
+  type GoogleOAuthStateStore,
+} from "./google-oauth-state-store.js";
 import { createOperationalReadiness } from "./readiness.js";
+import {
+  ProviderAccountServiceError,
+  type ProviderAccountService,
+} from "./provider-account-service.js";
 
 const IdParamsSchema = z.object({ id: z.string().min(1) });
 const OrganizationParamsSchema = z.object({ organizationId: z.string().min(1) });
+const ProviderApiKeyParamsSchema = z.object({
+  organizationId: z.string().min(1),
+  provider: ProviderAccountProviderSchema,
+});
+const ProviderAccountParamsSchema = z.object({
+  id: z.string().min(1),
+  organizationId: z.string().min(1),
+});
+const SiteConnectorParamsSchema = z.object({
+  id: z.string().min(1),
+  provider: SiteConnectorProviderSchema,
+});
 const InvitationRevokeParamsSchema = z.object({
   invitationId: z.string().min(1),
   organizationId: z.string().min(1),
@@ -189,8 +227,11 @@ const CmsWebhookParamsSchema = z.object({
 const GoogleOAuthStartQuerySchema = z.object({
   format: z.enum(["json", "redirect"]).default("redirect"),
   providers: z.string().optional(),
-  returnTo: z.string().url().optional(),
-});
+  returnTo: z.string().min(1).optional(),
+}).strict();
+const OrganizationGoogleOAuthStartQuerySchema = GoogleOAuthStartQuerySchema.extend({
+  siteId: z.string().min(1),
+}).strict();
 const GoogleOAuthCallbackQuerySchema = z.object({
   code: z.string().min(1).optional(),
   error: z.string().min(1).optional(),
@@ -203,6 +244,7 @@ export interface BuildApiServerOptions {
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
   readonly googleOAuthClient?: GoogleConnectorOAuthClient | undefined;
+  readonly googleOAuthStateStore?: GoogleOAuthStateStore | undefined;
   readonly schemaRichResultValidationQueue?: SchemaRichResultValidationQueue;
   readonly deadLetterJobStore?: DeadLetterJobStore;
   readonly cmsWebhookSecrets?: CmsWebhookSecretMap;
@@ -216,6 +258,12 @@ export interface BuildApiServerOptions {
   readonly backupRestoreDrillScheduler?: BackupRestoreDrillScheduler | undefined;
   readonly secretRotationExecutor?: SecretRotationExecutor | undefined;
   readonly inviteEmailSender?: InviteEmailSender | undefined;
+  readonly providerAccountService?: ProviderAccountService | undefined;
+  readonly providerCredentialStore?: Pick<
+    ProviderCredentialStore,
+    "getCredentialReadinessSnapshot"
+  > | undefined;
+  readonly publicAppUrl?: string | undefined;
 }
 
 export interface ApiRateLimitOptions {
@@ -232,12 +280,76 @@ function forbidden(message: string) {
   return { error: "forbidden", message };
 }
 
-function serializeErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+function requireProviderAccountService(
+  service: ProviderAccountService | undefined,
+  reply: FastifyReply,
+): ProviderAccountService | null {
+  if (service !== undefined) {
+    return service;
+  }
+
+  reply.status(503).send({
+    error: "provider_account_service_unavailable",
+    message: "Provider account service is unavailable",
+  });
+  return null;
 }
 
-function serializeErrorName(error: unknown) {
-  return error instanceof Error ? error.name : "Error";
+function requireGoogleOAuthServices(
+  googleOAuthClient: GoogleConnectorOAuthClient | undefined,
+  googleOAuthStateStore: GoogleOAuthStateStore | undefined,
+  providerAccountService: ProviderAccountService | undefined,
+  reply: FastifyReply,
+): {
+  googleOAuthClient: GoogleConnectorOAuthClient;
+  googleOAuthStateStore: GoogleOAuthStateStore;
+  providerAccountService: ProviderAccountService;
+} | null {
+  if (
+    googleOAuthClient !== undefined &&
+    googleOAuthStateStore !== undefined &&
+    providerAccountService !== undefined
+  ) {
+    return { googleOAuthClient, googleOAuthStateStore, providerAccountService };
+  }
+
+  reply.status(503).send({
+    error: "oauth_service_unavailable",
+    message: "Google OAuth service is unavailable",
+  });
+  return null;
+}
+
+function providerAccountServiceErrorResponse(code: ProviderAccountServiceError["code"]): {
+  readonly message: string;
+  readonly statusCode: 400 | 404 | 409 | 500;
+} {
+  switch (code) {
+    case "account_not_found":
+      return { message: "Provider account not found", statusCode: 404 };
+    case "account_in_use":
+      return { message: "Provider account is in use", statusCode: 409 };
+    case "credential_decryption_failed":
+      return { message: "Stored provider credential could not be read", statusCode: 500 };
+    case "provider_account_default_conflict":
+      return { message: "Provider account default conflicts with an existing account", statusCode: 409 };
+    case "provider_account_identity_conflict":
+      return { message: "Provider account identity conflicts with an existing account", statusCode: 409 };
+    case "provider_account_concurrent_update":
+      return { message: "Provider account was updated concurrently", statusCode: 409 };
+    case "scope_missing":
+      return { message: "Required provider scope is missing", statusCode: 409 };
+    case "site_not_in_organization":
+      return { message: "Site not found", statusCode: 404 };
+    case "provider_account_identity_mismatch":
+      return { message: "Provider account identity does not match", statusCode: 400 };
+    case "provider_account_not_in_organization":
+      return { message: "Provider account does not belong to the organization", statusCode: 400 };
+    case "provider_account_provider_mismatch":
+      return { message: "Provider account is incompatible with the connector", statusCode: 400 };
+    case "validation_error":
+      return { message: "Provider account request is invalid", statusCode: 400 };
+  }
 }
 
 function getRateLimitKey(request: FastifyRequest) {
@@ -273,6 +385,38 @@ function parseOAuthProviders(value: string | undefined) {
   }).providers;
 }
 
+function validateOAuthReturnTo(
+  returnTo: string | undefined | null,
+  publicAppUrl: string | undefined,
+): string | null {
+  if (returnTo === undefined || returnTo === null) {
+    return null;
+  }
+
+  try {
+    if (publicAppUrl === undefined || publicAppUrl.trim().length === 0) {
+      throw new Error("missing_public_app_url");
+    }
+    const appUrl = new URL(publicAppUrl);
+    const target = new URL(returnTo);
+    for (const url of [appUrl, target]) {
+      if (
+        (url.protocol !== "http:" && url.protocol !== "https:") ||
+        url.username.length > 0 ||
+        url.password.length > 0
+      ) {
+        throw new Error("unsafe_return_url");
+      }
+    }
+    if (target.origin !== appUrl.origin) {
+      throw new Error("foreign_return_url");
+    }
+    return target.toString();
+  } catch {
+    throw new Error("invalid_oauth_return_url");
+  }
+}
+
 export function buildApiServer(options: BuildApiServerOptions = {}) {
   const repository = options.repository ?? createMemoryRepository();
   const crawlRunQueue = options.crawlRunQueue ?? createMemoryCrawlRunQueue();
@@ -289,6 +433,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     options.requireCmsWebhookSignature ??
     (Object.keys(cmsWebhookSecrets).length > 0 || process.env.NODE_ENV === "production");
   const currentTime = options.currentTime ?? (() => new Date());
+  const googleOAuthStateStore = Object.prototype.hasOwnProperty.call(
+    options,
+    "googleOAuthStateStore",
+  )
+    ? options.googleOAuthStateStore
+    : createMemoryGoogleOAuthStateStore({ currentTime });
   const rateLimit = options.rateLimit ?? {
     enabled: false,
     maxRequests: 120,
@@ -304,6 +454,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const secretRotationExecutor =
     options.secretRotationExecutor ?? createNoopSecretRotationExecutor();
   const inviteEmailSender = options.inviteEmailSender ?? createInviteEmailSender(process.env);
+  const providerAccountService = options.providerAccountService;
+  const providerCredentialStore = options.providerCredentialStore;
+  const publicAppUrl = options.publicAppUrl ?? process.env.SEARCHOPS_PUBLIC_APP_URL;
   const metricsStartedAtMs = currentTime().getTime();
   const requestMetrics = {
     byStatus: new Map<number, number>(),
@@ -355,6 +508,29 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     return true;
   }
 
+  function ensureProviderManagementAccess({
+    organizationId,
+    reply,
+    request,
+  }: {
+    readonly organizationId: string;
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+  }) {
+    const userContext = resolveRequestUserContext(request);
+    if (!canAccessOrganization(userContext, organizationId)) {
+      sendForbidden(reply, "User cannot access this organization");
+      return false;
+    }
+
+    if (isWriteRequest(request) && !canManageProviderCredentials(userContext)) {
+      sendForbidden(reply, "User role cannot manage provider credentials");
+      return false;
+    }
+
+    return true;
+  }
+
   async function ensureSiteAccess({
     reply,
     request,
@@ -376,6 +552,27 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     });
   }
 
+  async function ensureSiteProviderManagementAccess({
+    reply,
+    request,
+    siteId,
+  }: {
+    readonly reply: FastifyReply;
+    readonly request: FastifyRequest;
+    readonly siteId: string;
+  }) {
+    const site = await repository.getSite(siteId);
+    if (!site) {
+      return true;
+    }
+
+    return ensureProviderManagementAccess({
+      organizationId: site.organizationId,
+      reply,
+      request,
+    });
+  }
+
   async function ensureSiteScopedResourceAccess({
     getSiteId,
     reply,
@@ -391,6 +588,36 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     return ensureSiteAccess({ reply, request, siteId });
+  }
+
+  async function loadVerifiedUserCredentialReadiness(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<ConnectorCredentialReadinessSnapshot | null> {
+    const userContext = resolveRequestUserContext(request);
+    if (userContext.source !== "idp" || userContext.principalType !== "user") {
+      sendForbidden(reply, "Verified user authentication is required for credential readiness");
+      return null;
+    }
+    if (providerCredentialStore === undefined) {
+      reply.status(503).send({
+        error: "credential_readiness_unavailable",
+        message: "Credential readiness storage is unavailable",
+      });
+      return null;
+    }
+
+    try {
+      return await providerCredentialStore.getCredentialReadinessSnapshot(
+        userContext.organizationId,
+      );
+    } catch {
+      reply.status(503).send({
+        error: "credential_readiness_unavailable",
+        message: "Credential readiness storage is unavailable",
+      });
+      return null;
+    }
   }
 
   async function authorizeTenantAccess(request: FastifyRequest, reply: FastifyReply) {
@@ -424,6 +651,11 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return ensureOrganizationAccess({ organizationId, reply, request });
     }
 
+    if (routeUrl.startsWith("/organizations/:organizationId/provider-accounts")) {
+      const { organizationId } = OrganizationParamsSchema.parse(request.params);
+      return ensureProviderManagementAccess({ organizationId, reply, request });
+    }
+
     if (routeUrl.startsWith("/organizations/:organizationId/invites")) {
       const { organizationId } = OrganizationParamsSchema.parse(request.params);
       return ensureOrganizationAccess({ organizationId, reply, request });
@@ -431,6 +663,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     if (routeUrl.startsWith("/sites/:id")) {
       const { id } = IdParamsSchema.parse(request.params);
+      if (
+        routeUrl === "/sites/:id/connectors" ||
+        routeUrl === "/sites/:id/connectors/:provider"
+      ) {
+        return ensureSiteProviderManagementAccess({ reply, request, siteId: id });
+      }
       return ensureSiteAccess({ reply, request, siteId: id });
     }
 
@@ -786,6 +1024,12 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    if (error instanceof ProviderAccountServiceError) {
+      const response = providerAccountServiceErrorResponse(error.code);
+      reply.status(response.statusCode).send({ error: error.code, message: response.message });
+      return;
+    }
+
     if (error instanceof DeadLetterReplayError) {
       reply.status(400).send({
         error: "validation_error",
@@ -832,12 +1076,18 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     return exportPayload;
   });
 
-  server.get("/ops/readiness", async () =>
-    createOperationalReadiness({
+  server.get("/ops/readiness", async (request, reply) => {
+    const connectorCredentials = await loadVerifiedUserCredentialReadiness(request, reply);
+    if (connectorCredentials === null) {
+      return reply;
+    }
+
+    return createOperationalReadiness({
+      connectorCredentials,
       env: process.env,
       generatedAt: currentTime(),
-    }),
-  );
+    });
+  });
 
   server.get("/ops/productization", async () =>
     createProductizationReadiness({
@@ -846,13 +1096,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }),
   );
 
-  server.get("/ops/connector-live-setup", async () =>
-    createConnectorLiveSetupReport({
-      env: process.env,
+  server.get("/ops/connector-live-setup", async (request, reply) => {
+    const connectorCredentials = await loadVerifiedUserCredentialReadiness(request, reply);
+    if (connectorCredentials === null) {
+      return reply;
+    }
+
+    return createConnectorLiveSetupReport({
+      apiEnv: process.env,
+      connectorCredentials,
       environment: process.env.NODE_ENV === "production" ? "deployment" : "local",
       generatedAt: currentTime(),
-    }),
-  );
+    });
+  });
 
   server.get("/ops/dead-letter-jobs", async (request) => {
     const query = z
@@ -1022,6 +1278,161 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.status(201).send(SiteSchema.parse(site));
+  });
+
+  server.get("/organizations/:organizationId/provider-accounts", async (request, reply) => {
+    const { organizationId } = OrganizationParamsSchema.parse(request.params);
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+
+    reply.send(
+      ProviderAccountListResponseSchema.parse({
+        providerAccounts: await service.listAccounts({ organizationId }),
+      }),
+    );
+  });
+
+  server.post(
+    "/organizations/:organizationId/provider-accounts/:provider/api-key",
+    async (request, reply) => {
+      const { organizationId, provider } = ProviderApiKeyParamsSchema.parse(request.params);
+      const input = CreateApiKeyProviderAccountRequestSchema.parse(request.body);
+      if (input.provider !== provider) {
+        reply.status(400).send({
+          error: "validation_error",
+          message: "Request provider must match the route provider",
+        });
+        return;
+      }
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const userContext = resolveRequestUserContext(request);
+      const providerAccount = await service.createApiKeyAccount({
+        actorUserId: userContext.userId,
+        accountEmail: input.accountEmail ?? null,
+        apiKey: input.apiKey,
+        displayName: input.displayName,
+        externalAccountId: input.externalAccountId ?? null,
+        isDefault: input.isDefault ?? false,
+        organizationId,
+        provider: input.provider,
+      });
+      reply.status(201).send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.patch(
+    "/organizations/:organizationId/provider-accounts/:id",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const update = UpdateProviderAccountMetadataRequestSchema.parse(request.body);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const providerAccount = await service.updateAccountMetadata({
+        organizationId,
+        providerAccountId: id,
+        update,
+      });
+      reply.send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.put(
+    "/organizations/:organizationId/provider-accounts/:id/credential",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const input = ReplaceProviderCredentialRequestSchema.parse(request.body);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      const providerAccount = await service.replaceApiKeyCredential({
+        ...input,
+        organizationId,
+        providerAccountId: id,
+      });
+      reply.send(ProviderAccountDetailResponseSchema.parse({ providerAccount }));
+    },
+  );
+
+  server.delete(
+    "/organizations/:organizationId/provider-accounts/:id",
+    async (request, reply) => {
+      const { id, organizationId } = ProviderAccountParamsSchema.parse(request.params);
+      const service = requireProviderAccountService(providerAccountService, reply);
+      if (service === null) {
+        return;
+      }
+      await service.deleteAccount({ organizationId, providerAccountId: id });
+      reply.status(204).send();
+    },
+  );
+
+  server.get("/sites/:id/connectors", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    reply.send(
+      SiteConnectorListResponseSchema.parse({
+        siteConnectors: await service.listSiteConnectors({
+          organizationId: site.organizationId,
+          siteId: site.id,
+        }),
+      }),
+    );
+  });
+
+  server.put("/sites/:id/connectors/:provider", async (request, reply) => {
+    const { id, provider } = SiteConnectorParamsSchema.parse(request.params);
+    const input = UpsertSiteConnectorRequestSchema.parse(request.body);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    const siteConnector = await service.upsertSiteConnector({
+      ...input,
+      organizationId: site.organizationId,
+      provider,
+      siteId: site.id,
+    });
+    reply.send(SiteConnectorDetailResponseSchema.parse({ siteConnector }));
+  });
+
+  server.delete("/sites/:id/connectors/:provider", async (request, reply) => {
+    const { id, provider } = SiteConnectorParamsSchema.parse(request.params);
+    const site = await repository.getSite(id);
+    if (!site) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const service = requireProviderAccountService(providerAccountService, reply);
+    if (service === null) {
+      return;
+    }
+    await service.deleteSiteConnector({
+      organizationId: site.organizationId,
+      provider,
+      siteId: site.id,
+    });
+    reply.status(204).send();
   });
 
   server.get("/organizations/:organizationId/invites", async (request, reply) => {
@@ -1524,10 +1935,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    if (!isDomainAllowedForSite(input.target.domain, site.domain)) {
+    if (input.target.domain !== site.domain) {
       reply.status(400).send({
         error: "validation_error",
-        message: "GEO monitor target domain must be the site domain or one of its subdomains",
+        message: "GEO monitor target domain must match the site domain",
       });
       return;
     }
@@ -1790,18 +2201,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
         fetchedAt: new Date().toISOString(),
         providers: input.providers,
       });
-    } catch (error) {
-      const message = serializeErrorMessage(error);
-      const failedRun = await repository.markConnectorSyncRunFailed(connectorSyncRun.id, {
-        message,
-        name: serializeErrorName(error)
-      });
-      request.log.error({ error, connectorSyncRunId: connectorSyncRun.id }, "Connector sync enqueue failed");
-      reply.status(502).send({
-        error: "queue_enqueue_failed",
-        message: `Connector sync queue enqueue failed: ${message}`,
-        connectorSyncRun: failedRun ?? connectorSyncRun
-      });
+    } catch {
+      const failedRun = await repository.markConnectorSyncRunFailed(connectorSyncRun.id);
+      console.error(
+        `[api] connector sync enqueue failed code=${connectorSyncEnqueueFailureCode} run=${connectorSyncRun.id}`,
+      );
+      reply.status(502).send(
+        ConnectorSyncEnqueueFailureResponseSchema.parse({
+          version: 1,
+          error: connectorSyncEnqueueFailureCode,
+          message: connectorSyncEnqueueFailureMessage,
+          connectorSyncRun: failedRun ?? connectorSyncRun,
+        }),
+      );
       return;
     }
 
@@ -1841,63 +2253,135 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(ConnectorOAuthCredentialListResponseSchema.parse({ credentials }));
   });
 
+  server.get(
+    "/organizations/:organizationId/provider-accounts/google/oauth/start",
+    async (request, reply) => {
+      const { organizationId } = OrganizationParamsSchema.parse(request.params);
+      const userContext = resolveRequestUserContext(request);
+      if (!canManageProviderCredentials(userContext)) {
+        sendForbidden(reply, "User role cannot manage provider credentials");
+        return;
+      }
+
+      const query = OrganizationGoogleOAuthStartQuerySchema.parse(request.query);
+      const site = await repository.getSite(query.siteId);
+      if (!site || site.organizationId !== organizationId) {
+        reply.status(404).send(notFound("Site not found"));
+        return;
+      }
+
+      let returnTo: string | null;
+      try {
+        returnTo = validateOAuthReturnTo(query.returnTo, publicAppUrl);
+      } catch {
+        reply.status(400).send({
+          error: "validation_error",
+          message: "OAuth return URL is invalid",
+        });
+        return;
+      }
+
+      const services = requireGoogleOAuthServices(
+        googleOAuthClient,
+        googleOAuthStateStore,
+        providerAccountService,
+        reply,
+      );
+      if (services === null) {
+        return;
+      }
+
+      const authorization = services.googleOAuthClient.createAuthorizationUrl({
+        organizationId,
+        providers: parseOAuthProviders(query.providers),
+        requestedByUserId: userContext.userId,
+        ...(returnTo === null ? {} : { returnTo }),
+        siteId: site.id,
+      });
+      let issued = false;
+      try {
+        issued = await services.googleOAuthStateStore.issue({
+          expiresAt: authorization.stateExpiresAt,
+          identifier: authorization.stateIdentifier,
+        });
+      } catch {
+        issued = false;
+      }
+      if (!issued) {
+        reply.status(503).send({
+          error: "oauth_state_store_unavailable",
+          message: "Google OAuth state could not be registered",
+        });
+        return;
+      }
+
+      if (query.format === "json") {
+        reply.send(
+          StartConnectorOAuthResponseSchema.parse({
+            authorizationUrl: authorization.authorizationUrl,
+            providers: authorization.providers,
+            stateExpiresAt: authorization.stateExpiresAt,
+          }),
+        );
+        return;
+      }
+
+      reply.redirect(authorization.authorizationUrl);
+    },
+  );
+
   server.get("/sites/:id/connectors/google/oauth/start", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
+    const query = GoogleOAuthStartQuerySchema.parse(request.query);
     const site = await repository.getSite(id);
     if (!site) {
       reply.status(404).send(notFound("Site not found"));
       return;
     }
 
-    if (googleOAuthClient === undefined) {
-      reply.status(503).send({
-        error: "not_configured",
-        message: "Google OAuth client is not configured",
+    let returnTo: string | null;
+    try {
+      returnTo = validateOAuthReturnTo(query.returnTo, publicAppUrl);
+    } catch {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth return URL is invalid",
       });
       return;
     }
 
-    const query = GoogleOAuthStartQuerySchema.parse(request.query);
-    const userContext = resolveRequestUserContext(request);
-    const authorization = googleOAuthClient.createAuthorizationUrl({
-      organizationId: site.organizationId,
-      providers: parseOAuthProviders(query.providers),
-      requestedByUserId: userContext.userId,
-      returnTo: query.returnTo,
+    const redirectQuery = new URLSearchParams({
+      format: query.format,
+      providers: parseOAuthProviders(query.providers).join(","),
       siteId: site.id,
     });
-
-    if (query.format === "json") {
-      reply.send(
-        StartConnectorOAuthResponseSchema.parse({
-          authorizationUrl: authorization.authorizationUrl,
-          providers: authorization.providers,
-          stateExpiresAt: authorization.stateExpiresAt,
-        }),
-      );
-      return;
+    if (returnTo !== null) {
+      redirectQuery.set("returnTo", returnTo);
     }
-
-    reply.redirect(authorization.authorizationUrl);
+    reply.redirect(
+      `/organizations/${encodeURIComponent(site.organizationId)}/provider-accounts/google/oauth/start?${redirectQuery.toString()}`,
+    );
   });
 
   server.get("/connectors/google/oauth/callback", async (request, reply) => {
-    if (googleOAuthClient === undefined) {
-      reply.status(503).send({
-        error: "not_configured",
-        message: "Google OAuth client is not configured",
-      });
+    const services = requireGoogleOAuthServices(
+      googleOAuthClient,
+      googleOAuthStateStore,
+      providerAccountService,
+      reply,
+    );
+    if (services === null) {
       return;
     }
 
     const query = GoogleOAuthCallbackQuerySchema.parse(request.query);
     let state;
     try {
-      state = googleOAuthClient.verifyState(query.state);
-    } catch (error) {
+      state = services.googleOAuthClient.verifyState(query.state);
+    } catch {
       reply.status(400).send({
         error: "validation_error",
-        message: error instanceof Error ? error.message : "Invalid OAuth state",
+        message: "Google OAuth state is invalid or expired",
       });
       return;
     }
@@ -1907,10 +2391,46 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
+    try {
+      validateOAuthReturnTo(state.returnTo, publicAppUrl);
+    } catch {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth return URL is invalid",
+      });
+      return;
+    }
+
+    if (query.error === undefined && query.code === undefined) {
+      reply.status(400).send({
+        error: "validation_error",
+        message: "OAuth code or provider error is required",
+      });
+      return;
+    }
+
+    let consumed: boolean;
+    try {
+      consumed = await services.googleOAuthStateStore.consume(state.nonce);
+    } catch {
+      reply.status(503).send({
+        error: "oauth_state_store_unavailable",
+        message: "Google OAuth state could not be consumed",
+      });
+      return;
+    }
+    if (!consumed) {
+      reply.status(400).send({
+        error: "oauth_state_replayed",
+        message: "Google OAuth state is invalid or already used",
+      });
+      return;
+    }
+
     if (query.error !== undefined) {
       reply.status(400).send({
         error: "oauth_error",
-        message: query.error,
+        message: "Google OAuth authorization was not completed",
       });
       return;
     }
@@ -1925,41 +2445,105 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     let tokenResult;
     try {
-      tokenResult = await googleOAuthClient.exchangeCodeForTokens(query.code);
-    } catch (error) {
+      tokenResult = await services.googleOAuthClient.exchangeCodeForTokens(query.code);
+    } catch {
       reply.status(502).send({
-        error: "oauth_token_exchange_failed",
-        message: error instanceof Error ? error.message : "Google OAuth token exchange failed",
+        error: "oauth_exchange_failed",
+        message: "Google OAuth authorization could not be completed",
       });
       return;
     }
-    const connectedAt = currentTime().toISOString();
-    const credentials = await repository.upsertConnectorOAuthCredentials(
-      state.siteId,
-      state.providers.map((provider) => ({
-        accessToken: tokenResult.accessToken,
-        connectedAt,
-        connectedByUserId: state.requestedByUserId,
-        externalAccountEmail: tokenResult.externalAccountEmail,
-        provider,
-        refreshToken: tokenResult.refreshToken,
-        scopes: tokenResult.scopes,
-        tokenExpiresAt: tokenResult.expiresAt,
-        tokenType: tokenResult.tokenType,
-      })),
-    );
-    if (!credentials) {
-      reply.status(404).send(notFound("OAuth site not found"));
+
+    let existingConnectors: Awaited<
+      ReturnType<ProviderAccountService["listSiteConnectors"]>
+    >;
+    try {
+      existingConnectors = await services.providerAccountService.listSiteConnectors({
+        organizationId: state.organizationId,
+        siteId: state.siteId,
+      });
+    } catch {
+      reply.status(502).send({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
+      });
       return;
     }
 
-    const response = CompleteConnectorOAuthResponseSchema.parse({
-      credentials,
+    const account = await services.providerAccountService.upsertGoogleAccount({
+      accessToken: tokenResult.accessToken,
+      actorUserId: state.requestedByUserId,
+      displayName: tokenResult.externalAccountEmail,
+      organizationId: state.organizationId,
+      refreshToken: tokenResult.refreshToken,
+      scopes: [...tokenResult.scopes],
+      selectedProviders: state.providers,
+      status: "connected",
+      tokenExpiresAt: tokenResult.expiresAt,
+      tokenType: tokenResult.tokenType,
+      verifiedAccountEmail: tokenResult.externalAccountEmail,
+      verifiedExternalAccountId: tokenResult.externalAccountId,
+    });
+    const siteConnectors = [];
+    try {
+      for (const provider of state.providers) {
+        const existingConnector = existingConnectors.find(
+          (connector) =>
+            connector.organizationId === state.organizationId &&
+            connector.siteId === state.siteId &&
+            connector.provider === provider,
+        );
+        const preserveExisting = existingConnector?.providerAccountId === account.id;
+        siteConnectors.push(
+          await services.providerAccountService.upsertSiteConnector(
+            preserveExisting
+              ? {
+                  config: existingConnector.config,
+                  externalResourceId: existingConnector.externalResourceId,
+                  lastCheckedAt: existingConnector.lastCheckedAt,
+                  lastErrorCode: existingConnector.lastErrorCode,
+                  organizationId: state.organizationId,
+                  provider,
+                  providerAccountId: account.id,
+                  siteId: state.siteId,
+                  status: existingConnector.status,
+                }
+              : {
+                  externalResourceId: null,
+                  organizationId: state.organizationId,
+                  provider,
+                  providerAccountId: account.id,
+                  siteId: state.siteId,
+                },
+          ),
+        );
+      }
+    } catch {
+      reply.status(502).send({
+        error: "oauth_binding_failed",
+        message: "Google OAuth connector binding could not be completed",
+      });
+      return;
+    }
+
+    const response = CompleteGoogleOAuthResponseSchema.parse({
+      account,
+      siteConnectors,
       status: "connected",
     });
 
     if (state.returnTo !== null) {
-      const returnTo = new URL(state.returnTo);
+      let safeReturnTo: string;
+      try {
+        safeReturnTo = validateOAuthReturnTo(state.returnTo, publicAppUrl)!;
+      } catch {
+        reply.status(400).send({
+          error: "validation_error",
+          message: "OAuth return URL is invalid",
+        });
+        return;
+      }
+      const returnTo = new URL(safeReturnTo);
       returnTo.searchParams.set("connectorOAuth", "connected");
       returnTo.searchParams.set("providers", state.providers.join(","));
       reply.redirect(returnTo.toString());

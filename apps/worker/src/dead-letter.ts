@@ -14,16 +14,8 @@ export interface BuildDeadLetterJobPayloadInput {
   readonly failedAt: Date;
 }
 
-function getFailedReason(error: unknown) {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error;
-  }
-
-  return "Unknown worker failure";
+function getFailedReason(_error: unknown) {
+  return "worker_job_failed";
 }
 
 export function buildDeadLetterJobPayload(

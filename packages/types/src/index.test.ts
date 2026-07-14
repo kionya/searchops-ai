@@ -16,12 +16,15 @@ import {
   ClosedLoopAuditEventStatusSchema,
   ClosedLoopAuditEventTypeSchema,
   CompleteConnectorOAuthResponseSchema,
+  ConnectorBatchSyncSummarySchema,
   ConnectorOAuthCredentialListResponseSchema,
   ConnectorOAuthCredentialSchema,
   ConnectorOAuthProviderListSchema,
   ConnectorProviderListSchema,
   ConnectorLiveSetupReportSchema,
   ConnectorSyncJobResultSchema,
+  ConnectorSyncEnqueueFailureResponseSchema,
+  ConnectorSyncRunSummarySchema,
   ContentBriefDraftSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
@@ -73,6 +76,7 @@ import {
   GeoAnswerMonitorProviderSchema,
   GeoAnswerMonitorRequestSchema,
   GeoAnswerMonitorResultSchema,
+  GeoCredentialSourcesSchema,
   JsonLdRecommendationSchema,
   JsonLdRecommendationSetSchema,
   KeywordAeoInputSchema,
@@ -85,6 +89,7 @@ import {
   KeywordSchema,
   KeywordTargetSchema,
   LinkSignalSchema,
+  AuthPrincipalTypeSchema,
   IdpClaimMappingInputSchema,
   MockUserContextSchema,
   NormalizedUrlSchema,
@@ -419,6 +424,7 @@ describe("types foundation", () => {
       MockUserContextSchema.parse({ userId: "usr_1", organizationId: "org_1", source: "mock" }),
     ).toEqual({
       email: null,
+      principalType: "user",
       provider: null,
       userId: "usr_1",
       organizationId: "org_1",
@@ -442,7 +448,21 @@ describe("types foundation", () => {
       organizationId: "org_1",
       role: "editor",
       email: "editor@example.com",
+      principalType: "user",
     });
+  });
+
+  it("validates explicit service principals", () => {
+    expect(AuthPrincipalTypeSchema.parse("service")).toBe("service");
+    expect(
+      IdpClaimMappingInputSchema.parse({
+        organizationId: "org_1",
+        principalType: "service",
+        provider: "searchops",
+        role: "owner",
+        subject: "service_1",
+      }).principalType,
+    ).toBe("service");
   });
 
   it("fails env validation with clear field names", () => {
@@ -518,6 +538,45 @@ describe("types foundation", () => {
     });
   });
 
+  it("rejects unknown and credential-shaped operational readiness fields deeply", () => {
+    const valid = {
+      generatedAt: "2026-05-26T00:00:00.000Z",
+      items: [
+        {
+          category: "connectors",
+          envKeys: [],
+          id: "live-gsc",
+          nextAction: "Connect GSC.",
+          status: "configured",
+          summary: "GSC is configured.",
+          title: "GSC",
+        },
+      ],
+      summary: {
+        blocked: 0,
+        configured: 1,
+        manualFollowup: 0,
+        needsProvisioning: 0,
+        ready: 0,
+        total: 1,
+      },
+    };
+
+    expect(() => OperationalReadinessResponseSchema.parse({ ...valid, unknown: true })).toThrow();
+    expect(() =>
+      OperationalReadinessResponseSchema.parse({
+        ...valid,
+        items: [{ ...valid.items[0], credentialCiphertext: "must-reject" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      OperationalReadinessResponseSchema.parse({
+        ...valid,
+        summary: { ...valid.summary, credentialAuthTag: "must-reject" },
+      }),
+    ).toThrow();
+  });
+
   it("validates connector live setup reports", () => {
     expect(
       ConnectorLiveSetupReportSchema.parse({
@@ -563,6 +622,49 @@ describe("types foundation", () => {
         total: 2,
       },
     });
+  });
+
+  it("rejects unknown and credential-shaped connector live setup fields deeply", () => {
+    const valid = {
+      generatedAt: "2026-06-07T00:00:00.000Z",
+      environment: "deployment",
+      liveExternalApis: "disabled",
+      canRunFixtureMode: true,
+      canRunLiveConnectorSync: false,
+      checks: [
+        {
+          area: "runtime",
+          envKeys: [],
+          id: "worker-live-mode-gate",
+          nextAction: "Verify Worker.",
+          status: "warning",
+          summary: "Worker is unverified.",
+          title: "Worker runtime",
+        },
+      ],
+      summary: {
+        blocked: 0,
+        configured: 0,
+        needsProvisioning: 0,
+        ready: 0,
+        total: 1,
+        warnings: 1,
+      },
+    };
+
+    expect(() => ConnectorLiveSetupReportSchema.parse({ ...valid, unknown: true })).toThrow();
+    expect(() =>
+      ConnectorLiveSetupReportSchema.parse({
+        ...valid,
+        checks: [{ ...valid.checks[0], credentialIv: "must-reject" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      ConnectorLiveSetupReportSchema.parse({
+        ...valid,
+        summary: { ...valid.summary, credentialAuthTag: "must-reject" },
+      }),
+    ).toThrow();
   });
 
   it("validates normalized crawler URLs", () => {
@@ -1642,6 +1744,13 @@ describe("types foundation", () => {
       "copilot",
       "claude",
     ]);
+    expect(
+      GeoCredentialSourcesSchema.parse({ chatgpt: "encrypted", claude: "platform" }),
+    ).toEqual({ chatgpt: "encrypted", claude: "platform" });
+    expect(() => GeoCredentialSourcesSchema.parse({ chatgpt: "legacy" })).toThrow();
+    expect(() =>
+      GeoCredentialSourcesSchema.parse({ chatgpt: "encrypted", apiKey: "tenant-secret" }),
+    ).toThrow();
     const monitorRequest = GeoAnswerMonitorRequestSchema.parse({
       target: {
         siteId: "site_1",
@@ -1658,6 +1767,7 @@ describe("types foundation", () => {
     expect(
       GeoAnswerMonitorResultSchema.parse({
         provider: "chatgpt",
+        status: "ok",
         observations: [
           {
             provider: "chatgpt",
@@ -1676,10 +1786,12 @@ describe("types foundation", () => {
       generatedBy: "fixture",
       liveExternalApis: "disabled",
       provider: "chatgpt",
+      status: "ok",
     });
     expect(
       GeoAnswerMonitorResultSchema.parse({
         provider: "perplexity",
+        status: "ok",
         observations: [
           {
             provider: "perplexity",
@@ -1698,7 +1810,138 @@ describe("types foundation", () => {
       generatedBy: "connector",
       liveExternalApis: "enabled",
       provider: "perplexity",
+      status: "ok",
     });
+
+    expect(
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "claude",
+        status: "setup_required",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "account_missing",
+          message: "GEO provider credential is not configured.",
+        },
+      }),
+    ).toEqual({
+      provider: "claude",
+      status: "setup_required",
+      observations: [],
+      generatedBy: "connector",
+      liveExternalApis: "enabled",
+      error: {
+        code: "account_missing",
+        message: "GEO provider credential is not configured.",
+      },
+    });
+
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "claude",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "connector",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "connector",
+          },
+        ],
+        generatedBy: "fixture",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            source: "fixture",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "must stay empty",
+            observedAt: "2026-05-24T00:00:00.000Z",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+        error: {
+          code: "provider_request_failed",
+          message: "upstream body api_key=tenant-secret",
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "ok",
+        observations: [
+          {
+            provider: "chatgpt",
+            query: "best seo clinic",
+            observedAt: "2026-05-24T00:00:00.000Z",
+            leaked: "tenant-secret",
+          },
+        ],
+        generatedBy: "connector",
+        liveExternalApis: "enabled",
+      }),
+    ).toThrow();
     const request = CreateGeoVisibilityReportRequestSchema.parse({
       target: {
         siteId: "site_1",
@@ -1763,6 +2006,7 @@ describe("types foundation", () => {
       competitorCitationRate: visibilityReport.competitorCitationRate,
       queryCount: visibilityReport.queryCount,
       providerCount: visibilityReport.providerCount,
+      credentialSources: { chatgpt: "encrypted" },
       observations: visibilityReport.observations,
       citations: visibilityReport.citations,
       checks: visibilityReport.checks,
@@ -1770,6 +2014,13 @@ describe("types foundation", () => {
       evaluatedAt: visibilityReport.evaluatedAt,
       createdAt: "2026-05-24T00:00:00.000Z",
     });
+    expect(record.credentialSources).toEqual({ chatgpt: "encrypted" });
+    expect(() =>
+      GeoVisibilityReportRecordSchema.parse({
+        ...record,
+        credentialSources: { chatgpt: "plaintext" },
+      }),
+    ).toThrow();
 
     expect(
       CreateGeoVisibilityReportResponseSchema.parse({
@@ -1834,6 +2085,19 @@ describe("types foundation", () => {
         generatedBy: "llm",
       }),
     ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorResultSchema.parse({
+        provider: "chatgpt",
+        status: "failed",
+        observations: [],
+        generatedBy: "fixture",
+        liveExternalApis: "disabled",
+        error: {
+          code: "provider_request_failed",
+          message: "GEO provider request could not be completed safely.",
+        },
+      }),
+    ).toThrow();
   });
 
   it("validates GEO answer monitor runtime job contracts", () => {
@@ -1856,6 +2120,7 @@ describe("types foundation", () => {
     });
     const monitorResult = GeoAnswerMonitorResultSchema.parse({
       provider: "chatgpt",
+      status: "ok",
       observations: [
         {
           provider: "chatgpt",
@@ -1904,17 +2169,51 @@ describe("types foundation", () => {
 
     expect(payload.providers).toEqual(["chatgpt", "perplexity"]);
     expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        target: { ...payload.target, siteId: "site_foreign" },
+      }).success,
+    ).toBe(false);
+    expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        target: { ...payload.target, domain: "foreign.example" },
+      }).success,
+    ).toBe(false);
+    expect(
+      GeoAnswerMonitorJobPayloadSchema.safeParse({
+        ...payload,
+        unexpected: "tenant-secret",
+      }).success,
+    ).toBe(false);
+    const jobResult = GeoAnswerMonitorJobResultSchema.parse({
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      observedAt: "2026-05-26T00:00:00.000Z",
+      providers: ["chatgpt"],
+      credentialSources: { chatgpt: "encrypted" },
+      monitorResults: [monitorResult],
+      visibilityReport,
+    });
+    expect(jobResult.credentialSources).toEqual({ chatgpt: "encrypted" });
+    expect(jobResult.visibilityReport.generatedBy).toBe("deterministic");
+    expect(() =>
+      GeoAnswerMonitorJobResultSchema.parse({ ...jobResult, apiKey: "tenant-secret" }),
+    ).toThrow();
+    expect(() =>
       GeoAnswerMonitorJobResultSchema.parse({
-        organizationId: "org_1",
-        siteId: "site_1",
-        siteDomain: "example.com",
-        requestedByUserId: "user_1",
-        observedAt: "2026-05-26T00:00:00.000Z",
-        providers: ["chatgpt"],
-        monitorResults: [monitorResult],
-        visibilityReport,
-      }).visibilityReport.generatedBy,
-    ).toBe("deterministic");
+        ...jobResult,
+        credentialSources: { claude: "platform" },
+      }),
+    ).toThrow();
+    expect(() =>
+      GeoAnswerMonitorJobResultSchema.parse({
+        ...jobResult,
+        credentialSources: { chatgpt: "plaintext" },
+      }),
+    ).toThrow();
     expect(
       QueueGeoAnswerMonitorRequestSchema.parse({
         target: payload.target,
@@ -2039,6 +2338,214 @@ describe("types foundation", () => {
       siteDomain: "example.com",
       providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
     });
+  });
+
+  it("rejects unknown fields in connector sync job and summary contracts", () => {
+    const summary = {
+      failedProviders: 0,
+      okProviders: 0,
+      partialProviders: 0,
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 0,
+      totalRecords: 0,
+    };
+    const payload = {
+      connectorSyncRunId: "sync_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      providers: ["gsc"],
+    };
+
+    expect(() => ConnectorBatchSyncSummarySchema.parse({ ...summary, accessToken: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() => ConnectorSyncJobPayloadSchema.parse({ ...payload, credential: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() =>
+      ConnectorSyncJobResultSchema.parse({
+        ...payload,
+        results: [],
+        summary,
+        encryptedCredential: "secret",
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorSyncRunSummarySchema.parse({ arbitrary: { nested: "unbounded" } }),
+    ).toThrow();
+  });
+
+  it("rejects unknown fields throughout nested connector sync contracts", () => {
+    const summary = {
+      failedProviders: 1,
+      okProviders: 0,
+      partialProviders: 0,
+      providerErrors: {
+        gsc: {
+          code: "provider_rate_limited",
+          message: "Connector provider request could not be completed safely.",
+        },
+      },
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 1,
+      totalRecords: 0,
+    };
+    const result = {
+      provider: "gsc",
+      status: "failed",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: false,
+      records: [],
+      error: summary.providerErrors.gsc,
+    };
+    const payload = {
+      connectorSyncRunId: "sync_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      providers: ["gsc"],
+    };
+
+    expect(() => ConnectorRunResultSchema.parse({ ...result, accessToken: "secret" })).toThrow(
+      /unrecognized/i,
+    );
+    expect(() =>
+      ConnectorRunResultSchema.parse({
+        ...result,
+        error: { ...result.error, responseBody: "secret" },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorBatchSyncSummarySchema.parse({
+        ...summary,
+        providerErrors: { ...summary.providerErrors, unknownProvider: result.error },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorBatchSyncSummarySchema.parse({
+        ...summary,
+        recordCountsByProvider: { ...summary.recordCountsByProvider, unknownProvider: 1 },
+      }),
+    ).toThrow(/unrecognized/i);
+    expect(() =>
+      ConnectorSyncJobResultSchema.parse({
+        ...payload,
+        results: [{ ...result, encryptedCredential: "secret" }],
+        summary,
+      }),
+    ).toThrow(/unrecognized/i);
+  });
+
+  it("redacts current and legacy connector error messages to fixed public shapes", () => {
+    const secret = "redis://default:tenant-secret@cache.internal:6379/0?token=queue-secret";
+    const currentResult = ConnectorRunResultSchema.parse({
+      provider: "gsc",
+      status: "failed",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      fixture: false,
+      records: [],
+      error: {
+        code: "provider_rate_limited",
+        message: secret,
+        name: secret,
+        nextAction: secret,
+        operatorMessage: secret,
+      },
+    });
+    const currentSummary = ConnectorBatchSyncSummarySchema.parse({
+      failedProviders: 1,
+      okProviders: 0,
+      partialProviders: 0,
+      providerErrors: {
+        gsc: {
+          code: "provider_rate_limited",
+          message: secret,
+          name: secret,
+          nextAction: secret,
+          operatorMessage: secret,
+        },
+      },
+      recordCountsByProvider: {
+        bing: 0,
+        cms: 0,
+        ga4: 0,
+        gsc: 0,
+        pagespeed: 0,
+      },
+      setupRequiredProviders: 0,
+      totalProviders: 1,
+      totalRecords: 0,
+    });
+    const legacySummary = ConnectorSyncRunSummarySchema.parse({
+      error: { message: secret, name: "Error" },
+    });
+
+    expect(currentResult.error).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(currentSummary.providerErrors?.gsc).toMatchObject({
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+    });
+    expect(legacySummary).toEqual({
+      version: 1,
+      error: {
+        code: "legacy_connector_sync_failed",
+        message: "Connector sync failed.",
+      },
+    });
+    expect(JSON.stringify({ currentResult, currentSummary, legacySummary })).not.toContain(
+      "tenant-secret",
+    );
+    expect(() =>
+      ConnectorSyncEnqueueFailureResponseSchema.parse({
+        version: 1,
+        error: "queue_enqueue_failed",
+        message: secret,
+        connectorSyncRun: {
+          id: "sync_1",
+          organizationId: "org_1",
+          siteId: "site_1",
+          status: "failed",
+          providers: ["gsc"],
+          requestedByUserId: "user_1",
+          fixture: false,
+          startedAt: "2026-05-22T00:00:00.000Z",
+          endedAt: "2026-05-22T00:01:00.000Z",
+          summary: legacySummary,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      ConnectorRunResultSchema.parse({
+        provider: "gsc",
+        status: "failed",
+        fetchedAt: "2026-05-22T00:00:00.000Z",
+        fixture: false,
+        records: [],
+        error: { code: "unknown_provider_code", message: secret },
+      }),
+    ).toThrow();
   });
 
   it("validates connector sync run API contracts", () => {
@@ -2224,7 +2731,8 @@ describe("types foundation", () => {
       }),
     ).toMatchObject({
       error: {
-        message: "GSC OAuth credential is missing for this site.",
+        code: "legacy_connector_provider_failed",
+        message: "Connector provider failed.",
       },
     });
     expect(
@@ -2274,7 +2782,8 @@ describe("types foundation", () => {
       summary: {
         providerErrors: {
           gsc: {
-            message: "GSC OAuth credential is missing for this site.",
+            code: "legacy_connector_provider_failed",
+            message: "Connector provider failed.",
           },
         },
       },

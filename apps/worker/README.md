@@ -16,11 +16,15 @@ Does not own:
 
 ## Live connector environment
 
-자사 데이터 파이프라인을 live mode로 운영할 때 worker에는 provider별 secret만 환경변수로 주입합니다. 값은 코드나 fixture에 넣지 않습니다.
+Worker live runtime은 encrypted credential storage mode 또는 Worker 플랫폼 `SEARCHOPS_PAGESPEED_API_KEY`가 있을 때 활성화됩니다. 고객별 값은 환경변수가 아니라 작업의 `organizationId`와 `siteId`로 조회합니다.
 
-- GA4: `SEARCHOPS_GA4_PROPERTY_ID`는 숫자 Property ID를 사용합니다. 측정 ID(`G-...`)나 GTM ID(`GTM-...`)가 아닙니다.
-- Bing: `SEARCHOPS_BING_API_KEY`는 Bing Webmaster Tools API Access에서 발급한 키입니다. `InvalidApiKey`는 코드 장애가 아니라 이 환경변수와 Bing 키의 설정 문제입니다.
-- Bing 5xx/HTML 응답: `bing_service_unavailable`은 API Key 문제가 아니라 Bing Webmaster API 또는 중간 게이트웨이의 일시 장애 가능성이 높습니다. 잠시 후 Bing만 재실행합니다.
-- PageSpeed: `SEARCHOPS_PAGESPEED_API_KEY`가 필요합니다.
-- Google OAuth refresh: `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`가 필요합니다.
-- CMS: live fetch adapter는 아직 미구성입니다. webhook 기반 수집은 API 런타임의 `SEARCHOPS_CMS_WEBHOOK_SECRETS`로 설정합니다.
+- GSC/GA4: 조직 Google `ProviderAccount`의 암호화 OAuth payload와 사이트 `SiteConnector`의 GSC property/숫자 GA4 Property ID를 사용합니다.
+- Bing: 조직 Bing `ProviderAccount`의 암호화 API key와 사이트 resource binding을 사용합니다.
+- Google token refresh: Railway Worker의 `SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID`, `SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET`는 API OAuth 앱과 같은 플랫폼 값입니다.
+- PageSpeed: `SEARCHOPS_PAGESPEED_API_KEY`는 SearchOps-funded Worker 플랫폼 key이며 선택 사항입니다.
+- GEO: SearchOps-funded 플랫폼 key/model 또는 암호화된 조직 BYOK를 사용합니다.
+- CMS: webhook secret은 API가 소유하며 Worker에 넣지 않습니다.
+
+`SEARCHOPS_GA4_PROPERTY_ID`, `SEARCHOPS_BING_API_KEY`, 고객 Google access token/service-account JSON은 `dual` mode의 legacy migration 입력일 뿐입니다. 새 조직이나 사이트는 이 전역 env를 사용하지 않으며 encrypted cutover와 7일 zero observed legacy 확인 뒤 제거합니다.
+
+전체 Worker env 목록은 `scripts/dev/worker.env.example`과 `docs/PROVISIONING_RUNBOOK.md`를 기준으로 합니다. 실제 secret은 Railway에만 넣고 코드, fixture, 문서, 스크린샷, Git에 남기지 않습니다.

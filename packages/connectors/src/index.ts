@@ -14,6 +14,7 @@ import {
   type BingUrlMetric,
   type CmsPageRecord,
   type ConnectorAuthMode,
+  type ConnectorCredentialSources,
   type ConnectorOAuthProvider,
   type ConnectorProvider,
   type ConnectorRecord,
@@ -30,6 +31,7 @@ import {
   type JsonLdObject,
   type LiveExternalApiMode,
   type PageSpeedMetric,
+  type ProviderCredentialFailureCode,
   type SchemaJsonLdType,
   type SchemaRichResultValidationIssue,
   type SchemaRichResultValidationResult,
@@ -41,6 +43,22 @@ export * from "./cms-webhooks.js";
 export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
 export const liveExternalApisEnabled = "enabled" as const;
+
+export interface ConnectorLiveRuntimeInput {
+  readonly credentialStorageMode?: string | null;
+  readonly pagespeedApiKey?: string | null;
+}
+
+export function shouldEnableConnectorLiveRuntime({
+  credentialStorageMode,
+  pagespeedApiKey,
+}: ConnectorLiveRuntimeInput): boolean {
+  return hasConfiguredRuntimeValue(credentialStorageMode) || hasConfiguredRuntimeValue(pagespeedApiKey);
+}
+
+function hasConfiguredRuntimeValue(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 export const connectorProviders = ["gsc", "ga4", "pagespeed", "bing", "cms"] as const satisfies readonly ConnectorProvider[];
 
@@ -185,20 +203,39 @@ export interface GoogleConnectorOAuthCredential {
   readonly tokenExpiresAt?: string | null;
 }
 
+export type GoogleOAuthCredential = GoogleConnectorOAuthCredential;
+
+export interface LiveConnectorProviderConfigs {
+  readonly bing?: { readonly apiKey: string; readonly siteUrl: string } | undefined;
+  readonly ga4?: {
+    readonly credential: GoogleOAuthCredential;
+    readonly propertyId: string;
+  } | undefined;
+  readonly gsc?: {
+    readonly credential: GoogleOAuthCredential;
+    readonly propertyId: string;
+  } | undefined;
+  readonly pagespeed?: {
+    readonly apiKey?: string | undefined;
+    readonly siteUrl: string;
+  } | undefined;
+}
+
 export interface LiveConnectorBatchSyncRequest extends ConnectorBatchSyncRequest {
-  readonly bingApiKey?: string | undefined;
+  readonly credentialSources?: ConnectorCredentialSources | undefined;
   readonly fetch?: typeof fetch | undefined;
-  readonly ga4PropertyId?: string | undefined;
-  readonly googleOAuthCredentials?: readonly GoogleConnectorOAuthCredential[] | undefined;
-  readonly pagespeedApiKey?: string | undefined;
-  readonly siteDomain: string;
+  readonly providerConfigs: LiveConnectorProviderConfigs;
+  readonly providerFailures?: Partial<
+    Record<ConnectorProvider, ProviderCredentialFailureCode>
+  > | undefined;
 }
 
 export interface LiveGscConnectorAdapterConfig {
   readonly credential: GoogleConnectorOAuthCredential;
   readonly fetch?: typeof fetch | undefined;
+  readonly propertyId?: string | undefined;
   readonly rowLimit?: number | undefined;
-  readonly siteDomain: string;
+  readonly siteDomain?: string | undefined;
 }
 
 export interface LiveGa4ConnectorAdapterConfig {
@@ -222,6 +259,7 @@ export interface LiveBingConnectorAdapterConfig {
 }
 
 export interface ConnectorBatchSyncSummary {
+  readonly credentialSources?: ConnectorCredentialSources | undefined;
   readonly failedProviders: number;
   readonly okProviders: number;
   readonly partialProviders: number;
@@ -258,6 +296,13 @@ class ConnectorProviderDiagnosticError extends Error {
     this.nextAction = metadata.nextAction;
     this.operatorMessage = metadata.operatorMessage;
     this.setupRequired = metadata.setupRequired ?? false;
+  }
+}
+
+class ConnectorHttpError extends Error {
+  constructor(readonly status: number) {
+    super("connector_provider_http_error");
+    this.name = "ConnectorHttpError";
   }
 }
 
@@ -704,11 +749,15 @@ export function createFixtureConnectorAdapter({
 export function createLiveGscConnectorAdapter({
   credential,
   fetch: fetchImpl = fetch,
+  propertyId,
   rowLimit = connectorPageSize,
   siteDomain
 }: LiveGscConnectorAdapterConfig): ConnectorAdapter {
   assertGoogleCredential("gsc", credential);
-  const siteUrl = normalizeSiteUrl(siteDomain);
+  const siteUrl = propertyId ?? (siteDomain ? normalizeSiteUrl(siteDomain) : "");
+  if (!siteUrl) {
+    throw new Error("Google Search Console property ID is required");
+  }
 
   return {
     authMode: "oauth",
@@ -1176,43 +1225,38 @@ export async function syncFixtureConnectors({
 }
 
 export async function syncLiveConnectors({
-  bingApiKey,
+  credentialSources,
   fetchedAt,
   fetch: fetchImpl,
-  ga4PropertyId,
-  googleOAuthCredentials = [],
-  pagespeedApiKey,
+  providerConfigs,
+  providerFailures = {},
   providers = connectorProviders,
-  siteDomain
 }: LiveConnectorBatchSyncRequest): Promise<ConnectorBatchSyncResult> {
   const orderedProviders = orderConnectorProviders(providers);
   const results = await Promise.all(
     orderedProviders.map(async (provider) => {
       try {
-        const adapter = createLiveConnectorAdapter(provider, {
-          bingApiKey,
-          fetch: fetchImpl,
-          ga4PropertyId,
-          googleOAuthCredentials,
-          pagespeedApiKey,
-          siteDomain
-        });
+        const resolutionFailure = providerFailures[provider];
+        if (resolutionFailure !== undefined) {
+          return createCredentialResolutionFailureResult(provider, fetchedAt, resolutionFailure);
+        }
+
+        const adapter = createLiveConnectorAdapter(provider, providerConfigs, fetchImpl);
 
         if (adapter === null) {
           return createSetupRequiredConnectorRunResult(
             provider,
             fetchedAt,
-            createMissingLiveConnectorError(provider, {
-              bingApiKey,
-              ga4PropertyId,
-              googleOAuthCredentials,
-              pagespeedApiKey
-            }),
+            createMissingLiveConnectorError(provider, providerConfigs),
           );
         }
 
         return await adapter.sync({ fetchedAt });
       } catch (error) {
+        const credentialFailure = normalizeLiveProviderCredentialFailure(provider, error);
+        if (credentialFailure !== null) {
+          return createCredentialResolutionFailureResult(provider, fetchedAt, credentialFailure);
+        }
         if (isConnectorSetupRequiredError(error)) {
           return createSetupRequiredConnectorRunResult(provider, fetchedAt, error);
         }
@@ -1224,7 +1268,10 @@ export async function syncLiveConnectors({
 
   return {
     results,
-    summary: summarizeConnectorRunResults(results)
+    summary: {
+      ...summarizeConnectorRunResults(results),
+      ...(credentialSources === undefined ? {} : { credentialSources })
+    }
   };
 }
 
@@ -1575,7 +1622,11 @@ function summarizeConnectorProviderErrors(results: readonly ConnectorRunResult[]
     }
 
     providerErrors[result.provider] = result.error ?? {
-      message: `${formatConnectorProviderName(result.provider)} connector failed.`
+      code: "provider_rate_limited",
+      message: "Connector provider request could not be completed safely.",
+      name: "ConnectorProviderError",
+      nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+      operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다."
     };
   }
 
@@ -1583,34 +1634,20 @@ function summarizeConnectorProviderErrors(results: readonly ConnectorRunResult[]
 }
 
 function normalizeConnectorSyncError(
-  provider: ConnectorProvider,
+  _provider: ConnectorProvider,
   error: unknown,
 ): ConnectorSyncProviderError {
-  if (error instanceof Error) {
-    const diagnostic =
-      readConnectorProviderDiagnostic(error) ??
-      classifyConnectorProviderError(provider, error.message);
-
-    return {
-      ...(diagnostic ? { code: diagnostic.code } : {}),
-      message: error.message,
-      name: error.name,
-      ...(diagnostic ? { nextAction: diagnostic.nextAction } : {}),
-      ...(diagnostic ? { operatorMessage: diagnostic.operatorMessage } : {}),
-      ...(diagnostic?.setupRequired ? { setupRequired: true } : {})
-    };
-  }
-
-  const message = String(error);
-  const diagnostic = classifyConnectorProviderError(provider, message);
+  const diagnostic =
+    error instanceof Error ? readConnectorProviderDiagnostic(error) : null;
+  const safeDiagnostic = diagnostic ?? transientProviderDiagnostic;
 
   return {
-    ...(diagnostic ? { code: diagnostic.code } : {}),
-    message,
-    name: "Error",
-    ...(diagnostic ? { nextAction: diagnostic.nextAction } : {}),
-    ...(diagnostic ? { operatorMessage: diagnostic.operatorMessage } : {}),
-    ...(diagnostic?.setupRequired ? { setupRequired: true } : {})
+    code: safeDiagnostic.code,
+    message: safeConnectorErrorMessage(safeDiagnostic.code),
+    name: diagnostic === null ? "ConnectorProviderError" : "ConnectorProviderDiagnosticError",
+    nextAction: safeDiagnostic.nextAction,
+    operatorMessage: safeDiagnostic.operatorMessage,
+    ...(safeDiagnostic.setupRequired ? { setupRequired: true } : {})
   };
 }
 
@@ -1629,82 +1666,50 @@ function readConnectorProviderDiagnostic(
   };
 }
 
+const transientProviderDiagnostic: ConnectorProviderDiagnosticMetadata = {
+  code: "provider_rate_limited",
+  nextAction: "잠시 후 해당 provider 동기화를 다시 실행하세요.",
+  operatorMessage: "Connector provider 요청을 안전하게 완료하지 못했습니다."
+};
+
+const safeConnectorErrorMessages: Readonly<Record<string, string>> = {
+  account_missing: "account_missing",
+  bing_api_key_missing: "Bing Webmaster API key is missing in the worker runtime.",
+  bing_invalid_api_key: "Bing Webmaster credential is invalid.",
+  bing_service_unavailable: "Bing Webmaster provider is temporarily unavailable.",
+  cms_live_connector_not_configured:
+    "CMS live connector is not configured. Use a CMS webhook or add a provider-specific CMS adapter.",
+  connector_missing: "connector_missing",
+  credential_decryption_failed: "credential_decryption_failed",
+  credential_expired: "credential_expired",
+  credential_revoked: "credential_revoked",
+  ga4_oauth_missing: "GA4 OAuth credential is missing for this site.",
+  ga4_property_access_denied: "GA4 property access is denied.",
+  ga4_property_id_invalid: "GA4 property ID is invalid.",
+  ga4_property_id_missing: "GA4 property ID is missing for this site.",
+  gsc_oauth_missing: "GSC OAuth credential is missing for this site.",
+  pagespeed_api_key_missing: "PageSpeed API key is missing in the worker runtime.",
+  provider_rate_limited: "Connector provider request could not be completed safely.",
+  resource_access_denied: "resource_access_denied",
+  scope_missing: "scope_missing"
+};
+
+function safeConnectorErrorMessage(code: string) {
+  return safeConnectorErrorMessages[code] ?? "Connector provider request failed safely.";
+}
+
 function isConnectorSetupRequiredError(error: unknown) {
   return error instanceof ConnectorProviderDiagnosticError && error.setupRequired;
 }
 
-function classifyConnectorProviderError(
-  provider: ConnectorProvider,
-  message: string,
-): ConnectorProviderDiagnosticMetadata | null {
-  const normalized = message.toLowerCase();
-
-  if (
-    provider === "bing" &&
-    (normalized.includes("invalidapikey") ||
-      normalized.includes("invalid api key") ||
-      normalized.includes('"errorcode":3'))
-  ) {
-    return {
-      code: "bing_invalid_api_key",
-      nextAction:
-        "Railway worker 환경변수 SEARCHOPS_BING_API_KEY를 Bing Webmaster Tools에서 재발급한 API Key로 교체한 뒤 Bing만 다시 실행하세요.",
-      operatorMessage: "Bing Webmaster API Key가 유효하지 않습니다."
-    };
-  }
-
-  if (
-    provider === "bing" &&
-    (normalized.includes("status 502") ||
-      normalized.includes("status 503") ||
-      normalized.includes("status 504") ||
-      normalized.includes("service unavailable") ||
-      normalized.includes("gateway") ||
-      normalized.includes("<!doctype html") ||
-      normalized.includes("<!doctype html public") ||
-      normalized.includes("<html"))
-  ) {
-    return {
-      code: "bing_service_unavailable",
-      nextAction:
-        "API Key 문제가 아니라 Bing Webmaster API 또는 중간 게이트웨이의 일시 장애일 수 있습니다. 5-10분 뒤 Bing만 다시 실행하고, 반복되면 Bing Webmaster Tools 상태와 Railway outbound 네트워크를 확인하세요.",
-      operatorMessage:
-        "Bing Webmaster API가 일시적으로 HTML 오류 페이지 또는 5xx 응답을 반환했습니다."
-    };
-  }
-
-  if (provider === "ga4" && normalized.includes("sufficient permissions")) {
-    return createGa4AccessDeniedDiagnostic();
-  }
-
-  if (provider === "ga4" && normalized.includes("status 403")) {
-    return createGa4AccessDeniedDiagnostic();
-  }
-
-  if (
-    provider === "ga4" &&
-    (normalized.includes("property id must be numeric") ||
-      normalized.includes("invalid property") ||
-      normalized.includes("property id") ||
-      normalized.includes("status 400") ||
-      normalized.includes("status 404"))
-  ) {
-    return createGa4PropertyIdDiagnostic();
-  }
-
-  return null;
-}
-
-function createGa4AccessDeniedDiagnostic(): ConnectorProviderDiagnosticMetadata {
-  return createGa4AccessDeniedDiagnosticWithEmail(null);
-}
-
-function createGa4AccessDeniedDiagnosticWithEmail(email: string | null): ConnectorProviderDiagnosticMetadata {
-  const accountRef = email ? `"${email}" 계정` : "OAuth로 연결한 Google 계정";
+function createGa4AccessDeniedDiagnosticWithEmail(
+  _email: string | null,
+): ConnectorProviderDiagnosticMetadata {
   return {
     code: "ga4_property_access_denied",
-    nextAction: `GA4 관리 > 속성 액세스 관리에서 ${accountRef}을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.`,
-    operatorMessage: `OAuth Google 계정${email ? `(${email})` : ""}이 현재 SEARCHOPS_GA4_PROPERTY_ID 속성에 접근할 권한이 없습니다.`
+    nextAction:
+      "GA4 관리 > 속성 액세스 관리에서 OAuth로 연결한 Google 계정을 뷰어 이상으로 추가하고, 같은 계정으로 OAuth를 다시 연결한 뒤 GA4만 다시 실행하세요.",
+    operatorMessage: "OAuth Google 계정이 현재 GA4 속성에 접근할 권한이 없습니다."
   };
 }
 
@@ -1716,18 +1721,6 @@ function createGa4PropertyIdDiagnostic(): ConnectorProviderDiagnosticMetadata {
     operatorMessage:
       "GA4 Property ID가 잘못되었거나 Google Analytics Data API에서 해당 속성을 찾을 수 없습니다."
   };
-}
-
-function formatConnectorProviderName(provider: ConnectorProvider) {
-  const labels = {
-    bing: "Bing",
-    cms: "CMS",
-    ga4: "GA4",
-    gsc: "GSC",
-    pagespeed: "PageSpeed"
-  } as const satisfies Record<ConnectorProvider, string>;
-
-  return labels[provider];
 }
 
 export function discoverKeywordTargetsFromConnectorResults(
@@ -1770,60 +1763,62 @@ function orderConnectorProviders(providers: readonly ConnectorProvider[]) {
 
 function createLiveConnectorAdapter(
   provider: ConnectorProvider,
-  config: Omit<LiveConnectorBatchSyncRequest, "fetchedAt" | "providers">,
+  configs: LiveConnectorProviderConfigs,
+  fetchImpl?: typeof fetch,
 ): ConnectorAdapter | null {
   switch (provider) {
-    case "bing":
-      return config.bingApiKey
+    case "bing": {
+      const config = configs.bing;
+      return config
         ? createLiveBingConnectorAdapter({
-            apiKey: config.bingApiKey,
-            fetch: config.fetch,
-            siteDomain: config.siteDomain
+            apiKey: config.apiKey,
+            fetch: fetchImpl,
+            siteDomain: config.siteUrl
           })
         : null;
+    }
     case "cms":
       return null;
     case "ga4": {
-      const credential = findGoogleCredential("ga4", config.googleOAuthCredentials ?? []);
-      if (!credential || !config.ga4PropertyId) {
+      const config = configs.ga4;
+      if (!config) {
         return null;
       }
 
       return createLiveGa4ConnectorAdapter({
-        credential,
-        fetch: config.fetch,
-        propertyId: config.ga4PropertyId
+        credential: config.credential,
+        fetch: fetchImpl,
+        propertyId: config.propertyId
       });
     }
     case "gsc": {
-      const credential = findGoogleCredential("gsc", config.googleOAuthCredentials ?? []);
-      if (!credential) {
+      const config = configs.gsc;
+      if (!config) {
         return null;
       }
 
       return createLiveGscConnectorAdapter({
-        credential,
-        fetch: config.fetch,
-        siteDomain: config.siteDomain
+        credential: config.credential,
+        fetch: fetchImpl,
+        propertyId: config.propertyId
       });
     }
-    case "pagespeed":
-      return config.pagespeedApiKey
+    case "pagespeed": {
+      const config = configs.pagespeed;
+      return config?.apiKey
         ? createLivePageSpeedConnectorAdapter({
-            apiKey: config.pagespeedApiKey,
-            fetch: config.fetch,
-            siteDomain: config.siteDomain
+            apiKey: config.apiKey,
+            fetch: fetchImpl,
+            siteDomain: config.siteUrl
           })
         : null;
+    }
   }
 }
 
 function createMissingLiveConnectorError(
   provider: ConnectorProvider,
-  config: Pick<
-    LiveConnectorBatchSyncRequest,
-    "bingApiKey" | "ga4PropertyId" | "googleOAuthCredentials" | "pagespeedApiKey"
-  >,
+  configs: LiveConnectorProviderConfigs,
 ) {
   switch (provider) {
     case "bing":
@@ -1850,8 +1845,7 @@ function createMissingLiveConnectorError(
         },
       );
     case "ga4": {
-      const hasCredential = Boolean(findGoogleCredential("ga4", config.googleOAuthCredentials ?? []));
-      if (!hasCredential) {
+      if (!configs.ga4) {
         return new ConnectorProviderDiagnosticError("GA4 OAuth credential is missing for this site.", {
           code: "ga4_oauth_missing",
           nextAction:
@@ -1861,7 +1855,7 @@ function createMissingLiveConnectorError(
         });
       }
 
-      return new ConnectorProviderDiagnosticError("GA4 property ID is missing in the worker runtime.", {
+      return new ConnectorProviderDiagnosticError("GA4 property ID is missing for this site.", {
         code: "ga4_property_id_missing",
         nextAction:
           "Railway worker 환경변수 SEARCHOPS_GA4_PROPERTY_ID에 GA4 관리 > 속성 세부정보의 숫자 Property ID를 넣고 GA4만 다시 실행하세요.",
@@ -1889,6 +1883,55 @@ function createMissingLiveConnectorError(
         },
       );
   }
+}
+
+function createCredentialResolutionFailureResult(
+  provider: ConnectorProvider,
+  fetchedAt: string,
+  code: ProviderCredentialFailureCode,
+): ConnectorRunResult {
+  const setupRequired = isCredentialSetupRequired(code);
+  const error = new ConnectorProviderDiagnosticError(code, {
+    code,
+    nextAction:
+      "사이트 커넥터의 계정, 권한, 리소스 설정을 확인한 뒤 해당 provider를 다시 실행하세요.",
+    operatorMessage: `Connector credential resolution failed: ${code}`,
+    setupRequired
+  });
+
+  return setupRequired
+    ? createSetupRequiredConnectorRunResult(provider, fetchedAt, error)
+    : createFailedConnectorRunResult(provider, fetchedAt, error);
+}
+
+function normalizeLiveProviderCredentialFailure(
+  provider: ConnectorProvider,
+  error: unknown,
+): ProviderCredentialFailureCode | null {
+  if (error instanceof ConnectorProviderDiagnosticError) {
+    return error.code === "ga4_property_access_denied"
+      ? "resource_access_denied"
+      : null;
+  }
+  if (error instanceof ConnectorHttpError) {
+    if (error.status === 401) {
+      return "credential_expired";
+    }
+    if (error.status === 403) {
+      return "resource_access_denied";
+    }
+    if (provider === "bing" && error.status === 400) {
+      return "credential_revoked";
+    }
+    if (error.status === 429 || error.status >= 500) {
+      return "provider_rate_limited";
+    }
+  }
+  return "provider_rate_limited";
+}
+
+function isCredentialSetupRequired(code: ProviderCredentialFailureCode) {
+  return code !== "provider_rate_limited" && code !== "resource_access_denied";
 }
 
 interface GscSearchAnalyticsApiResponse {
@@ -1924,13 +1967,6 @@ function assertGoogleCredential(
   if (credential.status !== undefined && credential.status !== "connected") {
     throw new Error(`Google OAuth credential is not connected: ${credential.status}`);
   }
-}
-
-function findGoogleCredential(
-  provider: ConnectorOAuthProvider,
-  credentials: readonly GoogleConnectorOAuthCredential[],
-) {
-  return credentials.find((credential) => credential.provider === provider);
 }
 
 function normalizeSiteUrl(siteDomain: string) {
@@ -2065,69 +2101,10 @@ function parseRetryAfterMs(response: Response): number | null {
   return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
 }
 
-async function assertFetchOk(response: Response, serviceName: string) {
+function assertFetchOk(response: Response, _serviceName: string) {
   if (!response.ok) {
-    const detail = await readConnectorErrorDetail(response);
-    const suffix = detail ? `: ${detail}` : "";
-    throw new Error(`${serviceName} request failed with status ${response.status}${suffix}`);
+    throw new ConnectorHttpError(response.status);
   }
-}
-
-async function readConnectorErrorDetail(response: Response) {
-  try {
-    const raw = (await response.text()).trim();
-    if (raw.length === 0) {
-      return "";
-    }
-
-    return summarizeConnectorErrorBody(raw);
-  } catch {
-    return "";
-  }
-}
-
-function summarizeConnectorErrorBody(raw: string) {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const message = readJsonErrorMessage(parsed);
-    if (message) {
-      return truncateConnectorErrorDetail(message);
-    }
-  } catch {
-    // Use the raw response text below when the provider does not return JSON.
-  }
-
-  return truncateConnectorErrorDetail(raw.replace(/\s+/g, " "));
-}
-
-function readJsonErrorMessage(value: unknown): string | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const error = record.error;
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error && typeof error === "object") {
-    const errorRecord = error as Record<string, unknown>;
-    if (typeof errorRecord.message === "string") {
-      return errorRecord.message;
-    }
-  }
-
-  if (typeof record.message === "string") {
-    return record.message;
-  }
-
-  return null;
-}
-
-function truncateConnectorErrorDetail(value: string) {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
 }
 
 function unwrapBingUrlInfo(response: BingUrlInfoApiResponse): Record<string, unknown> {

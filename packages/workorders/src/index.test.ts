@@ -200,6 +200,7 @@ function createGeoVisibilityReport(
     mentionRate: 67,
     citationRate: 67,
     competitorCitationRate: 33,
+    credentialSources: {},
     queryCount: 3,
     providerCount: 2,
     observations: [

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   AuthVerificationError,
+  canManageProviderCredentials,
   createHmacJwtIdpTokenVerifier,
   createJwksRs256IdpTokenVerifier,
+  mapIdpClaimsToUserContext,
   parseJwksJson,
 } from "./auth.js";
 
@@ -33,6 +35,7 @@ describe("IdP token verification", () => {
     expect(verifier.verify(token)).toEqual({
       email: "owner@example.com",
       organizationId: "org_demo",
+      principalType: "user",
       provider: "auth0",
       role: "owner",
       subject: "idp_owner_1",
@@ -94,11 +97,195 @@ describe("IdP token verification", () => {
     expect(verifier.verify(token)).toEqual({
       email: "owner@example.com",
       organizationId: "org_demo",
+      principalType: "user",
       provider: "auth0",
       role: "owner",
       subject: "idp_owner_1",
     });
   });
+
+  it("uses a valid top-level user_role for the Supabase authenticated role", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+    const claims = verifier.verify(
+      signJwt({
+        organization_id: "org_demo",
+        role: "authenticated",
+        sub: "supabase_owner_1",
+        user_metadata: { organization_id: "org_untrusted", role: "viewer" },
+        user_role: "owner",
+      }),
+    );
+
+    expect(mapIdpClaimsToUserContext(claims)).toMatchObject({
+      organizationId: "org_demo",
+      principalType: "user",
+      role: "owner",
+      userId: "supabase_owner_1",
+    });
+  });
+
+  it("maps token_use service while preserving configured role-claim compatibility", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "searchops_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "service_dashboard",
+          token_use: "service",
+        }),
+      ),
+    ).toMatchObject({ principalType: "service", role: "admin" });
+  });
+
+  it("maps an explicit token_use user as a user principal", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "explicit_user",
+          token_use: "user",
+        }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "viewer" });
+  });
+
+  it.each(["backend", 42])("rejects unsupported token_use value %j", (tokenUse) => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+    const verify = () =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "owner",
+          sub: "ambiguous_principal",
+          token_use: tokenUse,
+        }),
+      );
+
+    expect(verify).toThrow(AuthVerificationError);
+    expect(verify).toThrow("Bearer token has unsupported token_use.");
+  });
+
+  it("rejects conflicting valid role and user_role claims", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(() =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "conflicting_user",
+          user_role: "owner",
+        }),
+      ),
+    ).toThrow("Bearer token contains conflicting role claims.");
+  });
+
+  it("accepts matching valid role and user_role claims", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          role: "viewer",
+          sub: "matching_user",
+          user_role: "viewer",
+        }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "viewer" });
+  });
+
+  it.each([undefined, "invalid-role"])(
+    "rejects Supabase authenticated tokens without a valid user_role (%j)",
+    (userRole) => {
+      const verifier = createHmacJwtIdpTokenVerifier({ secret });
+      const payload: Record<string, unknown> = {
+        organization_id: "org_demo",
+        role: "authenticated",
+        sub: "supabase_user",
+      };
+      if (userRole !== undefined) {
+        payload.user_role = userRole;
+      }
+
+      expect(() => verifier.verify(signJwt(payload))).toThrow(
+        "Bearer token is missing a valid user_role.",
+      );
+    },
+  );
+
+  it("keeps a configured custom role claim authoritative", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "searchops_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "custom_role_user",
+        }),
+      ),
+    ).toMatchObject({ role: "admin" });
+    expect(() =>
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          searchops_role: "admin",
+          sub: "conflicting_custom_role_user",
+          user_role: "owner",
+        }),
+      ),
+    ).toThrow("Bearer token contains conflicting role claims.");
+  });
+
+  it("parses user_role directly when it is the configured role claim", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ roleClaim: "user_role", secret });
+
+    expect(
+      verifier.verify(
+        signJwt({
+          organization_id: "org_demo",
+          sub: "direct_user_role",
+          user_role: "editor",
+        }),
+      ),
+    ).toMatchObject({ role: "editor" });
+  });
+
+  it("keeps existing non-Supabase role tokens compatible as user principals", () => {
+    const verifier = createHmacJwtIdpTokenVerifier({ secret });
+
+    expect(
+      verifier.verify(
+        signJwt({ organization_id: "org_demo", role: "editor", sub: "legacy_editor" }),
+      ),
+    ).toMatchObject({ principalType: "user", role: "editor" });
+  });
+});
+
+describe("provider credential authorization", () => {
+  it.each(["owner", "admin", "system"] as const)(
+    "allows a user %s principal",
+    (role) => {
+      expect(canManageProviderCredentials({ principalType: "user", role })).toBe(true);
+    },
+  );
+
+  it.each(["editor", "viewer"] as const)("rejects a user %s principal", (role) => {
+    expect(canManageProviderCredentials({ principalType: "user", role })).toBe(false);
+  });
+
+  it.each(["owner", "admin", "system", "editor", "viewer"] as const)(
+    "rejects every service %s principal",
+    (role) => {
+      expect(canManageProviderCredentials({ principalType: "service", role })).toBe(false);
+    },
+  );
 });
 
 function signJwt(payload: Record<string, unknown>) {
