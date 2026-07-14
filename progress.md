@@ -4,27 +4,55 @@
 
 ---
 
-## 🚀 운영 배포 · 프로비저닝 진행상황
+## Multi-tenant provider credential 구현 상태
 
-Updated: 2026-07-14 (Task 12 smoke transaction fix; live deployment not performed or verified)
+Updated: 2026-07-14 (Tasks 1-13 local implementation and verification complete; production execution not started)
+Branch: `codex/multitenant-provider-credentials`
+Task 12 final code commit: `01a0d40`
 Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.app) · api = https://searchops-api-production.up.railway.app
 
-> **Current source of truth:** this tracked `progress.md` and `docs/PROVISIONING_RUNBOOK.md`. Task 12 now makes `/ops/readiness` current-user-only and fail-closed, separates API/Worker readiness provenance, splits unmigrated rows from seven-day observed legacy use, and separates Vercel browser-safe config from required server-only secrets. API, Worker, Web must be deployed in that order before backfill. No live service was changed in this local task. The dated deployment notes below are historical snapshots and may be superseded.
+> **Current source of truth:** this tracked `progress.md`, `docs/PROVISIONING_RUNBOOK.md`, and `docs/superpowers/plans/2026-07-13-multitenant-provider-credentials.md`. Tasks 1-13 are implemented and verified locally. Task 14 production expand/backfill/cutover has not run and requires explicit operator approval. No live service, database, Redis, provider API, customer account, or secret was accessed in this implementation run.
 
-### Task 12 최종 리뷰 수정 (2026-07-14)
+### 완료된 설계와 구현
 
-- Vercel env를 browser-safe config와 non-`NEXT_PUBLIC` 서버 전용 secret으로 분리했다. 현재 Web runtime이 소비하는 서버 전용 값은 `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`, `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`이며 client에 노출하지 않는다.
-- GEO 플랫폼 API key/model과 rich-result validator는 Railway Worker-only다. API나 Vercel에 복제하지 않고, 조직 BYOK는 encrypted `ProviderAccount`에서 조회한다.
-- clean-artifact smoke는 `spawnSync`의 undefined stdout/stderr와 `result.error`/cause를 안전하게 진단한다. 고정된 repo-local 보존 대상은 `packages/types/dist`, `packages/db/dist`, `packages/connectors/dist`, `packages/db/src/generated` 네 tree다. ENOENT와 dependency build 완료 후 CLI 실패 회귀에서 content hash, mode/microsecond-mtime metadata hash, tracked Git 상태가 모두 원상 복원되는지 검증한다.
-- 로컬 SDD review/report 파일은 `.gitignore` 경계에 두고 Git 추적에서 제거했다. clone 후 재개 기준은 이 파일과 `docs/PROVISIONING_RUNBOOK.md`다.
-- RED: readiness 문서 테스트 15개 중 2개 실패(누락된 Vercel 구획, stale Worker+API GEO 문구), smoke 회귀 테스트 1개 실패(`ERR_INVALID_ARG_TYPE`)를 확인했다.
-- GREEN: focused Web 13/API 201 tests, affected package Web 161/API 341/DB 133/Types 95/Worker 108 tests, clean-artifact smoke, workspace lint/build/typecheck를 통과했다. Live service, DB, Redis, provider, customer credential에는 접근하지 않았다.
-- Approval review RED: 네 tree metadata 계약을 추가했을 때 ENOENT 복원은 metadata hash가 달라졌고, post-build 실패 인자는 무시되어 exit 0이었다.
-- Approval review GREEN: ENOENT와 post-build CLI 실패 회귀 2개, 정상 clean smoke, synthetic separate-target check, Types 95/DB 133/Connectors 62/API 341 tests, workspace typecheck/lint/build를 통과했다.
-- Smoke approval RED: later backup-copy, partial original removal, restore-copy, backup-cleanup, symlink-ancestor 회귀 5개가 현재 failure injection/recovery path 부재로 실패하는 것을 확인했다.
-- Smoke transaction은 tree별 `backupComplete`, `originalRemoved`, `restoreComplete`, `restoreVerified`를 분리한다. Backup/quarantine/stage는 repo-local ignored `.searchops-smoke-backups`에 두며, 복구본을 stage에서 content+metadata 검증한 뒤 기존 target을 quarantine하고 rename한다. Replacement 설치가 실패하면 quarantine을 target으로 롤백하고, restore/verification이 실패하면 검증된 backup을 삭제하지 않고 `manualRecoveryPath`를 출력한다.
-- Repository root는 `realpath`로 고정하고, 고정 target 및 destructive source/destination의 모든 기존 ancestor를 `lstat`/`realpath`로 재검증한다. Symlink component는 operation 전에 거부한다.
-- Smoke approval GREEN: focused transaction/ENOENT/post-build 회귀 8개, 정상 clean smoke, synthetic separate-target check, Types 95/DB 133/Connectors 62/API 341 tests, workspace typecheck/lint/build를 통과했다. 검증되지 않은 backup cleanup은 수행하지 않았고 최종 smoke backup root는 비어 있다.
+- 조직별 `ProviderAccount`에 Google/Bing/GEO BYOK credential을 AES-256-GCM으로 암호화해 저장하고, `SiteConnector`에 GSC 속성/GA4 Property ID 등 사이트별 resource binding을 저장한다.
+- Worker는 job의 `siteId`로 조직, 계정, binding을 다시 확인한 뒤 credential을 해독한다. GSC/GA4는 사이트별 binding, Bing/GEO BYOK는 조직별 계정, PageSpeed와 SearchOps 부담 GEO key는 Worker 공통 env를 사용한다.
+- Google OAuth callback은 canonical encrypted account를 갱신하고 동일 계정 재연결 시 binding metadata를 보존한다. refresh race, revoke, provider 오류 redaction, tenant scope를 fail-closed로 처리한다.
+- Web은 Supabase verified user bearer만 API에 전달한다. `/ops/integrations`, `/sites/[siteId]/connectors`, `/ops/readiness`는 미인증 시 로그인으로 이동하며 service principal/demo fallback을 사용하지 않는다.
+- Readiness는 API/Worker env provenance, 미이관 legacy row, 최근 7일 실제 legacy fallback 관측을 분리한다. Vercel에는 encryption key, DB/Redis, Google/provider/customer secret을 두지 않는다.
+- Legacy 호환은 `dual` mode에서만 허용한다. backfill과 관찰 기간이 끝난 뒤 `encrypted`로 전환하며, plaintext legacy table 삭제는 별도 승인 대상이다.
+
+### Task 12 clean-artifact 최종 상태
+
+- 보존 대상은 `packages/types/dist`, `packages/db/dist`, `packages/connectors/dist`, `packages/db/src/generated` 네 tree로 고정한다.
+- 원본을 repo-local ignored `.searchops-smoke-backups/<run>/originals`로 원자적 `rename`하고, build가 만든 tree는 `quarantine`으로 `rename`한 뒤 원본 backup 자체를 target으로 되돌린다. 원본 backup에는 recursive delete를 수행하지 않는다.
+- 모든 원본/부재 상태가 복원된 뒤에만 quarantine을 재귀 정리한다. 복원 실패 시 exact backup 경로와 남은 quarantine 경로를 진단에 출력한다.
+- Repository root를 `realpath`로 고정하고 기존 ancestor의 symlink를 거부한다. 정상, 원래 부재, Corepack ENOENT, build 후 CLI 실패, later original move, quarantine move, original restore, quarantine cleanup, symlink escape의 9개 회귀와 실제 clean smoke가 통과했다.
+- 독립 리뷰는 transaction safety를 승인했다. 남은 이론적 위험은 hostile concurrent filesystem race이며 CI/local single-process smoke 범위 밖이다.
+
+### Task 13 검증 결과
+
+- Package-focused: Types 95, DB 133, Connectors 62, API 341, Worker 108, Web 161, 합계 900 tests PASS.
+- Repository: `corepack pnpm lint`, `corepack pnpm build`, `corepack pnpm -r typecheck`, `corepack pnpm -r test` PASS. 전체 workspace test는 1,067개 PASS.
+- Prisma: synthetic local URL로 `prisma validate` PASS, generate/build PASS. 현재 셸에 DB URL이 없고 Docker runtime도 승인되지 않아 `migrate deploy/status`와 credential dry-run은 실행하지 않았다.
+- Browser: 로컬 `http://localhost:3000`에서 1200px/390px 로그인 화면 overflow 없음. 세 보호 경로는 정확한 `next` query로 로그인에 fail-closed redirect. 인증 내부 화면은 Web fixture tests로 검증했으며 운영 계정 기반 시각 검증은 Task 14 수동 preflight에 남긴다.
+
+### 다음 작업: Task 14 운영 경계
+
+1. 작업 브랜치의 diff/PR을 검토하고 merge한다. 이 세션에서는 push/PR/merge하지 않았다.
+2. 운영자가 복구 가능한 Supabase backup을 확인한 뒤에만 Railway API+Worker에 encryption keyring과 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`을 설정한다. Vercel에는 encryption key를 넣지 않는다.
+3. Production migration, API, Worker, Web 순서로 배포한다.
+4. Railway one-off 환경에서 credential backfill dry-run/apply/dry-run을 실행하고 unmigrated/failed가 0인지 확인한다.
+5. 서로 다른 두 사이트의 GSC/GA4 resource isolation, 조직 Bing, GEO BYOK 우선순위, PageSpeed platform key, no-fixture를 확인한다.
+6. 실제 legacy fallback이 7일간 0일 때만 API+Worker를 `encrypted` mode로 전환한다. Legacy table drop은 새 계획과 별도 승인 전까지 금지한다.
+
+재개 지시: **“multi-tenant credential Task 14 preflight 이어서”**라고 하면 이 섹션 1번부터 시작한다.
+
+---
+
+## 과거 운영 배포 · 프로비저닝 기록
+
+아래 내용은 2026-06-27 기준 운영 이력이다. 현재 multi-tenant credential branch가 아직 운영에 배포되었다는 의미가 아니다.
 
 > ✅ **org-invite 라이브 (2026-06-23)**: `Invitation` 테이블 운영 DB 생성 확인 + **invite web UI 라이브 (#81)** — 운영 콘솔 `/ops/invites`에서 초대 생성·목록·철회.
 > ✅ **마이그레이션 자동화 완료 (2026-06-27, #82)**: Prisma `directUrl`(`DIRECT_DATABASE_URL`=Supabase **session pooler :5432**) + Railway `searchops-api` **Pre-Deploy Command** `corepack pnpm db:migrate:deploy`. 배포 로그로 검증(`No pending migrations to apply`). 이제 스키마 PR 머지→배포 시 **자동 적용**(수동 불필요). (과거 교훈이던 "Railway는 자동 적용 안 함"을 이 설정으로 해결. 런타임 client는 풀러 URL 유지, migrate만 직결 URL 사용.)

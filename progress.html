@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SearchOps AI 운영 배포 진행 현황</title>
+    <title>SearchOps AI Multi-tenant Credential Progress</title>
     <style>
       :root {
         color-scheme: light;
@@ -18,74 +18,382 @@
         --warn: #a15c00;
         --defer: #5c6672;
       }
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         background: var(--bg);
         color: var(--ink);
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
         line-height: 1.55;
       }
-      main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 56px; }
-      h1, h2, h3 { margin: 0; line-height: 1.2; }
-      h1 { font-size: 32px; }
-      h2 { margin-top: 30px; font-size: 22px; }
-      h3 { margin-bottom: 10px; font-size: 16px; }
-      p { margin: 8px 0 0; }
-      ul, ol { margin: 10px 0 0; padding-left: 22px; }
-      li { margin: 5px 0; }
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 36px 0 56px;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.2;
+      }
+      h1 {
+        font-size: 32px;
+      }
+      h2 {
+        margin-top: 30px;
+        font-size: 22px;
+      }
+      h3 {
+        margin-bottom: 10px;
+        font-size: 16px;
+      }
+      p {
+        margin: 8px 0 0;
+      }
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+      li {
+        margin: 5px 0;
+      }
       code {
-        border: 1px solid var(--line); border-radius: 6px; background: #f1f4f8;
-        padding: 1px 5px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.9em;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #f1f4f8;
+        padding: 1px 5px;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.9em;
+        overflow-wrap: anywhere;
       }
-      .meta, .small { color: var(--muted); font-size: 14px; }
-      .summary, .grid { display: grid; gap: 12px; margin-top: 18px; }
-      .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .stat, .phase, .plan, .guardrails, .card {
-        background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px;
+      .meta,
+      .small {
+        color: var(--muted);
+        font-size: 14px;
       }
-      .stat strong { display: block; font-size: 26px; }
-      .stat span { color: var(--muted); font-size: 13px; }
+      .summary,
+      .grid {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .summary {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .stat,
+      .phase,
+      .plan,
+      .guardrails,
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        min-width: 0;
+      }
+      .stat strong {
+        display: block;
+        font-size: 26px;
+      }
+      .stat span {
+        color: var(--muted);
+        font-size: 13px;
+      }
       .status {
-        display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px;
-        background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 3px 9px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
       }
-      .done { background: #e8f6f0; color: var(--done); }
-      .partial { background: #fff4df; color: var(--warn); }
-      .defer { background: #eef1f5; color: var(--defer); }
-      table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
-      th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-      th { color: var(--muted); font-weight: 600; font-size: 13px; }
-      .plan-list { display: grid; gap: 10px; margin-top: 14px; }
-      .plan { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
-      .tag { color: var(--accent); font-weight: 800; font-size: 18px; }
-      .lead { font-size: 15px; color: var(--muted); margin-top: 6px; }
-      s { color: var(--muted); }
-      a { color: var(--accent); }
+      .done {
+        background: #e8f6f0;
+        color: var(--done);
+      }
+      .partial {
+        background: #fff4df;
+        color: var(--warn);
+      }
+      .defer {
+        background: #eef1f5;
+        color: var(--defer);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 14px;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .plan-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .plan {
+        display: grid;
+        grid-template-columns: 64px 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+      .tag {
+        color: var(--accent);
+        font-weight: 800;
+        font-size: 18px;
+      }
+      .lead {
+        font-size: 15px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      s {
+        color: var(--muted);
+      }
+      a {
+        color: var(--accent);
+      }
       @media (max-width: 900px) {
-        .summary, .grid, .plan { grid-template-columns: 1fr; }
+        .summary,
+        .grid,
+        .plan {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        table {
+          display: block;
+          max-width: 100%;
+          overflow-x: auto;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <header>
-        <h1>SearchOps AI — 운영 배포 진행 현황</h1>
-        <p class="meta">Updated: 2026-06-27 · Branch: <code>main</code></p>
+        <h1>SearchOps AI Multi-tenant Credential Progress</h1>
+        <p class="meta">
+          Updated: 2026-07-14 · Branch: <code>codex/multitenant-provider-credentials</code> · Task
+          12 final code commit: <code>01a0d40</code>
+        </p>
         <p class="lead">
-          Live · Web <a href="https://searchops.totopapa.com/ops/readiness">searchops.totopapa.com</a>
-          (+ <a href="https://searchops-ai-web.vercel.app/ops/readiness">searchops-ai-web.vercel.app</a>)
-          · API <code>searchops-api-production.up.railway.app</code>
+          Tasks 1-13 are complete and verified locally. Production expand, backfill, and cutover
+          have not started and require explicit operator approval.
         </p>
       </header>
 
+      <section aria-label="현재 구현 상태">
+        <h2>Current Implementation</h2>
+        <div class="summary">
+          <div class="stat"><strong>13/13</strong><span>Local implementation tasks</span></div>
+          <div class="stat"><strong>1,067</strong><span>Workspace tests passed</span></div>
+          <div class="stat"><strong>9/9</strong><span>Artifact transaction regressions</span></div>
+          <div class="stat"><strong>0</strong><span>Live services changed</span></div>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h3>Tenant credential model</h3>
+            <p class="small">
+              Google, Bing, and GEO BYOK credentials are encrypted in organization-scoped
+              <code>ProviderAccount</code> rows. GSC properties and GA4 Property IDs are stored as
+              site-scoped <code>SiteConnector</code> bindings.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Worker resolution</h3>
+            <p class="small">
+              Each job resolves organization, account, resource binding, credential version, and
+              provider scope from its <code>siteId</code>. PageSpeed and SearchOps-funded GEO keys
+              remain Worker platform settings.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Fail-closed auth</h3>
+            <p class="small">
+              Protected Web routes forward only verified Supabase user bearer tokens. Integrations,
+              site connectors, and readiness no longer use service-principal or demo fallback reads.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-label="검증 결과">
+        <h2>Verification</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Gate</th>
+              <th>Result</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Package-focused tests</td>
+              <td><span class="status done">PASS</span></td>
+              <td>Types 95 · DB 133 · Connectors 62 · API 341 · Worker 108 · Web 161</td>
+            </tr>
+            <tr>
+              <td>Repository gates</td>
+              <td><span class="status done">PASS</span></td>
+              <td>
+                <code>lint</code> · <code>build</code> · recursive <code>typecheck</code> · 1,067
+                recursive tests
+              </td>
+            </tr>
+            <tr>
+              <td>Prisma static gate</td>
+              <td><span class="status done">PASS</span></td>
+              <td>
+                <code>prisma validate</code>, generate, and DB build with synthetic local URLs
+              </td>
+            </tr>
+            <tr>
+              <td>Clean artifact transaction</td>
+              <td><span class="status done">APPROVED</span></td>
+              <td>
+                Atomic repo-local rename, exact backup retention, quarantine cleanup only after all
+                restores, 9 regressions plus real smoke
+              </td>
+            </tr>
+            <tr>
+              <td>Browser</td>
+              <td><span class="status done">PASS</span></td>
+              <td>
+                1200px and 390px login layout without horizontal overflow; three protected routes
+                redirect with exact <code>next</code> paths
+              </td>
+            </tr>
+            <tr>
+              <td>Local migration rehearsal</td>
+              <td><span class="status defer">NOT RUN</span></td>
+              <td>
+                No DB URLs or approved local PostgreSQL runtime. No live Supabase access was
+                attempted.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section aria-label="Task 14 다음 단계">
+        <h2>Next: Task 14 Operator Boundary</h2>
+        <div class="plan-list">
+          <div class="plan">
+            <div class="tag">1</div>
+            <div>
+              <strong>Review and merge this branch.</strong>
+              <p class="small">
+                This implementation run did not push, open a PR, merge, or deploy.
+              </p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">2</div>
+            <div>
+              <strong>Backup and dual-mode preflight.</strong>
+              <p class="small">
+                Verify a restorable Supabase backup, then set the encryption keyring and
+                <code>SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual</code> on Railway API and Worker only.
+                Never place the keyring on Vercel.
+              </p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">3</div>
+            <div>
+              <strong>Expand and backfill.</strong>
+              <p class="small">
+                Deploy migration, API, Worker, Web in that order; run credential
+                dry-run/apply/dry-run and reconcile zero failed/unmigrated rows.
+              </p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">4</div>
+            <div>
+              <strong>Validate tenant routing.</strong>
+              <p class="small">
+                Prove two-site GSC/GA4 isolation, organization Bing/GEO BYOK boundaries, PageSpeed
+                platform routing, and no fixture fallback.
+              </p>
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">5</div>
+            <div>
+              <strong>Observe before cutover.</strong>
+              <p class="small">
+                Switch API and Worker to <code>encrypted</code> only after seven days with zero
+                observed legacy fallback. Legacy table deletion requires a new plan and separate
+                approval.
+              </p>
+            </div>
+          </div>
+        </div>
+        <p class="small">
+          Resume with: <strong>“multi-tenant credential Task 14 preflight 이어서”</strong>
+        </p>
+      </section>
+
+      <section aria-label="historical note">
+        <h2>Historical Production Snapshot</h2>
+        <p class="small">
+          The sections below describe the 2026-06-27 production snapshot. They do not mean the
+          current multi-tenant credential branch is deployed.
+        </p>
+      </section>
+
       <section aria-label="조치 완료">
-        <div class="guardrails" style="border-color:#16805d;background:#e8f6f0">
-          <h3 style="color:#16805d;margin-bottom:6px">✅ 운영 하드닝 사이클 2 완료 (2026-06-27)</h3>
-          <p class="small"><strong>마이그레이션 자동화 (#82)</strong>: Prisma <code>directUrl</code>(<code>DIRECT_DATABASE_URL</code>=session pooler :5432) + Railway <code>searchops-api</code> Pre-Deploy Command <code>corepack pnpm db:migrate:deploy</code>. 배포 로그로 검증(<code>No pending migrations to apply</code>) → 스키마 PR 머지 시 <strong>자동 적용</strong>(과거 "Railway 자동 적용 안 함" 교훈을 이 설정으로 해결).</p>
-          <p class="small"><strong>시크릿 로테이션</strong>: 노출된 <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳(Railway API·Vercel prod+preview·GitHub) 교체·검증, 옛 값 무효화.</p>
-          <p class="small"><strong>GEO live (OpenAI)</strong> · <strong>log-drain</strong> 활성 · <strong>invite web UI (#81)</strong> <code>/ops/invites</code> · <strong>dead-letter 0건</strong> · 버그수정 #83(GEO/compliance 액션 도메인 폴백).</p>
+        <div class="guardrails" style="border-color: #16805d; background: #e8f6f0">
+          <h3 style="color: #16805d; margin-bottom: 6px">
+            ✅ 운영 하드닝 사이클 2 완료 (2026-06-27)
+          </h3>
+          <p class="small">
+            <strong>마이그레이션 자동화 (#82)</strong>: Prisma
+            <code>directUrl</code>(<code>DIRECT_DATABASE_URL</code>=session pooler :5432) + Railway
+            <code>searchops-api</code> Pre-Deploy Command
+            <code>corepack pnpm db:migrate:deploy</code>. 배포 로그로 검증(<code
+              >No pending migrations to apply</code
+            >) → 스키마 PR 머지 시 <strong>자동 적용</strong>(과거 "Railway 자동 적용 안 함" 교훈을
+            이 설정으로 해결).
+          </p>
+          <p class="small">
+            <strong>시크릿 로테이션</strong>: 노출된
+            <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳(Railway API·Vercel prod+preview·GitHub)
+            교체·검증, 옛 값 무효화.
+          </p>
+          <p class="small">
+            <strong>GEO live (OpenAI)</strong> · <strong>log-drain</strong> 활성 ·
+            <strong>invite web UI (#81)</strong> <code>/ops/invites</code> ·
+            <strong>dead-letter 0건</strong> · 버그수정 #83(GEO/compliance 액션 도메인 폴백).
+          </p>
         </div>
       </section>
 
@@ -97,24 +405,85 @@
           <div class="stat"><strong>4</strong><span>프로비저닝 필요</span></div>
           <div class="stat"><strong>9</strong><span>수동 후속</span></div>
         </div>
-        <p class="small">/ops/readiness 배지: <span class="status done">API 데이터</span> · A + B + C(organization-invite) + 이번 사이클 <strong>observability-drain</strong>(log-drain) + <strong>geo-live-providers</strong>(OpenAI 키) configured → 26→28. <strong>rich-result는 보류</strong>(의미 있는 외부 validator 부재 — 오프라인 검증이 제품, dead-env는 이미 제거).</p>
+        <p class="small">
+          /ops/readiness 배지: <span class="status done">API 데이터</span> · A + B +
+          C(organization-invite) + 이번 사이클 <strong>observability-drain</strong>(log-drain) +
+          <strong>geo-live-providers</strong>(OpenAI 키) configured → 26→28.
+          <strong>rich-result는 보류</strong>(의미 있는 외부 validator 부재 — 오프라인 검증이 제품,
+          dead-env는 이미 제거).
+        </p>
       </section>
 
       <section aria-label="스택 상태">
         <h2>현재 운영 상태</h2>
         <table>
-          <thead><tr><th>구성요소</th><th>상태</th><th>비고</th></tr></thead>
+          <thead>
+            <tr>
+              <th>구성요소</th>
+              <th>상태</th>
+              <th>비고</th>
+            </tr>
+          </thead>
           <tbody>
-            <tr><td>DB (Supabase, 서울)</td><td><span class="status done">연결</span></td><td>마이그레이션 15개 적용 + seed</td></tr>
-            <tr><td>Redis (Railway)</td><td><span class="status done">연결</span></td><td>noeviction</td></tr>
-            <tr><td>API 엔진 (Railway)</td><td><span class="status done">가동</span></td><td><code>/health</code> 200</td></tr>
-            <tr><td>Worker 엔진 (Railway)</td><td><span class="status done">가동</span></td><td>Active</td></tr>
-            <tr><td>웹사이트 (Vercel)</td><td><span class="status done">연결</span></td><td>API 실시간 데이터 · 커스텀 도메인 <code>searchops.totopapa.com</code> (HTTPS)</td></tr>
-            <tr><td>인증/보안</td><td><span class="status done">잠금</span></td><td>NODE_ENV=production + HS256 IdP → 익명/사칭 차단</td></tr>
-            <tr><td>알림/가동 모니터링</td><td><span class="status done">가동</span></td><td>GH Actions 5분 폴러(<code>/health</code> + <code>/ops/metrics-export</code>) + 인증 sink · log-drain sink 활성</td></tr>
-            <tr><td>마이그레이션 자동화</td><td><span class="status done">자동</span></td><td>Railway Pre-Deploy <code>db:migrate:deploy</code> + Prisma <code>directUrl</code> (#82, 배포 로그 검증)</td></tr>
-            <tr><td>GEO live (AI 답변 모니터)</td><td><span class="status done">활성</span></td><td>OpenAI <code>gpt-4o-mini</code> — <code>geo-answer-monitor</code> job 라이브 검증(호출당 과금)</td></tr>
-            <tr><td>초대(invite) UI</td><td><span class="status done">라이브</span></td><td><code>/ops/invites</code> 생성·목록·철회 (#81)</td></tr>
+            <tr>
+              <td>DB (Supabase, 서울)</td>
+              <td><span class="status done">연결</span></td>
+              <td>마이그레이션 15개 적용 + seed</td>
+            </tr>
+            <tr>
+              <td>Redis (Railway)</td>
+              <td><span class="status done">연결</span></td>
+              <td>noeviction</td>
+            </tr>
+            <tr>
+              <td>API 엔진 (Railway)</td>
+              <td><span class="status done">가동</span></td>
+              <td><code>/health</code> 200</td>
+            </tr>
+            <tr>
+              <td>Worker 엔진 (Railway)</td>
+              <td><span class="status done">가동</span></td>
+              <td>Active</td>
+            </tr>
+            <tr>
+              <td>웹사이트 (Vercel)</td>
+              <td><span class="status done">연결</span></td>
+              <td>API 실시간 데이터 · 커스텀 도메인 <code>searchops.totopapa.com</code> (HTTPS)</td>
+            </tr>
+            <tr>
+              <td>인증/보안</td>
+              <td><span class="status done">잠금</span></td>
+              <td>NODE_ENV=production + HS256 IdP → 익명/사칭 차단</td>
+            </tr>
+            <tr>
+              <td>알림/가동 모니터링</td>
+              <td><span class="status done">가동</span></td>
+              <td>
+                GH Actions 5분 폴러(<code>/health</code> + <code>/ops/metrics-export</code>) + 인증
+                sink · log-drain sink 활성
+              </td>
+            </tr>
+            <tr>
+              <td>마이그레이션 자동화</td>
+              <td><span class="status done">자동</span></td>
+              <td>
+                Railway Pre-Deploy <code>db:migrate:deploy</code> + Prisma
+                <code>directUrl</code> (#82, 배포 로그 검증)
+              </td>
+            </tr>
+            <tr>
+              <td>GEO live (AI 답변 모니터)</td>
+              <td><span class="status done">활성</span></td>
+              <td>
+                OpenAI <code>gpt-4o-mini</code> — <code>geo-answer-monitor</code> job 라이브
+                검증(호출당 과금)
+              </td>
+            </tr>
+            <tr>
+              <td>초대(invite) UI</td>
+              <td><span class="status done">라이브</span></td>
+              <td><code>/ops/invites</code> 생성·목록·철회 (#81)</td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -122,40 +491,86 @@
       <section aria-label="완료 작업">
         <h2>완료한 작업 (이번 배포 사이클)</h2>
         <ol>
-          <li><strong>Phase 0 — DB</strong>: Supabase 연결 + <code>prisma migrate deploy</code>(15) + seed. 로컬 Docker로 동일 파이프라인 리허설 후 적용.</li>
-          <li><strong>Phase 1 — Redis</strong>: Railway Redis(noeviction) 연결, API·Worker 부팅 확인.</li>
-          <li><strong>인증/보안</strong>: <code>NODE_ENV=production</code> + <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> → mock/trusted fallback 차단(<code>/ops/*</code> 401).</li>
-          <li><strong>웹↔API (PR #75)</strong>: <code>api-client.ts</code>(apiFetch + HS256 토큰 자동 발급), 16개 모듈 37곳 <code>fetch→apiFetch</code>, ops 3화면 force-dynamic. typecheck/lint/build 통과.</li>
-          <li><strong>Vercel env</strong>: <code>SEARCHOPS_API_BASE_URL</code> + <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 설정 (잘못 넣은 <code>NODE_ENV</code>/<code>DATABASE_URL</code> 제거 → 빌드 복구).</li>
+          <li>
+            <strong>Phase 0 — DB</strong>: Supabase 연결 + <code>prisma migrate deploy</code>(15) +
+            seed. 로컬 Docker로 동일 파이프라인 리허설 후 적용.
+          </li>
+          <li>
+            <strong>Phase 1 — Redis</strong>: Railway Redis(noeviction) 연결, API·Worker 부팅 확인.
+          </li>
+          <li>
+            <strong>인증/보안</strong>: <code>NODE_ENV=production</code> +
+            <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> → mock/trusted fallback 차단(<code
+              >/ops/*</code
+            >
+            401).
+          </li>
+          <li>
+            <strong>웹↔API (PR #75)</strong>: <code>api-client.ts</code>(apiFetch + HS256 토큰 자동
+            발급), 16개 모듈 37곳 <code>fetch→apiFetch</code>, ops 3화면 force-dynamic.
+            typecheck/lint/build 통과.
+          </li>
+          <li>
+            <strong>Vercel env</strong>: <code>SEARCHOPS_API_BASE_URL</code> +
+            <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 설정 (잘못 넣은 <code>NODE_ENV</code>/<code
+              >DATABASE_URL</code
+            >
+            제거 → 빌드 복구).
+          </li>
           <li><strong>결과</strong>: /ops/readiness "데모" → "API 데이터" 전환 확인.</li>
           <li>
-            <strong>A안 — 알림 + 에러/가동 모니터링 (PR #76)</strong>:
-            인증 sink <code>/api/ops/alert-sink</code>(Bearer 검증·로깅) + <code>.github/workflows/ops-heartbeat.yml</code>(5분: <code>/health</code> 다운감지 + HS256 토큰으로 <code>/ops/metrics-export</code> fire-on-read 구동).
-            env: Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> / Railway <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>(+<code>_TOKEN</code>) / GH secret <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>.
-            <code>alert-routing</code>·<code>error-monitoring-uptime</code> configured. 보너스: Vercel 클린빌드 실패 잠복버그(<code>next/script</code> 타입) 함께 수정.
-            <span class="status partial">실알림 1회 토큰일치 미검증 (불일치 시 워크플로 실패로 드러남 = self-detecting)</span>
+            <strong>A안 — 알림 + 에러/가동 모니터링 (PR #76)</strong>: 인증 sink
+            <code>/api/ops/alert-sink</code>(Bearer 검증·로깅) +
+            <code>.github/workflows/ops-heartbeat.yml</code>(5분: <code>/health</code> 다운감지 +
+            HS256 토큰으로 <code>/ops/metrics-export</code> fire-on-read 구동). env: Vercel
+            <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> / Railway
+            <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>(+<code>_TOKEN</code>) / GH secret
+            <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>. <code>alert-routing</code>·<code
+              >error-monitoring-uptime</code
+            >
+            configured. 보너스: Vercel 클린빌드 실패 잠복버그(<code>next/script</code> 타입) 함께
+            수정.
+            <span class="status partial"
+              >실알림 1회 토큰일치 미검증 (불일치 시 워크플로 실패로 드러남 = self-detecting)</span
+            >
           </li>
           <li>
             <strong>B안 — 커스텀 도메인 (2026-06-22)</strong>:
-            <code>https://searchops.totopapa.com</code> 연결 (Cloudflare <code>CNAME searchops→cname.vercel-dns.com</code>, DNS only + Vercel 도메인 추가 + HTTPS 자동 발급).
-            <code>SEARCHOPS_PUBLIC_APP_URL</code>을 Vercel+Railway 양쪽 설정 → 웹 재배포로 적용. <code>production-domain</code> configured.
-            API는 변경 불필요(웹→API 서버-투-서버, CORS 없음; <code>SEARCHOPS_API_BASE_URL</code>·Google OAuth redirect 불변).
+            <code>https://searchops.totopapa.com</code> 연결 (Cloudflare
+            <code>CNAME searchops→cname.vercel-dns.com</code>, DNS only + Vercel 도메인 추가 + HTTPS
+            자동 발급). <code>SEARCHOPS_PUBLIC_APP_URL</code>을 Vercel+Railway 양쪽 설정 → 웹
+            재배포로 적용. <code>production-domain</code> configured. API는 변경 불필요(웹→API
+            서버-투-서버, CORS 없음; <code>SEARCHOPS_API_BASE_URL</code>·Google OAuth redirect
+            불변).
           </li>
           <li>
             <strong>C안 — 나머지 프로비저닝 dead-env 제거 (PR #77·#78·#79·#80, 2026-06-23)</strong>:
-            <strong>#77</strong> rich-result(env 스키마+HTTP client+worker 배선) · <strong>#78</strong> log-drain self-host sink(<code>/api/ops/log-drain-sink</code>) · <strong>#79</strong> GEO 4-provider(ChatGPT/Perplexity/Gemini/Claude + per-provider fixture fallback, Copilot은 API 없어 fixture) · <strong>#80</strong> org-invite Tier C(Invitation 모델+추가전용 마이그레이션+라우트4+RBAC+env-gated 이메일, organization-invite configured).
-            <span class="status partial">#80 마이그레이션 적용 완료 · canLaunch는 billing-subscription 때문에 여전히 false</span>
+            <strong>#77</strong> rich-result(env 스키마+HTTP client+worker 배선) ·
+            <strong>#78</strong> log-drain self-host sink(<code>/api/ops/log-drain-sink</code>) ·
+            <strong>#79</strong> GEO 4-provider(ChatGPT/Perplexity/Gemini/Claude + per-provider
+            fixture fallback, Copilot은 API 없어 fixture) · <strong>#80</strong> org-invite Tier
+            C(Invitation 모델+추가전용 마이그레이션+라우트4+RBAC+env-gated 이메일,
+            organization-invite configured).
+            <span class="status partial"
+              >#80 마이그레이션 적용 완료 · canLaunch는 billing-subscription 때문에 여전히
+              false</span
+            >
           </li>
           <li>
             <strong>D안 — 운영 하드닝 사이클 2 (2026-06-27)</strong>:
-            <strong>시크릿 로테이션</strong>(<code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳 교체·검증) ·
-            <strong>log-drain 활성화</strong>(self-host sink + env, observability-drain configured) ·
-            <strong>invite web UI (#81)</strong>(<code>/ops/invites</code> page+actions+client, 운영 콘솔 링크) ·
-            <strong>마이그레이션 자동화 (#82)</strong>(Prisma <code>directUrl</code> + Railway Pre-Deploy, 배포 로그 검증) ·
-            <strong>dead-letter 정리</strong>(9→0) ·
-            <strong>GEO live (#79 활성)</strong>(OpenAI <code>gpt-4o-mini</code>, <code>geo-answer-monitor</code> job completed=라이브 성공) ·
-            <strong>버그 #83</strong>(GEO/compliance 서버 액션이 실제 사이트를 demoSite 도메인으로 폴백 → API 도메인 검사 400 유발 → <code>loadDashboardSite</code>로 수정).
-            <span class="status partial">API <code>Fastify({logger:false})</code>라 에러 미로깅 → 로컬 스키마 재현으로 #83 특정</span>
+            <strong>시크릿 로테이션</strong>(<code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> 4곳
+            교체·검증) · <strong>log-drain 활성화</strong>(self-host sink + env, observability-drain
+            configured) · <strong>invite web UI (#81)</strong>(<code>/ops/invites</code>
+            page+actions+client, 운영 콘솔 링크) · <strong>마이그레이션 자동화 (#82)</strong>(Prisma
+            <code>directUrl</code> + Railway Pre-Deploy, 배포 로그 검증) ·
+            <strong>dead-letter 정리</strong>(9→0) · <strong>GEO live (#79 활성)</strong>(OpenAI
+            <code>gpt-4o-mini</code>, <code>geo-answer-monitor</code> job completed=라이브 성공) ·
+            <strong>버그 #83</strong>(GEO/compliance 서버 액션이 실제 사이트를 demoSite 도메인으로
+            폴백 → API 도메인 검사 400 유발 → <code>loadDashboardSite</code>로 수정).
+            <span class="status partial"
+              >API <code>Fastify({logger:false})</code>라 에러 미로깅 → 로컬 스키마 재현으로 #83
+              특정</span
+            >
           </li>
         </ol>
       </section>
@@ -165,26 +580,59 @@
         <div class="grid">
           <div class="card">
             <h3>🟩 Railway · API</h3>
-            <p class="small"><code>DATABASE_URL</code>, <code>DIRECT_DATABASE_URL</code>(session pooler :5432, migrate 전용), <code>REDIS_URL</code>, <code>NODE_ENV=production</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션), <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code>·<code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>(+<code>_TOKEN</code>), <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code>, Google OAuth quad 등</p>
+            <p class="small">
+              <code>DATABASE_URL</code>, <code>DIRECT_DATABASE_URL</code>(session pooler :5432,
+              migrate 전용), <code>REDIS_URL</code>, <code>NODE_ENV=production</code>,
+              <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션),
+              <code>SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL</code
+              >·<code>SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL</code>(+<code>_TOKEN</code>),
+              <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code>,
+              Google OAuth quad 등
+            </p>
             <p class="small">+ Pre-Deploy Command <code>corepack pnpm db:migrate:deploy</code></p>
           </div>
           <div class="card">
             <h3>🟩 Railway · Worker</h3>
-            <p class="small"><code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>(+<code>_MODEL=gpt-4o-mini</code>) (+ 커넥터 키)</p>
+            <p class="small">
+              <code>DATABASE_URL</code>, <code>REDIS_URL</code>,
+              <code>SEARCHOPS_GEO_CHATGPT_API_KEY</code>(+<code>_MODEL=gpt-4o-mini</code>) (+ 커넥터
+              키)
+            </p>
           </div>
           <div class="card">
             <h3>🟦 Vercel · Web (Prod+Preview)</h3>
-            <p class="small"><code>SEARCHOPS_API_BASE_URL</code>, <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션), <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code>, <code>SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code></p>
-            <p class="small">⚠️ <code>NODE_ENV</code>/<code>DATABASE_URL</code>은 절대 넣지 말 것 (Vercel 빌드 실패)</p>
+            <p class="small">
+              <code>SEARCHOPS_API_BASE_URL</code>,
+              <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code>(로테이션),
+              <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code>,
+              <code>SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN</code>, <code>SEARCHOPS_PUBLIC_APP_URL</code>
+            </p>
+            <p class="small">
+              ⚠️ <code>NODE_ENV</code>/<code>DATABASE_URL</code>은 절대 넣지 말 것 (Vercel 빌드
+              실패)
+            </p>
           </div>
           <div class="card">
             <h3>⬛ GitHub · repo secret</h3>
-            <p class="small"><code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> (searchops-ai) — ops-heartbeat 워크플로 토큰 발급용.</p>
-            <p class="small">⚠️ Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> = Railway <code>..._WEBHOOK_TOKEN</code> 동일값이어야 함.</p>
+            <p class="small">
+              <code>SEARCHOPS_IDP_JWT_HS256_SECRET</code> (searchops-ai) — ops-heartbeat 워크플로
+              토큰 발급용.
+            </p>
+            <p class="small">
+              ⚠️ Vercel <code>SEARCHOPS_OPS_ALERT_SINK_TOKEN</code> = Railway
+              <code>..._WEBHOOK_TOKEN</code> 동일값이어야 함.
+            </p>
           </div>
           <div class="card">
             <h3>🟨 C 기능 활성 env</h3>
-            <p class="small"><span class="status done">log-drain ✅</span> 활성 · <span class="status done">GEO ✅</span> chatgpt(gpt-4o-mini) 활성, 추가 provider는 <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>로(과금) · <span class="status defer">rich-result ⏸️</span> 보류(validator URL 부재, 오프라인 검증 사용) · invite 이메일(선택): <code>SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL</code>(미설정 시 서버로그).</p>
+            <p class="small">
+              <span class="status done">log-drain ✅</span> 활성 ·
+              <span class="status done">GEO ✅</span> chatgpt(gpt-4o-mini) 활성, 추가 provider는
+              <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>로(과금) ·
+              <span class="status defer">rich-result ⏸️</span> 보류(validator URL 부재, 오프라인
+              검증 사용) · invite 이메일(선택):
+              <code>SEARCHOPS_INVITE_EMAIL_WEBHOOK_URL</code>(미설정 시 서버로그).
+            </p>
           </div>
         </div>
       </section>
@@ -194,34 +642,46 @@
         <div class="plan-list">
           <div class="plan">
             <div class="tag">A ✅</div>
-            <div><strong>알림 + 에러/가동 모니터링</strong> <span class="status done">완료 (PR #76)</span></div>
+            <div>
+              <strong>알림 + 에러/가동 모니터링</strong>
+              <span class="status done">완료 (PR #76)</span>
+            </div>
           </div>
           <div class="plan">
             <div class="tag">B ✅</div>
-            <div><strong>커스텀 도메인</strong> <span class="status done">완료</span> <code>https://searchops.totopapa.com</code></div>
+            <div>
+              <strong>커스텀 도메인</strong> <span class="status done">완료</span>
+              <code>https://searchops.totopapa.com</code>
+            </div>
           </div>
           <div class="plan">
             <div class="tag">C ✅</div>
             <div>
-              <strong>나머지 dead-env 제거</strong> <span class="status done">완료 (PR #77·#78·#79·#80 + 마이그레이션)</span>
+              <strong>나머지 dead-env 제거</strong>
+              <span class="status done">완료 (PR #77·#78·#79·#80 + 마이그레이션)</span>
               <p class="small">rich-result · log-drain · GEO · org-invite. dead-env 제거.</p>
             </div>
           </div>
           <div class="plan">
             <div class="tag">D ✅</div>
             <div>
-              <strong>운영 하드닝 사이클 2</strong> <span class="status done">완료 (2026-06-27)</span>
-              <p class="small">시크릿 로테이션 · log-drain 활성 · invite web UI(#81) · 마이그레이션 자동화(#82) · dead-letter 0건 · GEO live(OpenAI) · 버그수정(#83).</p>
+              <strong>운영 하드닝 사이클 2</strong>
+              <span class="status done">완료 (2026-06-27)</span>
+              <p class="small">
+                시크릿 로테이션 · log-drain 활성 · invite web UI(#81) · 마이그레이션 자동화(#82) ·
+                dead-letter 0건 · GEO live(OpenAI) · 버그수정(#83).
+              </p>
             </div>
           </div>
           <div class="plan">
             <div class="tag">1 💤</div>
             <div>
-              <strong>billing / uptime / GEO 확장 / rich-result</strong> <span class="status defer">결정·선택</span>
+              <strong>billing / uptime / GEO 확장 / rich-result</strong>
+              <span class="status defer">결정·선택</span>
               <p class="small">
-                <strong>billing-subscription</strong>(canLaunch=true의 마지막 차단, Stripe 등 제품 결정) ·
-                외부 uptime 모니터 이중화(본인 계정, <code>/health</code>) ·
-                GEO 추가 provider(perplexity/gemini/claude 키, 과금) ·
+                <strong>billing-subscription</strong>(canLaunch=true의 마지막 차단, Stripe 등 제품
+                결정) · 외부 uptime 모니터 이중화(본인 계정, <code>/health</code>) · GEO 추가
+                provider(perplexity/gemini/claude 키, 과금) ·
                 <strong>rich-result 보류</strong>(validator URL 부재) ·
                 restore-drill/secret-rotation 웹훅(수동 절차).
               </p>
@@ -238,15 +698,26 @@
             <li><s>"알림 설정 해줘" → A</s> ✅ 완료 (PR #76)</li>
             <li><s>"도메인 연결해줘" → B</s> ✅ 완료 — <code>searchops.totopapa.com</code></li>
             <li><s>"남은 C 항목 진행" → C</s> ✅ 완료 (PR #77·#78·#79·#80 + 마이그레이션 적용)</li>
-            <li><s>"하드닝 사이클 2" → D</s> ✅ 완료 — 로테이션·log-drain·invite UI·마이그레이션 자동화·dead-letter·GEO live</li>
-            <li><strong>"billing 연동하자"</strong> → canLaunch=true의 마지막 차단(Stripe 등 제품 결정)</li>
-            <li><strong>"GEO 다른 provider 켜줘"</strong> → Railway worker+api <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>(과금 주의)</li>
+            <li>
+              <s>"하드닝 사이클 2" → D</s> ✅ 완료 — 로테이션·log-drain·invite UI·마이그레이션
+              자동화·dead-letter·GEO live
+            </li>
+            <li>
+              <strong>"billing 연동하자"</strong> → canLaunch=true의 마지막 차단(Stripe 등 제품
+              결정)
+            </li>
+            <li>
+              <strong>"GEO 다른 provider 켜줘"</strong> → Railway worker+api
+              <code>SEARCHOPS_GEO_&lt;provider&gt;_API_KEY</code>(과금 주의)
+            </li>
           </ul>
           <p class="small">
-            상태 확인: <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터" 배지 · 28/4) ·
-            운영 콘솔: <a href="https://searchops.totopapa.com/ops">/ops</a> (초대 관리 <code>/ops/invites</code>) ·
-            상세 절차서: <code>docs/PROVISIONING_RUNBOOK.md</code> ·
-            ⚠️ 마이그레이션은 이제 <strong>자동</strong>(Railway Pre-Deploy).
+            상태 확인:
+            <a href="https://searchops.totopapa.com/ops/readiness">/ops/readiness</a> ("API 데이터"
+            배지 · 28/4) · 운영 콘솔: <a href="https://searchops.totopapa.com/ops">/ops</a> (초대
+            관리 <code>/ops/invites</code>) · 상세 절차서:
+            <code>docs/PROVISIONING_RUNBOOK.md</code> · ⚠️ 마이그레이션은 이제
+            <strong>자동</strong>(Railway Pre-Deploy).
           </p>
         </div>
         <p class="small">제품 빌드(Phase 0–11) 상세 로그는 <code>progress.md</code> 하단을 참조.</p>
