@@ -6,7 +6,7 @@
 
 ## 🚀 운영 배포 · 프로비저닝 진행상황
 
-Updated: 2026-07-14 (Task 12 final review fix; live deployment not performed or verified)
+Updated: 2026-07-14 (Task 12 smoke transaction fix; live deployment not performed or verified)
 Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.app) · api = https://searchops-api-production.up.railway.app
 
 > **Current source of truth:** this tracked `progress.md` and `docs/PROVISIONING_RUNBOOK.md`. Task 12 now makes `/ops/readiness` current-user-only and fail-closed, separates API/Worker readiness provenance, splits unmigrated rows from seven-day observed legacy use, and separates Vercel browser-safe config from required server-only secrets. API, Worker, Web must be deployed in that order before backfill. No live service was changed in this local task. The dated deployment notes below are historical snapshots and may be superseded.
@@ -21,6 +21,10 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 - GREEN: focused Web 13/API 201 tests, affected package Web 161/API 341/DB 133/Types 95/Worker 108 tests, clean-artifact smoke, workspace lint/build/typecheck를 통과했다. Live service, DB, Redis, provider, customer credential에는 접근하지 않았다.
 - Approval review RED: 네 tree metadata 계약을 추가했을 때 ENOENT 복원은 metadata hash가 달라졌고, post-build 실패 인자는 무시되어 exit 0이었다.
 - Approval review GREEN: ENOENT와 post-build CLI 실패 회귀 2개, 정상 clean smoke, synthetic separate-target check, Types 95/DB 133/Connectors 62/API 341 tests, workspace typecheck/lint/build를 통과했다.
+- Smoke approval RED: later backup-copy, partial original removal, restore-copy, backup-cleanup, symlink-ancestor 회귀 5개가 현재 failure injection/recovery path 부재로 실패하는 것을 확인했다.
+- Smoke transaction은 tree별 `backupComplete`, `originalRemoved`, `restoreComplete`, `restoreVerified`를 분리한다. Backup/quarantine/stage는 repo-local ignored `.searchops-smoke-backups`에 두며, 복구본을 stage에서 content+metadata 검증한 뒤 기존 target을 quarantine하고 rename한다. Replacement 설치가 실패하면 quarantine을 target으로 롤백하고, restore/verification이 실패하면 검증된 backup을 삭제하지 않고 `manualRecoveryPath`를 출력한다.
+- Repository root는 `realpath`로 고정하고, 고정 target 및 destructive source/destination의 모든 기존 ancestor를 `lstat`/`realpath`로 재검증한다. Symlink component는 operation 전에 거부한다.
+- Smoke approval GREEN: focused transaction/ENOENT/post-build 회귀 8개, 정상 clean smoke, synthetic separate-target check, Types 95/DB 133/Connectors 62/API 341 tests, workspace typecheck/lint/build를 통과했다. 검증되지 않은 backup cleanup은 수행하지 않았고 최종 smoke backup root는 비어 있다.
 
 > ✅ **org-invite 라이브 (2026-06-23)**: `Invitation` 테이블 운영 DB 생성 확인 + **invite web UI 라이브 (#81)** — 운영 콘솔 `/ops/invites`에서 초대 생성·목록·철회.
 > ✅ **마이그레이션 자동화 완료 (2026-06-27, #82)**: Prisma `directUrl`(`DIRECT_DATABASE_URL`=Supabase **session pooler :5432**) + Railway `searchops-api` **Pre-Deploy Command** `corepack pnpm db:migrate:deploy`. 배포 로그로 검증(`No pending migrations to apply`). 이제 스키마 PR 머지→배포 시 **자동 적용**(수동 불필요). (과거 교훈이던 "Railway는 자동 적용 안 함"을 이 설정으로 해결. 런타임 client는 풀러 URL 유지, migrate만 직결 URL 사용.)

@@ -20,3 +20,4 @@ backup_*.sql
 /*.sql
 .lazyweb/
 .superpowers/
+.searchops-smoke-backups/
