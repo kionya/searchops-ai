@@ -1,6 +1,16 @@
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  lutimesSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -8,23 +18,53 @@ const artifactPaths = [
   "packages/types/dist",
   "packages/db/dist",
   "packages/connectors/dist",
+  "packages/db/src/generated",
 ] as const;
+const artifactTargets = artifactPaths.map((relativePath) => ({
+  absolutePath: resolveRepoLocalPath(relativePath),
+  relativePath,
+}));
+const injectAfterBuildFailure = process.argv.includes("--inject-after-build-failure");
+const missingEnvPath = "scripts/test/connector-live-clean-artifact-missing.env";
 const backupRoot = mkdtempSync(join(tmpdir(), "searchops-clean-artifacts-"));
 const trackedBefore = readTrackedStatus();
 let smokeFailure: Error | undefined;
+let restorationFailure: Error | undefined;
+const artifactStates = artifactTargets.map((target, index) => ({
+  ...target,
+  backupPath: join(backupRoot, String(index)),
+  existed: existsSync(target.absolutePath),
+  metadata: existsSync(target.absolutePath) ? captureTreeMetadata(target.absolutePath) : [],
+  prepared: false,
+}));
 
 try {
-  for (const [index, relativePath] of artifactPaths.entries()) {
-    const artifactPath = resolve(repoRoot, relativePath);
-    if (existsSync(artifactPath)) {
-      cpSync(artifactPath, join(backupRoot, String(index)), { recursive: true });
-      rmSync(artifactPath, { force: true, recursive: true });
+  if (injectAfterBuildFailure && existsSync(resolveRepoLocalPath(missingEnvPath))) {
+    throw new Error("connector_live_clean_artifact_failure_target_exists");
+  }
+
+  for (const state of artifactStates) {
+    if (state.existed) {
+      cpSync(state.absolutePath, state.backupPath, {
+        preserveTimestamps: true,
+        recursive: true,
+        verbatimSymlinks: true,
+      });
+      rmSync(state.absolutePath, { force: true, recursive: true });
     }
+    state.prepared = true;
   }
 
   const result = spawnSync(
     "corepack",
-    ["pnpm", "check:connector-live", "--", "--deployment", "--json"],
+    [
+      "pnpm",
+      "check:connector-live",
+      "--",
+      "--deployment",
+      "--json",
+      ...(injectAfterBuildFailure ? [`--api-env-file=${missingEnvPath}`] : []),
+    ],
     {
       cwd: repoRoot,
       encoding: "utf8",
@@ -40,11 +80,19 @@ try {
   );
   const stdout = normalizeSpawnOutput(result.stdout);
   const stderr = normalizeSpawnOutput(result.stderr);
+  const builtArtifactPaths = artifactTargets
+    .filter((target) => existsSync(target.absolutePath))
+    .map((target) => target.relativePath);
+  const buildEvidence = `builtArtifacts=${builtArtifactPaths.join(",")}`;
 
   if (result.error) {
     smokeFailure = new Error(
       `connector_live_clean_artifact_spawn_failed: ${formatSpawnError("corepack", result.error)}${formatOutput(stdout, stderr)}`,
       { cause: result.error },
+    );
+  } else if (injectAfterBuildFailure && builtArtifactPaths.length !== artifactTargets.length) {
+    smokeFailure = new Error(
+      `connector_live_clean_artifact_build_evidence_failed: ${buildEvidence}${formatOutput(stdout, stderr)}`,
     );
   } else if (
     result.status !== 0 ||
@@ -52,7 +100,7 @@ try {
     !stdout.includes('"worker-runtime-base-env"')
   ) {
     smokeFailure = new Error(
-      `connector_live_clean_artifact_smoke_failed: status=${String(result.status)}${formatOutput(stdout, stderr)}`,
+      `connector_live_clean_artifact_smoke_failed: status=${String(result.status)}; ${buildEvidence}${formatOutput(stdout, stderr)}`,
     );
   }
 } catch (error) {
@@ -61,19 +109,42 @@ try {
     { cause: error },
   );
 } finally {
-  for (const [index, relativePath] of artifactPaths.entries()) {
-    const artifactPath = resolve(repoRoot, relativePath);
-    const backupPath = join(backupRoot, String(index));
-    rmSync(artifactPath, { force: true, recursive: true });
-    if (existsSync(backupPath)) {
-      cpSync(backupPath, artifactPath, { recursive: true });
+  for (const state of artifactStates) {
+    if (!state.prepared) {
+      continue;
+    }
+    try {
+      rmSync(state.absolutePath, { force: true, recursive: true });
+      if (state.existed) {
+        cpSync(state.backupPath, state.absolutePath, {
+          preserveTimestamps: true,
+          recursive: true,
+          verbatimSymlinks: true,
+        });
+        restoreTreeMetadata(state.absolutePath, state.metadata);
+      }
+    } catch (error) {
+      restorationFailure ??= new Error(
+        `connector_live_clean_artifact_restore_failed:${state.relativePath}: ${formatUnknownError(error)}`,
+        { cause: error },
+      );
     }
   }
-  rmSync(backupRoot, { force: true, recursive: true });
+  try {
+    rmSync(backupRoot, { force: true, recursive: true });
+  } catch (error) {
+    restorationFailure ??= new Error(
+      `connector_live_clean_artifact_backup_cleanup_failed: ${formatUnknownError(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 if (readTrackedStatus() !== trackedBefore) {
   throw new Error("connector_live_clean_artifact_modified_tracked_files");
+}
+if (restorationFailure) {
+  throw restorationFailure;
 }
 if (smokeFailure) {
   throw smokeFailure;
@@ -157,4 +228,93 @@ function getProperty(value: object, key: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+interface TreeMetadata {
+  readonly kind: "directory" | "file" | "symlink";
+  readonly mode: number;
+  readonly mtimeNs: bigint;
+  readonly relativePath: string;
+}
+
+function captureTreeMetadata(rootPath: string) {
+  const entries: TreeMetadata[] = [];
+  visit(rootPath, "");
+  return entries;
+
+  function visit(path: string, relativePath: string) {
+    const stat = lstatSync(path, { bigint: true });
+    const kind = stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory" : "file";
+    entries.push({ kind, mode: Number(stat.mode), mtimeNs: stat.mtimeNs, relativePath });
+    if (kind === "directory") {
+      for (const entry of readdirSync(path).sort()) {
+        visit(join(path, entry), join(relativePath, entry));
+      }
+    }
+  }
+}
+
+function restoreTreeMetadata(rootPath: string, metadata: readonly TreeMetadata[]) {
+  const entries = [...metadata].sort((left, right) => {
+    if (left.kind === "directory" && right.kind !== "directory") {
+      return 1;
+    }
+    if (left.kind !== "directory" && right.kind === "directory") {
+      return -1;
+    }
+    return right.relativePath.length - left.relativePath.length;
+  });
+
+  for (const entry of entries) {
+    const path = resolveRepoTreeEntry(rootPath, entry.relativePath);
+    const timestamp = nanosecondsToSeconds(entry.mtimeNs);
+    if (entry.kind === "symlink") {
+      lutimesSync(path, timestamp, timestamp);
+      continue;
+    }
+    chmodSync(path, entry.mode);
+    utimesSync(path, timestamp, timestamp);
+  }
+}
+
+function nanosecondsToSeconds(value: bigint) {
+  const nanosecondsPerSecond = 1_000_000_000n;
+  const nanosecondsPerMicrosecond = 1_000n;
+  const microsecondMidpoint = 500n;
+  const portableValue =
+    (value / nanosecondsPerMicrosecond) * nanosecondsPerMicrosecond + microsecondMidpoint;
+  return (
+    Number(portableValue / nanosecondsPerSecond) +
+    Number(portableValue % nanosecondsPerSecond) / Number(nanosecondsPerSecond)
+  );
+}
+
+function resolveRepoLocalPath(relativePath: string) {
+  if (isAbsolute(relativePath)) {
+    throw new Error(`connector_live_clean_artifact_path_outside_repo:${relativePath}`);
+  }
+  const absolutePath = resolve(repoRoot, relativePath);
+  const resolvedRelativePath = relative(repoRoot, absolutePath);
+  if (
+    resolvedRelativePath === "" ||
+    resolvedRelativePath === ".." ||
+    resolvedRelativePath.startsWith(`..${sep}`) ||
+    isAbsolute(resolvedRelativePath)
+  ) {
+    throw new Error(`connector_live_clean_artifact_path_outside_repo:${relativePath}`);
+  }
+  return absolutePath;
+}
+
+function resolveRepoTreeEntry(rootPath: string, relativePath: string) {
+  const path = resolve(rootPath, relativePath);
+  const resolvedRelativePath = relative(rootPath, path);
+  if (
+    resolvedRelativePath === ".." ||
+    resolvedRelativePath.startsWith(`..${sep}`) ||
+    isAbsolute(resolvedRelativePath)
+  ) {
+    throw new Error(`connector_live_clean_artifact_metadata_path_invalid:${relativePath}`);
+  }
+  return path;
 }

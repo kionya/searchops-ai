@@ -15,10 +15,12 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 
 - Vercel env를 browser-safe config와 non-`NEXT_PUBLIC` 서버 전용 secret으로 분리했다. 현재 Web runtime이 소비하는 서버 전용 값은 `SEARCHOPS_IDP_JWT_HS256_SECRET`, `SEARCHOPS_OPS_ALERT_SINK_TOKEN`, `SEARCHOPS_OPS_LOG_DRAIN_SINK_TOKEN`이며 client에 노출하지 않는다.
 - GEO 플랫폼 API key/model과 rich-result validator는 Railway Worker-only다. API나 Vercel에 복제하지 않고, 조직 BYOK는 encrypted `ProviderAccount`에서 조회한다.
-- clean-artifact smoke는 `spawnSync`의 undefined stdout/stderr와 `result.error`/cause를 안전하게 진단한다. `corepack`이 없는 회귀 테스트에서 실패 진단, 세 artifact tree hash, tracked Git 상태 복원을 함께 검증한다.
+- clean-artifact smoke는 `spawnSync`의 undefined stdout/stderr와 `result.error`/cause를 안전하게 진단한다. 고정된 repo-local 보존 대상은 `packages/types/dist`, `packages/db/dist`, `packages/connectors/dist`, `packages/db/src/generated` 네 tree다. ENOENT와 dependency build 완료 후 CLI 실패 회귀에서 content hash, mode/microsecond-mtime metadata hash, tracked Git 상태가 모두 원상 복원되는지 검증한다.
 - 로컬 SDD review/report 파일은 `.gitignore` 경계에 두고 Git 추적에서 제거했다. clone 후 재개 기준은 이 파일과 `docs/PROVISIONING_RUNBOOK.md`다.
 - RED: readiness 문서 테스트 15개 중 2개 실패(누락된 Vercel 구획, stale Worker+API GEO 문구), smoke 회귀 테스트 1개 실패(`ERR_INVALID_ARG_TYPE`)를 확인했다.
 - GREEN: focused Web 13/API 201 tests, affected package Web 161/API 341/DB 133/Types 95/Worker 108 tests, clean-artifact smoke, workspace lint/build/typecheck를 통과했다. Live service, DB, Redis, provider, customer credential에는 접근하지 않았다.
+- Approval review RED: 네 tree metadata 계약을 추가했을 때 ENOENT 복원은 metadata hash가 달라졌고, post-build 실패 인자는 무시되어 exit 0이었다.
+- Approval review GREEN: ENOENT와 post-build CLI 실패 회귀 2개, 정상 clean smoke, synthetic separate-target check, Types 95/DB 133/Connectors 62/API 341 tests, workspace typecheck/lint/build를 통과했다.
 
 > ✅ **org-invite 라이브 (2026-06-23)**: `Invitation` 테이블 운영 DB 생성 확인 + **invite web UI 라이브 (#81)** — 운영 콘솔 `/ops/invites`에서 초대 생성·목록·철회.
 > ✅ **마이그레이션 자동화 완료 (2026-06-27, #82)**: Prisma `directUrl`(`DIRECT_DATABASE_URL`=Supabase **session pooler :5432**) + Railway `searchops-api` **Pre-Deploy Command** `corepack pnpm db:migrate:deploy`. 배포 로그로 검증(`No pending migrations to apply`). 이제 스키마 PR 머지→배포 시 **자동 적용**(수동 불필요). (과거 교훈이던 "Railway는 자동 적용 안 함"을 이 설정으로 해결. 런타임 client는 풀러 URL 유지, migrate만 직결 URL 사용.)

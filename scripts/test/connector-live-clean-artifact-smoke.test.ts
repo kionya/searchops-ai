@@ -19,6 +19,7 @@ const artifactPaths = [
   "packages/types/dist",
   "packages/db/dist",
   "packages/connectors/dist",
+  "packages/db/src/generated",
 ] as const;
 const temporaryDirectories: string[] = [];
 
@@ -33,7 +34,7 @@ describe("connector live clean-artifact smoke", () => {
     const pathDirectory = mkdtempSync(join(tmpdir(), "searchops-smoke-path-"));
     temporaryDirectories.push(pathDirectory);
     symlinkSync(resolveExecutable("git"), join(pathDirectory, "git"));
-    const artifactsBefore = hashArtifactPaths();
+    const artifactsBefore = snapshotArtifactPaths();
     const trackedBefore = readTrackedStatus();
 
     const result = spawnSync(
@@ -53,9 +54,43 @@ describe("connector live clean-artifact smoke", () => {
     expect(result.status).not.toBe(0);
     expect(diagnostic).toContain("connector_live_clean_artifact_spawn_failed");
     expect(diagnostic).toMatch(/spawn corepack ENOENT/);
-    expect(hashArtifactPaths()).toBe(artifactsBefore);
+    expect(snapshotArtifactPaths()).toEqual(artifactsBefore);
     expect(readTrackedStatus()).toBe(trackedBefore);
   });
+
+  it("restores all generated trees after dependency builds complete and the CLI fails", () => {
+    const artifactsBefore = snapshotArtifactPaths();
+    const trackedBefore = readTrackedStatus();
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "scripts/test/connector-live-clean-artifact-smoke.ts",
+        "--inject-after-build-failure",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          HOME: process.env.HOME ?? "",
+          PATH: process.env.PATH ?? "",
+        },
+      },
+    );
+    const diagnostic = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+    expect(result.status).not.toBe(0);
+    expect(diagnostic).toContain("connector_live_clean_artifact_smoke_failed");
+    expect(diagnostic).toContain("connector_env_file_not_found:");
+    expect(diagnostic).toContain("@searchops/types@0.0.0 build");
+    expect(diagnostic).toContain("@searchops/db@0.0.0 build");
+    expect(diagnostic).toContain("@searchops/connectors@0.0.0 build");
+    expect(diagnostic).toContain(`builtArtifacts=${artifactPaths.join(",")}`);
+    expect(snapshotArtifactPaths()).toEqual(artifactsBefore);
+    expect(readTrackedStatus()).toBe(trackedBefore);
+  }, 30_000);
 });
 
 function resolveExecutable(command: string) {
@@ -80,37 +115,51 @@ function readTrackedStatus() {
   return result.stdout ?? "";
 }
 
-function hashArtifactPaths() {
-  const hash = createHash("sha256");
+function snapshotArtifactPaths() {
+  const contentHash = createHash("sha256");
+  const metadataHash = createHash("sha256");
   for (const relativePath of artifactPaths) {
-    hash.update(relativePath);
-    hashPath(resolve(repoRoot, relativePath), hash);
+    contentHash.update(relativePath);
+    metadataHash.update(relativePath);
+    hashPath(resolve(repoRoot, relativePath), contentHash, metadataHash);
   }
-  return hash.digest("hex");
+  return {
+    contentHash: contentHash.digest("hex"),
+    metadataHash: metadataHash.digest("hex"),
+  };
 }
 
-function hashPath(path: string, hash: ReturnType<typeof createHash>) {
+function hashPath(
+  path: string,
+  contentHash: ReturnType<typeof createHash>,
+  metadataHash: ReturnType<typeof createHash>,
+) {
   let stat;
   try {
-    stat = lstatSync(path);
+    stat = lstatSync(path, { bigint: true });
   } catch {
-    hash.update("missing");
+    contentHash.update("missing");
+    metadataHash.update("missing");
     return;
   }
 
   if (stat.isSymbolicLink()) {
-    hash.update(`link:${readlinkSync(path)}`);
+    contentHash.update(`link:${readlinkSync(path)}`);
+    metadataHash.update(`link:${stat.mode}:${stat.mtimeNs / 1_000n}`);
     return;
   }
   if (stat.isDirectory()) {
-    hash.update("directory");
+    contentHash.update("directory");
+    metadataHash.update(`directory:${stat.mode}:${stat.mtimeNs / 1_000n}`);
     for (const entry of readdirSync(path).sort()) {
-      hash.update(entry);
-      hashPath(join(path, entry), hash);
+      contentHash.update(entry);
+      metadataHash.update(entry);
+      hashPath(join(path, entry), contentHash, metadataHash);
     }
     return;
   }
 
-  hash.update("file");
-  hash.update(readFileSync(path));
+  contentHash.update("file");
+  contentHash.update(readFileSync(path));
+  metadataHash.update(`file:${stat.mode}:${stat.mtimeNs / 1_000n}:${stat.size}`);
 }
