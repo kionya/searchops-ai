@@ -37,6 +37,7 @@ import {
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
+  type RichdocContractBridge,
   type SchemaRichResultValidationPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
@@ -80,6 +81,7 @@ import {
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlAnalysisClient?: CrawlAnalysisPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
+  readonly richdocBridge?: RichdocContractBridge;
   readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
 }
 
@@ -622,11 +624,19 @@ export async function processAndPersistCrawlJob(
       result,
       options.schemaRecommendationRecheckClient,
     );
+    await options.richdocBridge?.syncCrawlRun({
+      crawlRunId: payload.crawlRunId,
+      siteId: payload.siteId
+    });
     return result;
   } catch (error) {
     await markCrawlRunFailed(persistenceClient, {
       crawlRunId: payload.crawlRunId,
       error
+    });
+    await options.richdocBridge?.syncCrawlRun({
+      crawlRunId: payload.crawlRunId,
+      siteId: payload.siteId
     });
     throw error;
   }

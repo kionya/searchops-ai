@@ -6357,8 +6357,10 @@ function installApiEntrypointMocks(options: {
   vi.doMock("@searchops/types", () => ({ parseSearchOpsEnv }));
   vi.doMock("@searchops/db", () => ({
     createPrismaProviderCredentialStore,
+    createRichdocContractBridge: vi.fn(),
     createSearchOpsPrismaClient,
     parseCredentialKeyring,
+    parseRichdocContractConfigFromEnv: vi.fn(() => undefined),
   }));
   vi.doMock("./bullmq-queue.js", () => ({
     createBullMqConnectorSyncQueue: vi.fn(closeable),

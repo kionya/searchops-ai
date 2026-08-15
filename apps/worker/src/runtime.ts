@@ -7,10 +7,12 @@ import {
   createPrismaGeoVisibilityPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   createPrismaSchemaRichResultValidationPersistenceClient,
+  createRichdocContractBridge,
   createSearchOpsPrismaClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
+  type RichdocContractConfig,
   type SchemaRichResultValidationPersistenceClient,
   type SearchOpsPrismaClient
 } from "@searchops/db";
@@ -63,17 +65,22 @@ export interface CreateCrawlWorkerOptions {
   readonly redisUrl: string;
   readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
+  readonly drainDelay?: number;
+  readonly stalledInterval?: number;
   readonly deadLetterQueueName?: string;
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
   readonly queueName?: string;
   readonly processorOptions?: ProcessAndPersistCrawlJobOptions;
+  readonly richdocContract?: RichdocContractConfig;
 }
 
 export interface CreateConnectorSyncWorkerOptions {
   readonly redisUrl: string;
   readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
+  readonly drainDelay?: number;
+  readonly stalledInterval?: number;
   readonly deadLetterQueueName?: string;
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
@@ -85,6 +92,8 @@ export interface CreateGeoAnswerMonitorWorkerOptions {
   readonly redisUrl: string;
   readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
+  readonly drainDelay?: number;
+  readonly stalledInterval?: number;
   readonly deadLetterQueueName?: string;
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
@@ -96,6 +105,8 @@ export interface CreateSchemaRichResultValidationWorkerOptions {
   readonly redisUrl: string;
   readonly prisma?: SearchOpsPrismaClient;
   readonly concurrency?: number;
+  readonly drainDelay?: number;
+  readonly stalledInterval?: number;
   readonly deadLetterQueueName?: string;
   readonly enableDeadLetterQueue?: boolean;
   readonly failedAt?: () => Date;
@@ -132,6 +143,30 @@ function createDeadLetterQueue(
       url: redisUrl
     }
   });
+}
+
+// Shared BullMQ Worker options. drainDelay/stalledInterval throttle idle Redis
+// polling so per-command Redis (Upstash free tier) stays within budget.
+function buildWorkerOptions(
+  options: {
+    readonly redisUrl: string;
+    readonly concurrency?: number;
+    readonly drainDelay?: number;
+    readonly stalledInterval?: number;
+  },
+  defaultConcurrency: number,
+) {
+  return {
+    concurrency: options.concurrency ?? defaultConcurrency,
+    connection: {
+      url: options.redisUrl
+    },
+    // BullMQ drainDelay is in SECONDS (blocking BZPOPMIN timeout); our env is ms.
+    ...(options.drainDelay === undefined
+      ? {}
+      : { drainDelay: Math.max(1, Math.round(options.drainDelay / 1000)) }),
+    ...(options.stalledInterval === undefined ? {} : { stalledInterval: options.stalledInterval })
+  };
 }
 
 function registerDeadLetterHandler<DataType, ResultType, NameType extends string>(
@@ -240,18 +275,16 @@ export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const processorOptions: ProcessAndPersistCrawlJobOptions = {
     crawlAnalysisClient,
     schemaRecommendationRecheckClient,
+    ...(options.richdocContract === undefined
+      ? {}
+      : { richdocBridge: createRichdocContractBridge({ prisma, ...options.richdocContract }) }),
     ...options.processorOptions
   };
   const queueName = options.queueName ?? crawlQueueName;
   const worker = new Worker<CrawlJobPayload, CrawlJobResult, "crawl">(
     queueName,
     createCrawlJobProcessor(persistenceClient, processorOptions),
-    {
-      concurrency: options.concurrency ?? 2,
-      connection: {
-        url: options.redisUrl
-      }
-    },
+    buildWorkerOptions(options, 2),
   );
   const deadLetterQueue =
     options.enableDeadLetterQueue === false
@@ -301,12 +334,7 @@ export function createConnectorSyncWorker(options: CreateConnectorSyncWorkerOpti
   >(
     queueName,
     createConnectorSyncJobProcessor(persistenceClient, processorOptions),
-    {
-      concurrency: options.concurrency ?? 2,
-      connection: {
-        url: options.redisUrl
-      }
-    },
+    buildWorkerOptions(options, 2),
   );
   workerRef.current = worker;
   const deadLetterQueue =
@@ -381,12 +409,7 @@ export function createGeoAnswerMonitorWorker(options: CreateGeoAnswerMonitorWork
   >(
     queueName,
     createGeoAnswerMonitorJobProcessor(persistenceClient, processorOptions),
-    {
-      concurrency: options.concurrency ?? 2,
-      connection: {
-        url: options.redisUrl
-      }
-    },
+    buildWorkerOptions(options, 2),
   );
   const deadLetterQueue =
     options.enableDeadLetterQueue === false
@@ -422,12 +445,7 @@ export function createSchemaRichResultValidationWorker(
       persistenceClient,
       options.processorOptions,
     ),
-    {
-      concurrency: options.concurrency ?? 2,
-      connection: {
-        url: options.redisUrl
-      }
-    },
+    buildWorkerOptions(options, 2),
   );
   const deadLetterQueue =
     options.enableDeadLetterQueue === false

@@ -46,7 +46,7 @@ import {
   type WorkOrder,
   type WorkOrderDraft
 } from "@searchops/types";
-import type { Prisma, SearchOpsPrismaClient } from "@searchops/db";
+import type { Prisma, RichdocContractBridge, SearchOpsPrismaClient } from "@searchops/db";
 
 import {
   connectorSyncEnqueueFailureSummary,
@@ -104,7 +104,18 @@ type ComplianceFlagWithWorkOrder = NonNullable<ComplianceFlagRecord> & {
   workOrder: NonNullable<WorkOrderRecord> | null;
 };
 
-export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOpsRepository {
+export function createPrismaRepository(
+  prisma: SearchOpsPrismaClient,
+  options: { readonly richdocBridge?: RichdocContractBridge } = {},
+): SearchOpsRepository {
+  const richdocBridge = options.richdocBridge;
+  // Best-effort mirror of work orders into the richdoc console after a
+  // mutation commits; bridge methods log internally and never reject.
+  const queueRichdocWorkOrderSync = (siteId: string | null) => {
+    if (richdocBridge !== undefined && siteId !== null) {
+      void richdocBridge.syncSiteWorkOrders({ siteId });
+    }
+  };
   return {
     async listOrganizations() {
       const organizations = await prisma.organization.findMany({
@@ -867,7 +878,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
     },
 
     async createGeoVisibilityReportWorkOrder(reportId, input) {
-      return prisma.$transaction(async (transaction) => {
+      const result = await prisma.$transaction(async (transaction) => {
         const report = await transaction.geoVisibilityReport.findUnique({
           include: {
             site: {
@@ -896,6 +907,10 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           workOrder: toWorkOrder(workOrder)
         };
       });
+      if (result !== null) {
+        queueRichdocWorkOrderSync(result.workOrder.siteId);
+      }
+      return result;
     },
 
     async createComplianceReview(siteId, input) {
@@ -963,7 +978,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
     },
 
     async createComplianceFlagWorkOrder(flagId, input) {
-      return prisma.$transaction(async (transaction) => {
+      const result = await prisma.$transaction(async (transaction) => {
         const flag = await transaction.complianceFlag.findUnique({
           include: {
             workOrder: true
@@ -997,10 +1012,14 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           workOrder: toWorkOrder(workOrder)
         };
       });
+      if (result !== null) {
+        queueRichdocWorkOrderSync(result.workOrder.siteId);
+      }
+      return result;
     },
 
     async recheckComplianceFlag(flagId, input) {
-      return prisma.$transaction(async (transaction) => {
+      const result = await prisma.$transaction(async (transaction) => {
         const flag = await transaction.complianceFlag.findUnique({
           include: {
             workOrder: true
@@ -1038,6 +1057,10 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           workOrder
         };
       });
+      if (result !== null && result.workOrder !== null) {
+        queueRichdocWorkOrderSync(result.workOrder.siteId);
+      }
+      return result;
     },
 
     async createSchemaRecommendations(siteId, input) {
@@ -1090,7 +1113,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
     },
 
     async createSchemaRecommendationWorkOrder(recommendationId, input) {
-      return prisma.$transaction(async (transaction) => {
+      const result = await prisma.$transaction(async (transaction) => {
         const recommendation = await transaction.schemaRecommendation.findUnique({
           include: {
             site: {
@@ -1127,10 +1150,14 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           workOrder: toWorkOrder(workOrder)
         };
       });
+      if (result !== null) {
+        queueRichdocWorkOrderSync(result.workOrder.siteId);
+      }
+      return result;
     },
 
     async recheckSchemaRecommendation(recommendationId, input) {
-      return prisma.$transaction(async (transaction) => {
+      const result = await prisma.$transaction(async (transaction) => {
         const recommendation = await transaction.schemaRecommendation.findUnique({
           include: {
             workOrder: true
@@ -1184,6 +1211,10 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           workOrder
         };
       });
+      if (result !== null && result.workOrder !== null) {
+        queueRichdocWorkOrderSync(result.workOrder.siteId);
+      }
+      return result;
     },
 
     async listWorkOrders(siteId) {
@@ -1221,7 +1252,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
         return null;
       }
 
-      return toWorkOrder(
+      const workOrder = toWorkOrder(
         await prisma.workOrder.update({
           data: {
             ...(input.assignedTo === undefined ? {} : { assignedTo: input.assignedTo }),
@@ -1234,6 +1265,8 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
           where: { id }
         }),
       );
+      queueRichdocWorkOrderSync(workOrder.siteId);
+      return workOrder;
     },
 
     async resolveWorkOrderIssue(id) {
@@ -1263,6 +1296,7 @@ export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOps
               }
             });
 
+      queueRichdocWorkOrderSync(workOrder.siteId);
       return {
         workOrder: toWorkOrder(workOrder),
         seoIssue: toNullableSeoIssue(seoIssue)

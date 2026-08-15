@@ -72,6 +72,32 @@ Failure handling:
 - If it fails after partial apply, capture Prisma output and database logs before changing anything else.
 - If generated Prisma client output changes without schema or migration changes, regenerate locally and inspect the diff before committing.
 
+## richdoc 계약 검증 (배포 플랫폼 불필요)
+
+Purpose:
+- richdoc-saas(리쥬엘) 연동 어댑터가 계약 정본 스키마를 실제로 만족하는지, 배포 없이 확인한다.
+- 계약 정본은 richdoc-saas 레포의 `supabase/searchops_contract.sql` 하나다. 이 레포에 사본을 만들지 않는다.
+
+로컬 검증 (자격증명 불필요, 로컬 postgres 가동 필요):
+1. `corepack pnpm smoke:richdoc`
+2. 임시 DB에 계약 SQL을 적용하고, 미니 PostgREST 셰임 위에서 실제 어댑터를 구동해 검증한 뒤 DB를 지운다.
+3. 검증 범위: NOT NULL/unique/기본값 등 스키마 적합성, upsert idempotency, 상태·심각도 매핑,
+   콘솔 관리 컬럼(`issues.status`, `first_seen`) 비침범, `last_seen` 전진, Site.id allowlist fail-closed.
+4. 계약 SQL 경로 기본값은 `../richdoc-saas/supabase/searchops_contract.sql`이다.
+   다른 위치면 `--contract <path>` 또는 `RICHDOC_CONTRACT_SQL`로 지정한다.
+
+실연결 검증 (배포 직전 1회):
+1. `SEARCHOPS_RICHDOC_SUPABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`를 설정한다.
+2. `node scripts/richdoc-smoke.mjs --live`
+3. 마커 도메인 `richdoc-smoke.invalid` 행만 쓰고 종료 시 삭제한다. 눈으로 확인하려면 `--keep`.
+4. 실패하면 계약 SQL 미적용, service_role key 오류, RLS 설정 중 하나를 의심한다.
+
+자동 회귀 감지:
+- GitHub Actions `richdoc-contract`가 관련 파일 PR·main push·매일 1회 위 로컬 검증을 돌린다.
+- richdoc-saas가 private이라 `RICHDOC_REPO_TOKEN` secret(읽기 PAT)이 필요하다.
+  미설정 시 잡은 실패 대신 경고를 남기고 건너뛴다.
+- 이 워크플로는 Railway 등 배포 플랫폼에 의존하지 않는다. 계약 회귀는 여기서 먼저 드러난다.
+
 ## Deployment Environment Checks
 
 Purpose:

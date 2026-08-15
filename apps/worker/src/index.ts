@@ -3,7 +3,7 @@ import {
   createLiveSchemaRichResultValidatorAdapter,
   shouldEnableConnectorLiveRuntime
 } from "@searchops/connectors";
-import { parseCredentialKeyring } from "@searchops/db";
+import { parseCredentialKeyring, parseRichdocContractConfigFromEnv } from "@searchops/db";
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
@@ -52,9 +52,24 @@ const credentialKeyring =
                 env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
             })
       });
-const crawlRuntime = createCrawlWorker({ redisUrl: env.REDIS_URL });
+// Throttle idle Redis polling to keep per-command Redis (Upstash free) in budget.
+const workerPollTuning = {
+  ...(env.SEARCHOPS_WORKER_DRAIN_DELAY_MS === undefined
+    ? {}
+    : { drainDelay: env.SEARCHOPS_WORKER_DRAIN_DELAY_MS }),
+  ...(env.SEARCHOPS_WORKER_STALLED_INTERVAL_MS === undefined
+    ? {}
+    : { stalledInterval: env.SEARCHOPS_WORKER_STALLED_INTERVAL_MS })
+};
+const richdocContract = parseRichdocContractConfigFromEnv(env);
+const crawlRuntime = createCrawlWorker({
+  redisUrl: env.REDIS_URL,
+  ...workerPollTuning,
+  ...(richdocContract === undefined ? {} : { richdocContract })
+});
 const connectorSyncRuntime = createConnectorSyncWorker({
   redisUrl: env.REDIS_URL,
+  ...workerPollTuning,
   processorOptions: {
     bingApiKey: env.SEARCHOPS_BING_API_KEY,
     credentialKeyring,
@@ -69,6 +84,7 @@ const connectorSyncRuntime = createConnectorSyncWorker({
 
 const geoAnswerMonitorRuntime = createGeoAnswerMonitorWorker({
   redisUrl: env.REDIS_URL,
+  ...workerPollTuning,
   processorOptions: {
     credentialKeyring,
     credentialStorageMode: env.SEARCHOPS_CREDENTIAL_STORAGE_MODE,
@@ -99,11 +115,12 @@ const schemaRichResultValidationRuntime = createSchemaRichResultValidationWorker
   richResultValidatorAdapter
     ? {
         redisUrl: env.REDIS_URL,
+        ...workerPollTuning,
         processorOptions: {
           validateRichResult: (input) => richResultValidatorAdapter.validate(input)
         }
       }
-    : { redisUrl: env.REDIS_URL },
+    : { redisUrl: env.REDIS_URL, ...workerPollTuning },
 );
 
 for (const runtime of [

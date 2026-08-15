@@ -85,6 +85,12 @@ Google OAuth 앱:
 - `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`, `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN`
 - `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`, `SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN`
 - `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL`, `SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN`
+
+richdoc-saas 연동 (셋 다 설정해야 활성화, API와 Worker 동일 값):
+
+- `SEARCHOPS_RICHDOC_SUPABASE_URL`: 리쥬엘 Supabase 프로젝트 URL
+- `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`: 리쥬엘 Supabase service_role key
+- `SEARCHOPS_RICHDOC_SITE_IDS`: 밀어낼 Site.id 콤마 목록 (도메인 아님 — 테넌트 고정용)
 <!-- RAILWAY_API_ENV_END -->
 
 `NODE_ENV=production`은 개발용 mock/trusted-header fallback을 허용하지 않는 배포 경계이며 production rate limiting 기본값도 활성화한다. 단, IdP verifier가 함께 설정되어야 실제 bearer token을 검증할 수 있다.
@@ -124,6 +130,8 @@ Google refresh 앱:
 - `SEARCHOPS_GEO_PERPLEXITY_MODEL`
 - `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`
 - `SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN`
+- `SEARCHOPS_RICHDOC_SUPABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`,
+  `SEARCHOPS_RICHDOC_SITE_IDS`: richdoc-saas 연동 — API 섹션과 같은 값
 <!-- RAILWAY_WORKER_ENV_END -->
 
 Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Google token, 조직 GEO BYOK를 넣지 않는다. Worker는 각 job의 `organizationId`와 `siteId`로 encrypted `ProviderAccount`/`SiteConnector`를 조회한다.

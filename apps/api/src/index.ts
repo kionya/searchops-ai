@@ -1,8 +1,10 @@
 import { parseSearchOpsEnv } from "@searchops/types";
 import {
   createPrismaProviderCredentialStore,
+  createRichdocContractBridge,
   createSearchOpsPrismaClient,
-  parseCredentialKeyring
+  parseCredentialKeyring,
+  parseRichdocContractConfigFromEnv
 } from "@searchops/db";
 
 import {
@@ -129,6 +131,7 @@ const secretRotationExecutor =
         endpointUrl: env.SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL
       });
 
+const richdocContract = parseRichdocContractConfigFromEnv(env);
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.SEARCHOPS_API_HOST ?? "0.0.0.0";
 const server = buildApiServer({
@@ -152,7 +155,12 @@ const server = buildApiServer({
   ...(rateLimitStore === undefined ? {} : { rateLimitStore }),
   schemaRichResultValidationQueue,
   secretRotationExecutor,
-  repository: createPrismaRepository(prisma)
+  repository: createPrismaRepository(
+    prisma,
+    richdocContract === undefined
+      ? {}
+      : { richdocBridge: createRichdocContractBridge({ prisma, ...richdocContract }) },
+  )
 });
 
 server.addHook("onClose", async () => {
