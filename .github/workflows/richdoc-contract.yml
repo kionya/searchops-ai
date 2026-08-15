@@ -77,9 +77,13 @@ jobs:
       - name: Fail when contract is unavailable
         if: steps.contract.outcome != 'success'
         run: |
-          echo "::error::richdoc-saas 체크아웃 실패 — RICHDOC_REPO_TOKEN secret 이 비었거나 만료됐다. 계약을 검증하지 못했다."
-          echo "설정: gh secret set RICHDOC_REPO_TOKEN --repo kionya/searchops-ai --body '<richdoc-saas 읽기 PAT>'"
-          echo "(--body 없이 실행하면 stdin 이 비어 빈 값이 등록된다)"
+          echo "::error::richdoc-saas 체크아웃 실패 — RICHDOC_REPO_TOKEN 이 없거나 유효하지 않다. 계약을 검증하지 못했다."
+          echo "1) PAT 유효성 먼저 확인:  GH_TOKEN=\$PAT gh api repos/kionya/richdoc-saas --jq .full_name"
+          echo "   - 'Input required and not supplied' → secret 값이 비어 있다"
+          echo "   - 'Bad credentials'                 → 토큰 문자열이 무효(만료/오타/플레이스홀더 그대로 복사)"
+          echo "   - 'Not Found'                       → 토큰은 유효하나 richdoc-saas 읽기 권한이 없다"
+          echo "2) 등록:  gh secret set RICHDOC_REPO_TOKEN --repo kionya/searchops-ai --body \"\$PAT\""
+          echo "   (--body 없이 실행하면 stdin 이 비어 빈 값이 등록된다)"
           exit 1
 
       - name: Setup Node
