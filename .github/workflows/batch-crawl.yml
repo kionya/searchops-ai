@@ -1,0 +1,81 @@
+name: batch-crawl
+
+# 상시 워커 대신 크롤을 주기적으로 한 번씩 돌린다. 배포 플랫폼 없이 GitHub Actions 무료 러너만 쓴다.
+# 크롤 → SeoIssue/WorkOrder 생성 → richdoc(리쥬엘) Supabase 적재까지 한 프로세스에서 끝난다.
+# Redis 를 쓰지 않는다(apps/worker/src/batch-crawl.ts 주석 참고).
+#
+# 필요한 secret:
+#   DATABASE_URL, DIRECT_DATABASE_URL
+#   SEARCHOPS_RICHDOC_SUPABASE_URL, SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY, SEARCHOPS_RICHDOC_SITE_IDS
+#
+# ⚠️ 주기를 함부로 올리지 마라. SeoIssue 의 유니크 키가 crawlRunId 를 포함해서 크롤 1회마다
+# 이슈와 지시서 세트가 새로 생긴다. 리쥬엘 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
+# 일 1회로 시작하고, 늘리려면 먼저 중복 정리 방식을 정해라.
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # UTC 18:00 = KST 03:00
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: "사이트당 최대 크롤 페이지 수"
+        required: false
+        default: "25"
+
+permissions:
+  contents: read
+
+# 같은 사이트를 두 실행이 동시에 긁지 않게 한다. 진행 중인 크롤은 취소하지 않는다.
+concurrency:
+  group: batch-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+      SEARCHOPS_RICHDOC_SUPABASE_URL: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_URL }}
+      SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY }}
+      SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
+      SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
+
+    steps:
+      - name: Fail fast when secrets are missing
+        run: |
+          missing=""
+          for v in DATABASE_URL SEARCHOPS_RICHDOC_SUPABASE_URL \
+                   SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY SEARCHOPS_RICHDOC_SITE_IDS; do
+            [ -z "${!v:-}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::secret 미설정:$missing"
+            echo "설정: gh secret set <NAME> --repo kionya/searchops-ai --body '<값>'"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 후행 "..." 로 워크스페이스 의존성(types, db, crawler-core 등)까지 함께 빌드한다.
+      - name: Build worker and its dependencies
+        run: pnpm --filter "@searchops/worker..." build
+
+      - name: Run crawl batch
+        run: node apps/worker/dist/batch-crawl.js

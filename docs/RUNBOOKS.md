@@ -72,6 +72,34 @@ Failure handling:
 - If it fails after partial apply, capture Prisma output and database logs before changing anything else.
 - If generated Prisma client output changes without schema or migration changes, regenerate locally and inspect the diff before committing.
 
+## 크롤 배치 (상시 워커 없이 운영)
+
+Purpose:
+- 상시 호스팅 없이 크롤을 주기 실행해 SeoIssue/WorkOrder를 만들고 리쥬엘 콘솔로 적재한다.
+
+2026-08 기준 무료 상시 호스팅이 사실상 사라져(Railway 무료 폐지, Koyeb 신규 차단 + Worker 금지,
+Render 무료에 워커 없음, Oracle A1 용량 경합) 상시 워커를 포기하고 배치로 전환했다.
+
+- 진입점: `apps/worker/src/batch-crawl.ts` → `node apps/worker/dist/batch-crawl.js`
+- 워크플로: `.github/workflows/batch-crawl.yml` (매일 KST 03:00, `workflow_dispatch`로 수동 실행 가능)
+- **Redis를 쓰지 않는다.** 큐를 우회해 `processAndPersistCrawlJob`을 직접 호출한다.
+  그래서 `./runtime.js`(bullmq를 끌어온다)와 `parseSearchOpsEnv`(`REDIS_URL`을 필수로 요구한다)를
+  배치 경로에서 임포트하면 안 된다.
+- 크롤 대상은 `SEARCHOPS_RICHDOC_SITE_IDS`를 그대로 쓴다. 적재 대상과 크롤 대상을 한 값으로 묶어
+  드리프트를 없앤다 — 목록 밖 사이트는 크롤해도 적재가 조용히 드롭된다.
+- 필요한 secret: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`,
+  `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`, `SEARCHOPS_RICHDOC_SITE_IDS`
+
+⚠️ **주기를 함부로 올리지 않는다.** `SeoIssue`의 유니크 키가 `crawlRunId`를 포함해서 크롤 1회마다
+이슈와 지시서 세트가 새로 생기고, 리쥬엘 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
+일 1회로 시작하고, 늘리려면 중복 정리 방식을 먼저 정한다.
+
+한 사이트가 실패해도 나머지는 계속 처리하고 마지막에 종료 코드 1로 알린다(설정 누락은 2).
+실패한 크롤은 `CrawlRun.status = "failed"`로 남아 콘솔에서 보인다.
+
+API(`apps/api`)는 배포하지 않지만 코드는 그대로 둔다 — 배치가 그 Prisma 계층을 재사용하고,
+상시 호스팅을 다시 구하면 그대로 부활한다. `Dockerfile`과 `compose.prod.yaml`도 같은 이유로 남겨둔다.
+
 ## richdoc 계약 검증 (배포 플랫폼 불필요)
 
 Purpose:
