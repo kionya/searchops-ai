@@ -170,8 +170,11 @@ Redis를 관리형(Upstash 등 per-command 과금)으로 두지 않고 같은 VM
 
 ### VM 배포 (Oracle Cloud Always Free ARM)
 
-1. 계정 생성 시 **홈 리전을 도쿄(ap-tokyo-1) 또는 오사카(ap-osaka-1)** 로 지정한다.
-   Always Free 컴퓨트는 홈 리전에서만 만들 수 있고 서울(Chuncheon)은 A1을 지원하지 않는다.
+> 계정 생성부터 검증까지 전체 절차는 `docs/ORACLE_VM_SETUP.md`에 있다. 아래는 요약이다.
+
+1. 계정 생성 시 홈 리전을 **서울(ap-seoul-1) → 없으면 오사카(ap-osaka-1) → 도쿄(ap-tokyo-1)** 순으로 지정한다.
+   Always Free 컴퓨트는 홈 리전에서만 만들 수 있고 변경할 수 없다.
+   **춘천(ap-chuncheon-1)은 A1을 지원하지 않으므로 절대 고르지 않는다** — 서울과 다른 리전이니 혼동하지 않는다.
 2. Ampere A1 인스턴스를 **2 OCPU / 12GB 이하**로 생성한다.
    ⚠️ Oracle이 2026-06-15에 A1 무료 한도를 4 OCPU/24GB → 2 OCPU/12GB로 공지 없이 축소했고,
    초과 인스턴스는 2026-08-18부터 종료 대상이다. 한도 안에서 만들어야 한다.
