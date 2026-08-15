@@ -132,7 +132,9 @@ const secretRotationExecutor =
       });
 
 const richdocContract = parseRichdocContractConfigFromEnv(env);
-const port = Number(process.env.PORT ?? 4000);
+// ?? 는 빈 문자열을 통과시켜 Number("")=0 → 랜덤 포트 바인딩이 된다.
+// 플랫폼이 PORT를 빈 값으로 주입하는 경우가 있어 || 로 떨어뜨린다.
+const port = Number(process.env.PORT) || 4000;
 const host = process.env.SEARCHOPS_API_HOST ?? "0.0.0.0";
 const server = buildApiServer({
   authContextResolver,
