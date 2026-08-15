@@ -99,8 +99,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 후행 "..." = 워크스페이스 의존성(@searchops/types)까지 함께 빌드한다.
+      # 빠지면 db 빌드가 'Cannot find module @searchops/types' 로 깨진다.
       - name: Build adapter package
-        run: pnpm --filter @searchops/db build
+        run: pnpm --filter "@searchops/db..." build
 
       - name: Run contract smoke against real schema
         run: |
