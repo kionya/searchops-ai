@@ -72,17 +72,27 @@ cat ~/.ssh/oci_a1.pub    # 이 값을 3번에서 붙여넣는다
 
 콘솔 좌상단 햄버거 메뉴 **≡ → Compute → Instances → Create instance**
 
+> 🔴 **기본값을 그대로 두고 Create를 누르면 안 된다.** 화면 기본값은
+> `VM.Standard.E2.1.Micro`(AMD, **RAM 1GB**) + Oracle Linux + 공인 IP 미할당이다.
+> 이 조합으로는 API·Worker·Redis를 올릴 수 없고 빌드조차 통과하지 못한다.
+> 아래 세 항목(Shape / Image / 공인 IP)을 **반드시 직접 바꾼다.**
+
 | 항목 | 값 |
 |---|---|
 | Name | `searchops` |
 | Placement | 기본값. **fault domain은 지정하지 않는다**(지정하면 용량 확보가 더 어려워진다) |
 | **Shape** | **Edit → Ampere → `VM.Standard.A1.Flex` → 2 OCPU / 12GB** |
-| **Image** | Ubuntu 24.04 LTS **aarch64** 이미지 |
+| **Image** | Ubuntu 24.04 LTS **aarch64** 이미지 (기본 Oracle Linux 를 바꾼다) |
+| **Networking** | **Assign a public IPv4 address = Yes** (이게 빠지면 외부 접속 불가) |
 | SSH keys | Paste public keys → `~/.ssh/oci_a1.pub` 내용 |
 | Boot volume | Custom 100GB (무료 총량 200GB 안. 나중에 줄일 수 없다) |
 
 **Shape를 먼저 고르고 Image를 나중에 고른다.** 순서가 반대면 x86 이미지가 선택된 채로 남아
 A1과 호환되지 않는다. 이미지 이름에 `aarch64`가 있는지 눈으로 확인한다.
+
+만든 뒤 검증: 인스턴스 상세에서 **Shape가 `VM.Standard.A1.Flex`**, **Username이 `ubuntu`**
+(`opc`면 Oracle Linux 다), **Public IP address 에 값이 있는지** 세 가지를 확인한다.
+셋 중 하나라도 다르면 잘못 만든 것이니 지우고 다시 만든다.
 
 ### "Out of host capacity" 가 뜨면
 
@@ -93,11 +103,15 @@ A1은 인기가 많아 생성이 자주 실패한다. 정상이며 계정 문제
 - 급하면 PAYG(유료)로 업그레이드하면 확보가 쉬워진다는 보고가 많다. 업그레이드해도 무료 한도 안이면 과금되지 않지만,
   ⚠️ 한도를 넘기면 즉시 과금되므로 Budgets 알림을 함께 설정한다
 
-### 만든 뒤에 하지 말아야 할 것
+### A1을 제대로 만든 뒤에 하지 말아야 할 것
 
-- **terminate 하지 않는다.** 한 번 지우면 같은 크기로 다시 못 만들 수 있다
+- **terminate 하지 않는다.** A1은 용량 경합이 심해 한 번 반납하면 같은 크기로 다시 못 잡을 수 있다
 - **리사이즈하지 않는다.** 늘릴 때 용량이 없으면 원래 크기로 되돌리지도 못한 채 멈춘다
-- 인스턴스를 지워도 **부트 볼륨은 남아 한도를 계속 차지한다.** 지울 때는 Block Storage에서 따로 확인한다
+- 인스턴스를 지워도 **부트 볼륨은 남아 200GB 한도를 계속 차지한다.** 지울 때 함께 삭제한다
+
+> 위 경고는 **A1 인스턴스에만** 해당한다. 잘못 만든 `E2.1.Micro`는 용량 경합이 없어
+> 언제든 다시 만들 수 있으므로 주저 없이 지운다. 지울 때 부트 볼륨을 함께 삭제하지 않으면
+> 100GB가 계속 묶여 A1용 볼륨을 잡을 여유가 줄어든다.
 
 ---
 
