@@ -72,33 +72,33 @@ jobs:
           sparse-checkout: supabase/searchops_contract.sql
           sparse-checkout-cone-mode: false
 
-      - name: Skip when contract is unavailable
+      # 계약 정본을 못 가져오면 검증한 게 없다. 조용히 건너뛰면 초록불이
+      # "통과"로 오해되므로 여기서 끊는다.
+      - name: Fail when contract is unavailable
         if: steps.contract.outcome != 'success'
         run: |
-          echo "::warning::richdoc-saas 체크아웃 실패 — RICHDOC_REPO_TOKEN secret 미설정/만료로 보인다. 계약 검증을 건너뛴다."
+          echo "::error::richdoc-saas 체크아웃 실패 — RICHDOC_REPO_TOKEN secret 이 비었거나 만료됐다. 계약을 검증하지 못했다."
+          echo "설정: gh secret set RICHDOC_REPO_TOKEN --repo kionya/searchops-ai --body '<richdoc-saas 읽기 PAT>'"
+          echo "(--body 없이 실행하면 stdin 이 비어 빈 값이 등록된다)"
+          exit 1
 
       - name: Setup Node
-        if: steps.contract.outcome == 'success'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Enable pnpm
-        if: steps.contract.outcome == 'success'
         run: |
           corepack enable
           corepack prepare pnpm@9.15.9 --activate
 
       - name: Install dependencies
-        if: steps.contract.outcome == 'success'
         run: pnpm install --frozen-lockfile
 
       - name: Build adapter package
-        if: steps.contract.outcome == 'success'
         run: pnpm --filter @searchops/db build
 
       - name: Run contract smoke against real schema
-        if: steps.contract.outcome == 'success'
         run: |
           node scripts/richdoc-smoke.mjs \
             --contract "$GITHUB_WORKSPACE/.richdoc-contract/supabase/searchops_contract.sql"
