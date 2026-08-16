@@ -6,8 +6,12 @@
 
 ## richdoc(리쥬엘) 연동 + 배포 전략 전환
 
-Updated: 2026-08-17 (PR #96·#98 머지 완료, 운영 가동 중 — 새 유니크 키 아래 첫 배치 검증 완료)
-Merged: `f28f295` (연동 어댑터 + 배포 전환) · `3cec287` (지시서 중복 근본 해결)
+Updated: 2026-08-17 (운영 가동 중 — 새 유니크 키 아래 배치 2회 검증 완료)
+Merged: `f28f295` (연동 어댑터 + 배포 전환) · `3cec287` (지시서 중복 근본 해결) ·
+`dde0fae` (배치 실패 알림) · `c118509` (웹 404 해소) · `70419f9` (콘솔 상태 덮어쓰기 수정)
+
+**다음에 정할 것:** Task 14 를 되살리려면 provider API 를 실제로 호출할 실행 주체가 필요하다 —
+"커넥터 동기화를 배치에 얹자" 또는 "상시 호스팅 유료로 가자" 중 하나. 자세한 내용은 아래 Task 14 섹션.
 Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함** · 크롤 = GitHub Actions `batch-crawl` (매일 KST 03:00)
 
 > Railway는 더 이상 쓰지 않는다. `searchops-api-production.up.railway.app`은 404이며 위 섹션의 Live 정보는 낡았다.
@@ -78,14 +82,23 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 알려진 부수효과: `apps/web/src/site-detail-views.ts:515`가 `issue.crawlRunId === crawlRun.id`로 크롤런별 이슈 수를 세므로 과거 런은 이제 0으로 보인다. 웹 대시보드가 API 없이 404인 동안은 보류.
 
-### 다음 작업
+### 2026-08-17 작업 (4건 모두 완료)
 
-1. **배치 실패 알림.** 현재는 GitHub 기본 알림뿐이다. 매일 도는 잡이 조용히 실패하면 며칠 모를 수 있다.
-2. **apps/web 대시보드.** API를 배포하지 않아 `/sites/[siteId]/**` 10개 라우트가 404다. `dashboard-shell.tsx`의 `resolveDashboardSite`(현재 호출자 0)로 폴백하면 픽스처 모드로 살릴 수 있다. 지시서 보드는 원래부터 데모 픽스처(`work-order-board.ts`)이며 API를 호출하지 않는다 — 실데이터처럼 보여 오해를 부른다.
-3. **역방향 반영.** 리쥬엘 콘솔에서 지시서 상태를 바꿔도 SearchOps로 돌아오지 않는다(단방향 push). 필요해지면 별도 설계.
-4. **Task 14 (아래 섹션)** — multi-tenant credential 운영 전환은 여전히 미완이다. 단 Railway 전제가 깨졌으므로 배포 단계는 재작성이 필요하다.
+**1. 배치 실패 알림** (`dde0fae`). 실패하면 `batch-crawl 실패` 이슈를 열고, 같은 이슈에 댓글을 달아 매일 실패해도 쌓이지 않게 하며, 다음 성공에서 닫는다. 외부 서비스도 새 시크릿도 안 쓴다(`GITHUB_TOKEN` + `issues: write`). 6개 상태 조합(success/failure/cancelled × 기존 이슈 유무)을 가짜 `gh` 로 검증했고, 실제 실행에서 스텝이 `success` 로 돌았다.
 
-재개 지시: **"richdoc 연동 다음 작업 이어서"**라고 하면 이 섹션 1번부터 시작한다.
+⚠️ **워크플로가 아예 안 도는 경우는 여전히 못 잡는다.** GitHub 은 60일간 레포 활동이 없으면 schedule 을 끈다. 이건 외부 dead-man's switch 가 있어야 잡힌다.
+
+**2. apps/web 대시보드** (`c118509`). 404 의 원인은 `app/sites/[siteId]/layout.tsx` 가 `loadDashboardSiteAsUser` 의 null 을 무조건 `notFound()` 로 처리한 것이었다. null 은 두 가지를 뜻하는데 구분이 없었다 — API 자체가 없거나, API 가 이 사용자에게 사이트를 거부했거나. 뒤쪽만 404 로 남기고 앞쪽은 fixture 폴백한다(하위 데이터 로더는 이미 그렇게 동작하고 있었다). 두 분기를 테스트로 고정했다 — 무너지면 한쪽은 라우트 10개가 죽고 다른 쪽은 테넌트 격리가 뚫린다.
+
+화면 전체가 예시라는 사실은 셸 배너로 알린다(색만으로 알리지 않는다). `/sites` 카드의 "열린 작업/차단됨" 은 실제 등록 사이트에 데모 지시서 숫자를 붙여 실적처럼 읽히던 것이라 **지웠다** — 라벨을 붙이는 것보다 없애는 게 맞다. API 가 붙으면 실데이터로 되살린다.
+
+**3. 역방향 반영** (`70419f9`). 조사해 보니 진짜 문제는 "안 돌아온다"가 아니라 **"매일 밤 덮어쓴다"** 였다. 계약의 지시서 상태값(`in_progress|applied`)은 크롤러가 만들 수 없는 값이라 사람이 콘솔에서 정하는데, 크롤 경로가 SearchOps 의 `status` 를 함께 밀어 다음 날 아침 `open` 으로 되돌렸다. 이슈가 `status`/`first_seen` 을 일부러 빼는 것과 같은 규칙을 지시서에 적용했다. SearchOps 가 실제로 상태를 바꾼 API 경로만 `status` 를 보낸다. 계약 검증기에 양방향 검사를 넣고 **뮤테이션 테스트로 회귀를 실제로 잡는지 확인했다**(수정을 되돌리면 정확히 그 검사가 실패한다).
+
+순수 pull(콘솔 → SearchOps)은 **짓지 않았다.** 이유 셋: 덮어쓰기가 사라진 지금 콘솔 상태는 안정적이고, SearchOps 쪽에 그 값을 읽는 소비자가 없으며(대시보드는 데모 모드), 계약의 4개 상태값을 SearchOps 의 6개로 되돌리면 `in_progress` ↔ `blocked` 구분이 손실된다. 소비자가 생기면 그때 설계한다.
+
+부수 수정: 이슈 맵 키 구분자가 **리터럴 NUL 바이트**라 `grep` 이 `richdoc.ts` 를 바이너리로 보고 통째로 건너뛰고 있었다. 동작이 같은 `\0` 이스케이프로 바꿨다.
+
+**4. Task 14** — 아래 섹션에서 재평가했다. 결론: 코드가 아니라 **실행 주체가 없어서** 차단이다.
 
 ---
 
@@ -122,16 +135,25 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 - Prisma: synthetic local URL로 `prisma validate` PASS, generate/build PASS. 현재 셸에 DB URL이 없고 Docker runtime도 승인되지 않아 `migrate deploy/status`와 credential dry-run은 실행하지 않았다.
 - Browser: 로컬 `http://localhost:3000`에서 1200px/390px 로그인 화면 overflow 없음. 세 보호 경로는 정확한 `next` query로 로그인에 fail-closed redirect. 인증 내부 화면은 Web fixture tests로 검증했으며 운영 계정 기반 시각 검증은 Task 14 수동 preflight에 남긴다.
 
-### 다음 작업: Task 14 운영 경계
+### Task 14 운영 경계 — 2026-08-17 재평가: **차단됨(코드 문제 아님)**
 
-1. 작업 브랜치의 diff/PR을 검토하고 merge한다. 이 세션에서는 push/PR/merge하지 않았다.
-2. 운영자가 복구 가능한 Supabase backup을 확인한 뒤에만 Railway API+Worker에 encryption keyring과 `SEARCHOPS_CREDENTIAL_STORAGE_MODE=dual`을 설정한다. Vercel에는 encryption key를 넣지 않는다.
-3. Production migration, API, Worker, Web 순서로 배포한다.
-4. Railway one-off 환경에서 credential backfill dry-run/apply/dry-run을 실행하고 unmigrated/failed가 0인지 확인한다.
-5. 서로 다른 두 사이트의 GSC/GA4 resource isolation, 조직 Bing, GEO BYOK 우선순위, PageSpeed platform key, no-fixture를 확인한다.
-6. 실제 legacy fallback이 7일간 0일 때만 API+Worker를 `encrypted` mode로 전환한다. Legacy table drop은 새 계획과 별도 승인 전까지 금지한다.
+1. ~~작업 브랜치 merge~~ ✅ **이미 완료**. `codex/multitenant-provider-credentials` 의 내용은 PR #96 squash 로 main 에 들어갔다(squash 라 원본 커밋이 미머지처럼 보일 뿐, `git diff origin/main origin/codex/...` 에 main 에 없는 내용은 없다). 브랜치는 삭제 대상이다.
+2. ~~Railway API+Worker 에 keyring 설정~~ → **대상이 없다.** Railway 는 폐지됐고 API/Worker 는 어디에도 배포돼 있지 않다.
+3. ~~API/Worker/Web 순서 배포~~ → 같은 이유로 불가.
+4. ~~Railway one-off 에서 backfill~~ → 같은 이유로 불가.
+5. ~~GSC/GA4 isolation 확인~~ → **검증할 코드가 실행되지 않는다.**
+6. ~~7일 관찰 후 `encrypted` 전환~~ → 관찰 대상 트래픽이 0이다.
 
-재개 지시: **“multi-tenant credential Task 14 preflight 이어서”**라고 하면 이 섹션 1번부터 시작한다.
+**왜 차단인가.** 현재 운영에서 도는 것은 GitHub Actions 배치(`apps/worker/src/batch-crawl.ts`) 하나뿐이고, 이 파일은 credential 코드를 **임포트조차 하지 않는다** — `processAndPersistCrawlJob` 으로 크롤만 한다. 커넥터 동기화(`createConnectorSyncWorker`)는 상시 워커 `apps/worker/src/index.ts` 에만 있고 그 프로세스는 배포돼 있지 않다. 즉 **운영에서 credential 이 복호화되는 경로가 0개다.** 이 상태에서 dual→encrypted 전환을 하는 건 아무도 지나지 않는 길에 신호등을 다는 일이다.
+
+**무엇이 풀어주나.** Provider API(GSC/GA4/Bing/GEO)를 실제로 호출할 실행 주체가 생겨야 한다. 두 갈래다:
+
+- **배치에 커넥터 동기화를 얹는다** — 크롤과 같은 방식으로 Actions 에서 돌린다. 상시 호스팅이 필요 없고, 그때 비로소 credential 이 필요해진다. 이쪽이 현재 구조와 맞는다.
+- **상시 호스팅을 유료로 확보한다**(Fly.io 도쿄 월 $2~4 등) — Task 14 원안을 거의 그대로 쓸 수 있다. 무료로는 불가능하다(위 표 참고).
+
+⚠️ 딸린 부채: `provider-credential-store.ts`(38KB) + `provider-credential-migration.ts`(26KB) + 테스트 120KB 가 전부 운영에서 도달 불가 상태로 남아 있다. 테스트는 통과하지만 실제로 검증된 적은 없다.
+
+재개 지시: **"커넥터 동기화를 배치에 얹자"** 또는 **"상시 호스팅 유료로 가자"** — 둘 중 하나를 정하면 Task 14 가 다시 살아난다.
 
 ---
 
