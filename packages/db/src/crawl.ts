@@ -74,8 +74,7 @@ export interface UrlRecordFindUniqueArgs {
 
 export interface SeoIssueUpsertArgs {
   where: {
-    crawlRunId_urlRecordId_ruleId: {
-      crawlRunId: string;
+    urlRecordId_ruleId: {
       urlRecordId: string;
       ruleId: string;
     };
@@ -90,7 +89,9 @@ export interface SeoIssueUpsertArgs {
     evidence: Prisma.InputJsonValue;
   };
   update: {
+    crawlRunId: string;
     severity: string;
+    status: string;
     title: string;
     evidence: Prisma.InputJsonValue;
   };
@@ -459,8 +460,7 @@ function buildSeoIssueUpsertArgs(input: {
 }): SeoIssueUpsertArgs {
   return {
     where: {
-      crawlRunId_urlRecordId_ruleId: {
-        crawlRunId: input.crawlRunId,
+      urlRecordId_ruleId: {
         ruleId: input.issue.ruleId,
         urlRecordId: input.urlRecordId
       }
@@ -475,8 +475,17 @@ function buildSeoIssueUpsertArgs(input: {
       urlRecordId: input.urlRecordId
     },
     update: {
+      // 마지막 관측 런으로 갱신한다. 이게 없으면 이슈가 첫 런에 고정되어
+      // richdoc 어댑터의 crawlRunId 스코프 조회에서 빠지고, 콘솔의 last_seen 이
+      // 멈추면서 issues_found 가 0으로 보고된다.
+      crawlRunId: input.crawlRunId,
       evidence: toPrismaJson(input.issue.evidence),
       severity: input.issue.severity,
+      // 재검출은 아직 안 고쳐졌다는 뜻이므로 resolved 였던 이슈를 다시 연다.
+      // ponytail: WorkOrder.status 는 건드리지 않는다 — 사람이 만든 in_progress 를
+      // 매 크롤 날리지 않기 위해서다. done 인 지시서가 열린 이슈를 갖는 불일치가
+      // 실제로 문제되면 그때 지시서 상태도 함께 되돌려라.
+      status: "open",
       title: input.issue.title
     }
   };
