@@ -8,9 +8,11 @@ name: batch-crawl
 #   DATABASE_URL, DIRECT_DATABASE_URL
 #   SEARCHOPS_RICHDOC_SUPABASE_URL, SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY, SEARCHOPS_RICHDOC_SITE_IDS
 #
-# ⚠️ 주기를 함부로 올리지 마라. SeoIssue 의 유니크 키가 crawlRunId 를 포함해서 크롤 1회마다
-# 이슈와 지시서 세트가 새로 생긴다. 리쥬엘 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
-# 일 1회로 시작하고, 늘리려면 먼저 중복 정리 방식을 정해라.
+# 실패하면 "batch-crawl 실패" 이슈를 열고, 다음 성공에서 닫는다(맨 아래 스텝).
+# 외부 알림 서비스도 새 시크릿도 쓰지 않는다.
+#
+# ⚠️ 이 워크플로가 아예 안 도는 경우는 스스로 알 수 없다. GitHub 은 60일간 레포 활동이
+# 없으면 schedule 을 비활성화한다. 그건 외부 dead-man's switch 가 있어야 잡힌다.
 
 on:
   schedule:
@@ -24,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  issues: write # 실패 알림용. 아래 Report batch status 스텝만 쓴다.
 
 # 같은 사이트를 두 실행이 동시에 긁지 않게 한다. 진행 중인 크롤은 취소하지 않는다.
 concurrency:
@@ -86,3 +89,29 @@ jobs:
           SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
           SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
         run: node apps/worker/dist/batch-crawl.js
+
+      # Actions 기본 알림은 메일함에 묻힌다. 이슈는 열려 있는 동안 레포 상태로 남고
+      # 댓글마다 다시 알림이 온다. 같은 제목의 열린 이슈에 댓글만 달아 매일 실패해도 쌓이지 않는다.
+      # cancelled 는 실패가 아니므로 아무것도 하지 않는다.
+      - name: Report batch status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="batch-crawl 실패"
+          number="$(gh issue list --state open --search "$title in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          if [ "$STATUS" = "success" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "복구됨: $RUN_URL"
+            fi
+          elif [ "$STATUS" = "failure" ]; then
+            body="배치 실패. 로그: $RUN_URL — richdoc 적재만 실패해도 종료 코드가 1이므로 로그에서 '적재 실패' 를 먼저 확인해라."
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body "$body"
+            else
+              gh issue create --title "$title" --body "$body"
+            fi
+          fi
