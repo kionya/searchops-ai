@@ -291,7 +291,9 @@ try {
   check("issues.page_url = urlRecord.url", issue?.page_url === `https://${DOMAIN}/a`, issue?.page_url);
   const firstLastSeen = issue?.last_seen;
 
-  const woUuid = richdocUuidFromId(WO_ID);
+  // 지시서 행 id 는 (사이트, 제목)에서 파생된다 — 크롤마다 새로 생기는 WorkOrder.id 를
+  // 쓰면 같은 지시서가 콘솔에 무한히 쌓이기 때문이다.
+  const woUuid = richdocUuidFromId(`wo:${DOMAIN}:${state.workOrder.title}`);
   const [wo] = await target.read("searchops_work_orders", `id = '${woUuid}'`, `id=eq.${woUuid}`);
   check("work_orders upsert (cuid→uuid 파생 PK)", wo !== undefined);
   check("work_orders.status open → open", wo?.status === "open", wo?.status);

@@ -215,7 +215,7 @@ describe("syncCrawlRun", () => {
     expect(calls[2]!.body).toEqual([
       {
         created_at: "2026-08-15T01:11:00.000Z",
-        id: richdocUuidFromId("wo-1"),
+        id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
         issue_count: 1,
         site: "rejuel.com",
         status: "applied",
@@ -286,8 +286,34 @@ describe("syncSiteWorkOrders", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.body).toEqual([
-      expect.objectContaining({ id: richdocUuidFromId("wo-1"), status: "applied" })
+      expect.objectContaining({
+        id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
+        status: "applied"
+      })
     ]);
+  });
+
+  it("collapses repeat work orders for the same problem into one row", async () => {
+    // 크롤마다 SeoIssue 가 새로 생겨(유니크 키에 crawlRunId 포함) 같은 문제의 지시서가
+    // 반복 생성된다. 콘솔에 그게 그대로 쌓이면 안 된다.
+    const { calls, fetchImpl } = createCapturingFetch();
+    const { prisma } = createFakePrisma({
+      workOrders: [
+        { ...workOrderRow, id: "wo-old", status: "open", updatedAt: new Date("2026-06-23T00:00:00Z") },
+        { ...workOrderRow, id: "wo-new", status: "done", updatedAt: new Date("2026-08-16T00:00:00Z") }
+      ]
+    });
+    const bridge = createBridge(prisma, fetchImpl);
+
+    await bridge.syncSiteWorkOrders({ siteId: "site-1" });
+
+    const rows = calls[0]!.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    // 마지막에 올라간 값이 남으므로 최신 상태여야 한다.
+    expect(rows[0]).toMatchObject({
+      id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
+      status: "verified"
+    });
   });
 
   it("does not query or push for a site outside the allowlist", async () => {

@@ -160,25 +160,37 @@ export function createRichdocContractBridge(
           }
         }
       },
+      // 오래된 것부터 올려 같은 지시서가 병합될 때 최신 상태가 남게 한다.
+      orderBy: { updatedAt: "asc" },
       where: { siteId }
     });
-    const rows = workOrders
-      .filter((workOrder) => workOrder.site !== null)
-      .map((workOrder) => ({
+
+    // 행 id 를 WorkOrder.id 에서 파생하면 크롤마다 새 id 가 생겨 콘솔에 같은 지시서가
+    // 무한히 쌓인다(SeoIssue 유니크 키에 crawlRunId 가 들어 있어 크롤마다 이슈와 지시서가
+    // 새로 만들어진다). 이슈가 (site,page_url,rule_id) 로 병합되는 것과 대칭이 되도록
+    // (사이트, 제목)에서 파생한다 — 제목이 이미 "페이지 + 룰" 을 담고 있다.
+    const rows = new Map<string, unknown>();
+    for (const workOrder of workOrders) {
+      if (workOrder.site === null) {
+        continue;
+      }
+      const key = `wo:${workOrder.site.domain}:${workOrder.title}`;
+      rows.set(key, {
         created_at: workOrder.createdAt.toISOString(),
-        id: richdocUuidFromId(workOrder.id),
+        id: richdocUuidFromId(key),
         issue_count:
           workOrder.seoIssueId !== null
             ? 1
             : Array.isArray(workOrder.relatedIssues)
               ? workOrder.relatedIssues.length
               : 0,
-        site: workOrder.site!.domain,
+        site: workOrder.site.domain,
         status: toRichdocWorkOrderStatus(workOrder.status),
         title: workOrder.title,
         updated_at: workOrder.updatedAt.toISOString()
-      }));
-    await upsert("searchops_work_orders", "id", rows);
+      });
+    }
+    await upsert("searchops_work_orders", "id", [...rows.values()]);
   }
 
   return {
