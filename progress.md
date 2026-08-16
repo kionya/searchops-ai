@@ -6,7 +6,7 @@
 
 ## richdoc(리쥬엘) 연동 + 배포 전략 전환
 
-Updated: 2026-08-16 (PR #96·#98 머지 완료, 운영 가동 중)
+Updated: 2026-08-17 (PR #96·#98 머지 완료, 운영 가동 중 — 새 유니크 키 아래 첫 배치 검증 완료)
 Merged: `f28f295` (연동 어댑터 + 배포 전환) · `3cec287` (지시서 중복 근본 해결)
 Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함** · 크롤 = GitHub Actions `batch-crawl` (매일 KST 03:00)
 
@@ -43,7 +43,7 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 - 리쥬엘 Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
 - GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, gangnam.rejuel.com).
-- Actions 실행 성공(1분 19초). 콘솔 현황: runs 4 / issues 10 / work_orders 5. SearchOps DB 지시서도 5건으로 정리 완료.
+- Actions 스케줄 실행 성공. 2026-08-17 03:11 KST 배치 기준 SearchOps DB는 크롤런 5 / 이슈 30 / 지시서 28이며, 배치가 초록이므로 콘솔 적재 실패는 0건이다.
 - 사이트 추가 시 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id만 더하면 크롤·적재 대상이 함께 늘어난다.
 
 ### 머지 전 리뷰에서 고친 것
@@ -67,31 +67,23 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 ⚠️ **운영 DB에는 마이그레이션이 자동 적용되지 않는다.** 이 레포에 그런 경로가 없다(CI `migration-gate`는 임시 Postgres 대상). 2026-08-16 운영 Supabase에는 SQL Editor로 직접 적용했고 결과는 확인했다 — 인덱스 교체 완료, `SeoIssue` 20 → 10건(unique 10, NULL urlRecordId 0), 고아 지시서 0건(`seoIssueId`가 NULL인 1건은 스키마 추천 유래로 원래 그렇다).
 
-⚠️ **`_prisma_migrations`에 `20260816120000_seo_issue_identity_per_url_rule` 행이 없다.** 손으로 적용해서다. 다음 `prisma migrate deploy` 때 이미 지운 인덱스를 다시 `DROP INDEX`하려다 실패한다. `prisma migrate resolve --applied 20260816120000_seo_issue_identity_per_url_rule`를 운영 `DIRECT_DATABASE_URL`로 한 번 돌리거나, SQL Editor에서 아래를 실행해야 한다(MCP 연결은 read-only라 세션에서 못 넣었다).
+`_prisma_migrations` 이력 행도 손으로 넣었다(MCP 연결이 read-only라 SQL Editor 사용). 없었으면 다음 `prisma migrate deploy`가 이미 지운 인덱스를 다시 `DROP INDEX`하려다 실패했을 것이다. **앞으로도 손으로 적용할 때마다 같은 보정이 필요하다** — `prisma migrate resolve --applied <name>`을 운영 `DIRECT_DATABASE_URL`로 돌리는 게 정석이다.
 
-```sql
-insert into "_prisma_migrations" (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
-select gen_random_uuid()::text,
-       '381456ece6b8a883a78889c698508aae2c444f56de16ede5b9ca5ca62b0f257b',
-       '20260816120000_seo_issue_identity_per_url_rule',
-       now(), now(), 1
-where not exists (
-  select 1 from "_prisma_migrations"
-  where migration_name = '20260816120000_seo_issue_identity_per_url_rule'
-);
-```
+**검증 완료 (2026-08-17 03:11 KST 배치, run `31963805782`):**
 
-미확인으로 남은 것: 새 유니크 키 아래 **첫 배치 실행**(KST 03:00)이 아직 안 돌았다. 돈 뒤 `select count(*), count(distinct ("urlRecordId","ruleId")) from "SeoIssue"`가 같은 값인지, 콘솔 `searchops_issues.last_seen`이 전진하는지 확인하면 위 두 함정이 다 걸린다.
+- `SeoIssue` 30건 = `(urlRecordId, ruleId)` distinct 30건 → 새 키 아래 중복 0. 10 → 30 증가는 중복이 아니라 커버리지 확대다(이전 크롤은 수동 5페이지, 스케줄 배치는 기본값 25페이지 = URL 25 × 규칙 2).
+- 워크플로가 초록 = richdoc 적재 실패 0건. 브리지의 `failureCount`를 종료 코드에 반영해 뒀으므로 이제 초록불이 실제 의미를 가진다. 리쥬엘 Supabase는 다른 조직이라 이 세션의 MCP로 직접 조회되지 않는다 — 종료 코드가 사실상의 검증 경로다.
+
+잔여물 3건: `?type=filorga|exosome|rejuran` 쿼리 변형 URL의 `H1_MISSING` 이슈가 지시서 없이 남아 있다. 2026-06-23 크롤 유래이고 지시서는 수동 정리 때 지워졌으며, 해당 URL이 현재 25페이지 크롤 대상에 없어 재관측되지 않는다. 재크롤되면 지시서가 다시 생긴다. 버그 아님 — 정리하려면 그냥 지우면 된다.
 
 알려진 부수효과: `apps/web/src/site-detail-views.ts:515`가 `issue.crawlRunId === crawlRun.id`로 크롤런별 이슈 수를 세므로 과거 런은 이제 0으로 보인다. 웹 대시보드가 API 없이 404인 동안은 보류.
 
 ### 다음 작업
 
-1. **`_prisma_migrations` 이력 보정.** 바로 위 SQL. 안 하면 다음 배포가 깨진다.
-2. **배치 실패 알림.** 현재는 GitHub 기본 알림뿐이다. 매일 도는 잡이 조용히 실패하면 며칠 모를 수 있다.
-3. **apps/web 대시보드.** API를 배포하지 않아 `/sites/[siteId]/**` 10개 라우트가 404다. `dashboard-shell.tsx`의 `resolveDashboardSite`(현재 호출자 0)로 폴백하면 픽스처 모드로 살릴 수 있다. 지시서 보드는 원래부터 데모 픽스처(`work-order-board.ts`)이며 API를 호출하지 않는다 — 실데이터처럼 보여 오해를 부른다.
-4. **역방향 반영.** 리쥬엘 콘솔에서 지시서 상태를 바꿔도 SearchOps로 돌아오지 않는다(단방향 push). 필요해지면 별도 설계.
-5. **Task 14 (아래 섹션)** — multi-tenant credential 운영 전환은 여전히 미완이다. 단 Railway 전제가 깨졌으므로 배포 단계는 재작성이 필요하다.
+1. **배치 실패 알림.** 현재는 GitHub 기본 알림뿐이다. 매일 도는 잡이 조용히 실패하면 며칠 모를 수 있다.
+2. **apps/web 대시보드.** API를 배포하지 않아 `/sites/[siteId]/**` 10개 라우트가 404다. `dashboard-shell.tsx`의 `resolveDashboardSite`(현재 호출자 0)로 폴백하면 픽스처 모드로 살릴 수 있다. 지시서 보드는 원래부터 데모 픽스처(`work-order-board.ts`)이며 API를 호출하지 않는다 — 실데이터처럼 보여 오해를 부른다.
+3. **역방향 반영.** 리쥬엘 콘솔에서 지시서 상태를 바꿔도 SearchOps로 돌아오지 않는다(단방향 push). 필요해지면 별도 설계.
+4. **Task 14 (아래 섹션)** — multi-tenant credential 운영 전환은 여전히 미완이다. 단 Railway 전제가 깨졌으므로 배포 단계는 재작성이 필요하다.
 
 재개 지시: **"richdoc 연동 다음 작업 이어서"**라고 하면 이 섹션 1번부터 시작한다.
 
