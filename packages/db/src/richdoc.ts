@@ -152,7 +152,11 @@ export function createRichdocContractBridge(
     }
   }
 
-  async function pushSiteWorkOrders(siteId: string) {
+  // includeStatus=false 면 status 를 payload 에서 빼 콘솔이 정한 상태를 보존한다.
+  // 이슈가 status/first_seen 을 빼는 것과 같은 규칙이다. 계약의 지시서 상태값
+  // (in_progress|applied)은 크롤러가 만들 수 없는 값이라 사람이 콘솔에서 정한다.
+  // 크롤은 지시서가 "존재한다"는 것만 알지 그 진행 상태에 대해선 의견이 없다.
+  async function pushSiteWorkOrders(siteId: string, includeStatus: boolean) {
     if (!siteIds.includes(siteId)) {
       return;
     }
@@ -190,7 +194,7 @@ export function createRichdocContractBridge(
               ? workOrder.relatedIssues.length
               : 0,
         site: workOrder.site.domain,
-        status: toRichdocWorkOrderStatus(workOrder.status),
+        ...(includeStatus ? { status: toRichdocWorkOrderStatus(workOrder.status) } : {}),
         title: workOrder.title,
         updated_at: workOrder.updatedAt.toISOString()
       });
@@ -251,7 +255,10 @@ export function createRichdocContractBridge(
         for (const issue of issues) {
           const pageUrl =
             issue.urlRecord?.url ?? readString(issue.evidence, "url") ?? `https://${domain}/`;
-          issueRows.set(`${pageUrl} ${issue.ruleId}`, {
+          // \0 구분자: URL 에 들어갈 수 없는 바이트라 (page_url, rule_id) 조합이
+          // 충돌하지 않는다. 리터럴 NUL 을 소스에 박으면 grep 이 파일 전체를
+          // 바이너리로 보고 건너뛴다 — 반드시 이스케이프로 쓴다.
+          issueRows.set(`${pageUrl}\0${issue.ruleId}`, {
             detail: issue.evidence ?? null,
             last_seen: (crawlRun.endedAt ?? crawlRun.startedAt).toISOString(),
             page_url: pageUrl,
@@ -263,7 +270,9 @@ export function createRichdocContractBridge(
         }
         await upsert("searchops_issues", "site,page_url,rule_id", [...issueRows.values()]);
 
-        await pushSiteWorkOrders(crawlRun.siteId);
+        // 크롤 경로는 상태를 보내지 않는다 — 매일 도는 이 경로가 콘솔 상태를 덮으면
+        // 사람이 in_progress 로 옮긴 지시서가 다음 날 아침 open 으로 되돌아간다.
+        await pushSiteWorkOrders(crawlRun.siteId, false);
       } catch (error) {
         failureCount += 1;
         console.error("[richdoc] crawl run sync failed; crawl result unaffected", error);
@@ -272,7 +281,11 @@ export function createRichdocContractBridge(
 
     async syncSiteWorkOrders(input) {
       try {
-        await pushSiteWorkOrders(input.siteId);
+        // API 경로는 SearchOps 쪽에서 상태를 실제로 바꾼 직후에만 호출된다.
+        // 그때는 SearchOps 가 최신이므로 상태를 함께 보낸다.
+        // ponytail: 사이트 전체를 밀기 때문에 안 바뀐 지시서의 콘솔 상태까지 같이
+        // 덮인다. API 가 배포되면 바뀐 지시서 하나만 밀도록 좁혀라.
+        await pushSiteWorkOrders(input.siteId, true);
       } catch (error) {
         failureCount += 1;
         console.error("[richdoc] work order sync failed; primary operation unaffected", error);

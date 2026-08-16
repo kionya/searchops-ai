@@ -214,12 +214,13 @@ describe("syncCrawlRun", () => {
 
     // created_at 은 보내지 않는다 — 병합 대상이라 매번 덮이면 오래 방치된 지시서가
     // 영원히 '오늘 만들어진 것'으로 보인다.
+    // status 도 보내지 않는다 — 매일 도는 크롤이 콘솔에서 사람이 옮긴 진행 상태를
+    // 되돌리면 안 된다. 이슈의 status/first_seen 과 같은 규칙이다.
     expect(calls[2]!.body).toEqual([
       {
         id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
         issue_count: 1,
         site: "rejuel.com",
-        status: "applied",
         title: "타이틀 누락 수정",
         updated_at: "2026-08-15T02:00:00.000Z"
       }

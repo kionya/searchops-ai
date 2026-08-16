@@ -156,6 +156,12 @@ function createLocalTarget() {
     async patchIssueStatus(status) {
       psql(["-c", `update public.searchops_issues set status = '${status}' where site = '${DOMAIN}'`]);
     },
+    async patchWorkOrderStatus(status) {
+      psql([
+        "-c",
+        `update public.searchops_work_orders set status = '${status}' where site = '${DOMAIN}'`
+      ]);
+    },
     async finish() {
       server.close();
       if (keep) {
@@ -199,6 +205,9 @@ function createLiveTarget() {
     },
     async patchIssueStatus(status) {
       await rest("PATCH", `searchops_issues?site=eq.${DOMAIN}`, { status });
+    },
+    async patchWorkOrderStatus(status) {
+      await rest("PATCH", `searchops_work_orders?site=eq.${DOMAIN}`, { status });
     },
     async finish() {
       if (keep) {
@@ -299,8 +308,10 @@ try {
   check("work_orders.status open → open", wo?.status === "open", wo?.status);
   check("work_orders.issue_count = 1", wo?.issue_count === 1, wo?.issue_count);
 
-  // 콘솔이 이슈 상태를 바꿨다고 가정 — 재크롤이 이걸 되돌리면 계약 위반이다.
+  // 콘솔이 이슈와 지시서 상태를 바꿨다고 가정 — 재크롤이 이걸 되돌리면 계약 위반이다.
+  // 지시서의 in_progress 는 사람이 작업을 시작했다는 뜻이라 크롤러가 만들 수 없는 값이다.
   await target.patchIssueStatus("in_order");
+  await target.patchWorkOrderStatus("in_progress");
 
   // ---- 2차 적재: upsert(idempotency) + 콘솔 관리 컬럼 보존 ----
   await new Promise((done) => setTimeout(done, 1100));
@@ -325,8 +336,16 @@ try {
     { after: issues[0]?.last_seen, before: firstLastSeen },
   );
 
+  // 크롤 경로는 상태를 보내지 않는다. SearchOps 쪽 status 가 done 으로 바뀌었어도
+  // 콘솔이 정한 in_progress 가 그대로여야 한다 — 매일 도는 경로가 사람의 작업을 지운다.
   const [wo2] = await target.read("searchops_work_orders", `id = '${woUuid}'`, `id=eq.${woUuid}`);
-  check("work_orders.status done → verified", wo2?.status === "verified", wo2?.status);
+  check("콘솔 관리 work_orders.status(in_progress) 보존", wo2?.status === "in_progress", wo2?.status);
+  check("work_orders.issue_count 은 계속 갱신", wo2?.issue_count === 1, wo2?.issue_count);
+
+  // 반대로 SearchOps 가 직접 상태를 바꾼 경우(API 변경 경로)는 콘솔로 반영돼야 한다.
+  await bridge.syncSiteWorkOrders({ siteId: SITE_ID });
+  const [wo3] = await target.read("searchops_work_orders", `id = '${woUuid}'`, `id=eq.${woUuid}`);
+  check("API 경로는 status 반영 done → verified", wo3?.status === "verified", wo3?.status);
 
   // ---- allowlist fail-closed (멀티테넌트 유출 방지) ----
   // 실제 취약 시나리오 재현: Site.domain 은 조직별 unique 라 타 조직이 같은
