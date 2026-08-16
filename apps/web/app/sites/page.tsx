@@ -14,10 +14,7 @@ import {
   type SiteRegistrationSearchParams,
   loadSiteRegistry
 } from "../../src/site-registry";
-import { demoWorkOrders, summarizeWorkOrders } from "../../src/work-order-board";
 import { createSiteAction } from "./actions";
-
-const workOrderSummary = summarizeWorkOrders(demoWorkOrders);
 
 interface SitesPageProps {
   readonly searchParams?: Promise<SiteRegistrationSearchParams>;
@@ -84,11 +81,11 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
                   대시보드 열기
                 </Link>
               </div>
+              {/* 실제 등록 사이트 카드에 데모 지시서 숫자를 붙이면 실적으로 읽힌다.
+                  집계는 API 가 붙은 뒤에 실데이터로 되살린다. */}
               <dl style={{ ...metricGridStyle, margin: "18px 0 0" }}>
                 <SiteFact label="업종" value={formatIndustryLabel(site.industry)} />
                 <SiteFact label="로캘" value={`${site.language}-${site.country}`} />
-                <SiteFact label="열린 작업" value={String(workOrderSummary.active)} />
-                <SiteFact label="차단됨" value={String(workOrderSummary.blocked)} />
               </dl>
             </article>
           ))}

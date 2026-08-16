@@ -118,10 +118,15 @@ export function resolveDashboardSite(siteId: string): Site {
 export async function loadDashboardSite(siteId: string): Promise<Site> {
   const context = await getCurrentProviderUser();
   const site = await loadDashboardSiteAsUser(context, siteId);
-  if (site === null) {
-    throw new ProviderAccountClientError("request_failed");
+  if (site !== null) {
+    return site;
   }
-  return site;
+  // 레이아웃(app/sites/[siteId]/layout.tsx)과 같은 이유로, API 부재는 오류가 아니라
+  // fixture 폴백이다. API 가 있는데 거부당한 경우만 실패로 남긴다.
+  if (getApiBaseUrl() === null) {
+    return resolveDashboardSite(siteId);
+  }
+  throw new ProviderAccountClientError("request_failed");
 }
 
 export async function loadDashboardSiteAsUser(
@@ -214,9 +219,12 @@ export function AppWorkspaceFrame({
 
 export function SiteDashboardFrame({
   children,
+  demo = false,
   site
 }: {
   readonly children: ReactNode;
+  // API 가 없어 fixture 로 그리는 중이라는 뜻. 색만으로 알리지 않고 문구를 함께 낸다.
+  readonly demo?: boolean;
   readonly site: Site;
 }) {
   return (
@@ -272,9 +280,39 @@ export function SiteDashboardFrame({
             </div>
           </div>
         </header>
+        {demo ? <DemoDataBanner /> : null}
         <div className="searchops-site-content">{children}</div>
       </section>
     </main>
+  );
+}
+
+// API 미배포 상태에서 이 화면 전체가 fixture 라는 사실을 숨기면 데모가 실적처럼 읽힌다.
+// 색만으로는 알 수 없으므로 기호와 문구를 함께 낸다.
+function DemoDataBanner() {
+  return (
+    <div
+      role="status"
+      style={{
+        alignItems: "baseline",
+        background: "#fffbeb",
+        border: "1px solid #fcd34d",
+        borderRadius: 10,
+        color: "#92400e",
+        display: "flex",
+        fontSize: 13,
+        gap: 8,
+        lineHeight: 1.5,
+        margin: "16px 24px 0",
+        padding: "10px 14px"
+      }}
+    >
+      <span aria-hidden="true">⚠</span>
+      <span>
+        <strong>데모 데이터</strong> — SearchOps API가 배포되어 있지 않아 이 사이트 화면은 전부
+        고정 예시로 그려집니다. 실제 크롤 결과는 연동된 콘솔에서 확인하세요.
+      </span>
+    </div>
   );
 }
 
