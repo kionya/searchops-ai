@@ -334,12 +334,17 @@ describe("crawl persistence helpers", () => {
       }
     ]);
     expect(seoIssueUpserts[0]).toMatchObject({
+      // 이슈 정체성은 크롤 실행이 아니라 (페이지, 규칙)이다.
       where: {
-        crawlRunId_urlRecordId_ruleId: {
-          crawlRunId: "crawl_1",
+        urlRecordId_ruleId: {
           ruleId: "TITLE_MISSING",
           urlRecordId: "url_1"
         }
+      },
+      update: {
+        // 마지막 관측 런 갱신이 빠지면 richdoc 미러의 크롤런 조회에서 이슈가 사라진다.
+        crawlRunId: "crawl_1",
+        status: "open"
       },
       create: {
         crawlRunId: "crawl_1",

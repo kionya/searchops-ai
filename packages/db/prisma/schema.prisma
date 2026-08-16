@@ -280,7 +280,10 @@ model SeoIssue {
   @@index([crawlRunId])
   @@index([ruleId])
   @@index([status])
-  @@unique([crawlRunId, urlRecordId, ruleId])
+  // 이슈의 정체성은 크롤 실행이 아니라 문제 그 자체다(페이지 + 규칙).
+  // crawlRunId 는 "마지막으로 이 문제를 관측한 런", createdAt 은 최초 관측 시각이 된다.
+  // UrlRecord 가 @@unique([siteId, url]) 라 urlRecordId 하나가 사이트+URL 을 함축한다.
+  @@unique([urlRecordId, ruleId])
 }
 
 model WorkOrder {
