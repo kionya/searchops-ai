@@ -151,7 +151,27 @@ Live: web = https://searchops.totopapa.com (+ https://searchops-ai-web.vercel.ap
 - **배치에 커넥터 동기화를 얹는다** — 크롤과 같은 방식으로 Actions 에서 돌린다. 상시 호스팅이 필요 없고, 그때 비로소 credential 이 필요해진다. 이쪽이 현재 구조와 맞는다.
 - **상시 호스팅을 유료로 확보한다**(Fly.io 도쿄 월 $2~4 등) — Task 14 원안을 거의 그대로 쓸 수 있다. 무료로는 불가능하다(위 표 참고).
 
-⚠️ 딸린 부채: `provider-credential-store.ts`(38KB) + `provider-credential-migration.ts`(26KB) + 테스트 120KB 가 전부 운영에서 도달 불가 상태로 남아 있다. 테스트는 통과하지만 실제로 검증된 적은 없다.
+### credential 경로 검증 (2026-08-17) — **실행 주체만 붙이면 동작한다**
+
+딸린 부채(`provider-credential-store.ts` 38KB + `provider-credential-migration.ts` 26KB + 테스트 120KB)가 "도달 불가라 검증된 적 없음" 이었으므로, 실행 주체를 흉내내 검증했다: `pnpm smoke:credential` (`scripts/credential-smoke.mjs`).
+
+기존 유닛 테스트는 **전부 인메모리 페이크**다 — 실제 Postgres, 실제 Prisma 마이그레이션, 실제 AES-256-GCM 위에서 돌아본 적이 없었다. 이 검증기는 임시 DB 를 만들어 `prisma migrate deploy` 를 돌리고(= Task 14 의 3번 마이그레이션 단계), 운영 워커와 같은 리졸버를 조립해 14개를 확인한다. 외부 API 는 호출하지 않는다 — `fetch` 가 불리면 즉시 실패시켜 "외부 호출 없이 해결된다" 는 것 자체를 검증 대상으로 삼는다.
+
+| 검증한 것 | 결과 |
+|---|---|
+| `prisma migrate deploy` (ProviderAccount/SiteConnector 스키마 배포) | ✅ |
+| credential 이 DB 에 평문으로 남지 않음 (컬럼 직접 확인) | ✅ |
+| 복호화된 access token 이 리졸버까지 도달, source=`encrypted` | ✅ |
+| **사이트별 resource isolation** — 같은 계정, 사이트마다 다른 GSC 속성 (Task 14 의 5번) | ✅ |
+| **타 조직 사이트 요청 fail-closed**, 단 자기 조직은 자기 토큰으로 해결 | ✅ |
+| binding 없는 provider 는 조용히 성공하지 않고 실패로 보고 | ✅ |
+| 키 로테이션 — 이전 키 credential 이 previous keys 로 열림 / 빼면 안 열림 | ✅ |
+
+**부수 발견: 테넌트 격리가 4중이다.** 뮤테이션 테스트로 (1) 리졸버의 org 가드, (2) `getSite` 의 org 스코프, (3) `getSiteConnector` 의 org 스코프, (4) credential AAD 의 organizationId 바인딩을 차례로 제거했는데 그래도 fail-closed 였다. 특히 (4)는 암호학적 방어라 스코프 버그가 있어도 복호화 자체가 실패한다. 단일 실수로는 뚫리지 않는 설계다.
+
+따라서 Task 14 가 남긴 위험은 **"코드가 틀렸을 위험"이 아니라 "한 번도 실행되지 않은 채 썩을 위험"** 이다. 되돌릴 필요는 없고, 실행 주체가 생길 때까지 이 검증기가 회귀를 잡는다.
+
+⚠️ 검증 범위 밖: OAuth 토큰 **refresh** 경로(외부 호출 필요), 실제 provider API 응답 파싱, `dual` 모드의 legacy fallback. 앞의 둘은 실행 주체가 생겨야 검증되고, legacy fallback 은 이관할 legacy row 가 운영에 없다.
 
 재개 지시: **"커넥터 동기화를 배치에 얹자"** 또는 **"상시 호스팅 유료로 가자"** — 둘 중 하나를 정하면 Task 14 가 다시 살아난다.
 

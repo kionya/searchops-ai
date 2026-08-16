@@ -89,3 +89,52 @@ jobs:
 
       - name: Check migration status
         run: pnpm db:migrate:status
+
+  # Multi-tenant credential 경로는 운영에서 실행되지 않는다(배치는 크롤만 한다).
+  # 도달 불가라 조용히 썩는 걸 막으려고, 실행 주체를 흉내낸 검증기를 CI 에서 돌린다.
+  # 유닛 테스트는 전부 인메모리 페이크라 실제 Postgres/마이그레이션/AES-GCM 을 못 본다.
+  credential-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: searchops
+          POSTGRES_USER: searchops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U searchops"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # 검증기가 createdb/dropdb 로 자기 DB 를 만든다 — libpq 표준 변수로 붙인다.
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: searchops
+      PGPASSWORD: searchops
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run credential smoke
+        run: pnpm smoke:credential

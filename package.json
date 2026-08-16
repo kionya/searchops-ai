@@ -11,6 +11,7 @@
     "dev": "turbo run dev --parallel",
     "lint": "corepack pnpm -r lint",
     "lint:turbo": "turbo run lint",
+    "smoke:credential": "corepack pnpm --filter \"@searchops/worker...\" build && node scripts/credential-smoke.mjs",
     "smoke:richdoc": "corepack pnpm --filter \"@searchops/db...\" build && node scripts/richdoc-smoke.mjs",
     "start:api": "node apps/api/dist/index.js",
     "start:worker": "node apps/worker/dist/index.js",
