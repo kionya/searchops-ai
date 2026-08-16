@@ -6,8 +6,8 @@
 
 ## richdoc(리쥬엘) 연동 + 배포 전략 전환
 
-Updated: 2026-08-16 (PR #96 머지 완료, 운영 가동 중)
-Merged: `f28f295` (squash, 브랜치 삭제됨)
+Updated: 2026-08-16 (PR #96·#98 머지 완료, 운영 가동 중)
+Merged: `f28f295` (연동 어댑터 + 배포 전환) · `3cec287` (지시서 중복 근본 해결)
 Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함** · 크롤 = GitHub Actions `batch-crawl` (매일 KST 03:00)
 
 > Railway는 더 이상 쓰지 않는다. `searchops-api-production.up.railway.app`은 404이며 위 섹션의 Live 정보는 낡았다.
@@ -54,9 +54,40 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 - 지시서 행 id를 `WorkOrder.id`에서 파생해 콘솔에 무한 누적(이슈 10건에 지시서 16건, 한 제목이 8번 중복) → (사이트, 제목) 파생으로 병합.
 - 그 외: `maxPages` 상한 클램프(초과 시 CrawlRun이 `queued` 고착), 없는 Site.id를 실패로 계상, 워크플로 시크릿을 스텝 레벨로 내려 `pnpm install` postinstall 노출 제거.
 
+### 지시서 중복의 근본 해결 (PR #98, `3cec287`)
+
+`SeoIssue` 유니크 키에서 `crawlRunId`를 뺐다: `@@unique([crawlRunId, urlRecordId, ruleId])` → `@@unique([urlRecordId, ruleId])`.
+
+이슈의 정체성은 크롤 실행이 아니라 **문제 그 자체**(페이지 + 규칙)다. `UrlRecord`가 이미 `@@unique([siteId, url])`이라 크롤 간 재사용되므로 `(urlRecordId, ruleId)`는 안정적인 자연키다. `SchemaRecommendation`이 이미 `@@unique([siteId, pageUrl, type])`인 것과 같은 규약 — `SeoIssue`만 크롤런 스코프였고 그 비대칭이 버그였다. `WorkOrder`는 `seoIssueId @unique`라 이슈가 안정되면 지시서도 자동으로 안정되므로 건드리지 않았다.
+
+빠뜨리면 조용히 깨지는 두 곳:
+
+- upsert의 `update` payload에 **`crawlRunId` 갱신을 넣어야** 한다. 없으면 이슈가 첫 런에 고정되어 richdoc 어댑터의 `where: { crawlRunId }` 조회에서 빠지고, 콘솔 `last_seen`이 멈추면서 `issues_found`가 0으로 보고된다.
+- 마이그레이션은 그룹마다 **최신 행을 남긴다**. `WorkOrder.seoIssueId` FK가 `ON DELETE SET NULL`이라 지시서가 가리키는 행을 지우면 조용히 NULL이 되고 다음 크롤에서 지시서가 다시 생긴다.
+
+⚠️ **운영 DB에는 마이그레이션이 자동 적용되지 않는다.** 이 레포에 그런 경로가 없다(CI `migration-gate`는 임시 Postgres 대상). 2026-08-16 운영 Supabase에는 SQL Editor로 직접 적용했고 결과는 확인했다 — 인덱스 교체 완료, `SeoIssue` 20 → 10건(unique 10, NULL urlRecordId 0), 고아 지시서 0건(`seoIssueId`가 NULL인 1건은 스키마 추천 유래로 원래 그렇다).
+
+⚠️ **`_prisma_migrations`에 `20260816120000_seo_issue_identity_per_url_rule` 행이 없다.** 손으로 적용해서다. 다음 `prisma migrate deploy` 때 이미 지운 인덱스를 다시 `DROP INDEX`하려다 실패한다. `prisma migrate resolve --applied 20260816120000_seo_issue_identity_per_url_rule`를 운영 `DIRECT_DATABASE_URL`로 한 번 돌리거나, SQL Editor에서 아래를 실행해야 한다(MCP 연결은 read-only라 세션에서 못 넣었다).
+
+```sql
+insert into "_prisma_migrations" (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
+select gen_random_uuid()::text,
+       '381456ece6b8a883a78889c698508aae2c444f56de16ede5b9ca5ca62b0f257b',
+       '20260816120000_seo_issue_identity_per_url_rule',
+       now(), now(), 1
+where not exists (
+  select 1 from "_prisma_migrations"
+  where migration_name = '20260816120000_seo_issue_identity_per_url_rule'
+);
+```
+
+미확인으로 남은 것: 새 유니크 키 아래 **첫 배치 실행**(KST 03:00)이 아직 안 돌았다. 돈 뒤 `select count(*), count(distinct ("urlRecordId","ruleId")) from "SeoIssue"`가 같은 값인지, 콘솔 `searchops_issues.last_seen`이 전진하는지 확인하면 위 두 함정이 다 걸린다.
+
+알려진 부수효과: `apps/web/src/site-detail-views.ts:515`가 `issue.crawlRunId === crawlRun.id`로 크롤런별 이슈 수를 세므로 과거 런은 이제 0으로 보인다. 웹 대시보드가 API 없이 404인 동안은 보류.
+
 ### 다음 작업
 
-1. **지시서 중복의 근본 해결.** `SeoIssue` 유니크 키에 `crawlRunId`가 있어 크롤마다 이슈·지시서가 새로 생긴다. 리쥬엘 콘솔은 병합으로 막았지만 SearchOps DB에는 계속 쌓인다(한 달이면 100건대 복귀). 지시서를 이슈 단위가 아니라 문제 단위로 만드는 스키마 변경이 필요하다.
+1. **`_prisma_migrations` 이력 보정.** 바로 위 SQL. 안 하면 다음 배포가 깨진다.
 2. **배치 실패 알림.** 현재는 GitHub 기본 알림뿐이다. 매일 도는 잡이 조용히 실패하면 며칠 모를 수 있다.
 3. **apps/web 대시보드.** API를 배포하지 않아 `/sites/[siteId]/**` 10개 라우트가 404다. `dashboard-shell.tsx`의 `resolveDashboardSite`(현재 호출자 0)로 폴백하면 픽스처 모드로 살릴 수 있다. 지시서 보드는 원래부터 데모 픽스처(`work-order-board.ts`)이며 API를 호출하지 않는다 — 실데이터처럼 보여 오해를 부른다.
 4. **역방향 반영.** 리쥬엘 콘솔에서 지시서 상태를 바꿔도 SearchOps로 돌아오지 않는다(단방향 push). 필요해지면 별도 설계.
