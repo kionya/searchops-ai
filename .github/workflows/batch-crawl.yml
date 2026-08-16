@@ -35,16 +35,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
-      SEARCHOPS_RICHDOC_SUPABASE_URL: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_URL }}
-      SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY }}
-      SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
-      SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
+    # 시크릿은 job 레벨에 두지 않는다. 여기 두면 pnpm install 의 서드파티 postinstall
+    # 스크립트까지 운영 DB 자격증명과 service_role 키를 상속한다. 실제로 쓰는 스텝에만 준다.
 
     steps:
       - name: Fail fast when secrets are missing
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEARCHOPS_RICHDOC_SUPABASE_URL: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_URL }}
+          SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY }}
+          SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
         run: |
           missing=""
           for v in DATABASE_URL SEARCHOPS_RICHDOC_SUPABASE_URL \
@@ -78,4 +78,11 @@ jobs:
         run: pnpm --filter "@searchops/worker..." build
 
       - name: Run crawl batch
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          SEARCHOPS_RICHDOC_SUPABASE_URL: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_URL }}
+          SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY }}
+          SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
+          SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
         run: node apps/worker/dist/batch-crawl.js

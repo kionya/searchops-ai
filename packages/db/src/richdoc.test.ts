@@ -212,9 +212,10 @@ describe("syncCrawlRun", () => {
     expect(issueRows[0]).not.toHaveProperty("status");
     expect(issueRows[0]).not.toHaveProperty("first_seen");
 
+    // created_at 은 보내지 않는다 — 병합 대상이라 매번 덮이면 오래 방치된 지시서가
+    // 영원히 '오늘 만들어진 것'으로 보인다.
     expect(calls[2]!.body).toEqual([
       {
-        created_at: "2026-08-15T01:11:00.000Z",
         id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
         issue_count: 1,
         site: "rejuel.com",
@@ -253,7 +254,7 @@ describe("syncCrawlRun", () => {
     expect(calls).toEqual([]);
   });
 
-  it("resolves without throwing when the upsert is rejected", async () => {
+  it("resolves without throwing when the upsert is rejected, but counts the failure", async () => {
     const { fetchImpl } = createCapturingFetch(500);
     const { prisma } = createFakePrisma({ crawlRun: crawlRunRow });
     const bridge = createBridge(prisma, fetchImpl);
@@ -261,6 +262,32 @@ describe("syncCrawlRun", () => {
     await expect(
       bridge.syncCrawlRun({ crawlRunId: "crawl-run-1", siteId: "site-1" }),
     ).resolves.toBeUndefined();
+    // 삼킨 실패가 드러나야 배치가 종료 코드로 알릴 수 있다. 이게 0이면 적재가
+    // 100% 실패해도 워크플로가 초록불로 끝난다.
+    expect(bridge.failureCount).toBe(1);
+  });
+
+  it("uses the crawl time for last_seen, not the push time", async () => {
+    const { calls, fetchImpl } = createCapturingFetch();
+    const { prisma } = createFakePrisma({
+      crawlRun: crawlRunRow,
+      seoIssues: [
+        {
+          evidence: null,
+          ruleId: "TITLE_MISSING",
+          severity: "critical",
+          title: "타이틀 누락",
+          urlRecord: { url: "https://rejuel.com/a" }
+        }
+      ]
+    });
+    const bridge = createBridge(prisma, fetchImpl);
+
+    await bridge.syncCrawlRun({ crawlRunId: "crawl-run-1", siteId: "site-1" });
+
+    const [issue] = calls[1]!.body as Array<Record<string, unknown>>;
+    // 푸시 시각을 쓰면 과거 런을 백필할 때 이슈 나이가 사라진다.
+    expect(issue!.last_seen).toBe(crawlRunRow.endedAt.toISOString());
   });
 });
 

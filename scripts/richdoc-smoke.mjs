@@ -307,6 +307,9 @@ try {
   state.issue.severity = "critical";
   state.workOrder.status = "done";
   state.workOrder.updatedAt = new Date();
+  // last_seen 은 푸시 시각이 아니라 크롤 시각을 따른다. 재크롤을 흉내내려면
+  // 크롤런의 종료 시각을 함께 진행시켜야 한다.
+  state.crawlRun = { ...state.crawlRun, endedAt: new Date() };
   await bridge.syncCrawlRun({ crawlRunId: RUN_ID, siteId: SITE_ID });
 
   const runs = await target.read("searchops_runs", `site = '${DOMAIN}'`, `site=eq.${DOMAIN}`);

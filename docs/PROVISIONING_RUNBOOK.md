@@ -47,7 +47,7 @@ Vercel에는 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `REDIS_URL`, credential encr
 
 ### API 컨테이너
 
-> 배포 대상은 Oracle Cloud Always Free ARM VM 1대(도쿄/오사카)이며 `docker-compose.yml`의
+> 배포 대상은 Oracle Cloud Always Free ARM VM 1대(도쿄/오사카)이며 `compose.prod.yaml`의
 > `api` 서비스로 뜬다. 값은 VM의 `.env` 파일 하나에 넣고 api/worker가 공유한다.
 > (~2026-08 Railway 사용을 중단했다. Koyeb은 무료 플랜 신규 가입 중단 + Worker Service 금지
 > + 강제 scale-to-zero로 이 워크로드에 쓸 수 없어 후보에서 제외했다. 아래 아래 "VM 배포" 절 참고.)

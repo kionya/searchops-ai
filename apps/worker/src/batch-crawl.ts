@@ -21,7 +21,9 @@ import {
 
 import { processAndPersistCrawlJob } from "./processor.js";
 
-const maxPages = Number(process.env.SEARCHOPS_BATCH_MAX_PAGES) || 25;
+// 계약 상한(100)을 넘기면 CrawlJobPayloadSchema 가 던지는데, 그 parse 는 프로세서의
+// try 밖이라 CrawlRun 이 queued 로 남고 실패로도 기록되지 않는다. 여기서 미리 자른다.
+const maxPages = Math.min(100, Math.max(1, Number(process.env.SEARCHOPS_BATCH_MAX_PAGES) || 25));
 
 async function main(): Promise<void> {
   const contract = parseRichdocContractConfigFromEnv(process.env);
@@ -42,7 +44,10 @@ async function main(): Promise<void> {
     });
 
     const missing = contract.siteIds.filter((id) => !sites.some((site) => site.id === id));
+    let failures = 0;
     if (missing.length > 0) {
+      // 오타나 삭제된 사이트가 매일 조용히 누락되면 아무도 모른다.
+      failures += missing.length;
       console.error(`[batch-crawl] DB에 없는 Site.id: ${missing.join(", ")}`);
     }
     if (sites.length === 0) {
@@ -57,7 +62,6 @@ async function main(): Promise<void> {
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
     const richdocBridge = createRichdocContractBridge({ prisma, ...contract });
 
-    let failures = 0;
     for (const site of sites) {
       const startUrl = `https://${site.domain}/`;
       try {
@@ -98,7 +102,13 @@ async function main(): Promise<void> {
       }
     }
 
-    if (failures > 0) {
+    // 브리지는 적재 실패를 삼킨다(크롤 결과를 깨지 않기 위해). 배치는 미러링이 산출물의
+    // 전부이므로 여기서 따로 확인한다 — 없으면 키 회전이나 계약 미적용으로 적재가 전부
+    // 실패해도 워크플로가 매일 초록불로 끝난다.
+    if (richdocBridge.failureCount > 0) {
+      console.error(`[batch-crawl] richdoc 적재 실패 ${richdocBridge.failureCount}건`);
+    }
+    if (failures > 0 || richdocBridge.failureCount > 0) {
       process.exitCode = 1;
     }
   } finally {

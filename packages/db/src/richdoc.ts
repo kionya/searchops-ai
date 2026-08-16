@@ -31,6 +31,9 @@ export interface CreateRichdocContractBridgeOptions extends RichdocContractConfi
 export interface RichdocContractBridge {
   syncCrawlRun(input: { readonly crawlRunId: string; readonly siteId: string }): Promise<void>;
   syncSiteWorkOrders(input: { readonly siteId: string }): Promise<void>;
+  // 삼킨 실패의 수. API 경로는 무시해도 되지만(사용자 요청을 미러 장애로 깨면 안 된다),
+  // 미러링이 산출물의 전부인 배치는 이걸 읽어 종료 코드에 반영해야 한다.
+  readonly failureCount: number;
 }
 
 export function parseRichdocContractConfigFromEnv(env: {
@@ -121,6 +124,7 @@ export function createRichdocContractBridge(
   const fetchImpl = options.fetchImpl ?? fetch;
   const requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
   const baseUrl = options.supabaseUrl.replace(/\/+$/, "");
+  let failureCount = 0;
 
   async function upsert(table: string, onConflict: string, rows: readonly unknown[]) {
     if (rows.length === 0) {
@@ -175,8 +179,9 @@ export function createRichdocContractBridge(
         continue;
       }
       const key = `wo:${workOrder.site.domain}:${workOrder.title}`;
+      // created_at 은 일부러 보내지 않는다. 병합 대상이라 매번 덮이면 오래 방치된
+      // 지시서가 영원히 '오늘 만들어진 것'으로 보인다. insert 시 계약 DEFAULT 가 찍힌다.
       rows.set(key, {
-        created_at: workOrder.createdAt.toISOString(),
         id: richdocUuidFromId(key),
         issue_count:
           workOrder.seoIssueId !== null
@@ -248,7 +253,7 @@ export function createRichdocContractBridge(
             issue.urlRecord?.url ?? readString(issue.evidence, "url") ?? `https://${domain}/`;
           issueRows.set(`${pageUrl} ${issue.ruleId}`, {
             detail: issue.evidence ?? null,
-            last_seen: new Date().toISOString(),
+            last_seen: (crawlRun.endedAt ?? crawlRun.startedAt).toISOString(),
             page_url: pageUrl,
             rule_id: issue.ruleId,
             severity: toRichdocIssueSeverity(issue.severity),
@@ -260,6 +265,7 @@ export function createRichdocContractBridge(
 
         await pushSiteWorkOrders(crawlRun.siteId);
       } catch (error) {
+        failureCount += 1;
         console.error("[richdoc] crawl run sync failed; crawl result unaffected", error);
       }
     },
@@ -268,8 +274,13 @@ export function createRichdocContractBridge(
       try {
         await pushSiteWorkOrders(input.siteId);
       } catch (error) {
+        failureCount += 1;
         console.error("[richdoc] work order sync failed; primary operation unaffected", error);
       }
+    },
+
+    get failureCount() {
+      return failureCount;
     }
   };
 }
