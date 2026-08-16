@@ -45,7 +45,12 @@ Supabase publishable key는 브라우저 공개를 전제로 한 값이며 servi
 
 Vercel에는 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `REDIS_URL`, credential encryption keyring, Google client secret/state secret, provider API key, 고객 token, 고객 ID, GA4 Property ID, Bing key를 넣지 않는다. `turbo run build` 또는 Vercel build가 이 금지된 backend 값을 요구한다면 Web 설정으로 우회하지 말고 build dependency를 수정한다. Vercel이 관리하는 production runtime을 사용하므로 `NODE_ENV`도 수동으로 덮어쓰지 않는다.
 
-### Railway API
+### API 컨테이너
+
+> 배포 대상은 Oracle Cloud Always Free ARM VM 1대(도쿄/오사카)이며 `compose.prod.yaml`의
+> `api` 서비스로 뜬다. 값은 VM의 `.env` 파일 하나에 넣고 api/worker가 공유한다.
+> (~2026-08 Railway 사용을 중단했다. Koyeb은 무료 플랜 신규 가입 중단 + Worker Service 금지
+> + 강제 scale-to-zero로 이 워크로드에 쓸 수 없어 후보에서 제외했다. 아래 아래 "VM 배포" 절 참고.)
 
 <!-- RAILWAY_API_ENV_BEGIN -->
 
@@ -85,11 +90,20 @@ Google OAuth 앱:
 - `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL`, `SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN`
 - `SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL`, `SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN`
 - `SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL`, `SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN`
+
+richdoc-saas 연동 (셋 다 설정해야 활성화, API와 Worker 동일 값):
+
+- `SEARCHOPS_RICHDOC_SUPABASE_URL`: 리쥬엘 Supabase 프로젝트 URL
+- `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`: 리쥬엘 Supabase service_role key
+- `SEARCHOPS_RICHDOC_SITE_IDS`: 밀어낼 Site.id 콤마 목록 (도메인 아님 — 테넌트 고정용)
 <!-- RAILWAY_API_ENV_END -->
 
 `NODE_ENV=production`은 개발용 mock/trusted-header fallback을 허용하지 않는 배포 경계이며 production rate limiting 기본값도 활성화한다. 단, IdP verifier가 함께 설정되어야 실제 bearer token을 검증할 수 있다.
 
-### Railway Worker
+### Worker 컨테이너
+
+> 같은 VM의 `worker` 서비스. api와 `.env` 파일을 공유하므로 아래 값은 별도 입력이 아니라
+> 같은 파일에 함께 있으면 된다(단일 VM 구성의 이점 — 설정 드리프트가 생기지 않는다).
 
 <!-- RAILWAY_WORKER_ENV_BEGIN -->
 
@@ -124,6 +138,8 @@ Google refresh 앱:
 - `SEARCHOPS_GEO_PERPLEXITY_MODEL`
 - `SEARCHOPS_RICH_RESULT_VALIDATOR_URL`
 - `SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN`
+- `SEARCHOPS_RICHDOC_SUPABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`,
+  `SEARCHOPS_RICHDOC_SITE_IDS`: richdoc-saas 연동 — API 섹션과 같은 값
 <!-- RAILWAY_WORKER_ENV_END -->
 
 Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Google token, 조직 GEO BYOK를 넣지 않는다. Worker는 각 job의 `organizationId`와 `siteId`로 encrypted `ProviderAccount`/`SiteConnector`를 조회한다.
@@ -139,13 +155,42 @@ Worker에 사이트별 GSC 속성, GA4 Property ID, Bing 고객 key, 고객 Goog
 
 ## 3. DB와 Redis를 어디에 넣는가
 
-1. Supabase에서 runtime connection URL을 준비해 Railway API와 Worker의 `DATABASE_URL`에 각각 설정한다.
+1. Supabase에서 runtime connection URL을 준비해 VM `.env`의 `DATABASE_URL`에 설정한다.
+   `?pgbouncer=true&connection_limit=2`를 붙인다 — Prisma 기본 풀 크기는 호스트 코어 수 기준이라
+   컨테이너에서 과다 산정되고, API 1 + Worker 4개 클라이언트가 곱해져 Supabase 커넥션 한도를 넘긴다.
 2. migration 명령을 실행하는 운영자 환경에는 migrate-compatible direct/session URL을 `DIRECT_DATABASE_URL`로 주입한다.
-3. Railway Redis를 생성하고 같은 reference variable을 API와 Worker의 `REDIS_URL`에 설정한다.
-4. Redis eviction policy가 BullMQ에 맞는 `noeviction`인지 확인한다.
+3. Redis는 같은 VM의 `redis` 컨테이너를 쓴다(`REDIS_URL=redis://redis:6379`, compose가 주입).
+   호스트 포트로 노출하지 않는다 — 인증 없는 Redis가 공개되면 즉시 탈취된다.
+4. Redis eviction policy는 BullMQ에 맞는 `noeviction`이어야 한다(compose의 `redis` command에 지정됨).
 5. Web/Vercel에는 DB와 Redis URL을 넣지 않는다.
 
-`DATABASE_URL`이 없으면 API와 Worker가 PostgreSQL을 사용할 수 없고, `REDIS_URL`이 없으면 API queue/rate-limit와 Worker BullMQ가 같은 작업 흐름을 공유할 수 없다. 두 값은 Railway의 두 서비스에 각각 저장해야 하며 한 서비스에만 넣는 것으로는 충분하지 않다.
+Redis를 관리형(Upstash 등 per-command 과금)으로 두지 않고 같은 VM에 올리는 이유: BullMQ 워커는
+잡이 없어도 블로킹 폴로 커맨드를 계속 소비한다. 워커 1개가 5초 블록 기준 월 50만 커맨드 수준이라
+무료 한도를 워커 하나로 넘긴다. 자체 호스팅하면 이 제약과 `SEARCHOPS_WORKER_*` 튜닝 압박이 사라진다.
+
+### VM 배포 (Oracle Cloud Always Free ARM)
+
+> 계정 생성부터 검증까지 전체 절차는 `docs/ORACLE_VM_SETUP.md`에 있다. 아래는 요약이다.
+
+1. 계정 생성 시 홈 리전을 **서울(ap-seoul-1) → 없으면 오사카(ap-osaka-1) → 도쿄(ap-tokyo-1)** 순으로 지정한다.
+   Always Free 컴퓨트는 홈 리전에서만 만들 수 있고 변경할 수 없다.
+   **춘천(ap-chuncheon-1)은 A1을 지원하지 않으므로 절대 고르지 않는다** — 서울과 다른 리전이니 혼동하지 않는다.
+2. Ampere A1 인스턴스를 **2 OCPU / 12GB 이하**로 생성한다.
+   ⚠️ Oracle이 2026-06-15에 A1 무료 한도를 4 OCPU/24GB → 2 OCPU/12GB로 공지 없이 축소했고,
+   초과 인스턴스는 2026-08-18부터 종료 대상이다. 한도 안에서 만들어야 한다.
+3. Docker와 compose 플러그인을 설치하고 레포를 클론한 뒤 `.env`를 채운다.
+4. `docker compose -f compose.prod.yaml up -d --build` — api/worker/redis가 `restart: unless-stopped`로 상주한다.
+   (`compose.yaml`은 로컬 개발용이므로 운영에서는 반드시 `-f compose.prod.yaml`을 지정한다.)
+   이미지는 ARM64로 빌드된다(첫 빌드에서 Prisma 엔진이 arm64로 생성되는지 로그를 확인한다).
+5. 마이그레이션은 아래 4.3 additive migrate 절차를 그대로 따르되, 컨테이너 안에서 실행한다:
+   `docker compose -f compose.prod.yaml run --rm --no-deps api <4.3의 migrate 명령>`
+   (`DIRECT_DATABASE_URL`이 `.env`에 있어야 한다. 없으면 Prisma가 `P1012`로 실패한다.)
+6. 방화벽은 **OCI Security List와 인스턴스 내부 iptables 둘 다** 열어야 한다.
+   Ubuntu 이미지의 기본 iptables가 막는 것이 가장 흔한 함정이다.
+
+⚠️ Oracle 유휴 회수 정책: 일주일간 CPU/네트워크/메모리 사용률이 모두 20% 미만이면 회수 대상이 된다.
+12GB에 Node 두 프로세스면 메모리 사용률이 낮아 걸릴 수 있으므로, 인스턴스를 과도하게 크게 잡지 말고
+사용률이 올라가도록 구성하는 편이 안전하다.
 
 ## 4. Production rollout 순서
 

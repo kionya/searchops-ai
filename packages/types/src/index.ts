@@ -330,10 +330,23 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_RATE_LIMIT_WINDOW_MS: PositiveIntegerStringSchema.optional(),
   SEARCHOPS_RESTORE_DRILL_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL: HttpUrlSchema.optional(),
+  // richdoc-saas 통합 계약(searchops_contract.sql) 적재 대상 Supabase.
+  // 셋 다 있어야 어댑터가 활성화되고, SITE_IDS(콤마 구분 Site.id 허용목록)에
+  // 오른 사이트만 밀어낸다. 도메인이 아니라 Site.id인 이유: Site.domain은
+  // 조직별 unique라 도메인 기준이면 타 테넌트 데이터가 유출될 수 있다.
+  SEARCHOPS_RICHDOC_SUPABASE_URL: HttpUrlSchema.optional(),
+  SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  SEARCHOPS_RICHDOC_SITE_IDS: z.string().min(1).optional(),
   SEARCHOPS_RICH_RESULT_VALIDATOR_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_RICH_RESULT_VALIDATOR_URL: HttpUrlSchema.optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
+  // BullMQ worker polling tuning. Raising these cuts idle Redis commands, which
+  // matters on per-command Redis (Upstash free tier). drainDelay is the blocking
+  // BRPOPLPUSH timeout (ms); stalledInterval is the stalled-job check period (ms).
+  // Neither delays pickup of newly enqueued jobs.
+  SEARCHOPS_WORKER_DRAIN_DELAY_MS: PositiveIntegerStringSchema.optional(),
+  SEARCHOPS_WORKER_STALLED_INTERVAL_MS: PositiveIntegerStringSchema.optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

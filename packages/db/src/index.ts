@@ -118,6 +118,18 @@ export {
 } from "./connector-sync.js";
 
 export {
+  createRichdocContractBridge,
+  parseRichdocContractConfigFromEnv,
+  richdocUuidFromId,
+  toRichdocIssueSeverity,
+  toRichdocRunStatus,
+  toRichdocWorkOrderStatus,
+  type CreateRichdocContractBridgeOptions,
+  type RichdocContractBridge,
+  type RichdocContractConfig
+} from "./richdoc.js";
+
+export {
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   persistSchemaRecommendationRecheck,
   type PersistSchemaRecommendationRecheckInput,

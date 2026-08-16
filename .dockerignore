@@ -1,0 +1,30 @@
+# Keep the Docker build context small and reproducible.
+**/node_modules
+**/dist
+**/.turbo
+.git
+.github
+graphify-out
+brain-vault
+*.log
+GEMINI.md
+progress.md
+
+# Secrets — 이게 없으면 로컬 .env 가 이미지 레이어에 박제되어
+# 이미지를 받는 누구나 열람할 수 있다. 절대 지우지 말 것.
+.env
+.env.*
+!.env.example
+
+# 런타임에 불필요한 대용량/누출 위험 산출물
+**/.next
+packages/db/src/generated
+.vercel
+**/.vercel
+**/*.tsbuildinfo
+**/.DS_Store
+docs
+progress.html
+.lazyweb
+.superpowers
+.codex

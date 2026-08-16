@@ -23,13 +23,21 @@ jobs:
   heartbeat:
     runs-on: ubuntu-latest
     env:
-      API_BASE: https://searchops-api-production.up.railway.app
+      # 배포 대상 URL. Railway 중단 후 Oracle VM 으로 이전 중이라 하드코딩하지 않는다.
+      #   gh variable set SEARCHOPS_API_BASE --repo kionya/searchops-ai --body 'https://<host>'
+      # 미설정이면 배포 전으로 보고 조용히 건너뛴다(죽은 URL 을 5분마다 두드리지 않기 위해).
+      API_BASE: ${{ vars.SEARCHOPS_API_BASE }}
     steps:
       - name: Probe /health (liveness) + drive fire-on-read alerts
         env:
           SECRET: ${{ secrets.SEARCHOPS_IDP_JWT_HS256_SECRET }}
         run: |
           set -euo pipefail
+
+          if [ -z "${API_BASE:-}" ]; then
+            echo "::warning::SEARCHOPS_API_BASE repo variable 미설정 — 배포 전/이전 중으로 보고 건너뛴다."
+            exit 0
+          fi
 
           if [ -z "${SECRET:-}" ]; then
             echo "::error::SEARCHOPS_IDP_JWT_HS256_SECRET repo secret 미설정"

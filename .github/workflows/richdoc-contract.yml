@@ -1,0 +1,110 @@
+name: richdoc-contract
+
+# richdoc-saas 통합 계약 회귀 감지 — 배포 플랫폼 없이 GitHub Actions 무료 러너에서만 돈다.
+# 계약 정본(richdoc-saas/supabase/searchops_contract.sql)을 실제 Postgres 에 적용하고
+# 어댑터를 그 위에서 구동해, 우리 변경 또는 richdoc 쪽 계약 변경으로 연동이 깨지는지 잡는다.
+#
+# 필요 secret: RICHDOC_REPO_TOKEN — richdoc-saas(private) 읽기 권한 PAT.
+#   gh secret set RICHDOC_REPO_TOKEN --repo kionya/searchops-ai
+# 미설정 시 잡은 실패 대신 skip 되고 이유를 남긴다(연동 미사용 팀을 막지 않기 위해).
+
+on:
+  pull_request:
+    paths:
+      - "packages/db/src/richdoc.ts"
+      - "scripts/richdoc-smoke.mjs"
+      - "apps/worker/src/processor.ts"
+      - "apps/api/src/prisma-repository.ts"
+      - ".github/workflows/richdoc-contract.yml"
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 0 * * *" # 매일 1회 — richdoc 쪽 계약 SQL 변경을 우리가 먼저 안다
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: richdoc-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: searchops
+          POSTGRES_USER: searchops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U searchops"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # 스모크 스크립트는 psql/createdb 를 쓰므로 libpq 표준 환경변수로 붙인다.
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: searchops
+      PGPASSWORD: searchops
+
+    steps:
+      - name: Checkout searchops-ai
+        uses: actions/checkout@v4
+
+      - name: Checkout richdoc-saas (계약 정본)
+        id: contract
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: kionya/richdoc-saas
+          path: .richdoc-contract
+          token: ${{ secrets.RICHDOC_REPO_TOKEN }}
+          sparse-checkout: supabase/searchops_contract.sql
+          sparse-checkout-cone-mode: false
+
+      # 계약 정본을 못 가져오면 검증한 게 없다. 조용히 건너뛰면 초록불이
+      # "통과"로 오해되므로 여기서 끊는다.
+      - name: Fail when contract is unavailable
+        if: steps.contract.outcome != 'success'
+        run: |
+          echo "::error::richdoc-saas 체크아웃 실패 — RICHDOC_REPO_TOKEN 이 없거나 유효하지 않다. 계약을 검증하지 못했다."
+          echo "1) PAT 유효성 먼저 확인:  GH_TOKEN=\$PAT gh api repos/kionya/richdoc-saas --jq .full_name"
+          echo "   - 'Input required and not supplied' → secret 값이 비어 있다"
+          echo "   - 'Bad credentials'                 → 토큰 문자열이 무효(만료/오타/플레이스홀더 그대로 복사)"
+          echo "   - 'Not Found'                       → 토큰은 유효하나 richdoc-saas 읽기 권한이 없다"
+          echo "2) 등록:  gh secret set RICHDOC_REPO_TOKEN --repo kionya/searchops-ai --body \"\$PAT\""
+          echo "   (--body 없이 실행하면 stdin 이 비어 빈 값이 등록된다)"
+          exit 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 후행 "..." = 워크스페이스 의존성(@searchops/types)까지 함께 빌드한다.
+      # 빠지면 db 빌드가 'Cannot find module @searchops/types' 로 깨진다.
+      - name: Build adapter package
+        run: pnpm --filter "@searchops/db..." build
+
+      - name: Run contract smoke against real schema
+        run: |
+          node scripts/richdoc-smoke.mjs \
+            --contract "$GITHUB_WORKSPACE/.richdoc-contract/supabase/searchops_contract.sql"

@@ -1,0 +1,68 @@
+# SearchOps 단일 VM 배포 (Oracle Cloud Always Free ARM 도쿄/오사카 기준).
+# api / worker / redis 세 컨테이너를 상시 구동한다. Postgres 는 외부 Supabase.
+#
+# 로컬 개발용 compose.yaml(postgres+redis만)과 별개다. 반드시 -f 로 이 파일을 지정한다.
+#
+# 사용법:
+#   cp .env.example .env   # 값 채우기 (필수/선택 목록은 docs/PROVISIONING_RUNBOOK.md)
+#   docker compose -f compose.prod.yaml up -d --build
+#   docker compose -f compose.prod.yaml run --rm --no-deps api corepack pnpm db:migrate:deploy
+#
+# 컨테이너를 나눈 이유: 워커가 OOM/포이즌 잡으로 죽어도 API 는 계속 응답해야 하고,
+# 각자 restart 정책으로 개별 복구되는 편이 단일 supervisor 프로세스보다 단순하다.
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ 는 키가 evict 되면 잡을 잃는다 → noeviction 필수.
+    # appendonly 로 재시작 시 대기 중 잡을 보존한다.
+    command: >-
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # VM 안에서만 접근한다. 포트를 호스트에 노출하지 않는다(인증 없는 Redis 노출 방지).
+    expose:
+      - "6379"
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 같은 VM 의 Redis 를 쓴다. .env 의 값을 덮어쓴다.
+      REDIS_URL: redis://redis:6379
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/index.js"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:
