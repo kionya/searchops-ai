@@ -4,6 +4,68 @@
 
 ---
 
+## richdoc(리쥬엘) 연동 + 배포 전략 전환
+
+Updated: 2026-08-16 (PR #96 머지 완료, 운영 가동 중)
+Merged: `f28f295` (squash, 브랜치 삭제됨)
+Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함** · 크롤 = GitHub Actions `batch-crawl` (매일 KST 03:00)
+
+> Railway는 더 이상 쓰지 않는다. `searchops-api-production.up.railway.app`은 404이며 위 섹션의 Live 정보는 낡았다.
+
+### 무엇을 만들었나
+
+- **richdoc 적재 어댑터** (`packages/db/src/richdoc.ts`): 크롤 완료 시 `searchops_runs`/`searchops_issues`, 지시서 변경 시 `searchops_work_orders`를 리쥬엘 Supabase로 PostgREST upsert. 계약 정본은 **richdoc-saas 레포**의 `supabase/searchops_contract.sql`이며 이 레포에 사본을 두지 않는다.
+- allowlist는 도메인이 아니라 **`Site.id`**다. `Site.domain`은 조직별 unique라 도메인 기준이면 타 조직의 동명 사이트가 단일 테넌트 Supabase로 샌다(리뷰에서 major로 확정).
+- `issues.status`/`first_seen`은 콘솔 소유라 전송하지 않는다. 전 메서드 best-effort — 실패해도 크롤이나 API 요청을 깨지 않는다.
+- **계약 검증기** (`scripts/richdoc-smoke.mjs`): 임시 DB에 계약 SQL을 적용하고 미니 PostgREST 셰임 위에서 실제 어댑터를 돌려 23종 검증. 배포 플랫폼도 자격증명도 불필요(`pnpm smoke:richdoc`). `--live`로 실제 리쥬엘 대상 검증도 된다. `.github/workflows/richdoc-contract.yml`이 PR·main·매일 1회 실행해 **richdoc 쪽 계약 변경까지** 감지한다.
+- **백필** (`scripts/richdoc-backfill.mjs`): 크롤 없이 기존 데이터를 콘솔에 올린다. 재동기화용.
+
+### 배포 전략을 왜 바꿨나
+
+무료 상시 호스팅이 2026-08 기준 사실상 소멸했다(재조사하지 말 것):
+
+| 후보 | 결론 |
+|---|---|
+| Railway | 무료 폐지, 현재 서비스 404 |
+| Koyeb | 2026-02 Mistral 인수로 무료 신규 차단 + **Worker Service 금지** + 강제 scale-to-zero |
+| Render | 무료 대상에 background worker 없음 |
+| Fly.io | 2024 무료 폐지 (유료 도쿄 월 $2~4) |
+| Cloud Run | 상시 유지 시 무료 한도 3~5배 초과 |
+| Oracle A1 | 조건은 맞으나 도쿄 용량 경합으로 확보 실패 (`scripts/dev/oci-a1-retry.sh` 남겨둠) |
+
+→ **상시 워커를 포기하고 GitHub Actions cron 배치**(`apps/worker/src/batch-crawl.ts`)로 전환. 큐를 우회해 `processAndPersistCrawlJob`을 직접 호출한다. 부수 이득으로 **Redis가 완전히 사라졌다** — 상시 블로킹 폴이 없어져 관리형 Redis 월 커맨드 한도 문제가 통째로 없어졌다.
+
+⚠️ 배치 경로에서 `./runtime.js`(bullmq를 끌어옴)와 `parseSearchOpsEnv`(REDIS_URL 필수)를 임포트하면 안 된다.
+
+`Dockerfile`/`compose.prod.yaml`은 상시 호스팅을 다시 구할 때를 위해 남겨뒀다. `apps/api`도 배포만 안 할 뿐 코드는 그대로다 — 배치가 그 Prisma 계층을 재사용한다.
+
+### 운영 상태 (2026-08-16 기준)
+
+- 리쥬엘 Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
+- GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, gangnam.rejuel.com).
+- Actions 실행 성공(1분 19초). 콘솔 현황: runs 4 / issues 10 / work_orders 5. SearchOps DB 지시서도 5건으로 정리 완료.
+- 사이트 추가 시 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id만 더하면 크롤·적재 대상이 함께 늘어난다.
+
+### 머지 전 리뷰에서 고친 것
+
+- **적재 실패가 종료 코드에 안 잡혔다.** 키 회전이나 계약 미적용으로 100% 실패해도 워크플로가 매일 초록불이고 콘솔만 조용히 멈췄다. 브리지가 삼킨 실패 수를 노출하고 배치가 반영한다.
+- `last_seen`에 푸시 시각을 넣어 백필 시 이슈 나이가 사라졌다 → 크롤 시각 사용.
+- `work_orders.created_at`이 병합마다 덮여 방치 지시서가 영원히 "오늘 생성"이었다 → payload에서 제외.
+- 지시서 행 id를 `WorkOrder.id`에서 파생해 콘솔에 무한 누적(이슈 10건에 지시서 16건, 한 제목이 8번 중복) → (사이트, 제목) 파생으로 병합.
+- 그 외: `maxPages` 상한 클램프(초과 시 CrawlRun이 `queued` 고착), 없는 Site.id를 실패로 계상, 워크플로 시크릿을 스텝 레벨로 내려 `pnpm install` postinstall 노출 제거.
+
+### 다음 작업
+
+1. **지시서 중복의 근본 해결.** `SeoIssue` 유니크 키에 `crawlRunId`가 있어 크롤마다 이슈·지시서가 새로 생긴다. 리쥬엘 콘솔은 병합으로 막았지만 SearchOps DB에는 계속 쌓인다(한 달이면 100건대 복귀). 지시서를 이슈 단위가 아니라 문제 단위로 만드는 스키마 변경이 필요하다.
+2. **배치 실패 알림.** 현재는 GitHub 기본 알림뿐이다. 매일 도는 잡이 조용히 실패하면 며칠 모를 수 있다.
+3. **apps/web 대시보드.** API를 배포하지 않아 `/sites/[siteId]/**` 10개 라우트가 404다. `dashboard-shell.tsx`의 `resolveDashboardSite`(현재 호출자 0)로 폴백하면 픽스처 모드로 살릴 수 있다. 지시서 보드는 원래부터 데모 픽스처(`work-order-board.ts`)이며 API를 호출하지 않는다 — 실데이터처럼 보여 오해를 부른다.
+4. **역방향 반영.** 리쥬엘 콘솔에서 지시서 상태를 바꿔도 SearchOps로 돌아오지 않는다(단방향 push). 필요해지면 별도 설계.
+5. **Task 14 (아래 섹션)** — multi-tenant credential 운영 전환은 여전히 미완이다. 단 Railway 전제가 깨졌으므로 배포 단계는 재작성이 필요하다.
+
+재개 지시: **"richdoc 연동 다음 작업 이어서"**라고 하면 이 섹션 1번부터 시작한다.
+
+---
+
 ## Multi-tenant provider credential 구현 상태
 
 Updated: 2026-07-14 (Tasks 1-13 local implementation and verification complete; production execution not started)
