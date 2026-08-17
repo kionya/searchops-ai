@@ -45,7 +45,12 @@ async function getDb() {
 }
 
 export type DatabaseProbeResult =
-  | { readonly reachable: true }
+  | {
+      readonly reachable: true;
+      // 쓰기 권한이 붙었는지. `select 1` 은 예전 읽기 전용 역할로도 통과하므로
+      // 이게 없으면 "역할을 바꾸고 재배포했는가" 를 로그인 없이 알 방법이 없다.
+      readonly writable: boolean;
+    }
   | {
       readonly reachable: false;
       readonly reason: DatabaseProbeFailure;
@@ -77,7 +82,7 @@ export async function probeDatabase(): Promise<DatabaseProbeResult> {
   try {
     const { prisma } = await getDb();
     await prisma.$queryRaw`select 1`;
-    return { reachable: true };
+    return { reachable: true, writable: await probeWritable(prisma) };
   } catch (error) {
     const reason = classifyDatabaseFailure(error);
     if (reason !== "engine_missing" && reason !== "unknown") {
@@ -90,6 +95,32 @@ export async function probeDatabase(): Promise<DatabaseProbeResult> {
       reason,
       url: describeConnectionString(getWebDatabaseUrl())
     };
+  }
+}
+
+/**
+ * 이 접속이 `Site` 에 INSERT 할 수 있는지만 본다. 쓰지는 않는다.
+ *
+ * 왜 필요한가: 읽기 전용 역할에서 쓰기 가능 역할로 갈아끼울 때, 환경변수를 바꾸고
+ * 재배포했는지 확인할 방법이 밖에서 없었다 — `select 1` 은 양쪽 다 통과한다. 확인
+ * 없이 예전 역할을 지우면 대시보드가 통째로 죽는다.
+ *
+ * 역할명이 아니라 **불리언만** 낸다. DB 사용자명은 자격증명의 절반이라, 공개
+ * 엔드포인트에서 그걸 알려줄 이유가 없다.
+ */
+async function probeWritable(prisma: {
+  $queryRaw: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+}): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw`
+      select has_table_privilege('public."Site"', 'INSERT') as writable
+    `;
+    const [first] = rows as ReadonlyArray<{ readonly writable?: unknown }>;
+    return first?.writable === true;
+  } catch {
+    // 권한 조회 자체가 실패해도 접속은 성공한 것이다. 여기서 던지면 reachable 이
+    // false 로 뒤집혀서 원래 문제(권한)를 접속 문제로 오진하게 만든다.
+    return false;
   }
 }
 

@@ -194,10 +194,14 @@ curl -s https://<도메인>/api/deployment
 ```json
 {
   "commit": "9ebbaff...",
-  "database": { "reachable": true },
+  "database": { "reachable": true, "writable": true },
   "config": { "apiBaseUrl": false, "directDatabase": true, "supabaseAuth": true }
 }
 ```
+
+`writable` 는 `Site` 에 `INSERT` 권한이 있는지만 본다(쓰지는 않는다). **역할을 갈아끼울 때 이게 유일한 확인 수단이다** — `reachable` 은 `select 1` 이라 예전 읽기 전용 역할로도 `true` 가 나온다. 확인 없이 예전 역할을 지우면 대시보드가 통째로 죽는다. 역할명이 아니라 불리언만 내는 이유는 DB 사용자명이 자격증명의 절반이기 때문이다.
+
+- `writable: false` + `reachable: true` → 접속은 되는데 아직 예전 역할이다. 환경변수를 바꾸고 재배포해라. **예전 역할을 지우면 안 되는 상태다.**
 
 `database` 는 접속만 확인한다(`select 1`). 데이터도 호스트명도 사용자명도 내지 않고, 실패 사유만 분류해 낸다:
 

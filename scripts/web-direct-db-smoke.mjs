@@ -383,6 +383,20 @@ try {
     nameDenied,
   );
 
+  // /api/deployment 의 writable 판정에 쓰는 바로 그 SQL. 역할을 갈아끼울 때 환경변수를
+  // 바꾸고 재배포했는지 밖에서 확인하는 유일한 수단이라, 문법이 깨지면 조용히 false 가
+  // 되어 "아직 안 바뀌었다" 로 오진한다.
+  check(
+    "쓰기 권한 프로브가 이 역할을 쓰기 가능으로 본다",
+    asWebRole(`select has_table_privilege('public."Site"', 'INSERT')`).trim() === "t",
+    asWebRole(`select has_table_privilege('public."Site"', 'INSERT')`).trim(),
+  );
+  check(
+    "같은 프로브가 없는 권한은 false 로 본다",
+    asWebRole(`select has_table_privilege('public."Site"', 'DELETE')`).trim() === "f",
+    asWebRole(`select has_table_privilege('public."Site"', 'DELETE')`).trim(),
+  );
+
   // ---- 4) 허용된 두 쓰기가 그 역할로 실제로 되는가 ----
   // 위에서 "막힌다"만 확인하면, 권한을 너무 좁혀 기능이 죽은 것을 못 잡는다.
   // 웹이 실제로 부르는 함수를 웹의 역할로 그대로 돌린다.
