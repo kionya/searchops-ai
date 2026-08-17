@@ -108,7 +108,30 @@ psql "<postgres 접속문자열>" -v web_password=직접지은비밀번호 -f sc
 
 ⚠️ 파일에 기본 비밀번호를 두지 않는 이유: 이 레포는 공개다. 예전에는 `CHANGE_ME` 가 적혀 있었고, 재실행 시 비밀번호를 건너뛰는 버그까지 겹쳐 운영 역할이 실제로 그 값으로 남아 **읽기 노출**됐다. 지금은 변수를 안 주면 실행이 중단된다.
 
-Supabase SQL Editor 처럼 psql 변수를 못 쓰는 곳에서는 `alter role searchops_web password '...'` 를 직접 실행하면 된다. 이때 에디터가 **역할 임시 전환(impersonation)** 상태면 `permission denied to alter role` 이 난다 — 쿼리 앞에 `reset role;` 을 붙여라.
+#### Supabase SQL Editor 에서 실행하기
+
+SQL Editor 는 psql 변수(`\if`·`\gexec`)를 못 쓴다. 아래를 붙여넣고 **`<비밀번호>` 두 곳만** 직접 지은 값으로 바꿔라. 파일에 기본값을 두지 않는 것과 같은 이유로, 이 문서에도 실제 값을 적지 않는다.
+
+```sql
+reset role;  -- 역할 임시 전환 상태면 아래가 permission denied 로 막힌다
+
+create role searchops_web login password '<비밀번호>';
+alter  role searchops_web login password '<비밀번호>';  -- 이미 있던 경우까지 덮어쓴다
+
+grant usage on schema public to searchops_web;
+grant select on
+  public."Site", public."CrawlRun", public."UrlRecord",
+  public."SeoIssue", public."WorkOrder", public."SchemaRecommendation"
+to searchops_web;
+grant select ("id", "organizationId", "email", "role") on public."User" to searchops_web;
+grant insert on public."Site" to searchops_web;
+grant update ("status", "updatedAt") on public."WorkOrder" to searchops_web;
+alter default privileges in schema public revoke all on tables from searchops_web;
+```
+
+`create role` 이 "already exists" 로 실패해도 그 줄만 건너뛰고 나머지를 실행하면 된다 — `alter role` 이 비밀번호를 어차피 다시 설정한다.
+
+⚠️ `permission denied to alter role` 이 나면 에디터가 **역할 임시 전환(impersonation)** 상태다. `select current_user` 가 `authenticated` 를 돌려주면 그 상태이고, 위의 `reset role;` 이 그걸 푼다.
 
 이 역할이 갖는 권한은 정확히 이만큼이다:
 
