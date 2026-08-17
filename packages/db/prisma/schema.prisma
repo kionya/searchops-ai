@@ -1,6 +1,11 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
+  // native 만 두면 빌드 머신 기준 엔진 하나만 생성된다. Vercel 은 빌드 컨테이너와
+  // 람다 런타임의 타깃이 달라, 런타임이 rhel-openssl-3.0.x 를 찾다가 못 찾고
+  // PrismaClientInitializationError 로 죽는다(실제로 겪었다).
+  // 웹이 서버리스에서 Prisma 를 직접 쓰는 한 이 타깃은 유지해야 한다.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
