@@ -5,34 +5,24 @@
 -- (프론트 침해 시 폭발 반경 억제)를 GRANT 로 강제한다. 코드가 아니라 권한으로 막는
 -- 이유는 코드에 버그가 나도 권한은 남기 때문이다.
 --
--- 이 역할이 할 수 있는 것: 대시보드 6개 테이블 SELECT.
--- 할 수 없는 것: 쓰기 전부, 그리고 credential 을 담은 테이블 접근 전부
---                (ProviderAccount, ConnectorOAuthCredential, SiteConnector, User ...).
+-- 이 역할이 할 수 있는 것: 대시보드 6개 테이블 SELECT + User 의 4개 컬럼(로그인 소속 확인).
+-- 할 수 없는 것: 쓰기 전부, credential 을 담은 테이블 접근 전부
+--                (ProviderAccount, ConnectorOAuthCredential, SiteConnector ...).
 --
--- 적용: Supabase SQL Editor 에서 <비밀번호> 를 바꿔 실행한 뒤,
---       Vercel 의 DATABASE_URL 을 이 역할 + 풀러(6543) 로 설정한다.
---       ⚠️ DIRECT_DATABASE_URL 은 Vercel 에 넣지 마라 — 마이그레이션 전용이고
---          서버리스에서 쓰면 커넥션 한도를 금방 먹는다.
-
--- ⚠️ 비밀번호는 실행 전에 반드시 바꿔라. 아래는 없으면 만들고 **있으면 비밀번호를
--- 다시 설정한다.** 예전에는 "없을 때만 생성" 이라 두 번째 실행이 비밀번호를 조용히
--- 건너뛰었고, 그 탓에 실제 비밀번호가 CHANGE_ME 인 채로 남아 인증 실패를 디버깅하는
--- 데 한참 걸렸다. 재실행이 항상 같은 결과를 내도록 바꿨다.
+-- 실행:
+--   psql "<postgres 접속문자열>" -v web_password=직접지은비밀번호 -f scripts/sql/web-readonly-role.sql
 --
--- 권한 주의: 이 문을 실행하는 역할은 CREATEROLE 과 대상 역할의 ADMIN 옵션이 둘 다
--- 있어야 한다(PostgreSQL 16+). Supabase SQL Editor 를 read-only 모드로 두면
--- supabase_read_only_user 로 돌아 "permission denied to alter role" 이 난다 —
--- 토글을 끄고 postgres 로 실행해라.
+-- 그 뒤 Vercel 의 SEARCHOPS_WEB_DATABASE_URL 을 이 역할 + 풀러(6543)로 설정한다.
+-- 풀러는 사용자명이 `역할명.프로젝트ref` 형식이다. 마이그레이션용 direct URL 은
+-- Vercel 에 넣지 마라 — 서버리스에서 쓰면 커넥션 한도를 금방 먹는다.
+--
 -- ⚠️ 기본 비밀번호를 파일에 두지 않는다. 이 레포는 공개라, 예전처럼 'CHANGE_ME' 를
--- 적어두면 그게 곧 공개된 자격증명이 된다(실제로 그렇게 남아 운영 DB 가 읽기
--- 노출됐다). 아래 psql 변수로 실행 시점에만 주입한다:
+-- 적어두면 그게 곧 공개된 자격증명이 된다 — 실제로 그렇게 남아 운영 DB 가 읽기
+-- 노출됐다(재실행이 비밀번호를 건너뛰는 버그까지 겹쳤다). 변수를 안 주면 중단한다.
 --
---   psql "<접속문자열>" -v web_password="'직접지은비밀번호'" -f scripts/sql/web-readonly-role.sql
---
--- Supabase SQL Editor 처럼 변수를 못 쓰는 곳에서는 아래 한 줄만 손으로 바꿔 실행해라.
--- ⚠️ 바꾼 파일을 커밋하지 마라.
--- 비밀번호를 안 주면 기본값으로 때우지 않고 **중단한다.** 기본값을 두는 순간
--- 그게 공개된 자격증명이 되기 때문이다.
+-- ⚠️ 권한: 실행 역할에 CREATEROLE 과 대상 역할의 ADMIN 옵션이 둘 다 있어야 한다(PG16+).
+-- Supabase SQL Editor 에서 "permission denied to alter role" 이 나면 역할 임시 전환
+-- (impersonation) 상태다 — 쿼리 앞에 `reset role;` 을 붙이거나 postgres 로 바꿔라.
 \if :{?web_password}
 \else
 \echo '중단: -v web_password=<비밀번호> 를 주고 실행해라. 기본 비밀번호는 제공하지 않는다.'
