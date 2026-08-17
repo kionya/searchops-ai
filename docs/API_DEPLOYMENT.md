@@ -31,7 +31,9 @@ GitHub Actions (배치) ← 암호화 키 여기(Secret). 크롤 + 커넥터 동
 | 2 | Redis 1개 | `REDIS_URL` 은 **필수**다. 큐와 OAuth state 저장에 쓴다 |
 | 3 | Google Cloud OAuth 클라이언트 | GSC/GA4 계정 연결용. **API 도메인이 정해진 뒤에** 만든다(0절) |
 
-⚠️ **검증필요**: 호스트별 무료 한도와 요금은 자주 바뀐다. Render·Fly·Koyeb·Railway 중 고르되 현재 가격을 직접 확인하라. Redis 는 Upstash 무료 티어가 이 규모에 충분하다(워커 폴링 튜닝 env 가 이미 준비돼 있다 — `SEARCHOPS_WORKER_DRAIN_DELAY_MS`).
+**Render 를 쓰기로 했다.** `render.yaml` 이 1·2번을 한 번에 만든다(1절). Render 의 Key Value 인스턴스가 Redis 자리를 대신하므로 별도 Redis 서비스는 필요 없다.
+
+⚠️ **검증필요**: 호스트별 무료 한도와 요금은 자주 바뀐다. 배포 전에 현재 요금을 직접 확인하라. 다른 호스트로 옮겨도 `apps/api/Dockerfile` 은 그대로 쓰인다 — `render.yaml` 만 그 호스트 형식으로 바꾸면 된다.
 
 ## 0. `<API도메인>` 은 어디서 오나
 
@@ -98,7 +100,39 @@ curl -sI https://api.totopapa.com/health | head -1   # HTTP/2 200
 
 1단계에서 OAuth env 가 없어도 API 는 정상 기동한다(전부 optional 이다). 커넥터 화면만 `oauth=not_configured` 로 뜨고, 4단계를 마치면 열린다.
 
-## 1. 이미지 빌드
+## 1. Render 배포 (Blueprint)
+
+`render.yaml` 이 레포 루트에 있다. API 웹 서비스와 Key Value(Redis 호환) 인스턴스를 함께 정의한다.
+
+**1) Render 대시보드 → New → Blueprint → 이 레포 선택 → Apply**
+
+`sync: false` 로 표시된 값만 물어본다. 지금은 아래 둘만 채우고 나머지는 비워도 된다:
+
+| 키 | 값 |
+|---|---|
+| `DATABASE_URL` | Supabase 풀러(6543) 주소 |
+| `DIRECT_DATABASE_URL` | Supabase 세션 풀러(5432) 주소 |
+| `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` | 아래 명령으로 생성 |
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+```
+
+OAuth 3종(`CLIENT_ID`·`CLIENT_SECRET`·`REDIRECT_URI`)은 **도메인이 정해진 뒤** 3~4절에서 채운다. 비어 있어도 API 는 정상 기동한다.
+
+**2) 배포가 끝나면 주소가 나온다** — `https://searchops-api.onrender.com` 형태. 이게 `<API도메인>` 이다.
+
+```bash
+curl -s https://searchops-api.onrender.com/health
+```
+
+⚠️ **무료 플랜은 15분 유휴 후 정지**한다. 다음 요청에서 다시 뜨는 데 수십 초 걸린다. 커넥터 화면 첫 로딩이 느릴 뿐이고, **데이터 동기화는 배치가 하므로 신선도에는 영향이 없다.** 거슬리면 Starter 로 올리면 된다.
+
+⚠️ **검증필요**: 무료 플랜은 빌드 자원도 작아서 이 모노레포 빌드(tsc + prisma generate)가 메모리 부족으로 실패할 수 있다. 실패하면 두 가지 중 하나로 간다 — Starter 플랜으로 올리거나, GitHub Actions 에서 이미지를 빌드해 GHCR 에 올리고 Render 가 그 이미지를 받게 한다(`runtime: image`).
+
+⚠️ `region: singapore` 가 무료 플랜에서 선택 불가면 `oregon` 으로 바꿔라. 동작에는 지장 없고 DB 왕복만 느려진다.
+
+## 1-1. 이미지 빌드 (직접 확인하고 싶을 때)
 
 레포 루트를 컨텍스트로 준다:
 
@@ -111,6 +145,8 @@ CI 가 매 푸시마다 이 빌드와 부팅을 확인한다(`api-image` 잡). �
 호스트가 Dockerfile 을 직접 읽는 경우(Render/Fly/Koyeb 대부분), **Dockerfile 경로 `apps/api/Dockerfile`, 빌드 컨텍스트 `.`(레포 루트)** 로 설정한다. 컨텍스트를 `apps/api` 로 두면 워크스페이스 패키지를 못 찾아 실패한다.
 
 ## 2. API 환경변수
+
+Render Blueprint 를 썼다면 이 목록은 `render.yaml` 이 이미 정의해 뒀다. 아래는 각 값이 무엇이고 왜 필요한지의 설명이자, 다른 호스트를 쓸 때의 정본이다.
 
 ### 필수
 
@@ -163,7 +199,7 @@ Google Cloud Console → API 및 서비스 → 사용자 인증 정보 → OAuth
 ## 4. Vercel 쪽 복구
 
 ```
-SEARCHOPS_API_BASE_URL = https://<API도메인>
+SEARCHOPS_API_BASE_URL = https://searchops-api.onrender.com   (또는 https://api.totopapa.com)
 ```
 
 이 값을 넣는 순간 커넥터 화면이 열리고, "이 모드에서는 설정할 수 없습니다" 안내가 사라진다.

@@ -1,0 +1,68 @@
+# Render Blueprint. 대시보드에서 New → Blueprint → 이 레포를 고르면 아래 두 서비스가
+# 한 번에 만들어진다. 절차 전체는 docs/API_DEPLOYMENT.md.
+#
+# 왜 API 를 웹(Vercel)과 따로 두나: 커넥터는 OAuth 토큰을 복호화해야 하고 그 열쇠가
+# SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY 인데, 프론트가 뚫리면 전 테넌트 토큰이 한 번에
+# 풀리므로 Vercel 에는 두지 않기로 했다. 키를 가진 프로세스를 웹 밖에 세우는 게 그 규칙을
+# 어기는 게 아니라 지키는 방법이다.
+
+services:
+  - type: web
+    name: searchops-api
+    runtime: docker
+    plan: free
+    # 운영 DB(Supabase)가 서울이다. Render 리전 중 가장 가까운 곳을 고른다.
+    # ⚠️ 무료 플랜에서 singapore 를 못 고르면 oregon 으로 바꿔라 — 동작에는 지장 없고
+    # DB 왕복만 느려진다.
+    region: singapore
+    # 컨텍스트는 반드시 레포 루트다. apps/api 로 두면 workspace 패키지를 못 찾아 실패한다.
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # 아래 Key Value 서비스의 내부 접속 주소가 자동으로 들어간다. 손으로 넣지 마라.
+      - key: REDIS_URL
+        fromService:
+          name: searchops-keyvalue
+          type: keyvalue
+          property: connectionString
+
+      # sync: false 는 "값을 여기 적지 않고 대시보드에서 입력받는다" 는 뜻이다.
+      # 자격증명을 레포에 커밋하지 않기 위해서다. 이 레포는 공개다.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_DATABASE_URL
+        sync: false
+
+      # ── 커넥터(GSC/GA4) ────────────────────────────────────────────────
+      - key: SEARCHOPS_CREDENTIAL_STORAGE_MODE
+        value: encrypted
+      # ⚠️ 이 값을 잃어버리면 저장된 연동 토큰을 복호화할 수 없다. 재연결 말고는 복구가
+      # 없다. GitHub Secret 에 넣는 값과 **반드시 같아야** 배치 동기화가 동작한다.
+      - key: SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      - key: SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID
+        value: k1
+
+      # OAuth 는 도메인이 정해진 뒤에 채운다. 비워둬도 API 는 정상 기동하고,
+      # 커넥터 화면만 oauth=not_configured 로 뜬다.
+      - key: SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      # state 위조 방지용. 사람이 지을 이유가 없어 Render 가 생성하게 둔다.
+      - key: SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET
+        generateValue: true
+
+  - type: keyvalue
+    name: searchops-keyvalue
+    plan: free
+    region: singapore
+    # 빈 목록 = 외부 접속 없음. API 는 같은 사설망에서 붙으므로 열 이유가 없다.
+    ipAllowList: []
+    # ⚠️ BullMQ 는 키가 evict 되면 진행 중인 작업이 조용히 사라진다. noeviction 이어야
+    # 메모리가 차면 쓰기가 실패하고, 실패는 최소한 눈에 보인다.
+    maxmemoryPolicy: noeviction
