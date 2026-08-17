@@ -6370,7 +6370,7 @@ function installApiEntrypointMocks(options: {
   }));
   vi.doMock("./auth.js", () => ({
     createHmacJwtIdpTokenVerifier: vi.fn(),
-    createJwksRs256IdpTokenVerifier: vi.fn(),
+    createJwksIdpTokenVerifier: vi.fn(),
     createRequestAuthContextResolver: vi.fn(),
     parseJwksJson: vi.fn(),
   }));

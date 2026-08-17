@@ -41,7 +41,7 @@ export interface CreateHmacJwtIdpTokenVerifierOptions {
   readonly secret: string;
 }
 
-export interface CreateJwksRs256IdpTokenVerifierOptions {
+export interface CreateJwksIdpTokenVerifierOptions {
   readonly audience?: string | undefined;
   readonly currentTime?: () => Date;
   readonly issuer?: string | undefined;
@@ -152,7 +152,7 @@ export function createHmacJwtIdpTokenVerifier({
   };
 }
 
-export function createJwksRs256IdpTokenVerifier({
+export function createJwksIdpTokenVerifier({
   audience,
   currentTime = () => new Date(),
   issuer,
@@ -160,7 +160,7 @@ export function createJwksRs256IdpTokenVerifier({
   organizationIdClaim = "organization_id",
   provider = "idp",
   roleClaim = "role",
-}: CreateJwksRs256IdpTokenVerifierOptions): IdpTokenVerifier {
+}: CreateJwksIdpTokenVerifierOptions): IdpTokenVerifier {
   const publicKeys = jwks.map(createJwksPublicKey);
 
   return {
@@ -174,11 +174,14 @@ export function createJwksRs256IdpTokenVerifier({
       const signature = tokenSegments[2]!;
 
       const header = parseJwtSegment(encodedHeader);
-      if (header.alg !== "RS256") {
-        throw new AuthVerificationError("Only RS256 IdP tokens are supported by this verifier.");
+      if (!isSupportedJwksAlgorithm(header.alg)) {
+        throw new AuthVerificationError(
+          "Only RS256 and ES256 IdP tokens are supported by this verifier.",
+        );
       }
 
-      verifyRs256Signature({
+      verifyJwksSignature({
+        algorithm: header.alg,
         encodedHeader,
         encodedPayload,
         keyId: typeof header.kid === "string" ? header.kid : undefined,
@@ -281,21 +284,27 @@ function verifyHs256Signature({
   }
 }
 
-function verifyRs256Signature({
+function verifyJwksSignature({
+  algorithm,
   encodedHeader,
   encodedPayload,
   keyId,
   publicKeys,
   signature,
 }: {
+  readonly algorithm: JwksAlgorithm;
   readonly encodedHeader: string;
   readonly encodedPayload: string;
   readonly keyId: string | undefined;
   readonly publicKeys: readonly JwksPublicKey[];
   readonly signature: string;
 }) {
-  const candidates =
+  const spec = jwksAlgorithms[algorithm];
+  const byKeyId =
     keyId === undefined ? publicKeys : publicKeys.filter((publicKey) => publicKey.keyId === keyId);
+  // alg 와 키 종류가 어긋나는 후보는 버린다. 이게 없으면 alg 를 바꿔 다른 종류의 키로
+  // 검증되게 유도하는 알고리즘 혼동 공격의 여지가 남는다.
+  const candidates = byKeyId.filter((publicKey) => publicKey.keyType === spec.kty);
 
   if (candidates.length === 0) {
     throw new AuthVerificationError("Bearer token key id is not trusted.");
@@ -304,7 +313,14 @@ function verifyRs256Signature({
   const signedInput = Buffer.from(`${encodedHeader}.${encodedPayload}`);
   const signatureBuffer = Buffer.from(signature, "base64url");
   const verified = candidates.some((candidate) =>
-    verifyAsymmetricSignature("RSA-SHA256", signedInput, candidate.publicKey, signatureBuffer),
+    verifyAsymmetricSignature(
+      spec.digest,
+      signedInput,
+      spec.dsaEncoding === undefined
+        ? candidate.publicKey
+        : { dsaEncoding: spec.dsaEncoding, key: candidate.publicKey },
+      signatureBuffer,
+    ),
   );
 
   if (!verified) {
@@ -358,23 +374,51 @@ function readStringClaim(payload: Record<string, unknown>, claimName: string) {
   return value;
 }
 
+// 지원하는 서명 알고리즘. **허용목록이다** — 여기 없는 alg 는 전부 거부한다.
+// 특히 "none" 을 명시적으로 막는 효과가 있다.
+//
+// 키 종류(kty)를 같이 묶는 이유: 토큰의 alg 만 보고 검증기를 고르면, 공격자가
+// alg 를 바꿔 다른 종류의 키로 검증되게 유도하는 알고리즘 혼동(algorithm confusion)이
+// 가능해진다. alg 와 JWKS 키의 kty 가 맞지 않으면 후보에서 제외한다.
+const jwksAlgorithms = {
+  // ECDSA. JWT 의 ES256 서명은 raw R‖S(IEEE P1363)인데 Node 의 기본은 DER 이라
+  // dsaEncoding 을 지정하지 않으면 정상 토큰도 전부 검증 실패한다.
+  ES256: { digest: "SHA256", dsaEncoding: "ieee-p1363", kty: "EC" },
+  RS256: { digest: "RSA-SHA256", dsaEncoding: undefined, kty: "RSA" },
+} as const satisfies Record<
+  string,
+  { readonly digest: string; readonly dsaEncoding: "ieee-p1363" | undefined; readonly kty: string }
+>;
+
+type JwksAlgorithm = keyof typeof jwksAlgorithms;
+
+function isSupportedJwksAlgorithm(value: unknown): value is JwksAlgorithm {
+  return typeof value === "string" && Object.hasOwn(jwksAlgorithms, value);
+}
+
 interface JwksPublicKey {
   readonly keyId: string | undefined;
+  readonly keyType: string;
   readonly publicKey: ReturnType<typeof createPublicKey>;
 }
 
 function createJwksPublicKey(jwk: Record<string, unknown>): JwksPublicKey {
-  if (jwk.kty !== "RSA") {
-    throw new AuthVerificationError("JWKS key must be an RSA key.");
+  // Supabase 는 프로젝트에 따라 RSA(RS256) 또는 EC(ES256) 키를 발급한다.
+  // 예전에는 RSA 만 받았는데, ES256 을 쓰는 프로젝트에서는 설정이 맞아도
+  // 모든 토큰이 거부돼 인증 경로 전체가 죽는다.
+  const keyType = jwk.kty;
+  if (keyType !== "RSA" && keyType !== "EC") {
+    throw new AuthVerificationError("JWKS key must be an RSA or EC key.");
   }
 
   try {
     return {
       keyId: typeof jwk.kid === "string" ? jwk.kid : undefined,
+      keyType,
       publicKey: createPublicKey({ format: "jwk", key: jwk as JsonWebKey }),
     };
   } catch {
-    throw new AuthVerificationError("JWKS RSA key could not be imported.");
+    throw new AuthVerificationError(`JWKS ${keyType} key could not be imported.`);
   }
 }
 

@@ -1,11 +1,11 @@
-import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
+import { createHmac, createSign, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
   AuthVerificationError,
   canManageProviderCredentials,
   createHmacJwtIdpTokenVerifier,
-  createJwksRs256IdpTokenVerifier,
+  createJwksIdpTokenVerifier,
   mapIdpClaimsToUserContext,
   parseJwksJson,
 } from "./auth.js";
@@ -64,6 +64,98 @@ describe("IdP token verification", () => {
     expect(() => verifier.verify(tamperedToken)).toThrow(AuthVerificationError);
   });
 
+  // Supabase 는 프로젝트에 따라 ES256(EC P-256)으로 서명한다. 예전에는 RSA 만 받아서
+  // 그런 프로젝트에서는 설정이 맞아도 모든 토큰이 거부돼 인증 경로 전체가 죽었다.
+  it("verifies ES256 JWTs with JWKS EC keys", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const jwk = {
+      ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>),
+      alg: "ES256",
+      kid: "supabase-key-1",
+      use: "sig",
+    };
+    const verifier = createJwksIdpTokenVerifier({
+      audience: "authenticated",
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      issuer: "https://project.supabase.co/auth/v1",
+      jwks: parseJwksJson(JSON.stringify({ keys: [jwk] })),
+      organizationIdClaim: "organization_id",
+      provider: "deployment_idp",
+    });
+    const token = signEs256Jwt(
+      {
+        aud: "authenticated",
+        email: "owner@example.com",
+        exp: 1_779_756_000,
+        iss: "https://project.supabase.co/auth/v1",
+        organization_id: "org_demo",
+        role: "owner",
+        sub: "supabase_owner_1",
+      },
+      privateKey,
+      "supabase-key-1",
+    );
+
+    expect(verifier.verify(token).organizationId).toBe("org_demo");
+  });
+
+  it("rejects an ES256 token whose signature was tampered with", () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const jwk = {
+      ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>),
+      kid: "supabase-key-1",
+    };
+    const verifier = createJwksIdpTokenVerifier({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      jwks: parseJwksJson(JSON.stringify({ keys: [jwk] })),
+    });
+    const token = signEs256Jwt(
+      { exp: 1_779_756_000, role: "owner", sub: "s" },
+      privateKey,
+      "supabase-key-1",
+    );
+
+    expect(() => verifier.verify(`${token.slice(0, -2)}xx`)).toThrow(AuthVerificationError);
+  });
+
+  // 알고리즘 혼동: alg 만 보고 키를 고르면 공격 여지가 생긴다. EC 키만 있는 JWKS 에
+  // RS256 이라고 주장하는 토큰이 오면 후보가 0개여야 한다.
+  it("rejects a token whose alg does not match the JWKS key type", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const { privateKey: rsaPrivateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const verifier = createJwksIdpTokenVerifier({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      jwks: parseJwksJson(
+        JSON.stringify({
+          keys: [{ ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>), kid: "k1" }],
+        }),
+      ),
+    });
+    const token = signRs256Jwt({ exp: 1_779_756_000, role: "owner", sub: "s" }, rsaPrivateKey, "k1");
+
+    expect(() => verifier.verify(token)).toThrow(AuthVerificationError);
+  });
+
+  it("rejects unsupported algorithms including none", () => {
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const verifier = createJwksIdpTokenVerifier({
+      currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
+      jwks: parseJwksJson(
+        JSON.stringify({
+          keys: [{ ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>), kid: "k1" }],
+        }),
+      ),
+    });
+    const header = Buffer.from(JSON.stringify({ alg: "none", kid: "k1", typ: "JWT" })).toString(
+      "base64url",
+    );
+    const body = Buffer.from(JSON.stringify({ exp: 1_779_756_000, role: "owner", sub: "s" })).toString(
+      "base64url",
+    );
+
+    expect(() => verifier.verify(`${header}.${body}.`)).toThrow(AuthVerificationError);
+  });
+
   it("verifies RS256 JWTs with JWKS keys and maps deployment IdP claims", () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const jwk = {
@@ -72,7 +164,7 @@ describe("IdP token verification", () => {
       kid: "searchops-key-1",
       use: "sig",
     };
-    const verifier = createJwksRs256IdpTokenVerifier({
+    const verifier = createJwksIdpTokenVerifier({
       audience: "searchops-api",
       currentTime: () => new Date("2026-05-26T00:00:00.000Z"),
       issuer: "https://idp.example.com/",
@@ -307,6 +399,18 @@ function signRs256Jwt(
   const signature = createSign("RSA-SHA256")
     .update(`${header}.${body}`)
     .sign(privateKey, "base64url");
+  return `${header}.${body}.${signature}`;
+}
+
+// ES256 서명은 raw R‖S(IEEE P1363)다. DER 로 만들면 우리 검증기가 거부하는 게 맞다 —
+// 그게 실제 Supabase 토큰과 같은 형식이기 때문이다.
+function signEs256Jwt(payload: Record<string, unknown>, privateKey: KeyObject, keyId: string) {
+  const header = encodeJwtSegment({ alg: "ES256", kid: keyId, typ: "JWT" });
+  const body = encodeJwtSegment(payload);
+  const signature = sign("SHA256", Buffer.from(`${header}.${body}`), {
+    dsaEncoding: "ieee-p1363",
+    key: privateKey,
+  }).toString("base64url");
   return `${header}.${body}.${signature}`;
 }
 

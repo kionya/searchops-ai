@@ -156,6 +156,22 @@ DIRECT_DATABASE_URL   = (마이그레이션용. 세션 풀러 5432)
 REDIS_URL             = redis://... 또는 rediss://...
 ```
 
+### 로그인 토큰 검증 (빠뜨리면 인증 경로가 전부 500)
+
+```
+SEARCHOPS_IDP_JWKS_JSON = (아래 curl 결과 전체)
+SEARCHOPS_IDP_ISSUER    = https://<project-ref>.supabase.co/auth/v1
+SEARCHOPS_IDP_AUDIENCE  = authenticated
+```
+
+```bash
+curl -s https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+```
+
+JWKS 는 공개 값이라 그대로 붙여넣어도 된다. 이게 없으면 토큰 검증기가 아예 구성되지 않아 `/organizations/...` 같은 경로가 401 이 아니라 **500** 을 낸다 — 처음에 빠뜨려서 실제로 겪었다.
+
+Supabase 는 프로젝트에 따라 **RS256 또는 ES256** 으로 서명한다. 둘 다 지원한다(`apps/api/src/auth.ts`). 어느 쪽인지는 위 JWKS 응답의 `alg` 로 확인할 수 있다.
+
 ### 커넥터용 (이게 없으면 커넥터 화면이 안 열린다)
 
 ```

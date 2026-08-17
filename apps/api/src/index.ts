@@ -15,7 +15,7 @@ import {
 } from "./bullmq-queue.js";
 import {
   createHmacJwtIdpTokenVerifier,
-  createJwksRs256IdpTokenVerifier,
+  createJwksIdpTokenVerifier,
   createRequestAuthContextResolver,
   parseJwksJson
 } from "./auth.js";
@@ -88,7 +88,7 @@ const deploymentTokenVerifier =
           provider: "deployment_idp",
           secret: env.SEARCHOPS_IDP_JWT_HS256_SECRET
         })
-    : createJwksRs256IdpTokenVerifier({
+    : createJwksIdpTokenVerifier({
         audience: env.SEARCHOPS_IDP_AUDIENCE,
         issuer: env.SEARCHOPS_IDP_ISSUER,
         jwks: parseJwksJson(env.SEARCHOPS_IDP_JWKS_JSON),

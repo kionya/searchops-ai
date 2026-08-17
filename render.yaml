@@ -35,6 +35,21 @@ services:
       - key: DIRECT_DATABASE_URL
         sync: false
 
+      # ── 로그인 토큰 검증 ────────────────────────────────────────────────
+      # ⚠️ 이게 없으면 API 가 Supabase JWT 를 검증할 수 없어 인증이 필요한 경로가
+      # 전부 500 을 낸다(검증기 자체가 구성되지 않는다). 처음에 빠뜨려서 실제로 겪었다.
+      #
+      # JWKS 는 공개 값이다. 아래에서 그대로 받아 붙여넣으면 된다:
+      #   curl -s https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+      - key: SEARCHOPS_IDP_JWKS_JSON
+        sync: false
+      # https://<project-ref>.supabase.co/auth/v1
+      - key: SEARCHOPS_IDP_ISSUER
+        sync: false
+      # Supabase 사용자 토큰의 aud 는 항상 이 값이다.
+      - key: SEARCHOPS_IDP_AUDIENCE
+        value: authenticated
+
       # ── 커넥터(GSC/GA4) ────────────────────────────────────────────────
       - key: SEARCHOPS_CREDENTIAL_STORAGE_MODE
         value: encrypted
