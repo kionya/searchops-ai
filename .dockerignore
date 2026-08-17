@@ -1,10 +1,17 @@
 # Keep the Docker build context small and reproducible.
+#
+# node_modules 를 넣으면 호스트(macOS)에서 만들어진 네이티브 바이너리와 심볼릭 링크가
+# 컨테이너로 딸려 들어가 install 을 오염시킨다.
+node_modules
 **/node_modules
 **/dist
 **/.turbo
+**/.prisma
 .git
 .github
+.claude
 graphify-out
+# 공유 Obsidian 메모리 볼트. 다른 프로젝트 데이터가 섞여 있어 이미지에 들어가면 안 된다.
 brain-vault
 *.log
 GEMINI.md
