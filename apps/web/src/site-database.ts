@@ -53,6 +53,7 @@ export type DatabaseProbeResult =
       // 사용자명이 들어가지 않고 탐색 경로만 들어간다 — 그게 진단에 필요한 전부다.
       readonly detail?: string;
       readonly lambda?: Record<string, string[] | string>;
+      readonly url?: Record<string, unknown>;
     };
 
 // 원문 오류를 그대로 내보내지 않는다 — 호스트명과 사용자명이 들어 있다.
@@ -86,11 +87,50 @@ export async function probeDatabase(): Promise<DatabaseProbeResult> {
     const text = error instanceof Error ? error.message : String(error);
     return {
       detail: text.replace(/\s+/g, " ").slice(0, 2000),
-      lambda: await inspectEngineLocations(),
       reachable: false,
-      reason
+      reason,
+      url: describeConnectionString(getWebDatabaseUrl())
     };
   }
+}
+
+/**
+ * 접속 문자열의 **형태만** 보고한다. 값은 절대 내지 않는다.
+ *
+ * "Invalid URL" 같은 오류는 원인이 눈에 안 보인다 — 플레이스홀더를 안 바꿨거나,
+ * 비밀번호에 퍼센트 인코딩이 필요한 문자가 들어갔거나, 따옴표가 붙어 있거나.
+ * 그 셋을 값 노출 없이 구분한다.
+ */
+function describeConnectionString(value: string | null): Record<string, unknown> {
+  if (value === null) {
+    return { present: false };
+  }
+  const shape: Record<string, unknown> = {
+    present: true,
+    length: value.length,
+    // 플레이스홀더를 그대로 붙여넣는 사고가 잦다.
+    hasAngleBrackets: /[<>]/.test(value),
+    hasWhitespace: /\s/.test(value),
+    hasQuotes: /^["']|["']$/.test(value),
+    startsWithPostgres: /^postgres(ql)?:\/\//.test(value)
+  };
+  try {
+    const parsed = new URL(value);
+    shape.parses = true;
+    shape.protocol = parsed.protocol;
+    shape.port = parsed.port || "(기본값)";
+    shape.database = parsed.pathname.replace(/^\//, "") || "(없음)";
+    shape.hasUsername = parsed.username.length > 0;
+    shape.hasPassword = parsed.password.length > 0;
+    // 인코딩이 필요한 문자가 원문 비밀번호 자리에 있는지만 본다. 값은 내지 않는다.
+    shape.passwordNeedsEncoding =
+      parsed.password.length > 0 && parsed.password !== encodeURIComponent(decodeURIComponent(parsed.password));
+    shape.searchParams = [...parsed.searchParams.keys()];
+  } catch (error) {
+    shape.parses = false;
+    shape.parseError = error instanceof Error ? error.message.slice(0, 80) : "unknown";
+  }
+  return shape;
 }
 
 /**
