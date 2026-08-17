@@ -7,8 +7,9 @@
 //   - ./runtime.js 를 임포트하지 않는다 (최상단에서 bullmq 를 끌고 온다)
 //   - parseSearchOpsEnv 를 쓰지 않는다 (REDIS_URL 을 필수로 요구해 즉시 죽는다)
 //
-// 크롤 대상은 SEARCHOPS_RICHDOC_SITE_IDS 를 그대로 쓴다. 적재 대상과 크롤 대상을 한 값으로
-// 묶어 드리프트를 없앤다 — 목록 밖 사이트는 크롤해봐야 richdoc 적재가 조용히 드롭된다.
+// 크롤 대상은 DB 에 등록된 모든 Site 다. SEARCHOPS_RICHDOC_SITE_IDS 는 적재(미러링)
+// 대상만 정한다 — 두 의미를 한 값에 겹쳐 쓰다가 웹에서 등록한 사이트가 영원히 크롤되지
+// 않는 사고가 났다. 자세한 경위는 main() 안 findMany 위 주석.
 
 import {
   createPrismaCrawlAnalysisPersistenceClient,

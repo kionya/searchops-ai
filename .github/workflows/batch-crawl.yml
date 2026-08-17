@@ -9,6 +9,11 @@ name: batch-crawl
 #   DATABASE_URL, DIRECT_DATABASE_URL
 #   SEARCHOPS_RICHDOC_SUPABASE_URL, SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY, SEARCHOPS_RICHDOC_SITE_IDS
 #
+# 커넥터(GSC/GA4) 동기화까지 하려면 추가로 (없으면 그 스텝만 건너뛴다):
+#   SEARCHOPS_CREDENTIAL_STORAGE_MODE, SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY(_ID)
+#   SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID, SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET
+#   선택: SEARCHOPS_BING_API_KEY, SEARCHOPS_PAGESPEED_API_KEY
+#
 # 실패하면 "batch-crawl 실패" 이슈를 열고, 다음 성공에서 닫는다(맨 아래 스텝).
 # 외부 알림 서비스도 새 시크릿도 쓰지 않는다.
 #
@@ -91,6 +96,34 @@ jobs:
           SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
         run: node apps/worker/dist/batch-crawl.js
 
+      # 커넥터(GSC/GA4/Bing/PageSpeed) 동기화. API 는 "지금 동기화" 를 큐에 넣기만 하고,
+      # 큐를 소비하는 워커를 상시 띄우지 않으므로 여기서 직접 돌린다.
+      #
+      # if: always() — 크롤이 실패해도 연동 데이터는 따로 들어와야 한다. 둘은 독립이다.
+      #
+      # 커넥터가 하나도 설정돼 있지 않으면 "할 일 없음" 을 찍고 0 으로 끝난다. 그래서
+      # 연동을 아직 안 붙였어도 이 스텝이 배치를 빨갛게 만들지 않는다.
+      - name: Run connector sync batch
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          # 연동 토큰이 이 키로 암호화돼 있다. 없으면 스텝이 즉시 종료 코드 2로 끊는다.
+          SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }}
+          SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: ${{ secrets.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }}
+          SEARCHOPS_CREDENTIAL_STORAGE_MODE: ${{ secrets.SEARCHOPS_CREDENTIAL_STORAGE_MODE }}
+          # 만료된 access token 을 refresh 하려면 OAuth 클라이언트가 필요하다.
+          SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID }}
+          SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET }}
+          SEARCHOPS_BING_API_KEY: ${{ secrets.SEARCHOPS_BING_API_KEY }}
+          SEARCHOPS_PAGESPEED_API_KEY: ${{ secrets.SEARCHOPS_PAGESPEED_API_KEY }}
+        run: |
+          if [ -z "${SEARCHOPS_CREDENTIAL_STORAGE_MODE:-}" ]; then
+            echo "커넥터 자격증명 secret 이 없어 동기화를 건너뛴다. 연동을 붙였다면 docs/API_DEPLOYMENT.md 를 보라."
+            exit 0
+          fi
+          node apps/worker/dist/batch-connector-sync.js
+
       # Actions 기본 알림은 메일함에 묻힌다. 이슈는 열려 있는 동안 레포 상태로 남고
       # 댓글마다 다시 알림이 온다. 같은 제목의 열린 이슈에 댓글만 달아 매일 실패해도 쌓이지 않는다.
       # cancelled 는 실패가 아니므로 아무것도 하지 않는다.
@@ -109,7 +142,7 @@ jobs:
               gh issue close "$number" --comment "복구됨: $RUN_URL"
             fi
           elif [ "$STATUS" = "failure" ]; then
-            body="배치 실패. 로그: $RUN_URL — richdoc 적재만 실패해도 종료 코드가 1이므로 로그에서 '적재 실패' 를 먼저 확인해라."
+            body="배치 실패. 로그: $RUN_URL — 크롤/richdoc 적재/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '적재 실패' 와 '[batch-connector-sync]' 를 먼저 확인해라."
             if [ -n "$number" ]; then
               gh issue comment "$number" --body "$body"
             else
