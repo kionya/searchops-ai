@@ -97,8 +97,12 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
 
 function RegistryModePill({ registry }: { readonly registry: SiteRegistryData }) {
   return (
-    <span className={`searchops-status-pill ${registry.mode === "api" ? "ready" : "info"}`}>
-      {registry.mode === "api" ? "API 저장소" : "Fixture preview"}
+    <span className={`searchops-status-pill ${registry.mode === "fixture" ? "info" : "ready"}`}>
+      {registry.mode === "database"
+        ? "실데이터 (DB 직접)"
+        : registry.mode === "api"
+          ? "API 저장소"
+          : "Fixture preview"}
     </span>
   );
 }

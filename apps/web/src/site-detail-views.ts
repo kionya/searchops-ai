@@ -11,11 +11,13 @@ import {
 
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { getSiteSnapshot } from "./site-database";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
 export type CrawlRunTone = "complete" | "failed" | "queued";
-export type SiteDetailDataSource = "api" | "fixture";
+// "database" = API 없이 Prisma 로 직접 읽은 실데이터. "api" = HTTP API 경유 실데이터.
+export type SiteDetailDataSource = "api" | "database" | "fixture";
 export type UrlIndexability = "indexable" | "not_indexable";
 
 export interface CrawlRunRow extends CrawlRun {
@@ -284,6 +286,15 @@ export async function loadSiteUrlInventoryDashboard(
 ): Promise<UrlInventoryDashboardData> {
   const site = getFixtureSite(siteOrId);
   const siteId = getFixtureSiteId(siteOrId);
+  // 직접 DB 모드가 켜져 있으면 API 없이 실데이터를 쓴다.
+  const snapshot = await getSiteSnapshot(siteId);
+  if (snapshot !== null) {
+    return {
+      errorMessage: null,
+      rows: createUrlInventoryRowsFromApi(snapshot.urlRecords, snapshot.seoIssues),
+      source: "database"
+    };
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createFixtureUrlInventoryDashboard(site);
@@ -319,6 +330,14 @@ export async function loadSiteUrlInventoryDashboard(
 export async function loadSiteCrawlRunDashboard(siteOrId: Site | string): Promise<CrawlRunDashboardData> {
   const site = getFixtureSite(siteOrId);
   const siteId = getFixtureSiteId(siteOrId);
+  const snapshot = await getSiteSnapshot(siteId);
+  if (snapshot !== null) {
+    return {
+      errorMessage: null,
+      rows: createCrawlRunRowsFromApi(snapshot.crawlRuns, snapshot.seoIssues),
+      source: "database"
+    };
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createFixtureCrawlRunDashboard(site);
@@ -354,6 +373,14 @@ export async function loadSiteCrawlRunDashboard(siteOrId: Site | string): Promis
 export async function loadSiteIssueDashboard(siteOrId: Site | string): Promise<IssueDashboardData> {
   const site = getFixtureSite(siteOrId);
   const siteId = getFixtureSiteId(siteOrId);
+  const snapshot = await getSiteSnapshot(siteId);
+  if (snapshot !== null) {
+    return {
+      errorMessage: null,
+      rows: createIssueListRowsFromApi(snapshot.seoIssues),
+      source: "database"
+    };
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createFixtureIssueDashboard(site);

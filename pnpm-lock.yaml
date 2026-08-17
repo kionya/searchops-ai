@@ -96,6 +96,9 @@ importers:
       '@eslint/js':
         specifier: ^9.27.0
         version: 9.39.4
+      '@searchops/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types

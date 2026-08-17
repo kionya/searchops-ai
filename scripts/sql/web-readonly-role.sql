@@ -1,0 +1,45 @@
+-- 웹(Vercel)이 API 없이 대시보드를 그리기 위해 쓰는 전용 DB 역할.
+--
+-- 원래 운영 규칙은 "Vercel 에는 DB 자격증명을 두지 않는다" 였다. API 를 배포하지 않는
+-- 이상 웹이 실데이터를 그리려면 어떤 형태로든 자격증명이 필요하므로, 규칙의 취지
+-- (프론트 침해 시 폭발 반경 억제)를 GRANT 로 강제한다. 코드가 아니라 권한으로 막는
+-- 이유는 코드에 버그가 나도 권한은 남기 때문이다.
+--
+-- 이 역할이 할 수 있는 것: 대시보드 6개 테이블 SELECT.
+-- 할 수 없는 것: 쓰기 전부, 그리고 credential 을 담은 테이블 접근 전부
+--                (ProviderAccount, ConnectorOAuthCredential, SiteConnector, User ...).
+--
+-- 적용: Supabase SQL Editor 에서 <비밀번호> 를 바꿔 실행한 뒤,
+--       Vercel 의 DATABASE_URL 을 이 역할 + 풀러(6543) 로 설정한다.
+--       ⚠️ DIRECT_DATABASE_URL 은 Vercel 에 넣지 마라 — 마이그레이션 전용이고
+--          서버리스에서 쓰면 커넥션 한도를 금방 먹는다.
+
+do $$
+begin
+  if not exists (select from pg_roles where rolname = 'searchops_web_readonly') then
+    -- 비밀번호는 실행 전에 반드시 바꿔라.
+    create role searchops_web_readonly login password 'CHANGE_ME';
+  end if;
+end $$;
+
+grant usage on schema public to searchops_web_readonly;
+
+-- 대시보드가 읽는 테이블만. 새 화면을 붙일 때 여기 추가하지 않으면 그 화면은 그냥
+-- 안 뜬다 — 조용히 더 많은 데이터에 접근하게 되는 것보다 낫다.
+grant select on
+  public."Site",
+  public."CrawlRun",
+  public."UrlRecord",
+  public."SeoIssue",
+  public."WorkOrder",
+  public."SchemaRecommendation"
+to searchops_web_readonly;
+
+-- 앞으로 만들어질 테이블에 기본 권한이 새지 않게 한다. Prisma 마이그레이션이 새 테이블을
+-- 만들어도 이 역할은 자동으로 접근권을 얻지 않는다.
+alter default privileges in schema public revoke all on tables from searchops_web_readonly;
+
+-- 확인용. 아래 두 줄은 각각 0 행과 permission denied 가 나와야 정상이다.
+--   set role searchops_web_readonly; select count(*) from "Site";              -- 동작
+--   set role searchops_web_readonly; select count(*) from "ProviderAccount";   -- 거부
+--   set role searchops_web_readonly; insert into "Site" default values;        -- 거부

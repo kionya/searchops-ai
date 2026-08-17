@@ -11,10 +11,10 @@ import {
 import { formatOwnerLabel } from "../../../../src/korean-labels";
 import {
   canRecheckWorkOrder,
-  createSiteWorkOrders,
   formatDate,
   formatPriority,
   groupWorkOrdersByStatus,
+  loadSiteWorkOrderBoard,
   summarizeWorkOrders,
   workOrderColumns
 } from "../../../../src/work-order-board";
@@ -74,7 +74,8 @@ interface WorkOrdersPageProps {
 export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
   const { siteId } = await params;
   const site = await loadDashboardSite(siteId);
-  const workOrders = createSiteWorkOrders(site);
+  const board = await loadSiteWorkOrderBoard(site);
+  const workOrders = board.workOrders;
   const groupedWorkOrders = groupWorkOrdersByStatus(workOrders);
   const summary = summarizeWorkOrders(workOrders);
 
@@ -85,6 +86,17 @@ export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
         eyebrow="작업 지시서"
         title="작업 지시서 보드"
       />
+      {/* 이 보드는 오래 데모 픽스처를 실데이터처럼 보여줬다. 출처를 항상 밝힌다. */}
+      <p
+        style={{
+          ...badgeBaseStyle,
+          background: board.source === "database" ? "#ecfdf5" : "#eef2ff",
+          color: board.source === "database" ? "#047857" : "#3730a3",
+          marginBottom: 14
+        }}
+      >
+        {board.source === "database" ? "실데이터 (DB 직접)" : "데모 데이터"}
+      </p>
       <section
         aria-label="작업 지시서 지표"
         style={metricGridStyle}

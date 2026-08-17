@@ -138,3 +138,8 @@ jobs:
 
       - name: Run credential smoke
         run: pnpm smoke:credential
+
+      # 웹이 API 없이 실데이터를 그리는 경로. 테넌트 스코프와 최소권한 역할까지
+      # 진짜 Postgres 위에서 확인한다 — 여기가 뚫리면 남의 조직 데이터가 보인다.
+      - name: Run web direct-database smoke
+        run: pnpm smoke:web-db

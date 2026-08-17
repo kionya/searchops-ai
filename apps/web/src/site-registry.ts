@@ -15,7 +15,7 @@ import { demoSite } from "./work-order-board";
 export const defaultOrganizationId = "org_demo";
 export const siteRegistrationCreatedAt = "2026-01-01T00:00:00.000Z";
 
-export type SiteRegistryMode = "api" | "fixture";
+export type SiteRegistryMode = "api" | "database" | "fixture";
 
 export interface SiteRegistrationInput {
   readonly country?: string | null | undefined;
@@ -160,6 +160,17 @@ export function mergeSitesWithCreatedPreview(
 export async function loadSiteRegistry(searchParams?: SiteRegistrationSearchParams): Promise<SiteRegistryData> {
   const apiBaseUrl = getApiBaseUrl();
   const feedback = getSiteRegistrationFeedback(searchParams);
+
+  // 직접 DB 모드면 API 없이 로그인한 조직의 실제 사이트를 읽는다.
+  const { getOrganizationSites } = await import("./site-database");
+  const ownedSites = await getOrganizationSites();
+  if (ownedSites !== null) {
+    return {
+      feedback,
+      mode: "database",
+      sites: mergeSitesWithCreatedPreview(ownedSites, searchParams)
+    };
+  }
 
   if (!apiBaseUrl) {
     return {

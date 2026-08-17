@@ -219,6 +219,23 @@ export function createSiteWorkOrders(site: Site): WorkOrder[] {
   return scopeDemoFixtureToSite(demoWorkOrders, site);
 }
 
+/**
+ * 지시서 보드용 데이터. 직접 DB 모드면 실데이터, 아니면 데모 픽스처.
+ *
+ * 이 보드는 원래 API 를 한 번도 호출하지 않고 데모 픽스처만 그렸다 — 실제 지시서처럼
+ * 보여 오해를 부르던 자리다. source 를 함께 돌려주어 화면이 출처를 밝힐 수 있게 한다.
+ */
+export async function loadSiteWorkOrderBoard(
+  site: Site,
+): Promise<{ readonly source: "database" | "fixture"; readonly workOrders: WorkOrder[] }> {
+  const { getSiteSnapshot } = await import("./site-database");
+  const snapshot = await getSiteSnapshot(site.id);
+  if (snapshot !== null) {
+    return { source: "database", workOrders: [...snapshot.workOrders] };
+  }
+  return { source: "fixture", workOrders: createSiteWorkOrders(site) };
+}
+
 export function sortWorkOrdersForBoard(workOrders: readonly WorkOrder[]) {
   return [...workOrders].sort((left, right) => {
     const priorityDelta = priorityRank[left.priority] - priorityRank[right.priority];

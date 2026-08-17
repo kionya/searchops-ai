@@ -11,6 +11,7 @@ import {
   getCurrentProviderUser,
   type ProviderUserContext,
 } from "./provider-accounts";
+import { getSiteSnapshot, isDirectDatabaseMode } from "./site-database";
 import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
 
@@ -121,18 +122,26 @@ export async function loadDashboardSite(siteId: string): Promise<Site> {
   if (site !== null) {
     return site;
   }
-  // 레이아웃(app/sites/[siteId]/layout.tsx)과 같은 이유로, API 부재는 오류가 아니라
-  // fixture 폴백이다. API 가 있는데 거부당한 경우만 실패로 남긴다.
-  if (getApiBaseUrl() === null) {
-    return resolveDashboardSite(siteId);
+  // 실데이터 경로(직접 DB 또는 API)가 살아 있는데 null 이면 없는 사이트이거나 남의
+  // 사이트다 — fixture 로 덮으면 그 사실이 숨는다.
+  if (isDirectDatabaseMode() || getApiBaseUrl() !== null) {
+    throw new ProviderAccountClientError("request_failed");
   }
-  throw new ProviderAccountClientError("request_failed");
+  // 실데이터 경로가 아예 없을 때만 fixture 폴백이다(레이아웃과 같은 이유).
+  return resolveDashboardSite(siteId);
 }
 
 export async function loadDashboardSiteAsUser(
   context: ProviderUserContext,
   siteId: string,
 ): Promise<Site | null> {
+  // 직접 DB 모드에서는 API 없이 사이트를 읽는다. 조직 대조는 조회 안에서 이뤄지므로
+  // 남의 사이트는 여기서도 null 이고, 호출자는 그걸 404 로 바꾼다.
+  if (isDirectDatabaseMode()) {
+    const snapshot = await getSiteSnapshot(siteId);
+    return snapshot?.site ?? null;
+  }
+
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return null;

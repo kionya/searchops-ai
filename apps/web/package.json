@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@eslint/js": "^9.27.0",
+    "@searchops/db": "workspace:*",
     "@searchops/types": "workspace:*",
     "@supabase/ssr": "0.12.1",
     "@supabase/supabase-js": "2.110.3",

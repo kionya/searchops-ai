@@ -16,10 +16,11 @@ import {
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
+import { getSiteSnapshot } from "./site-database";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
-export type SchemaRecommendationDashboardSource = "api" | "fixture";
+export type SchemaRecommendationDashboardSource = "api" | "database" | "fixture";
 export type SchemaRecommendationRecheckStatus = "failed" | "fixture" | "not_resolved" | "resolved";
 export type SchemaRichResultValidationQueueStatus = "failed" | "fixture" | "queued";
 export type SchemaRecommendationTone = "good" | "neutral" | "risk";
@@ -173,6 +174,15 @@ export async function loadSchemaRecommendationDashboard(
   siteOrId: Site | string,
 ): Promise<SchemaRecommendationDashboardData> {
   const siteId = getFixtureSiteId(siteOrId);
+  // 직접 DB 모드가 켜져 있으면 API 없이 실데이터를 쓴다.
+  const snapshot = await getSiteSnapshot(siteId);
+  if (snapshot !== null) {
+    return {
+      errorMessage: null,
+      recommendations: snapshot.schemaRecommendations,
+      source: "database"
+    };
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createDemoSchemaRecommendationDashboard(siteOrId);
