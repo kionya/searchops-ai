@@ -113,6 +113,25 @@ SEARCHOPS_WEB_DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@
 
 남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터를 읽을 수 있다**(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 이걸 더 줄이려면 테이블마다 RLS 정책을 걸고 사용자 JWT 로 붙는 방식으로 가야 하는데, Prisma 관리 스키마 25개 테이블에 RLS 를 얹는 별도 작업이다. 현재 테넌트가 사실상 하나라 그 비용을 지금 낼 이유가 없다고 판단했다 — 테넌트가 늘면 재검토 대상이다.
 
+## 배포 확인
+
+대시보드가 전부 로그인 뒤에 있어서 밖에서는 "내 수정이 배포됐는지", "환경변수가 먹었는지"를 알 방법이 없다. 그래서 확인용 엔드포인트를 둔다:
+
+```bash
+curl -s https://<도메인>/api/deployment
+```
+
+```json
+{ "commit": "9ebbaff...", "config": { "apiBaseUrl": false, "directDatabase": true, "supabaseAuth": true } }
+```
+
+- `directDatabase: false` → `SEARCHOPS_WEB_DATABASE_URL` 이 안 먹었다(변수명 오타 또는 재배포 전). 화면은 데모 데이터가 뜬다.
+- `supabaseAuth: false` → 로그인 화면이 "사용할 수 없습니다" 로 뜬다.
+- `apiBaseUrl: true` → 죽은 주소가 남아 있는지 확인하라. API 를 안 쓰면 지우는 게 맞다.
+- `commit` 이 기대한 커밋과 다르면 재배포가 아직 안 된 것이다.
+
+값이 아니라 불리언과 커밋 해시만 낸다 — 접속 문자열·키·호스트명은 내지 않는다.
+
 ## 검증
 
 ```bash
