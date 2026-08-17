@@ -4,6 +4,7 @@ export const prismaSchemaPath = "packages/db/prisma/schema.prisma" as const;
 
 export {
   createSearchOpsPrismaClient,
+  createSearchOpsPrismaClientWithPgAdapter,
   type SearchOpsPrismaClient
 } from "./client.js";
 export type { Prisma } from "./generated/prisma/index.js";

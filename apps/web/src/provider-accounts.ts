@@ -205,7 +205,8 @@ async function lookupMembershipFromDatabase(
 
   try {
     const db = await import("@searchops/db");
-    membershipPrisma ??= db.createSearchOpsPrismaClient({ datasourceUrl });
+    // 데이터 경로와 같은 이유로 어댑터를 쓴다(site-database.ts 주석 참고).
+    membershipPrisma ??= await db.createSearchOpsPrismaClientWithPgAdapter(datasourceUrl);
     return await db.findUserMembershipByEmail(membershipPrisma, email);
   } catch {
     // 소속 조회 실패는 미인증으로 떨어뜨린다 — 조용히 다른 조직으로 넘어가는 것보다 낫다.
