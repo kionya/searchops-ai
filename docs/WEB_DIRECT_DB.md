@@ -79,7 +79,15 @@ Supabase JWT 검증 (서명·sub 일치·role=authenticated)   ← 인증. 그�
 
 ### 1. 최소권한 역할 생성
 
-Supabase SQL Editor 에서 `scripts/sql/web-readonly-role.sql` 을 **비밀번호를 바꿔서** 실행한다.
+`scripts/sql/web-readonly-role.sql` 을 실행한다. **비밀번호는 파일에 없다** — 실행 시점에 준다:
+
+```bash
+psql "<postgres 접속문자열>" -v web_password=직접지은비밀번호 -f scripts/sql/web-readonly-role.sql
+```
+
+⚠️ 파일에 기본 비밀번호를 두지 않는 이유: 이 레포는 공개다. 예전에는 `CHANGE_ME` 가 적혀 있었고, 재실행 시 비밀번호를 건너뛰는 버그까지 겹쳐 운영 역할이 실제로 그 값으로 남아 **읽기 노출**됐다. 지금은 변수를 안 주면 실행이 중단된다.
+
+Supabase SQL Editor 처럼 psql 변수를 못 쓰는 곳에서는 `alter role searchops_web_readonly password '...'` 를 직접 실행하면 된다. 이때 에디터가 **역할 임시 전환(impersonation)** 상태면 `permission denied to alter role` 이 난다 — 쿼리 앞에 `reset role;` 을 붙여라.
 
 이 역할은 대시보드 6개 테이블 `SELECT` 와 `User` 의 4개 컬럼(`id`·`organizationId`·`email`·`role`, 로그인 소속 확인용)만 갖는다. `ProviderAccount`, `ConnectorOAuthCredential` 같은 credential 테이블과 모든 쓰기는 권한 자체가 없다.
 

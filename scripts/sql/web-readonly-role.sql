@@ -23,14 +23,30 @@
 -- 있어야 한다(PostgreSQL 16+). Supabase SQL Editor 를 read-only 모드로 두면
 -- supabase_read_only_user 로 돌아 "permission denied to alter role" 이 난다 —
 -- 토글을 끄고 postgres 로 실행해라.
-do $$
-begin
-  if exists (select from pg_roles where rolname = 'searchops_web_readonly') then
-    alter role searchops_web_readonly login password 'CHANGE_ME';
-  else
-    create role searchops_web_readonly login password 'CHANGE_ME';
-  end if;
-end $$;
+-- ⚠️ 기본 비밀번호를 파일에 두지 않는다. 이 레포는 공개라, 예전처럼 'CHANGE_ME' 를
+-- 적어두면 그게 곧 공개된 자격증명이 된다(실제로 그렇게 남아 운영 DB 가 읽기
+-- 노출됐다). 아래 psql 변수로 실행 시점에만 주입한다:
+--
+--   psql "<접속문자열>" -v web_password="'직접지은비밀번호'" -f scripts/sql/web-readonly-role.sql
+--
+-- Supabase SQL Editor 처럼 변수를 못 쓰는 곳에서는 아래 한 줄만 손으로 바꿔 실행해라.
+-- ⚠️ 바꾼 파일을 커밋하지 마라.
+-- 비밀번호를 안 주면 기본값으로 때우지 않고 **중단한다.** 기본값을 두는 순간
+-- 그게 공개된 자격증명이 되기 때문이다.
+\if :{?web_password}
+\else
+\echo '중단: -v web_password=<비밀번호> 를 주고 실행해라. 기본 비밀번호는 제공하지 않는다.'
+\quit
+\endif
+
+-- DO 블록 안에서는 psql 변수가 치환되지 않으므로 \gexec 로 문장을 만들어 실행한다.
+-- 없으면 만들고, 있으면 비밀번호를 다시 설정한다 — 재실행이 항상 같은 결과를 낸다.
+select 'create role searchops_web_readonly login password ' || quote_literal(:'web_password')
+where not exists (select from pg_roles where rolname = 'searchops_web_readonly')
+\gexec
+
+select 'alter role searchops_web_readonly login password ' || quote_literal(:'web_password')
+\gexec
 
 grant usage on schema public to searchops_web_readonly;
 

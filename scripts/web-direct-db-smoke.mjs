@@ -275,11 +275,13 @@ try {
 
   // ---- 3) Vercel 에 둘 최소권한 역할이 실제로 막는가 ----
   // 운영에 적용할 SQL 을 그대로 돌린다. 비밀번호만 이 실행용으로 바꾼다.
-  const roleSqlText = execFileSync("cat", [roleSql], { encoding: "utf8" }).replace(
-    "'CHANGE_ME'",
-    `'${webRolePassword}'`,
+  // 역할 SQL 은 비밀번호를 psql 변수로 받는다(파일에 기본값을 두지 않는다).
+  // 운영에서 쓰는 것과 같은 파일을 같은 방식으로 실행해야 검증에 의미가 있다.
+  execFileSync(
+    "psql",
+    [dbUrl, "-qXAt", "-v", "ON_ERROR_STOP=1", "-v", `web_password=${webRolePassword}`, "-f", roleSql],
+    { encoding: "utf8" },
   );
-  psql(["-c", roleSqlText]);
 
   const asWebRole = (sql) =>
     execFileSync("psql", [webRoleUrl, "-qXAt", "-v", "ON_ERROR_STOP=1", "-c", sql], {
