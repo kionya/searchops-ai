@@ -14,7 +14,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 //   "could not locate the Query Engine for runtime rhel-openssl-3.0.x ...
 //    Ensure that libquery_engine-rhel-openssl-3.0.x.so.node has been copied ...
 //    or in packages/db/src/generated/prisma"
+// .prisma/client 는 build 스크립트가 채운다(scripts/copy-prisma-engine.mjs).
+// 이 경로만 람다의 cwd(/var/task/apps/web) 기준으로 떨어져 Prisma 가 실제로 찾는다.
+// packages/db/** 로 트레이싱하면 /var/task/packages/db/** 에 떨어져 Prisma 가 못 본다.
 const prismaEngine = [
+  ".prisma/client/**",
   "../../packages/db/src/generated/prisma/**",
   "../../packages/db/dist/generated/prisma/**"
 ];

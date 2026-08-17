@@ -21,3 +21,4 @@ backup_*.sql
 .lazyweb/
 .superpowers/
 .searchops-smoke-backups/
+apps/web/.prisma/
