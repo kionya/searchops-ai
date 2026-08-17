@@ -7,7 +7,17 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 // PrismaClientInitializationError 로 죽는다 — 실제로 /api/deployment 를 빠뜨려
 // engine_missing 을 겪었다. DB 를 만지는 라우트를 추가하면 여기에도 추가해라.
 // 확인 방법: 빌드 후 `.next/server/app/<route>.nft.json` 에 `*.node` 가 들어 있는지 본다.
-const prismaEngine = ["../../packages/db/dist/generated/prisma/**"];
+// ⚠️ src 경로가 정본이다. Prisma Client 는 generate 시점의 output 디렉터리를 코드에
+// 박아두고 런타임에 거기서 엔진을 찾는다(schema.prisma 의 output = "../src/generated/prisma").
+// postbuild 가 dist 로 복사하지만 클라이언트는 여전히 src 를 본다 — dist 만 포함했더니
+// Vercel 에서 정확히 이 오류가 났다:
+//   "could not locate the Query Engine for runtime rhel-openssl-3.0.x ...
+//    Ensure that libquery_engine-rhel-openssl-3.0.x.so.node has been copied ...
+//    or in packages/db/src/generated/prisma"
+const prismaEngine = [
+  "../../packages/db/src/generated/prisma/**",
+  "../../packages/db/dist/generated/prisma/**"
+];
 const prismaRoutes = [
   "/api/deployment",
   "/sites",
