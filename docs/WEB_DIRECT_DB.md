@@ -59,14 +59,21 @@ Supabase JWT 검증 (서명·sub 일치·role=authenticated)   ← 인증. 그�
 
 2026-08-17 기준 배포된 웹의 `/login` 은 "현재 로그인을 사용할 수 없습니다" 를 띄운다 — Vercel 에 Supabase 인증 값이 없고 `auth.users` 도 비어 있다. 데이터 경로가 살아도 여기가 막히면 아무도 대시보드에 도달하지 못한다.
 
-1. Vercel 에 `NEXT_PUBLIC_SUPABASE_URL` 과 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(또는 `..._ANON_KEY`) 를 넣는다.
-2. Supabase 대시보드에서 사용자를 하나 만든다.
-3. 같은 이메일로 `User` 행을 만든다 — 이게 조직 소속의 근거다.
+1. Vercel 에 아래 둘을 넣는다. 값은 Supabase 대시보드 → Project Settings → API.
+   ```
+   NEXT_PUBLIC_SUPABASE_URL              = https://hrgoypleelvcutndbhjm.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY  = sb_publishable_...   (또는 ..._ANON_KEY)
+   ```
+2. Supabase 대시보드 → Authentication → Users 에서 사용자를 하나 만든다(이메일 + 비밀번호).
+3. **같은 이메일로 `User` 행을 만든다** — 이게 조직 소속의 근거다. 없으면 로그인은 되지만 조직을 못 찾아 거부된다.
    ```sql
    insert into "User" (id, "organizationId", email, name, role)
-   values (gen_random_uuid()::text, '<조직id>', '<로그인 이메일>', '<이름>', 'owner');
+   values (gen_random_uuid()::text, 'org_demo', '<2번에서 만든 이메일>', '<이름>', 'owner');
    ```
+   기존 시드 행(`owner@example.com` / `org_demo`)을 그대로 쓰려면 2번에서 그 이메일로 만들면 된다.
 4. custom access token hook 은 **설치하지 않아도 된다**(위 참고).
+
+⚠️ 1번만 하고 `DATABASE_URL` 을 안 넣으면 데모 데이터가, `DATABASE_URL` 만 넣고 1번을 안 하면 로그인 화면이 나온다. **둘 다 필요하다.**
 
 ### 1. 최소권한 역할 생성
 
