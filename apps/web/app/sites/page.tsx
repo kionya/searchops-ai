@@ -57,7 +57,7 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
         </div>
 
         <div className="searchops-sites-command-grid">
-          <SiteRegistrationPanel feedback={registry.feedback} />
+          <SiteRegistrationPanel feedback={registry.feedback} readOnly={registry.mode === "database"} />
           <SiteRegistrySummary registry={registry} />
         </div>
 
@@ -108,9 +108,12 @@ function RegistryModePill({ registry }: { readonly registry: SiteRegistryData })
 }
 
 function SiteRegistrationPanel({
-  feedback
+  feedback,
+  readOnly = false
 }: {
   readonly feedback: SiteRegistrationFeedback | null;
+  // 직접 DB 모드는 읽기 전용 역할을 쓴다. 폼을 그대로 두면 "등록 성공" 뒤에 404 가 난다.
+  readonly readOnly?: boolean;
 }) {
   return (
     <section aria-labelledby="site-registration-heading" className="searchops-panel" id="site-registration">
@@ -120,6 +123,15 @@ function SiteRegistrationPanel({
           사이트 등록
         </h3>
       </div>
+
+      {readOnly ? (
+        <div className="searchops-registration-feedback warning" role="status">
+          <span>
+            이 화면은 DB 를 직접 읽는 읽기 전용 모드입니다. 사이트 등록에는 쓰기 권한이 필요해
+            SearchOps API 배포 전까지는 저장되지 않습니다.
+          </span>
+        </div>
+      ) : null}
 
       {feedback ? (
         <div className={`searchops-registration-feedback ${feedback.tone}`} role="status">

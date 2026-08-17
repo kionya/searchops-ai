@@ -197,12 +197,25 @@ export async function findUserMembershipByEmail(
   if (normalized.length === 0) {
     return null;
   }
-  // 두 건까지만 읽으면 "여러 건인가"를 판정하는 데 충분하다.
-  const matches = await prisma.user.findMany({
-    select: { id: true, organizationId: true, role: true },
+
+  // ⚠️ Prisma 의 `mode: "insensitive"` 는 Postgres 에서 ILIKE 로 컴파일되고 값이 그대로
+  // 바인딩된다. 즉 입력의 `%` 와 `_` 가 와일드카드로 동작한다. `_` 는 이메일에 쓸 수 있는
+  // 문자라 어떤 주소 검증기도 막지 못하고, 한 행만 맞히는 좁은 패턴이면 "1건이 아니면
+  // 거부" 가드도 통과한다 — 그대로 남의 조직 소속과 role 을 얻는다.
+  //
+  // 두 겹으로 막는다:
+  //   1. 패턴 문자를 이스케이프해 ILIKE 를 리터럴 비교로 만든다.
+  //   2. 그래도 돌아온 행의 email 을 다시 정확히 대조한다. 1번이 Prisma/드라이버 버전에
+  //      따라 달라져도 여기서 걸린다.
+  const escaped = normalized.replace(/[\\%_]/g, (character) => `\\${character}`);
+  const candidates = await prisma.user.findMany({
+    select: { email: true, id: true, organizationId: true, role: true },
     take: 2,
-    where: { email: { equals: normalized, mode: "insensitive" } }
+    where: { email: { equals: escaped, mode: "insensitive" } }
   });
+
+  const target = normalized.toLowerCase();
+  const matches = candidates.filter((candidate) => candidate.email.toLowerCase() === target);
   const [only] = matches;
   if (matches.length !== 1 || only === undefined) {
     return null;

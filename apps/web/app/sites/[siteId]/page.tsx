@@ -9,7 +9,7 @@ import {
 } from "../../../src/dashboard-shell";
 import {
   calculateSiteOverviewKpis,
-  createSiteOverviewInput,
+  loadSiteOverview,
   summarizeSiteOverview,
   type SiteOverviewKpis
 } from "../../../src/site-overview-kpis";
@@ -17,10 +17,7 @@ import {
   getInitialCrawlFeedback,
   type SiteRegistrationSearchParams
 } from "../../../src/site-registry";
-import {
-  createSiteWorkOrders,
-  summarizeWorkOrders
-} from "../../../src/work-order-board";
+import { summarizeWorkOrders } from "../../../src/work-order-board";
 
 interface SiteOverviewPageProps {
   readonly params: Promise<{
@@ -33,11 +30,11 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
   const { siteId } = await params;
   const initialCrawlFeedback = getInitialCrawlFeedback(await searchParams);
   const site = await loadDashboardSite(siteId);
-  const overviewInput = createSiteOverviewInput(site);
-  const workOrders = createSiteWorkOrders(site);
+  const overview = await loadSiteOverview(site);
+  const overviewInput = overview.input;
   const kpis = calculateSiteOverviewKpis(overviewInput);
   const summary = summarizeSiteOverview(overviewInput);
-  const workOrderSummary = summarizeWorkOrders(workOrders);
+  const workOrderSummary = summarizeWorkOrders(overviewInput.workOrders);
 
   return (
     <section aria-labelledby="site-overview-heading">
@@ -46,6 +43,22 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
         eyebrow="개요"
         title="사이트 상태 요약"
       />
+      {/* 헤더에는 진짜 도메인이 뜨므로 KPI 출처를 반드시 밝힌다. */}
+      <p
+        style={{
+          background: overview.source === "database" ? "#ecfdf5" : "#eef2ff",
+          borderRadius: 999,
+          color: overview.source === "database" ? "#047857" : "#3730a3",
+          display: "inline-flex",
+          fontSize: 12,
+          fontWeight: 700,
+          marginBottom: 14,
+          padding: "7px 9px"
+        }}
+      >
+        {overview.source === "database" ? "실데이터 (DB 직접)" : "데모 데이터"}
+        {overview.source === "database" ? " · GEO 지표는 수집 전이라 0입니다" : ""}
+      </p>
       {initialCrawlFeedback ? (
         <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
           <span>{initialCrawlFeedback.message}</span>

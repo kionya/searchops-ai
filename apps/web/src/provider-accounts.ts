@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import {
   AuthRoleSchema,
   CreateConnectorSyncRunRequestSchema,
@@ -138,7 +140,11 @@ export function resolveVerifiedProviderUser(
   };
 }
 
-export async function getCurrentProviderUser(): Promise<ProviderUserContext> {
+/**
+ * 요청 단위로 메모이즈한다. 한 페이지 렌더에서 레이아웃·페이지·로더가 각각 부르는데,
+ * 매번 Supabase 토큰 검증과 소속 조회를 반복할 이유가 없다.
+ */
+export const getCurrentProviderUser = cache(async (): Promise<ProviderUserContext> => {
   const supabase = await getSupabaseServerClient();
   if (supabase === null) {
     throw new ProviderAccountClientError("authentication_required");
@@ -161,32 +167,42 @@ export async function getCurrentProviderUser(): Promise<ProviderUserContext> {
       claims,
       sessionUserId: sessionResult.data.session.user.id,
     },
-    await lookupMembershipFromDatabase(claims),
+    await lookupMembershipFromDatabase(supabase, claims),
   );
-}
+});
 
 /**
  * 커스텀 클레임이 없고 직접 DB 모드일 때만 소속을 조회한다.
  *
- * 조회 키는 반드시 **검증된 클레임의 이메일**이어야 한다. user_metadata 처럼 사용자가
- * 고칠 수 있는 값을 쓰면 아무 조직이나 주장할 수 있다.
+ * ⚠️ 조회 키는 **Supabase 가 서버에서 검증해 돌려준 사용자 레코드의 이메일**이고,
+ * 그 이메일이 **확인된(email_confirmed_at) 주소**일 때만 쓴다. 이 경로가 조직을 정하는
+ * 유일한 근거이므로, 확인 안 된 주소를 받아주면 남의 주소로 가입해 그 조직을 통째로
+ * 가져갈 수 있다(프로젝트에서 self-signup 이 열려 있고 확인이 꺼져 있으면 즉시 성립).
+ *
+ * 세션 쿠키의 email 이나 user_metadata 를 쓰지 않는 이유도 같다 — 확인 여부를 담지
+ * 않거나 사용자가 고칠 수 있다. getUser() 는 Supabase 에 토큰을 재검증시킨다.
  */
 async function lookupMembershipFromDatabase(
+  supabase: NonNullable<Awaited<ReturnType<typeof getSupabaseServerClient>>>,
   claims: Record<string, unknown>,
 ): Promise<ProviderUserMembership | null> {
   if (typeof claims.organization_id === "string" && claims.organization_id.trim().length > 0) {
     return null;
   }
-  // 직접 DB 모드의 스위치는 site-database.ts 한 곳에만 둔다. 여기서 환경변수를 다시
+  // 직접 DB 모드의 스위치는 web-database-url.ts 한 곳에만 둔다. 여기서 환경변수를 다시
   // 읽으면 두 곳이 어긋나 로그인만 되고 데이터는 안 나오는 상태가 생긴다.
   const datasourceUrl = getWebDatabaseUrl();
   if (datasourceUrl === null) {
     return null;
   }
-  const email = typeof claims.email === "string" ? claims.email.trim() : "";
-  if (email.length === 0) {
+
+  const userResult = await supabase.auth.getUser();
+  const authUser = userResult.error === null ? userResult.data.user : null;
+  const email = authUser?.email?.trim() ?? "";
+  if (authUser === null || email.length === 0 || !authUser.email_confirmed_at) {
     return null;
   }
+
   try {
     const db = await import("@searchops/db");
     membershipPrisma ??= db.createSearchOpsPrismaClient({ datasourceUrl });

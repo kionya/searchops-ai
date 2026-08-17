@@ -165,10 +165,22 @@ export async function loadSiteRegistry(searchParams?: SiteRegistrationSearchPara
   const { getOrganizationSites } = await import("./site-database");
   const ownedSites = await getOrganizationSites();
   if (ownedSites !== null) {
+    // 등록 미리보기를 합치지 않는다. 직접 DB 모드는 읽기 전용이라 등록이 실제로
+    // 저장되지 않는데, 미리보기를 실목록에 끼워 넣으면 성공 메시지 직후 그 항목을
+    // 열었을 때 404 가 난다(레이아웃이 DB 에서 못 찾아 notFound 를 낸다).
     return {
-      feedback,
+      feedback:
+        feedback ??
+        (searchParams?.siteCreate === undefined
+          ? null
+          : {
+              href: "/sites",
+              message:
+                "사이트 등록은 쓰기 권한이 필요해 이 모드에서는 저장되지 않습니다. 목록은 실제 DB 내용입니다.",
+              tone: "warning"
+            }),
       mode: "database",
-      sites: mergeSitesWithCreatedPreview(ownedSites, searchParams)
+      sites: ownedSites
     };
   }
 

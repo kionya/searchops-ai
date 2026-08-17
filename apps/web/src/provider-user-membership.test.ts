@@ -69,6 +69,13 @@ describe("resolveVerifiedProviderUser + DB 소속", () => {
     ).toThrow(ProviderAccountClientError);
   });
 
+  it("DB 소속의 role 만 있고 조직이 비면 거부한다", () => {
+    // membership 이 부분적으로만 채워진 경우에도 열리면 안 된다.
+    expect(() =>
+      resolveVerifiedProviderUser({ ...base, claims: validClaims }, { organizationId: "  ", role: "owner" }),
+    ).toThrow(ProviderAccountClientError);
+  });
+
   it("DB 역할이 허용 값이 아니면 거부한다", () => {
     expect(() =>
       resolveVerifiedProviderUser(

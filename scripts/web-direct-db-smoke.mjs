@@ -240,6 +240,34 @@ try {
     "같은 이메일이 두 조직에 있으면 fail-closed",
     (await findUserMembershipByEmail(prisma, "owner@a.example.com")) === null,
   );
+
+  // ⚠️ 와일드카드 주입. Prisma 의 mode:"insensitive" 는 ILIKE 로 컴파일되고 값이 그대로
+  // 바인딩되므로 % 와 _ 가 패턴 문자로 동작한다. 한 행만 맞히는 좁은 패턴이면
+  // "1건이 아니면 거부" 가드도 통과해 남의 조직 소속을 얻는다.
+  // _ 는 이메일에 쓸 수 있는 문자라 어떤 주소 검증기도 막지 못한다.
+  await prisma.user.create({
+    data: { email: "victim@corp.example.com", id: "user_victim", name: "V", organizationId: "org_b", role: "owner" }
+  });
+  check(
+    "와일드카드 % 로 남의 조직을 얻지 못한다",
+    (await findUserMembershipByEmail(prisma, "%@corp.example.com")) === null,
+    await findUserMembershipByEmail(prisma, "%@corp.example.com"),
+  );
+  check(
+    "와일드카드 _ 로 남의 조직을 얻지 못한다",
+    (await findUserMembershipByEmail(prisma, "______@corp.example.com")) === null,
+    await findUserMembershipByEmail(prisma, "______@corp.example.com"),
+  );
+  // 비악의적 변종: _ 가 든 정상 주소가 다른 조직의 유사 주소로 잘못 매칭되면 안 된다.
+  check(
+    "밑줄이 든 정상 주소가 남의 행으로 새지 않는다",
+    (await findUserMembershipByEmail(prisma, "v_ctim@corp.example.com")) === null,
+    await findUserMembershipByEmail(prisma, "v_ctim@corp.example.com"),
+  );
+  check(
+    "정확히 일치하는 주소는 여전히 찾는다",
+    (await findUserMembershipByEmail(prisma, "victim@corp.example.com"))?.organizationId === "org_b",
+  );
   // 아래 최소권한 역할 검사에서 쓸, 조직이 하나뿐인 사용자.
   await prisma.user.create({
     data: { email: "solo@a.example.com", id: "user_solo", name: "Solo", organizationId: "org_a", role: "owner" }

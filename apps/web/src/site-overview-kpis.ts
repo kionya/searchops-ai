@@ -94,6 +94,39 @@ export function createSiteOverviewInput(site: Site): SiteOverviewInput {
   return scopeDemoFixtureToSite(demoSiteOverviewInput, site);
 }
 
+/**
+ * 개요 화면의 데이터. 직접 DB 모드면 실데이터, 아니면 데모 픽스처.
+ *
+ * 이 화면은 사이트를 클릭하면 처음 나오는 곳이다. 헤더에는 진짜 도메인이 뜨는데 KPI 만
+ * 픽스처면 그게 실적으로 읽힌다 — 배너도 안 뜨는 경로라 더 위험하다.
+ *
+ * GEO 지표는 스냅샷에 없다(그 데이터를 만드는 실행 주체가 아직 없다). 지어내지 않고
+ * 0 으로 둔다 — 0% 로 표시되는 편이 픽스처 수치보다 정직하다.
+ */
+export async function loadSiteOverview(
+  site: Site,
+): Promise<{ readonly input: SiteOverviewInput; readonly source: "database" | "fixture" }> {
+  const { getSiteSnapshot } = await import("./site-database");
+  const snapshot = await getSiteSnapshot(site.id);
+  if (snapshot === null) {
+    return { input: createSiteOverviewInput(site), source: "fixture" };
+  }
+
+  const { createIssueListRowsFromApi, createUrlInventoryRowsFromApi } = await import(
+    "./site-detail-views"
+  );
+  return {
+    input: {
+      crawlRuns: snapshot.crawlRuns,
+      geo: { aiAnswersChecked: 0, aiCitations: 0, aiMentions: 0, coveredNonBrandQueries: 0, nonBrandQueries: 0 },
+      issues: createIssueListRowsFromApi(snapshot.seoIssues),
+      urls: createUrlInventoryRowsFromApi(snapshot.urlRecords, snapshot.seoIssues),
+      workOrders: snapshot.workOrders
+    },
+    source: "database"
+  };
+}
+
 export function calculateSiteOverviewKpis(input: SiteOverviewInput): SiteOverviewKpis {
   return {
     crawlSuccessRate: formatRatio(

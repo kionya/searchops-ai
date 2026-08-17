@@ -560,7 +560,7 @@ function createCrawlRunRowsFromApi(
   });
 }
 
-function createUrlInventoryRowsFromApi(
+export function createUrlInventoryRowsFromApi(
   urls: readonly UrlRecord[],
   issues: readonly SeoIssue[],
 ): UrlInventoryRow[] {
@@ -580,7 +580,7 @@ function createUrlInventoryRowsFromApi(
   });
 }
 
-function createIssueListRowsFromApi(issues: readonly SeoIssue[]): IssueListRow[] {
+export function createIssueListRowsFromApi(issues: readonly SeoIssue[]): IssueListRow[] {
   return issues.map((issue) => ({
     ...issue,
     category: getIssueCategory(issue.ruleId),
@@ -590,12 +590,12 @@ function createIssueListRowsFromApi(issues: readonly SeoIssue[]): IssueListRow[]
   }));
 }
 
-function getIssueUrl(issue: SeoIssue) {
+export function getIssueUrl(issue: SeoIssue) {
   const url = issue.evidence?.url;
   return typeof url === "string" ? url : "unknown";
 }
 
-function getIssuePriority(severity: string): WorkOrderPriority {
+export function getIssuePriority(severity: string): WorkOrderPriority {
   if (severity === "critical") {
     return "p0";
   }
