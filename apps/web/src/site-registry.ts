@@ -169,16 +169,7 @@ export async function loadSiteRegistry(searchParams?: SiteRegistrationSearchPara
     // 저장되지 않는데, 미리보기를 실목록에 끼워 넣으면 성공 메시지 직후 그 항목을
     // 열었을 때 404 가 난다(레이아웃이 DB 에서 못 찾아 notFound 를 낸다).
     return {
-      feedback:
-        feedback ??
-        (searchParams?.siteCreate === undefined
-          ? null
-          : {
-              href: "/sites",
-              message:
-                "사이트 등록은 쓰기 권한이 필요해 이 모드에서는 저장되지 않습니다. 목록은 실제 DB 내용입니다.",
-              tone: "warning"
-            }),
+      feedback,
       mode: "database",
       sites: ownedSites
     };
@@ -227,8 +218,16 @@ export async function createSiteInRegistry(formData: FormData): Promise<{
 }> {
   const registrationRequest = createSiteRegistrationRequestFromForm(formData);
   const draft = createSiteRegistrationDraft(registrationRequest.site);
-  const apiBaseUrl = getApiBaseUrl();
 
+  // 직접 DB 모드는 읽기 전용 역할을 쓴다. 여기서 API 를 시도하면, SEARCHOPS_API_BASE_URL 이
+  // 죽은 주소로 남아 있을 때(Railway 폐지 후 실제로 그랬다) 사용자에게 원시 404 가 튄다.
+  // 쓸 수 없다는 사실을 조용히 실패로 감추지 말고 그대로 알린다.
+  const { isDirectDatabaseMode } = await import("./web-database-url");
+  if (isDirectDatabaseMode()) {
+    return { mode: "database", redirectPath: null, site: draft };
+  }
+
+  const apiBaseUrl = getApiBaseUrl();
   if (!apiBaseUrl) {
     return { mode: "fixture", redirectPath: null, site: draft };
   }
@@ -326,6 +325,18 @@ function getSiteRegistrationFeedback(searchParams?: SiteRegistrationSearchParams
       href: `/sites/${id}`,
       message: "사이트가 로컬 fixture preview로 추가됐습니다.",
       tone: "info"
+    };
+  }
+
+  // 직접 DB 모드는 읽기 전용 역할이라 등록이 저장되지 않는다. 실패가 아니라 "이 모드에서
+  // 안 되는 일" 이므로 무엇을 해야 하는지까지 알려준다.
+  if (status === "database") {
+    return {
+      href: "/sites",
+      message:
+        "사이트 등록은 쓰기 권한이 필요해 이 모드(DB 직접 읽기)에서는 저장되지 않았습니다. " +
+        "SearchOps API 를 배포하거나, Supabase SQL Editor 에서 Site 행을 직접 추가하세요.",
+      tone: "warning"
     };
   }
 

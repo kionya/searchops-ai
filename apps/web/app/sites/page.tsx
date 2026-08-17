@@ -128,7 +128,8 @@ function SiteRegistrationPanel({
         <div className="searchops-registration-feedback warning" role="status">
           <span>
             이 화면은 DB 를 직접 읽는 읽기 전용 모드입니다. 사이트 등록에는 쓰기 권한이 필요해
-            SearchOps API 배포 전까지는 저장되지 않습니다.
+            저장되지 않습니다 — SearchOps API 를 배포하거나 Supabase SQL Editor 에서 Site 행을
+            직접 추가하세요.
           </span>
         </div>
       ) : null}
@@ -195,8 +196,9 @@ function SiteRegistrationPanel({
           <ConnectorField label="Bing" value="bing" />
           <ConnectorField label="CMS" value="cms" />
         </div>
-        <button className="searchops-button" type="submit">
-          사이트 추가
+        {/* 읽기 전용 모드에서 눌러봐야 저장되지 않는다. 눌리게 두면 실패만 겪는다. */}
+        <button className="searchops-button" disabled={readOnly} type="submit">
+          {readOnly ? "사이트 추가 (이 모드에서는 불가)" : "사이트 추가"}
         </button>
       </form>
     </section>
