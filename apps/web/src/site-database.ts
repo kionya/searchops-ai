@@ -128,6 +128,9 @@ function describeConnectionString(value: string | null): Record<string, unknown>
   } catch (error) {
     shape.parses = false;
     shape.parseError = error instanceof Error ? error.message.slice(0, 80) : "unknown";
+    // 파싱이 실패했을 때만, 글자를 전부 x 로 덮은 뼈대를 보여준다. 구두점과 길이만
+    // 남으므로 호스트가 빠졌는지 포트가 이상한지 바로 보인다. 값은 복원할 수 없다.
+    shape.skeleton = value.replace(/[^:/@?&=.\-_]/g, "x");
   }
   return shape;
 }
