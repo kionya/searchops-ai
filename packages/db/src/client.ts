@@ -22,13 +22,18 @@ export function createSearchOpsPrismaClient(
 }
 
 /**
- * 네이티브 쿼리 엔진 대신 pg 드라이버 어댑터로 붙는 클라이언트.
+ * 접속을 pg 드라이버로 하는 클라이언트. 서버리스(Vercel)의 웹이 쓴다.
  *
- * 왜 필요한가: 기본 클라이언트는 `libquery_engine-*.node` 바이너리를 런타임에 찾는다.
- * 서버리스 번들러(Next/Vercel)가 그 파일을 함수에 안 넣어주면 첫 쿼리에서
- * PrismaClientInitializationError 로 죽는데, 그걸 파일 트레이싱으로 해결하려다
- * 여러 번 실패했다(엔진이 어느 경로에도 안 들어갔다). 어댑터를 쓰면 **바이너리가
- * 아예 필요 없어서** 그 실패 모드가 통째로 사라진다.
+ * ⚠️ **엔진 바이너리는 여전히 필요하다.** 한때 "어댑터를 쓰면 libquery_engine 이
+ * 아예 필요 없다" 고 적어뒀는데 틀렸다. 드라이버 어댑터는 Rust 쿼리 엔진의 **접속
+ * 계층만** JS 드라이버로 바꾼다 — 쿼리 컴파일은 그대로 엔진이 한다(engineType 을
+ * "client" 로 바꾸는 queryCompiler 를 켜야 엔진이 없어진다). 그래서
+ * `next.config.mjs` 의 트레이싱 설정과 `scripts/copy-prisma-engine.mjs` 는
+ * 어댑터를 쓰든 말든 지워선 안 된다. 지우면 첫 쿼리에서
+ * PrismaClientInitializationError 로 죽는다.
+ *
+ * 그럼 어댑터를 왜 쓰나: 풀러 뒤에서 커넥션 수명을 pg 쪽 설정으로 다룰 수 있고,
+ * 엔진의 자체 커넥션 풀을 우회한다. 서버리스에서 커넥션이 폭발하는 것을 줄인다.
  *
  * 상시 프로세스(워커·배치)는 기본 클라이언트를 그대로 쓴다 — 거기선 문제가 없다.
  */

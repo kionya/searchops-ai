@@ -22,23 +22,35 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(webRoot, "../../packages/db/src/generated/prisma");
 const target = join(webRoot, ".prisma/client");
 
-let entries;
-try {
-  entries = await readdir(source);
-} catch {
-  // 아직 generate 전이면 조용히 넘어간다. 엔진이 없으면 런타임 진단
-  // (/api/deployment 의 database.reason)이 engine_missing 으로 알려준다.
-  console.log(`[copy-prisma-engine] generated client 없음, 건너뜀: ${source}`);
-  process.exit(0);
-}
+// ⚠️ 여기서 조용히 넘어가면 안 된다. 예전에는 엔진이 없을 때 exit 0 이었고, 그 결과
+// 엔진 없는 람다가 초록불로 배포돼 로그인한 사용자만 500 을 봤다. 실제 원인은
+// turbo 캐시였다 — `src/generated/prisma` 가 gitignore 대상인데 build outputs 에
+// 없어서, packages/db 가 캐시 히트하면 dist 만 복원되고 엔진은 사라졌다.
+// outputs 에 넣어 고쳤지만(turbo.json), 같은 부류의 사고가 다시 조용히 나가지
+// 않도록 여기서 빌드를 세운다. 배포 후 런타임에 아는 것보다 빌드에서 죽는 게 낫다.
+const fail = (message) => {
+  console.error(`[copy-prisma-engine] ${message}`);
+  console.error("  해결: corepack pnpm --filter @searchops/db build");
+  process.exit(1);
+};
 
 // schema.prisma 도 함께 둔다 — Prisma 가 엔진 옆에서 찾는 경우가 있다.
-const wanted = entries.filter(
-  (entry) => entry.startsWith("libquery_engine-") || entry === "schema.prisma",
-);
-if (wanted.length === 0) {
-  console.log("[copy-prisma-engine] 복사할 엔진이 없다");
-  process.exit(0);
+async function readEngines() {
+  const entries = await readdir(source).catch(() => null);
+  if (entries === null) {
+    return null;
+  }
+  const wanted = entries.filter(
+    (entry) => entry.startsWith("libquery_engine-") || entry === "schema.prisma",
+  );
+  // 빌드 머신(macOS/debian)과 람다 런타임(rhel)의 타깃이 달라서, native 만 있으면
+  // 로컬에선 멀쩡하고 배포에서만 죽는다. schema.prisma 의 binaryTargets 가 정본이다.
+  return wanted.some((entry) => entry.includes("rhel-openssl-3.0.x")) ? wanted : null;
+}
+
+const wanted = await readEngines();
+if (wanted === null) {
+  fail(`rhel-openssl-3.0.x 쿼리 엔진이 없다: ${source}`);
 }
 
 await mkdir(target, { recursive: true });

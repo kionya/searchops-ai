@@ -7,6 +7,7 @@
                                               ],
                                 "outputs":  [
                                                 "dist/**",
+                                                "src/generated/prisma/**",
                                                 ".next/**",
                                                 "!.next/cache/**"
                                             ]

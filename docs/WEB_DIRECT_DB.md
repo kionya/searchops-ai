@@ -238,4 +238,8 @@ pnpm smoke:web-db
 
 ## Vercel 번들링 주의
 
+⚠️ **pg 드라이버 어댑터를 쓴다고 엔진 바이너리가 필요 없어지지 않는다.** 어댑터는 Rust 쿼리 엔진의 **접속 계층만** JS 드라이버로 바꾼다 — 쿼리 컴파일은 그대로 엔진이 한다. 한때 반대로 적어뒀고, 그 믿음으로 트레이싱 설정을 지웠다면 배포가 통째로 죽었을 것이다.
+
+⚠️ **`packages/db/src/generated/prisma` 는 gitignore 대상이라 turbo `outputs` 에 반드시 들어 있어야 한다.** 빠지면 `packages/db` 빌드가 캐시 히트할 때 `dist/**` 만 복원되고 엔진이 사라지는데, 소스가 안 바뀐 커밋에서만 그렇게 되므로 **간헐적으로만** 재현된다(실제로 겪었다: web 만 캐시 미스인 커밋에서 터졌다). `apps/web/scripts/copy-prisma-engine.mjs` 가 엔진이 없으면 빌드를 세우므로, 같은 사고가 다시 조용히 배포되지는 않는다.
+
 `next.config.mjs` 의 `serverExternalPackages` 와 `outputFileTracingIncludes` 를 지워선 안 된다. 둘 다 없으면 nft 트레이스가 `packages/db/dist/index.js` 에서 멈춰 **Prisma 쿼리 엔진 바이너리가 람다에 안 들어간다**. 그러면 `SEARCHOPS_WEB_DATABASE_URL` 을 켜는 순간 첫 쿼리에서 `PrismaClientInitializationError` 가 나고 사이트 라우트가 전부 500 이 된다. `externalPackages` 만으로는 부족했다 — 실제 빌드 산출물의 `.nft.json` 을 열어 `generated/prisma` 항목과 `*.node` 가 들어 있는지 확인하는 것이 유일하게 믿을 만한 검사다.

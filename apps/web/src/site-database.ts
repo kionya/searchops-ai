@@ -36,10 +36,11 @@ let cachedPrisma: unknown = null;
 async function getDb() {
   const db = await import("@searchops/db");
   const datasourceUrl = getWebDatabaseUrl();
-  // ⚠️ 반드시 pg 드라이버 어댑터를 쓴다. 기본 클라이언트는 libquery_engine-*.node
-  // 바이너리를 런타임에 찾는데, Vercel 람다에는 그 파일이 들어가지 않았다
-  // (outputFileTracingIncludes 를 여러 경로로 시도했지만 함수 안에 아무것도 안 들어갔다).
-  // 어댑터는 바이너리가 아예 필요 없어서 그 실패 모드가 통째로 사라진다.
+  // pg 드라이버 어댑터로 붙는다 — 엔진의 자체 커넥션 풀을 우회해 서버리스에서
+  // 커넥션이 폭발하는 것을 줄인다.
+  // ⚠️ 어댑터를 쓴다고 엔진 바이너리가 필요 없어지는 게 **아니다**(한때 그렇게
+  // 적어뒀는데 틀렸다). next.config.mjs 의 트레이싱과 scripts/copy-prisma-engine.mjs
+  // 는 그대로 필요하다. 자세한 이유는 packages/db/src/client.ts 주석.
   cachedPrisma ??= await db.createSearchOpsPrismaClientWithPgAdapter(datasourceUrl ?? "");
   return { db, prisma: cachedPrisma as Parameters<typeof db.loadSiteDashboardSnapshot>[0] };
 }
