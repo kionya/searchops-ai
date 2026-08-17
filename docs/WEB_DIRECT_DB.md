@@ -122,8 +122,22 @@ curl -s https://<도메인>/api/deployment
 ```
 
 ```json
-{ "commit": "9ebbaff...", "config": { "apiBaseUrl": false, "directDatabase": true, "supabaseAuth": true } }
+{
+  "commit": "9ebbaff...",
+  "database": { "reachable": true },
+  "config": { "apiBaseUrl": false, "directDatabase": true, "supabaseAuth": true }
+}
 ```
+
+`database` 는 접속만 확인한다(`select 1`). 데이터도 호스트명도 사용자명도 내지 않고, 실패 사유만 분류해 낸다:
+
+| reason | 뜻 | 처방 |
+|---|---|---|
+| `not_configured` | `SEARCHOPS_WEB_DATABASE_URL` 없음 | 변수 추가 후 재배포 |
+| `auth_failed` | 사용자·비밀번호·CONNECT 권한 문제 | 역할 비밀번호와 URL 대조 |
+| `unreachable` | 호스트·포트에 못 닿음 | 포트 6543(풀러) 확인 |
+| `permission_denied` | 접속은 되는데 GRANT 누락 | `web-readonly-role.sql` 재실행 |
+| `engine_missing` | 람다에 Prisma 엔진 없음 | `next.config.mjs` 트레이싱 설정 확인 |
 
 - `directDatabase: false` → `SEARCHOPS_WEB_DATABASE_URL` 이 안 먹었다(변수명 오타 또는 재배포 전). 화면은 데모 데이터가 뜬다.
 - `supabaseAuth: false` → 로그인 화면이 "사용할 수 없습니다" 로 뜬다.

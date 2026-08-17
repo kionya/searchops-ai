@@ -42,6 +42,58 @@ async function getDb() {
   return { db, prisma: cachedPrisma as Parameters<typeof db.loadSiteDashboardSnapshot>[0] };
 }
 
+export type DatabaseProbeResult =
+  | { readonly reachable: true }
+  | { readonly reachable: false; readonly reason: DatabaseProbeFailure };
+
+// 원문 오류를 그대로 내보내지 않는다 — 호스트명과 사용자명이 들어 있다.
+export type DatabaseProbeFailure =
+  | "not_configured"
+  | "auth_failed"
+  | "unreachable"
+  | "permission_denied"
+  | "engine_missing"
+  | "unknown";
+
+/**
+ * 접속만 확인한다. 데이터는 읽지 않는다.
+ *
+ * 대시보드가 전부 로그인 뒤에 있어서, DB URL 이 틀렸는지 권한이 없는지 엔진이 없는지를
+ * 밖에서 구분할 방법이 없었다. 이 함수는 그 구분만 해준다.
+ */
+export async function probeDatabase(): Promise<DatabaseProbeResult> {
+  if (!isDirectDatabaseMode()) {
+    return { reachable: false, reason: "not_configured" };
+  }
+  try {
+    const { prisma } = await getDb();
+    await prisma.$queryRaw`select 1`;
+    return { reachable: true };
+  } catch (error) {
+    return { reachable: false, reason: classifyDatabaseFailure(error) };
+  }
+}
+
+function classifyDatabaseFailure(error: unknown): DatabaseProbeFailure {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  if (/query engine|libquery_engine|PrismaClientInitializationError.*platform/i.test(text)) {
+    return "engine_missing";
+  }
+  // 테이블 단위 거부가 먼저다 — 접속은 됐는데 GRANT 가 빠진 경우라 처방이 다르다.
+  if (/permission denied for/i.test(text)) {
+    return "permission_denied";
+  }
+  // P1000 = 비밀번호 불일치, P1010 = "User was denied access on the database".
+  // 운영자 관점에서는 둘 다 "자격증명이 틀렸다" 로 수렴한다(사용자·비밀번호·CONNECT 권한).
+  if (/authentication failed|denied access|P1000|P1010/i.test(text)) {
+    return "auth_failed";
+  }
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|reach database server|P1001|P1002/i.test(text)) {
+    return "unreachable";
+  }
+  return "unknown";
+}
+
 /**
  * 검증된 사용자의 조직으로만 스코프해 사이트 스냅샷을 읽는다. 직접 DB 모드가 아니거나
  * 미인증이면 null.

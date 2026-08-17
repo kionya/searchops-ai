@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "../../../src/api-base-url";
+import { probeDatabase } from "../../../src/site-database";
 import { isDirectDatabaseMode } from "../../../src/web-database-url";
 
 // 배포된 빌드가 무엇이고 어떤 모드로 도는지 확인하는 엔드포인트.
@@ -11,8 +12,10 @@ import { isDirectDatabaseMode } from "../../../src/web-database-url";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET() {
   return Response.json({
+    // 접속만 확인한다(select 1). 데이터도, 호스트명도, 사용자명도 내지 않는다.
+    database: await probeDatabase(),
     // Vercel 이 빌드 시점에 주입한다. 로컬/다른 호스팅에서는 null.
     commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     config: {
