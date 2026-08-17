@@ -50,6 +50,7 @@ export type DatabaseProbeResult =
       // 엔진/모듈 문제일 때만 채운다. 이 두 경우의 메시지에는 접속 문자열이나
       // 사용자명이 들어가지 않고 탐색 경로만 들어간다 — 그게 진단에 필요한 전부다.
       readonly detail?: string;
+      readonly lambda?: Record<string, string[] | string>;
     };
 
 // 원문 오류를 그대로 내보내지 않는다 — 호스트명과 사용자명이 들어 있다.
@@ -81,8 +82,41 @@ export async function probeDatabase(): Promise<DatabaseProbeResult> {
       return { reachable: false, reason };
     }
     const text = error instanceof Error ? error.message : String(error);
-    return { detail: text.replace(/\s+/g, " ").slice(0, 700), reachable: false, reason };
+    return {
+      detail: text.replace(/\s+/g, " ").slice(0, 2000),
+      lambda: await inspectEngineLocations(),
+      reachable: false,
+      reason
+    };
   }
+}
+
+/**
+ * 람다에 엔진 파일이 실제로 있는지 본다. 경로 추측을 네 번 반복하는 것보다 한 번 읽는 게 빠르다.
+ * 파일 경로는 비밀이 아니고, 여기서 내용은 읽지 않는다.
+ */
+async function inspectEngineLocations(): Promise<Record<string, string[] | string>> {
+  const { readdir } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const cwd = process.cwd();
+  const candidates = [
+    "packages/db/src/generated/prisma",
+    "packages/db/dist/generated/prisma",
+    "node_modules/@searchops/db/src/generated/prisma",
+    "node_modules/@searchops/db/dist/generated/prisma",
+    ".next/server/chunks",
+    "."
+  ];
+  const result: Record<string, string[] | string> = { cwd };
+  for (const candidate of candidates) {
+    try {
+      const entries = await readdir(path.join(cwd, candidate));
+      result[candidate] = entries.filter((entry) => entry.endsWith(".node") || !entry.includes("."));
+    } catch (error) {
+      result[candidate] = error instanceof Error ? error.message.slice(0, 60) : "unreadable";
+    }
+  }
+  return result;
 }
 
 function classifyDatabaseFailure(error: unknown): DatabaseProbeFailure {
