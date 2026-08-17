@@ -29,9 +29,38 @@ GitHub Actions (배치) ← 암호화 키 여기(Secret). 크롤 + 커넥터 동
 |---|---|---|
 | 1 | 컨테이너 호스트 1개 | API 를 상시 띄운다. `apps/api/Dockerfile` 로 어디든 올라간다 |
 | 2 | Redis 1개 | `REDIS_URL` 은 **필수**다. 큐와 OAuth state 저장에 쓴다 |
-| 3 | Google Cloud OAuth 클라이언트 | GSC/GA4 계정 연결용 |
+| 3 | Google Cloud OAuth 클라이언트 | GSC/GA4 계정 연결용. **API 도메인이 정해진 뒤에** 만든다(0절) |
 
 ⚠️ **검증필요**: 호스트별 무료 한도와 요금은 자주 바뀐다. Render·Fly·Koyeb·Railway 중 고르되 현재 가격을 직접 확인하라. Redis 는 Upstash 무료 티어가 이 규모에 충분하다(워커 폴링 튜닝 env 가 이미 준비돼 있다 — `SEARCHOPS_WORKER_DRAIN_DELAY_MS`).
+
+## 0. `<API도메인>` 은 어디서 오나
+
+**아직 없다. 배포하면 호스트가 발급한다.** 이 문서의 `<API도메인>` 은 전부 그 값을 가리킨다.
+
+| 호스트 | 자동 발급 주소 |
+|---|---|
+| Render | `https://<서비스명>.onrender.com` |
+| Fly.io | `https://<앱명>.fly.dev` |
+| Koyeb | `https://<앱명>-<org>.koyeb.app` |
+| Railway | `https://<서비스명>-production.up.railway.app` |
+
+**권장: 본인 서브도메인 `api.totopapa.com` 을 붙여라.** OAuth 리디렉트 URI 가 이 주소에 묶이는데, 호스트가 준 주소를 그대로 쓰면 나중에 호스트를 옮길 때 Google Console 설정을 다시 만져야 한다. 서브도메인이면 CNAME 만 바꾸면 된다.
+
+웹(`searchops.totopapa.com`)을 붙였던 방식과 같다 — Cloudflare 에 CNAME `api` → 호스트가 준 주소, **DNS only(회색 구름)**. 프록시(주황 구름)를 켜면 호스트의 인증서 발급이 막히는 경우가 있다.
+
+⚠️ `searchops-api-production.up.railway.app` 은 **죽은 주소**다. `progress.md` 의 옛 기록에 남아 있을 뿐이니 재사용하지 마라.
+
+### 순서 (도메인이 없으면 3절을 못 한다)
+
+```
+1) 1·2절로 배포한다 — 이때 OAuth env 는 비워둔다
+2) 호스트가 준 주소를 확인한다 (원하면 여기서 서브도메인 CNAME)
+3) 그 주소로 3절의 Google OAuth 클라이언트를 만든다
+4) OAuth env 를 API 에 추가하고 재배포한다
+5) 4절: Vercel 에 SEARCHOPS_API_BASE_URL
+```
+
+1단계에서 OAuth env 가 없어도 API 는 정상 기동한다(전부 optional 이다). 커넥터 화면만 `oauth=not_configured` 로 뜨고, 4단계를 마치면 열린다.
 
 ## 1. 이미지 빌드
 
@@ -86,6 +115,8 @@ SEARCHOPS_RATE_LIMIT_ENABLED (기본: production 이면 켜짐)
 전체 목록은 `packages/types/src/index.ts` 의 `SearchOpsEnvSchema` 가 정본이다.
 
 ## 3. Google OAuth 클라이언트
+
+**API 도메인이 정해진 뒤에 한다**(0절 순서 참고). 도메인이 없으면 리디렉트 URI 를 쓸 수 없다.
 
 Google Cloud Console → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션):
 
