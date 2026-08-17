@@ -2,6 +2,7 @@ name: batch-crawl
 
 # 상시 워커 대신 크롤을 주기적으로 한 번씩 돌린다. 배포 플랫폼 없이 GitHub Actions 무료 러너만 쓴다.
 # 크롤 → SeoIssue/WorkOrder 생성 → richdoc(리쥬엘) Supabase 적재까지 한 프로세스에서 끝난다.
+# 크롤 대상은 DB에 등록된 모든 Site 다. SEARCHOPS_RICHDOC_SITE_IDS 는 적재 대상만 정한다.
 # Redis 를 쓰지 않는다(apps/worker/src/batch-crawl.ts 주석 참고).
 #
 # 필요한 secret:

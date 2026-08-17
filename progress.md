@@ -48,7 +48,8 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 - 리쥬엘 Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
 - GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, gangnam.rejuel.com).
 - Actions 스케줄 실행 성공. 2026-08-17 03:11 KST 배치 기준 SearchOps DB는 크롤런 5 / 이슈 30 / 지시서 28이며, 배치가 초록이므로 콘솔 적재 실패는 0건이다.
-- 사이트 추가 시 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id만 더하면 크롤·적재 대상이 함께 늘어난다.
+- 사이트 추가는 웹의 등록 폼으로 한다 — 배치가 DB의 모든 `Site`를 크롤하므로 시크릿을 손댈 필요가 없다.
+  리쥬엘 콘솔로 **적재**까지 하려면 그때만 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id를 더한다.
 
 ### 머지 전 리뷰에서 고친 것
 
@@ -119,14 +120,33 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 **자격증명 경계.** 원래 규칙("Vercel 에 DB 두지 않는다")에서 DB 만 명시적으로 예외 처리했다. 취지(폭발 반경 억제)는 이렇게 지킨다:
 
 1. **encryption key 는 여전히 Vercel 에 없다** — 크라운 주얼은 그대로다. 그래서 커넥터/Integrations 는 이 경로로 못 살리고, 살리지도 않았다.
-2. **전용 역할이 읽기 전용이고 대시보드 6개 테이블에만 붙는다**(`scripts/sql/web-readonly-role.sql`). 코드가 아니라 `GRANT` 로 막으므로 코드 버그가 나도 권한은 안 남는다.
+2. **전용 역할이 대시보드 6개 테이블 읽기와 쓰기 두 건에만 붙는다**(`scripts/sql/web-role.sql`). 코드가 아니라 `GRANT` 로 막으므로 코드 버그가 나도 권한은 안 남는다. 코드에 새 쓰기를 추가해도 `GRANT` 가 없으면 그냥 거부된다.
 3. 새 테이블에 권한이 자동으로 새지 않는다(`alter default privileges ... revoke all`).
 
-⚠️ 남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터**를 읽을 수 있다(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 더 줄이려면 RLS + 사용자 JWT 방식인데, Prisma 관리 25개 테이블에 RLS 를 얹는 별도 작업이다. 테넌트가 늘면 재검토 대상이다.
+⚠️ 남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터**를 읽고, 아무 조직에나 사이트를 추가하고, 아무 지시서의 상태나 바꿀 수 있다(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 지우거나 내용을 위조할 수는 없고 credential 은 여전히 못 읽는다. 더 줄이려면 RLS + 사용자 JWT 방식인데, Prisma 관리 25개 테이블에 RLS 를 얹는 별도 작업이다. 테넌트가 늘면 재검토 대상이다.
 
-**검증** (`pnpm smoke:web-db`, CI 포함): 임시 Postgres 에 실제 마이그레이션을 적용하고 두 조직을 심어 16가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** credential 테이블과 쓰기가 실제로 거부되는지까지. 뮤테이션 테스트로 조직 가드를 빼면 정확히 그 검사가 실패하는 것도 확인했다.
+**검증** (`pnpm smoke:web-db`, CI 포함): 임시 Postgres 에 실제 마이그레이션을 적용하고 두 조직을 심어 39가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** 권한 경계를 양방향으로 본다: 막혀야 할 것(credential 테이블·삭제·`WorkOrder` 의 다른 컬럼)이 막히는지와, 허용된 둘이 실제로 되는지 둘 다. "막힌다" 만 보면 권한을 너무 좁혀 기능이 죽은 것을 못 잡는다. 뮤테이션 테스트로 조직 가드를 빼면 정확히 그 검사가 실패하는 것도 확인했다.
 
-여전히 API 가 필요한 것: **쓰기 전부**(사이트 등록·지시서 상태 변경·재검수 큐잉 — 읽기 전용 역할이라 막힌다)와 **커넥터/Integrations**(credential 복호화 필요). GEO·컴플라이언스·콘텐츠는 API 문제가 아니라 데이터를 만드는 실행 주체가 없어서다.
+#### 쓰기까지 API 없이 (2026-08-17)
+
+읽기를 끝낸 뒤 남은 것은 쓰기였다. 결론은 같다 — **API 없이 된다.** 다만 전부는 아니고, 큐가 필요 없는 두 가지가 된다.
+
+| 기능 | 상태 | 방법 |
+|---|---|---|
+| 사이트 등록 | ✅ | `Site` INSERT. 폼이 아니라 세션의 `organizationId` 로 저장 |
+| 지시서 상태 이동 | ✅ | `WorkOrder` 의 `status`·`updatedAt` 컬럼만 UPDATE |
+| 재검수·리치리절트·커넥터 동기화 | ❌ | 큐와 워커가 있어야 한다. 권한 문제가 아니다 |
+
+- **등록은 `upsert` 가 아니라 `INSERT ... ON CONFLICT DO NOTHING`.** 폼 두 번 제출이나 다른 담당자의 선등록이 실패로 보이지 않으면서 기존 이름·업종을 덮어쓰지 않는다. 덤으로 `Site` 에 `UPDATE` 권한이 아예 필요 없어져 등록된 사이트의 도메인·소속 조직을 바꿔치기할 수 없다.
+- **`Site.id` 는 DB 가 만든다.** fixture 경로처럼 도메인에서 id 를 만들어 저장하면(`site_<domain>`) 서로 다른 조직이 같은 도메인을 등록할 때 기본키가 충돌한다 — 도메인은 조직별로만 unique 하다.
+- **상태 이동은 `update` 가 아니라 `updateMany`.** `update` 는 unique where 만 받아 `organizationId` 를 조건에 못 넣고, 결국 "읽어서 확인하고 나서 쓴다" 가 된다 — 잊을 수 있는 코드다. `updateMany` 는 조직 조건이 `UPDATE` 문 안에 있어 잊을 수가 없다.
+- **보드의 죽은 "재검수" 버튼을 상태 select 로 바꿨다.** 그 버튼은 `type="button"` 에 핸들러가 없어 눌러도 아무 일이 없었다. 재검수는 큐가 없어 못 하지만 상태 이동은 되므로, 되는 것을 놓았다.
+
+**배치의 크롤 대상도 같이 고쳤다.** `SEARCHOPS_RICHDOC_SITE_IDS`(= richdoc 미러링 대상)를 크롤 대상으로도 겸해 쓰고 있어서, 웹에서 사이트를 등록해도 시크릿을 손으로 고치기 전까지 **영원히 크롤되지 않았다.** 이제 배치는 DB 의 모든 `Site` 를 크롤하고, 그 시크릿은 적재 대상만 정한다(브리지가 push 전에 거른다). 등록 → 다음 배치 → 데이터가 자동으로 이어진다.
+
+⚠️ 역할명이 `searchops_web_readonly` → `searchops_web` 으로 바뀌었다. 읽기 전용이 아니게 됐는데 이름이 그대로면 나중에 그 이름을 믿는 사람이 생긴다. 예전 역할은 스크립트가 건드리지 않으므로 전환 중 운영이 끊기지 않는다 — Vercel 환경변수의 사용자명을 바꾸고 `/api/deployment` 확인 후 `drop role` 한다.
+
+여전히 API 가 필요한 것: **큐가 필요한 쓰기**(재검수·리치리절트 검증)와 **커넥터/Integrations**(credential 복호화 필요 — encryption key 를 Vercel 에 두지 않기로 했으므로 의도적으로 못 한다). GEO·컴플라이언스·콘텐츠는 API 문제가 아니라 데이터를 만드는 실행 주체가 없어서다.
 
 #### 파고 보니 API 는 네 번째 차단 요인이었다
 

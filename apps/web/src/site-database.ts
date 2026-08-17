@@ -1,7 +1,7 @@
 import { cache } from "react";
 
 import type { SiteDashboardSnapshot } from "@searchops/db";
-import type { Site } from "@searchops/types";
+import type { Site, WorkOrderStatus } from "@searchops/types";
 
 import { getCurrentProviderUser } from "./provider-accounts";
 import { getWebDatabaseUrl, isDirectDatabaseMode } from "./web-database-url";
@@ -195,3 +195,59 @@ export const getOrganizationSites = cache(async (): Promise<readonly Site[] | nu
   const { db, prisma } = await getDb();
   return db.listOrganizationSites(prisma, organizationId);
 });
+
+// ── 쓰기 ────────────────────────────────────────────────────────────────────
+//
+// 쓰기는 cache() 로 감싸지 않는다. react cache 는 같은 요청 안의 중복 호출을 합치는데,
+// 폼을 두 번 제출한 것을 한 번으로 만들어 버리면 두 번째가 성공한 것처럼 보인다.
+//
+// 여기서 허용하는 쓰기는 두 가지뿐이고, DB 역할도 딱 그만큼만 GRANT 받았다
+// (scripts/sql/web-role.sql). 코드에 새 쓰기를 추가해도 GRANT 가 없으면 그냥 거부된다 —
+// 그게 의도한 순서다. 권한을 먼저 넓히지 않으면 실수로 넓어질 수 없다.
+
+/**
+ * 로그인한 사용자의 조직으로 사이트를 등록한다. 직접 DB 모드가 아니거나 미인증이면 null.
+ *
+ * organizationId 는 폼이 아니라 검증된 세션에서만 온다. 폼에서 받으면 남의 조직에
+ * 사이트를 만들어 넣을 수 있다.
+ */
+export async function createOrganizationSite(input: {
+  readonly country: string;
+  readonly domain: string;
+  readonly industry?: string | null | undefined;
+  readonly language: string;
+  readonly name?: string | null | undefined;
+}): Promise<Site | null> {
+  if (!isDirectDatabaseMode()) {
+    return null;
+  }
+  let organizationId: string;
+  try {
+    organizationId = (await getCurrentProviderUser()).organizationId;
+  } catch {
+    return null;
+  }
+  const { db, prisma } = await getDb();
+  return db.registerOrganizationSite(prisma, { ...input, organizationId });
+}
+
+/**
+ * 작업 지시서 상태를 바꾼다. 남의 조직 것이거나 없는 id 면 false(조직 대조는
+ * UPDATE 문 안에서 일어난다). 직접 DB 모드가 아니거나 미인증이어도 false.
+ */
+export async function setWorkOrderStatus(
+  workOrderId: string,
+  status: WorkOrderStatus,
+): Promise<boolean> {
+  if (!isDirectDatabaseMode()) {
+    return false;
+  }
+  let organizationId: string;
+  try {
+    organizationId = (await getCurrentProviderUser()).organizationId;
+  } catch {
+    return false;
+  }
+  const { db, prisma } = await getDb();
+  return db.updateOrganizationWorkOrderStatus(prisma, { organizationId, status, workOrderId });
+}

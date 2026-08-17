@@ -37,16 +37,24 @@ async function main(): Promise<void> {
 
   const prisma = createSearchOpsPrismaClient();
   try {
+    // 등록된 사이트를 전부 크롤한다. 예전에는 SEARCHOPS_RICHDOC_SITE_IDS 에 있는 것만
+    // 크롤했는데, 그 목록은 "richdoc 에 미러링할 사이트" 라는 다른 뜻이다. 두 의미를 겹쳐
+    // 쓰는 바람에 웹에서 새 사이트를 등록해도 영원히 크롤되지 않았다 — 시크릿을 손으로
+    // 고치기 전까지는. 적재 대상 제한은 브리지가 알아서 한다(packages/db 의 richdoc.ts 가
+    // siteIds 에 없는 사이트는 push 하지 않는다).
+    //
+    // ponytail: 사이트 수만큼 순차로 돈다. 워크플로 타임아웃이 30분이라 사이트가 10개를
+    // 넘어가면 잘릴 수 있다. 그때는 사이트를 나눠 도는 matrix 로 쪼개라.
     const sites = await prisma.site.findMany({
       orderBy: { domain: "asc" },
-      select: { domain: true, id: true },
-      where: { id: { in: [...contract.siteIds] } }
+      select: { domain: true, id: true }
     });
 
+    // 계약에 적힌 id 가 DB 에 없으면 오타이거나 지워진 사이트다. 매일 조용히 누락되면
+    // 아무도 모르므로 여기서 실패로 만든다.
     const missing = contract.siteIds.filter((id) => !sites.some((site) => site.id === id));
     let failures = 0;
     if (missing.length > 0) {
-      // 오타나 삭제된 사이트가 매일 조용히 누락되면 아무도 모른다.
       failures += missing.length;
       console.error(`[batch-crawl] DB에 없는 Site.id: ${missing.join(", ")}`);
     }

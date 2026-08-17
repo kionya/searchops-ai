@@ -31,6 +31,27 @@ API 가 웹에 더해주던 것은 **데이터 접근 하나뿐이었다.**
 
 `react` 의 `cache()` 로 요청 단위 메모이즈하므로, 레이아웃과 페이지가 같은 사이트를 각각 읽어도 쿼리는 한 번만 나간다.
 
+### 쓰기 두 건
+
+읽기와 같은 원칙이다 — 조직은 세션에서만 오고, 대조는 한 곳에서만 한다.
+
+```
+서버 액션
+  └ createOrganizationSite()           apps/web/src/site-database.ts
+      └ getCurrentProviderUser()       organizationId 는 폼이 아니라 여기서만 온다
+      └ registerOrganizationSite()     INSERT ... ON CONFLICT DO NOTHING
+  └ setWorkOrderStatus()
+      └ updateOrganizationWorkOrderStatus()
+            └ UPDATE ... WHERE id = $1 AND "organizationId" = $2   ← 조건이 문장 안에 있다
+```
+
+- **사이트 등록**은 `upsert` 가 아니라 `INSERT ... ON CONFLICT DO NOTHING` 이다. 같은 도메인을 두 번 등록해도 실패하지 않고 기존 행이 그대로 돌아오며(폼 두 번 제출·다른 담당자 선등록), 이름·업종을 덮어쓰지 않는다. 덤으로 `Site` 에 `UPDATE` 권한이 아예 필요 없어진다.
+- **`Site.id` 는 DB 가 만든다.** 웹의 fixture 경로는 도메인에서 id 를 만들지만(`site_<domain>`) 그걸 저장하면 서로 다른 조직이 같은 도메인을 등록할 때 기본키가 충돌한다 — 도메인은 조직별로만 unique 하다.
+- **지시서 상태 이동은 `update` 가 아니라 `updateMany` 다.** `update` 는 unique where 만 받아서 `organizationId` 를 조건에 넣을 수 없고, 결국 "먼저 읽어 조직을 확인하고 나서 쓴다" 가 된다 — 검사를 잊을 수 있는 코드다. `updateMany` 는 조직 조건이 `UPDATE` 문 자체에 들어가 잊을 수가 없다. 남의 것이면 0행이 바뀌고 `false` 가 돌아온다.
+- 상태 문자열은 `WorkOrderStatusSchema` 로 파싱한 뒤에만 저장한다. DB 의 `status` 는 그냥 `text` 라 오타가 들어가면 보드의 어느 칼럼에도 안 잡히고 조용히 사라진다.
+
+⚠️ **이 모드에서 안 되는 쓰기:** 재검수·리치리절트 검증·커넥터 동기화는 큐와 워커가 있어야 한다. 등록한 사이트의 크롤 데이터는 배치(GitHub Actions, 매일 03:00 KST)가 채운다 — 배치는 DB 에 등록된 모든 `Site` 를 크롤하므로 시크릿을 손댈 필요가 없다.
+
 ## 데이터 출처 3단계
 
 | 조건 | 모드 | 화면 표시 |
@@ -79,22 +100,40 @@ Supabase JWT 검증 (서명·sub 일치·role=authenticated)   ← 인증. 그�
 
 ### 1. 최소권한 역할 생성
 
-`scripts/sql/web-readonly-role.sql` 을 실행한다. **비밀번호는 파일에 없다** — 실행 시점에 준다:
+`scripts/sql/web-role.sql` 을 실행한다. **비밀번호는 파일에 없다** — 실행 시점에 준다:
 
 ```bash
-psql "<postgres 접속문자열>" -v web_password=직접지은비밀번호 -f scripts/sql/web-readonly-role.sql
+psql "<postgres 접속문자열>" -v web_password=직접지은비밀번호 -f scripts/sql/web-role.sql
 ```
 
 ⚠️ 파일에 기본 비밀번호를 두지 않는 이유: 이 레포는 공개다. 예전에는 `CHANGE_ME` 가 적혀 있었고, 재실행 시 비밀번호를 건너뛰는 버그까지 겹쳐 운영 역할이 실제로 그 값으로 남아 **읽기 노출**됐다. 지금은 변수를 안 주면 실행이 중단된다.
 
-Supabase SQL Editor 처럼 psql 변수를 못 쓰는 곳에서는 `alter role searchops_web_readonly password '...'` 를 직접 실행하면 된다. 이때 에디터가 **역할 임시 전환(impersonation)** 상태면 `permission denied to alter role` 이 난다 — 쿼리 앞에 `reset role;` 을 붙여라.
+Supabase SQL Editor 처럼 psql 변수를 못 쓰는 곳에서는 `alter role searchops_web password '...'` 를 직접 실행하면 된다. 이때 에디터가 **역할 임시 전환(impersonation)** 상태면 `permission denied to alter role` 이 난다 — 쿼리 앞에 `reset role;` 을 붙여라.
 
-이 역할은 대시보드 6개 테이블 `SELECT` 와 `User` 의 4개 컬럼(`id`·`organizationId`·`email`·`role`, 로그인 소속 확인용)만 갖는다. `ProviderAccount`, `ConnectorOAuthCredential` 같은 credential 테이블과 모든 쓰기는 권한 자체가 없다.
+이 역할이 갖는 권한은 정확히 이만큼이다:
+
+| | 대상 |
+|---|---|
+| `SELECT` | 대시보드 6개 테이블 + `User` 의 4개 컬럼(`id`·`organizationId`·`email`·`role`, 로그인 소속 확인용) |
+| `INSERT` | `Site` — 사이트 등록 |
+| `UPDATE` | `WorkOrder` 의 `status`·`updatedAt` 두 컬럼 — 지시서 상태 이동 |
+| 없음 | `DELETE` 전부, 그 밖의 모든 쓰기, credential 테이블(`ProviderAccount`, `ConnectorOAuthCredential`, `SiteConnector` ...) 접근 |
+
+`Site` 에 `UPDATE` 가 없으므로 이미 등록된 사이트의 도메인이나 소속 조직을 바꿔치기할 수 없다. `WorkOrder` 는 컬럼 단위라 제목·근거·수용기준을 조용히 고쳐 쓸 수 없다. 이 경계는 `pnpm smoke:web-db` 가 진짜 Postgres 에서 양방향으로 확인한다 — 막혀야 할 것이 막히는지와, 허용된 둘이 실제로 되는지 둘 다.
+
+#### 예전 역할에서 넘어오기
+
+`searchops_web_readonly` 를 쓰고 있었다면 이 스크립트는 그 역할을 **건드리지 않는다**(전환 중 운영이 끊기지 않게). 순서는:
+
+1. 위 스크립트로 `searchops_web` 을 만든다.
+2. Vercel 의 `SEARCHOPS_WEB_DATABASE_URL` 사용자명을 `searchops_web_readonly.<ref>` → `searchops_web.<ref>` 로 바꾸고 재배포한다.
+3. `/api/deployment` 가 `"reachable": true` 인지 확인한다.
+4. 확인된 뒤에 `drop role searchops_web_readonly;` — 남겨두면 아무도 안 쓰는데 살아 있는 자격증명이 된다.
 
 ### 2. Vercel 환경변수
 
 ```
-SEARCHOPS_WEB_DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@<host>:6543/postgres?pgbouncer=true
+SEARCHOPS_WEB_DATABASE_URL = postgresql://searchops_web:<비밀번호>@<host>:6543/postgres?pgbouncer=true
 ```
 
 ⚠️ **왜 `DATABASE_URL` 이 아닌가.** 그 이름은 마이그레이션·워커·호스팅 플랫폼 통합이 저마다 쓴다. 그걸 스위치로 삼으면 누가 주입한 **전권 연결 문자열**을 모르는 새 집어 쓰게 되고, 최소권한 역할을 쓰겠다는 설계가 조용히 무력화된다. 실제로 이 프로젝트의 Vercel 에는 이미 `DATABASE_URL` 이 있었다. 직접 DB 모드는 위 전용 변수를 명시적으로 넣었을 때만 켜지며, 기존 `DATABASE_URL` 은 **건드릴 필요가 없다.**
@@ -116,10 +155,10 @@ SEARCHOPS_WEB_DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@
 규칙의 취지(프론트 침해 시 폭발 반경 억제)는 다음으로 지킨다:
 
 1. **encryption key 는 여전히 Vercel 에 없다.** 크라운 주얼은 그대로 보호된다.
-2. **역할이 읽기 전용이고 대시보드 테이블(+`User` 4개 컬럼)에만 붙는다.** 코드가 아니라 `GRANT` 로 막으므로 코드에 버그가 나도 권한은 남지 않는다.
+2. **역할이 대시보드 테이블(+`User` 4개 컬럼) 읽기와 쓰기 두 건에만 붙는다.** 코드가 아니라 `GRANT` 로 막으므로 코드에 버그가 나도 권한은 남지 않는다. 코드에 새 쓰기를 추가해도 `GRANT` 가 없으면 그냥 거부된다 — 권한을 먼저 넓히지 않으면 실수로 넓어질 수 없다.
 3. **새 테이블에 권한이 자동으로 새지 않는다** — `alter default privileges ... revoke all`.
 
-남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터를 읽을 수 있다**(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 이걸 더 줄이려면 테이블마다 RLS 정책을 걸고 사용자 JWT 로 붙는 방식으로 가야 하는데, Prisma 관리 스키마 25개 테이블에 RLS 를 얹는 별도 작업이다. 현재 테넌트가 사실상 하나라 그 비용을 지금 낼 이유가 없다고 판단했다 — 테넌트가 늘면 재검토 대상이다.
+남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터를 읽고, 아무 조직에나 사이트를 추가하고, 아무 지시서의 상태나 바꿀 수 있다**(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 다만 지우거나 내용을 위조할 수는 없고, credential 은 여전히 못 읽는다. 이걸 더 줄이려면 테이블마다 RLS 정책을 걸고 사용자 JWT 로 붙는 방식으로 가야 하는데, Prisma 관리 스키마 25개 테이블에 RLS 를 얹는 별도 작업이다. 현재 테넌트가 사실상 하나라 그 비용을 지금 낼 이유가 없다고 판단했다 — 테넌트가 늘면 재검토 대상이다.
 
 ## 배포 확인
 
@@ -144,7 +183,7 @@ curl -s https://<도메인>/api/deployment
 | `not_configured` | `SEARCHOPS_WEB_DATABASE_URL` 없음 | 변수 추가 후 재배포 |
 | `auth_failed` | 사용자·비밀번호·CONNECT 권한 문제 | 역할 비밀번호와 URL 대조 |
 | `unreachable` | 호스트·포트에 못 닿음 | 포트 6543(풀러) 확인 |
-| `permission_denied` | 접속은 되는데 GRANT 누락 | `web-readonly-role.sql` 재실행 |
+| `permission_denied` | 접속은 되는데 GRANT 누락 | `web-role.sql` 재실행 |
 | `engine_missing` | 람다에 Prisma 엔진 없음 | `next.config.mjs` 트레이싱 설정 확인 |
 
 - `directDatabase: false` → `SEARCHOPS_WEB_DATABASE_URL` 이 안 먹었다(변수명 오타 또는 재배포 전). 화면은 데모 데이터가 뜬다.
@@ -160,14 +199,14 @@ curl -s https://<도메인>/api/deployment
 pnpm smoke:web-db
 ```
 
-임시 Postgres 에 실제 마이그레이션을 적용하고, 두 조직을 심고, 26가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** credential 테이블과 쓰기가 실제로 거부되는지까지. CI(`credential-smoke` 잡)에서도 돈다.
+임시 Postgres 에 실제 마이그레이션을 적용하고, 두 조직을 심고, 39가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** 권한 경계를 양방향으로 본다: credential 테이블·삭제·`WorkOrder` 의 다른 컬럼이 거부되는지와, 허용된 두 쓰기가 실제로 되는지 둘 다. CI(`credential-smoke` 잡)에서도 돈다.
 
 ## 아직 API 가 필요한 것
 
-읽기 대시보드는 전부 API 없이 돈다. 다음은 남아 있다:
+읽기 대시보드와 쓰기 두 건(사이트 등록·지시서 상태 이동)은 API 없이 돈다. 다음은 남아 있다:
 
 - **커넥터 / Integrations** — credential 복호화가 필요하고, 그 키는 Vercel 에 두지 않는다. 설계상 API/워커 몫이다.
-- **쓰기 전부** — 사이트 등록, 지시서 상태 변경, 재검수 큐잉. 읽기 전용 역할이라 막힌다. 사이트 등록 폼은 이 모드에서 "저장되지 않는다"고 명시하고, 등록 미리보기를 실목록에 끼워 넣지 않는다(끼워 넣으면 성공 메시지 직후 404 가 난다).
+- **큐가 필요한 쓰기** — 재검수, 리치리절트 검증, 커넥터 동기화. 권한 문제가 아니라 큐와 워커가 없어서다. 등록한 사이트의 크롤 데이터는 배치(매일 03:00 KST)가 채운다.
 - **GEO / 컴플라이언스 / 콘텐츠 브리프** — 이건 API 문제가 아니라 **데이터를 만드는 실행 주체가 없어서**다(배치는 크롤만 한다). 개요 화면의 GEO KPI 는 지어내지 않고 0 으로 표시한다. 만들어지기 시작하면 같은 스냅샷에 얹으면 된다.
 
 ## Vercel 번들링 주의

@@ -10,7 +10,6 @@ import {
 } from "../../../../src/dashboard-shell";
 import { formatOwnerLabel } from "../../../../src/korean-labels";
 import {
-  canRecheckWorkOrder,
   formatDate,
   formatPriority,
   groupWorkOrdersByStatus,
@@ -18,6 +17,7 @@ import {
   summarizeWorkOrders,
   workOrderColumns
 } from "../../../../src/work-order-board";
+import { updateWorkOrderStatusAction } from "./actions";
 
 const mutedText: CSSProperties = {
   color: "#64748b",
@@ -69,10 +69,12 @@ interface WorkOrdersPageProps {
   readonly params: Promise<{
     readonly siteId: string;
   }>;
+  readonly searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
+export default async function WorkOrdersPage({ params, searchParams }: WorkOrdersPageProps) {
   const { siteId } = await params;
+  const statusChange = readStatusChange(await searchParams);
   const site = await loadDashboardSite(siteId);
   const board = await loadSiteWorkOrderBoard(site);
   const workOrders = board.workOrders;
@@ -97,6 +99,24 @@ export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
       >
         {board.source === "database" ? "실데이터 (DB 직접)" : "데모 데이터"}
       </p>
+      {statusChange === null ? null : (
+        <p
+          role="status"
+          style={{
+            background: statusChange === "updated" ? "#ecfdf5" : "#fef2f2",
+            border: `1px solid ${statusChange === "updated" ? "#a7f3d0" : "#fecaca"}`,
+            borderRadius: 8,
+            color: statusChange === "updated" ? "#047857" : "#b91c1c",
+            fontSize: 14,
+            margin: "0 0 14px",
+            padding: "10px 12px"
+          }}
+        >
+          {statusChange === "updated"
+            ? "지시서 상태를 변경했습니다."
+            : "지시서 상태를 변경하지 못했습니다. 데모 데이터이거나 권한이 없습니다."}
+        </p>
+      )}
       <section
         aria-label="작업 지시서 지표"
         style={metricGridStyle}
@@ -155,7 +175,12 @@ export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
               </div>
               <div style={{ display: "grid", gap: 10 }}>
                 {groupedWorkOrders[column.status].map((workOrder) => (
-                  <WorkOrderCard key={workOrder.id} workOrder={workOrder} />
+                  <WorkOrderCard
+                    canEdit={board.source === "database"}
+                    key={workOrder.id}
+                    siteId={siteId}
+                    workOrder={workOrder}
+                  />
                 ))}
               </div>
             </section>
@@ -228,6 +253,14 @@ export default async function WorkOrdersPage({ params }: WorkOrdersPageProps) {
   );
 }
 
+function readStatusChange(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+): "failed" | "updated" | null {
+  const raw = searchParams?.["workOrder"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === "updated" || value === "failed" ? value : null;
+}
+
 const tableCellStyle: CSSProperties = {
   borderBottom: "1px solid #eef2f7",
   color: "#172033",
@@ -236,7 +269,15 @@ const tableCellStyle: CSSProperties = {
   verticalAlign: "top"
 };
 
-function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
+function WorkOrderCard({
+  canEdit,
+  siteId,
+  workOrder
+}: {
+  readonly canEdit: boolean;
+  readonly siteId: string;
+  readonly workOrder: WorkOrder;
+}) {
   return (
     <article style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
       <div style={{ alignItems: "center", display: "flex", gap: 8, marginBottom: 10 }}>
@@ -268,29 +309,70 @@ function WorkOrderCard({ workOrder }: { readonly workOrder: WorkOrder }) {
           </dd>
         </div>
       </dl>
-      <button
-        aria-label={`${workOrder.title} 재검수`}
-        disabled={!canRecheckWorkOrder(workOrder)}
-        style={{
-          background: canRecheckWorkOrder(workOrder) ? "#2563eb" : "#e2e8f0",
-          border: 0,
-          borderRadius: 6,
-          color: canRecheckWorkOrder(workOrder) ? "#ffffff" : "#64748b",
-          cursor: canRecheckWorkOrder(workOrder) ? "pointer" : "not-allowed",
-          fontSize: 13,
-          fontWeight: 700,
-          marginTop: 12,
-          minHeight: 34,
-          padding: "8px 10px",
-          width: "100%"
-        }}
-        type="button"
+      {/* 여기 오래 아무것도 안 하는 "재검수" 버튼이 있었다. 재검수는 큐와 워커가 있어야
+          하는데 둘 다 없다. 대신 실제로 할 수 있는 일(상태 이동)을 놓는다 — 눌리는데
+          아무 일도 안 일어나는 버튼보다 낫다. */}
+      <form
+        action={updateWorkOrderStatusAction.bind(null, siteId, workOrder.id)}
+        style={{ display: "flex", gap: 6, marginTop: 12 }}
       >
-        {workOrder.status === "done" ? "해결됨" : "재검수"}
-      </button>
+        <label style={{ flex: 1 }}>
+          <span style={visuallyHidden}>{workOrder.title} 상태</span>
+          <select
+            defaultValue={workOrder.status}
+            disabled={!canEdit}
+            name="status"
+            style={{
+              background: canEdit ? "#ffffff" : "#f1f5f9",
+              border: "1px solid #cbd5f5",
+              borderRadius: 6,
+              color: "#172033",
+              fontSize: 13,
+              minHeight: 34,
+              padding: "6px 8px",
+              width: "100%"
+            }}
+          >
+            {workOrderColumns.map((column) => (
+              <option key={column.status} value={column.status}>
+                {column.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          aria-label={`${workOrder.title} 상태 변경`}
+          disabled={!canEdit}
+          style={{
+            background: canEdit ? "#2563eb" : "#e2e8f0",
+            border: 0,
+            borderRadius: 6,
+            color: canEdit ? "#ffffff" : "#64748b",
+            cursor: canEdit ? "pointer" : "not-allowed",
+            fontSize: 13,
+            fontWeight: 700,
+            minHeight: 34,
+            padding: "8px 10px"
+          }}
+          type="submit"
+        >
+          변경
+        </button>
+      </form>
     </article>
   );
 }
+
+// 카드마다 select 가 있어서 보이는 라벨을 붙이면 화면이 라벨로 뒤덮인다. 스크린리더에는
+// 남기고 눈에만 안 보이게 한다 — display:none 은 읽어주지도 않으므로 쓰면 안 된다.
+const visuallyHidden: CSSProperties = {
+  clipPath: "inset(50%)",
+  height: 1,
+  overflow: "hidden",
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1
+};
 
 function Badge({
   children,

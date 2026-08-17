@@ -85,8 +85,11 @@ Render 무료에 워커 없음, Oracle A1 용량 경합) 상시 워커를 포기
 - **Redis를 쓰지 않는다.** 큐를 우회해 `processAndPersistCrawlJob`을 직접 호출한다.
   그래서 `./runtime.js`(bullmq를 끌어온다)와 `parseSearchOpsEnv`(`REDIS_URL`을 필수로 요구한다)를
   배치 경로에서 임포트하면 안 된다.
-- 크롤 대상은 `SEARCHOPS_RICHDOC_SITE_IDS`를 그대로 쓴다. 적재 대상과 크롤 대상을 한 값으로 묶어
-  드리프트를 없앤다 — 목록 밖 사이트는 크롤해도 적재가 조용히 드롭된다.
+- 크롤 대상은 **DB에 등록된 모든 `Site`**다. 웹에서 사이트를 등록하면 다음 실행에서 자동으로
+  크롤된다 — 시크릿을 손대지 않는다.
+- `SEARCHOPS_RICHDOC_SITE_IDS`는 **적재(미러링) 대상만** 정한다. 목록 밖 사이트는 크롤은 되지만
+  리쥬엘 콘솔로는 안 넘어간다(브리지가 push 전에 거른다). 계약에 적힌 id가 DB에 없으면 배치가 실패한다.
+  ⚠️ 예전에는 이 값이 크롤 대상까지 겸해서, 웹에서 등록한 사이트가 영원히 크롤되지 않았다.
 - 필요한 secret: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`,
   `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`, `SEARCHOPS_RICHDOC_SITE_IDS`
 

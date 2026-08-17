@@ -3,8 +3,9 @@
 //
 // 웹의 모든 사이트 화면은 @searchops/db 의 loadSiteDashboardSnapshot 하나로 모인다.
 // 그 함수가 (1) 실데이터를 제대로 돌려주고 (2) 조직 스코프를 절대 벗어나지 않는지,
-// 그리고 (3) Vercel 에 둘 최소권한 역할이 실제로 credential 테이블과 쓰기를 막는지를
-// 진짜 Postgres 위에서 확인한다.
+// 그리고 (3) Vercel 에 둘 최소권한 역할이 credential 테이블과 허용되지 않은 쓰기를 막으면서
+// (4) 허용된 두 쓰기(사이트 등록·지시서 상태 이동)는 실제로 되는지를 진짜 Postgres 위에서
+// 확인한다. "막힌다" 만 보면 권한을 너무 좁혀 기능이 죽은 것을 못 잡는다.
 //
 // 실행: pnpm smoke:web-db   (psql/createdb/dropdb 필요)
 
@@ -14,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dbDist = resolve(here, "../packages/db/dist/index.js");
-const roleSql = resolve(here, "sql/web-readonly-role.sql");
+const roleSql = resolve(here, "sql/web-role.sql");
 
 const keep = process.argv.includes("--keep");
 let failures = 0;
@@ -37,8 +38,8 @@ const pgHost = process.env.PGHOST ?? "localhost";
 const pgPort = process.env.PGPORT ?? 5432;
 const dbUrl = `postgresql://${pgAuth}@${pgHost}:${pgPort}/${dbName}`;
 // 최소권한 역할로 접속할 때 쓸 URL. 비밀번호는 이 실행 안에서만 산다.
-const webRolePassword = "smoke-web-readonly";
-const webRoleUrl = `postgresql://searchops_web_readonly:${webRolePassword}@${pgHost}:${pgPort}/${dbName}`;
+const webRolePassword = "smoke-web-role";
+const webRoleUrl = `postgresql://searchops_web:${webRolePassword}@${pgHost}:${pgPort}/${dbName}`;
 
 const psql = (args) =>
   execFileSync("psql", [dbUrl, "-qXAt", "-v", "ON_ERROR_STOP=1", ...args], { encoding: "utf8" });
@@ -59,7 +60,9 @@ try {
     createSearchOpsPrismaClient,
     findUserMembershipByEmail,
     listOrganizationSites,
-    loadSiteDashboardSnapshot
+    loadSiteDashboardSnapshot,
+    registerOrganizationSite,
+    updateOrganizationWorkOrderStatus
   } = await import(dbDist);
 
   process.env.DATABASE_URL = dbUrl;
@@ -314,11 +317,31 @@ try {
     connectorDenied !== null && /permission denied/i.test(connectorDenied),
     connectorDenied,
   );
-  const writeDenied = deniedBy(`update "Site" set name = 'hacked' where id = 'site_a1'`);
+  // 이 역할은 정확히 두 가지 쓰기만 할 수 있다. 나머지는 전부 막혀 있어야 한다.
+  // 아래 네 개가 그 경계다 — 하나라도 뒤집히면 GRANT 를 잘못 넓힌 것이다.
+  const siteUpdateDenied = deniedBy(`update "Site" set name = 'hacked' where id = 'site_a1'`);
   check(
-    "쓰기는 권한 거부",
-    writeDenied !== null && /permission denied/i.test(writeDenied),
-    writeDenied,
+    "이미 등록된 Site 의 수정은 권한 거부",
+    siteUpdateDenied !== null && /permission denied/i.test(siteUpdateDenied),
+    siteUpdateDenied,
+  );
+  const siteDeleteDenied = deniedBy(`delete from "Site" where id = 'site_a1'`);
+  check(
+    "Site 삭제는 권한 거부",
+    siteDeleteDenied !== null && /permission denied/i.test(siteDeleteDenied),
+    siteDeleteDenied,
+  );
+  const workOrderTitleDenied = deniedBy(`update "WorkOrder" set title = 'hacked'`);
+  check(
+    "WorkOrder 의 status 외 컬럼 수정은 권한 거부",
+    workOrderTitleDenied !== null && /permission denied/i.test(workOrderTitleDenied),
+    workOrderTitleDenied,
+  );
+  const issueWriteDenied = deniedBy(`update "SeoIssue" set status = 'resolved'`);
+  check(
+    "SeoIssue 쓰기는 권한 거부",
+    issueWriteDenied !== null && /permission denied/i.test(issueWriteDenied),
+    issueWriteDenied,
   );
 
   // 그리고 그 역할로 Prisma 를 붙여도 대시보드는 정상 동작해야 한다 — 권한을 조인 하나
@@ -360,9 +383,83 @@ try {
     nameDenied,
   );
 
+  // ---- 4) 허용된 두 쓰기가 그 역할로 실제로 되는가 ----
+  // 위에서 "막힌다"만 확인하면, 권한을 너무 좁혀 기능이 죽은 것을 못 잡는다.
+  // 웹이 실제로 부르는 함수를 웹의 역할로 그대로 돌린다.
+  const registered = await registerOrganizationSite(webPrisma, {
+    country: "KR",
+    domain: "new.example.com",
+    industry: "medical",
+    language: "ko",
+    name: "새 사이트",
+    organizationId: "org_a"
+  }).catch((error) => ({ error: String(error).slice(0, 160) }));
+  check("최소권한 역할로 사이트 등록이 됨", registered?.domain === "new.example.com", registered);
+  check(
+    "등록된 사이트의 조직이 호출자 조직으로 고정됨",
+    registered?.organizationId === "org_a",
+    registered?.organizationId,
+  );
+
+  // 같은 도메인을 다시 등록해도 실패하지 않고 같은 행이 돌아와야 한다(폼 두 번 제출).
+  const registeredAgain = await registerOrganizationSite(webPrisma, {
+    country: "KR",
+    domain: "new.example.com",
+    industry: "other",
+    language: "en",
+    name: "덮어쓰기 시도",
+    organizationId: "org_a"
+  }).catch((error) => ({ error: String(error).slice(0, 160) }));
+  check("같은 도메인 재등록은 기존 행을 그대로 돌려줌", registeredAgain?.id === registered?.id, {
+    again: registeredAgain?.id,
+    first: registered?.id
+  });
+  check(
+    "재등록이 기존 값을 덮어쓰지 않음",
+    registeredAgain?.name === "새 사이트" && registeredAgain?.language === "ko",
+    { language: registeredAgain?.language, name: registeredAgain?.name },
+  );
+
+  const moved = await updateOrganizationWorkOrderStatus(webPrisma, {
+    organizationId: "org_a",
+    status: "done",
+    workOrderId: "wo_a1"
+  }).catch((error) => ({ error: String(error).slice(0, 160) }));
+  check("최소권한 역할로 지시서 상태 변경이 됨", moved === true, moved);
+  check(
+    "변경이 실제로 저장됨",
+    asWebRole(`select status from "WorkOrder" where id = 'wo_a1'`).trim() === "done",
+    asWebRole(`select status from "WorkOrder" where id = 'wo_a1'`).trim(),
+  );
+
+  // 남의 조직 지시서는 id 를 알아도 못 바꾼다. 조직 조건이 UPDATE 문 안에 있어서다.
+  const foreignMove = await updateOrganizationWorkOrderStatus(webPrisma, {
+    organizationId: "org_b",
+    status: "blocked",
+    workOrderId: "wo_a1"
+  }).catch((error) => ({ error: String(error).slice(0, 160) }));
+  check("남의 조직 지시서는 상태가 안 바뀜", foreignMove === false, foreignMove);
+  check(
+    "남의 조직 시도 후에도 값이 그대로",
+    asWebRole(`select status from "WorkOrder" where id = 'wo_a1'`).trim() === "done",
+    asWebRole(`select status from "WorkOrder" where id = 'wo_a1'`).trim(),
+  );
+
+  // 상태 문자열은 열거형 밖으로 나갈 수 없다. DB 의 status 는 그냥 text 라
+  // 오타가 들어가면 보드의 어느 칼럼에도 안 잡히고 조용히 사라진다.
+  const badStatus = await updateOrganizationWorkOrderStatus(webPrisma, {
+    organizationId: "org_a",
+    status: "shipped",
+    workOrderId: "wo_a1"
+  }).then(
+    () => "저장됨",
+    () => "거부됨",
+  );
+  check("허용되지 않은 상태 문자열은 거부", badStatus === "거부됨", badStatus);
+
   console.log(
     failures === 0
-      ? "\n웹 직접 DB 경로 검증 통과 — API 없이 실데이터가 그려지고, 권한은 대시보드 밖으로 나가지 않는다."
+      ? "\n웹 직접 DB 경로 검증 통과 — API 없이 실데이터를 읽고 쓴다. 권한은 허용된 두 쓰기 밖으로 나가지 않는다."
       : `\n실패 ${failures}건`,
   );
 } finally {

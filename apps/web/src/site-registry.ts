@@ -165,9 +165,9 @@ export async function loadSiteRegistry(searchParams?: SiteRegistrationSearchPara
   const { getOrganizationSites } = await import("./site-database");
   const ownedSites = await getOrganizationSites();
   if (ownedSites !== null) {
-    // 등록 미리보기를 합치지 않는다. 직접 DB 모드는 읽기 전용이라 등록이 실제로
-    // 저장되지 않는데, 미리보기를 실목록에 끼워 넣으면 성공 메시지 직후 그 항목을
-    // 열었을 때 404 가 난다(레이아웃이 DB 에서 못 찾아 notFound 를 낸다).
+    // 등록 미리보기를 합치지 않는다. 이 모드는 등록이 실제로 DB 에 저장되므로 방금
+    // 만든 사이트도 아래 조회에 이미 들어 있다. 미리보기를 겹쳐 넣으면 저장이 실패한
+    // 경우에도 목록에 보여서, 열었을 때 404 가 나는 유령 항목이 된다.
     return {
       feedback,
       mode: "database",
@@ -219,12 +219,25 @@ export async function createSiteInRegistry(formData: FormData): Promise<{
   const registrationRequest = createSiteRegistrationRequestFromForm(formData);
   const draft = createSiteRegistrationDraft(registrationRequest.site);
 
-  // 직접 DB 모드는 읽기 전용 역할을 쓴다. 여기서 API 를 시도하면, SEARCHOPS_API_BASE_URL 이
-  // 죽은 주소로 남아 있을 때(Railway 폐지 후 실제로 그랬다) 사용자에게 원시 404 가 튄다.
-  // 쓸 수 없다는 사실을 조용히 실패로 감추지 말고 그대로 알린다.
+  // 직접 DB 모드는 API 를 아예 건드리지 않는다. SEARCHOPS_API_BASE_URL 이 죽은 주소로
+  // 남아 있으면(Railway 폐지 후 실제로 그랬다) 그쪽으로 POST 해서 원시 404 가 튄다.
+  //
+  // 초기 crawl 은 여기서 걸지 않는다 — 큐도 워커도 없다. 대신 배치(GitHub Actions)가
+  // 등록된 사이트를 전부 크롤하므로, 다음 실행에서 데이터가 채워진다.
   const { isDirectDatabaseMode } = await import("./web-database-url");
   if (isDirectDatabaseMode()) {
-    return { mode: "database", redirectPath: null, site: draft };
+    const { createOrganizationSite } = await import("./site-database");
+    const site = await createOrganizationSite({
+      country: draft.country,
+      domain: draft.domain,
+      industry: draft.industry,
+      language: draft.language,
+      name: draft.name
+    });
+    if (site === null) {
+      throw new Error("사이트를 등록할 수 없습니다. 로그인 상태를 확인하세요.");
+    }
+    return { mode: "database", redirectPath: null, site };
   }
 
   const apiBaseUrl = getApiBaseUrl();
@@ -328,15 +341,14 @@ function getSiteRegistrationFeedback(searchParams?: SiteRegistrationSearchParams
     };
   }
 
-  // 직접 DB 모드는 읽기 전용 역할이라 등록이 저장되지 않는다. 실패가 아니라 "이 모드에서
-  // 안 되는 일" 이므로 무엇을 해야 하는지까지 알려준다.
-  if (status === "database") {
+  // 직접 DB 모드에서도 등록은 실제로 저장된다. 다만 크롤은 배치가 돌 때 시작하므로
+  // 지금 열면 비어 있다 — 그걸 미리 말해두지 않으면 등록이 실패한 것처럼 보인다.
+  if (status === "database" && id) {
     return {
-      href: "/sites",
+      href: `/sites/${id}`,
       message:
-        "사이트 등록은 쓰기 권한이 필요해 이 모드(DB 직접 읽기)에서는 저장되지 않았습니다. " +
-        "SearchOps API 를 배포하거나, Supabase SQL Editor 에서 Site 행을 직접 추가하세요.",
-      tone: "warning"
+        "사이트를 DB에 등록했습니다. 크롤 데이터는 다음 배치 실행(매일 03:00 KST) 후에 채워집니다.",
+      tone: "ready"
     };
   }
 

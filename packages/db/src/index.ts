@@ -168,8 +168,12 @@ export {
   findUserMembershipByEmail,
   listOrganizationSites,
   loadSiteDashboardSnapshot,
+  registerOrganizationSite,
+  updateOrganizationWorkOrderStatus,
   type LoadSiteDashboardSnapshotInput,
+  type RegisterOrganizationSiteInput,
   type SiteDashboardSnapshot,
+  type UpdateOrganizationWorkOrderStatusInput,
   type UserMembership
 } from "./site-dashboard.js";
 

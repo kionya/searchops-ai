@@ -5,12 +5,14 @@ import {
   SiteSchema,
   UrlRecordSchema,
   WorkOrderSchema,
+  WorkOrderStatusSchema,
   type CrawlRun,
   type SchemaRecommendationRecord,
   type SeoIssue,
   type Site,
   type UrlRecord,
-  type WorkOrder
+  type WorkOrder,
+  type WorkOrderStatus
 } from "@searchops/types";
 
 import type { SearchOpsPrismaClient } from "./client.js";
@@ -169,6 +171,100 @@ export async function loadSiteDashboardSnapshot(
       }),
     )
   };
+}
+
+export interface RegisterOrganizationSiteInput {
+  readonly country: string;
+  readonly domain: string;
+  readonly industry?: string | null | undefined;
+  readonly language: string;
+  readonly name?: string | null | undefined;
+  // 호출자가 이미 검증한 조직. 이 값이 그대로 저장되므로, 폼에서 오지 않게 해야 한다.
+  readonly organizationId: string;
+}
+
+/**
+ * 사이트를 등록한다. 같은 조직에 같은 도메인이 이미 있으면 **기존 행을 그대로 돌려준다**.
+ *
+ * id 는 넘겨받지 않는다. 웹의 fixture 경로는 도메인에서 id 를 만들지만(`site_<domain>`),
+ * 그걸 실제로 저장하면 서로 다른 조직이 같은 도메인을 등록할 때 기본키가 충돌한다 —
+ * 도메인은 조직별로만 unique 하다. 여기서는 cuid 기본값에 맡기고 저장된 id 를 돌려준다.
+ *
+ * createMany + skipDuplicates 를 쓰는 이유: `INSERT ... ON CONFLICT DO NOTHING` 한 문장이라
+ * 경합에서도 안전하고, upsert 와 달리 **UPDATE 권한이 전혀 필요 없다**. 등록 폼을 두 번
+ * 눌렀거나 다른 담당자가 먼저 등록한 경우가 실패로 보이지 않으면서, 이름·업종을 덮어쓰는
+ * 일도 없다.
+ *
+ * ⚠️ 조직 스코프: 조회 키가 (organizationId, domain) 복합 unique 라, 다른 조직이 같은
+ * 도메인을 쓰고 있어도 그 행에는 닿지 않는다.
+ */
+export async function registerOrganizationSite(
+  prisma: SearchOpsPrismaClient,
+  input: RegisterOrganizationSiteInput,
+): Promise<Site> {
+  await prisma.site.createMany({
+    data: [
+      {
+        country: input.country,
+        domain: input.domain,
+        industry: input.industry ?? null,
+        language: input.language,
+        name: input.name ?? null,
+        organizationId: input.organizationId
+      }
+    ],
+    skipDuplicates: true
+  });
+
+  const record = await prisma.site.findUnique({
+    where: {
+      organizationId_domain: { domain: input.domain, organizationId: input.organizationId }
+    }
+  });
+  if (record === null) {
+    // INSERT 가 조용히 건너뛰어졌는데 읽히지도 않는 경우. 성공으로 넘기면 화면은
+    // 등록됐다고 하고 목록에는 없는 상태가 된다.
+    throw new Error(`사이트를 등록하지 못했습니다: ${input.domain}`);
+  }
+
+  return SiteSchema.parse({
+    country: record.country,
+    createdAt: record.createdAt.toISOString(),
+    domain: record.domain,
+    id: record.id,
+    industry: record.industry,
+    language: record.language,
+    name: record.name,
+    organizationId: record.organizationId
+  });
+}
+
+export interface UpdateOrganizationWorkOrderStatusInput {
+  readonly organizationId: string;
+  readonly status: WorkOrderStatus;
+  readonly workOrderId: string;
+}
+
+/**
+ * 작업 지시서 상태를 바꾼다. 그 조직 소유가 아니면 아무것도 바꾸지 않고 false.
+ *
+ * update 가 아니라 updateMany 를 쓴다: update 는 unique where 만 받아서 organizationId 를
+ * 조건에 넣을 수 없고, 결국 "먼저 읽어서 조직을 확인하고 나서 쓴다" 가 된다. 그 사이
+ * 소유가 바뀌면 어긋나고, 무엇보다 검사를 잊을 수 있는 코드가 된다. updateMany 는
+ * 조직 조건이 UPDATE 문 자체에 들어가 잊을 수가 없다 — 남의 것이면 0행이 바뀐다.
+ */
+export async function updateOrganizationWorkOrderStatus(
+  prisma: SearchOpsPrismaClient,
+  input: UpdateOrganizationWorkOrderStatusInput,
+): Promise<boolean> {
+  // 호출자가 문자열을 그대로 넘겨도 여기서 걸린다. DB 의 status 는 그냥 text 라
+  // 오타가 들어가면 보드의 어느 칼럼에도 안 잡히고 조용히 사라진다.
+  const status = WorkOrderStatusSchema.parse(input.status);
+  const result = await prisma.workOrder.updateMany({
+    data: { status },
+    where: { id: input.workOrderId, organizationId: input.organizationId }
+  });
+  return result.count === 1;
 }
 
 export interface UserMembership {

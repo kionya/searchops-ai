@@ -10,6 +10,7 @@ import {
 import { formatIndustryLabel } from "../../src/korean-labels";
 import {
   type SiteRegistryData,
+  type SiteRegistryMode,
   type SiteRegistrationFeedback,
   type SiteRegistrationSearchParams,
   loadSiteRegistry
@@ -57,7 +58,7 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
         </div>
 
         <div className="searchops-sites-command-grid">
-          <SiteRegistrationPanel feedback={registry.feedback} readOnly={registry.mode === "database"} />
+          <SiteRegistrationPanel feedback={registry.feedback} mode={registry.mode} />
           <SiteRegistrySummary registry={registry} />
         </div>
 
@@ -109,11 +110,10 @@ function RegistryModePill({ registry }: { readonly registry: SiteRegistryData })
 
 function SiteRegistrationPanel({
   feedback,
-  readOnly = false
+  mode
 }: {
   readonly feedback: SiteRegistrationFeedback | null;
-  // 직접 DB 모드는 읽기 전용 역할을 쓴다. 폼을 그대로 두면 "등록 성공" 뒤에 404 가 난다.
-  readonly readOnly?: boolean;
+  readonly mode: SiteRegistryMode;
 }) {
   return (
     <section aria-labelledby="site-registration-heading" className="searchops-panel" id="site-registration">
@@ -124,12 +124,14 @@ function SiteRegistrationPanel({
         </h3>
       </div>
 
-      {readOnly ? (
-        <div className="searchops-registration-feedback warning" role="status">
+      {/* 등록은 저장되지만 크롤은 지금 시작하지 않는다(큐도 워커도 없다). 그 말을 안 하면
+          등록 직후 빈 대시보드를 보고 실패한 줄 안다. */}
+      {mode === "database" ? (
+        <div className="searchops-registration-feedback info" role="status">
           <span>
-            이 화면은 DB 를 직접 읽는 읽기 전용 모드입니다. 사이트 등록에는 쓰기 권한이 필요해
-            저장되지 않습니다 — SearchOps API 를 배포하거나 Supabase SQL Editor 에서 Site 행을
-            직접 추가하세요.
+            등록은 DB 에 바로 저장됩니다. 크롤은 지금 시작하지 않고 다음 배치 실행(매일 03:00 KST)에서
+            돌므로, 그전까지 대시보드는 비어 있습니다. 아래 초기 크롤·커넥터 옵션은 이 모드에서
+            반영되지 않습니다.
           </span>
         </div>
       ) : null}
@@ -196,9 +198,8 @@ function SiteRegistrationPanel({
           <ConnectorField label="Bing" value="bing" />
           <ConnectorField label="CMS" value="cms" />
         </div>
-        {/* 읽기 전용 모드에서 눌러봐야 저장되지 않는다. 눌리게 두면 실패만 겪는다. */}
-        <button className="searchops-button" disabled={readOnly} type="submit">
-          {readOnly ? "사이트 추가 (이 모드에서는 불가)" : "사이트 추가"}
+        <button className="searchops-button" type="submit">
+          사이트 추가
         </button>
       </form>
     </section>
@@ -231,7 +232,10 @@ function SiteRegistrySummary({ registry }: { readonly registry: SiteRegistryData
     <aside className="searchops-panel" aria-label="사이트 등록 상태">
       <span className="searchops-label">registration state</span>
       <dl className="searchops-registry-summary">
-        <SiteFact label="저장 모드" value={registry.mode === "api" ? "API" : "Fixture"} />
+        <SiteFact
+          label="저장 모드"
+          value={registry.mode === "api" ? "API" : registry.mode === "database" ? "DB 직접" : "Fixture"}
+        />
         <SiteFact label="등록 사이트" value={String(registry.sites.length)} />
         <SiteFact label="대시보드 준비" value={String(fixtureCount)} />
       </dl>
