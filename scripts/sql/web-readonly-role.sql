@@ -14,10 +14,20 @@
 --       ⚠️ DIRECT_DATABASE_URL 은 Vercel 에 넣지 마라 — 마이그레이션 전용이고
 --          서버리스에서 쓰면 커넥션 한도를 금방 먹는다.
 
+-- ⚠️ 비밀번호는 실행 전에 반드시 바꿔라. 아래는 없으면 만들고 **있으면 비밀번호를
+-- 다시 설정한다.** 예전에는 "없을 때만 생성" 이라 두 번째 실행이 비밀번호를 조용히
+-- 건너뛰었고, 그 탓에 실제 비밀번호가 CHANGE_ME 인 채로 남아 인증 실패를 디버깅하는
+-- 데 한참 걸렸다. 재실행이 항상 같은 결과를 내도록 바꿨다.
+--
+-- 권한 주의: 이 문을 실행하는 역할은 CREATEROLE 과 대상 역할의 ADMIN 옵션이 둘 다
+-- 있어야 한다(PostgreSQL 16+). Supabase SQL Editor 를 read-only 모드로 두면
+-- supabase_read_only_user 로 돌아 "permission denied to alter role" 이 난다 —
+-- 토글을 끄고 postgres 로 실행해라.
 do $$
 begin
-  if not exists (select from pg_roles where rolname = 'searchops_web_readonly') then
-    -- 비밀번호는 실행 전에 반드시 바꿔라.
+  if exists (select from pg_roles where rolname = 'searchops_web_readonly') then
+    alter role searchops_web_readonly login password 'CHANGE_ME';
+  else
     create role searchops_web_readonly login password 'CHANGE_ME';
   end if;
 end $$;
