@@ -310,23 +310,23 @@ describe("Compliance flag to work order mapper", () => {
         sourceField: "text"
       },
       impact:
-        "Medical advertising risk can block publication, create legal review burden, and reduce trust if unreviewed claims reach public pages.",
+        "미검수 문구가 공개 페이지에 나가면 게재가 막히고, 법무 검토 부담이 생기며, 신뢰가 떨어집니다.",
       instructions: [
-        "Review the flagged excerpt and source field before editing the draft.",
+        "초안을 고치기 전에 지적된 문장과 출처 필드를 확인합니다.",
         "Replace absolute safety language with balanced wording.",
         "Explain that risks vary by individual.",
-        "Keep the content in draft state until legal review approves the revision."
+        "법무 검수가 수정본을 승인할 때까지 콘텐츠를 초안 상태로 둡니다."
       ],
       ownerType: "legal",
       priority: "p1",
       acceptanceCriteria: [
-        "Absolute safety wording is removed or replaced with reviewed balanced language.",
-        "Legal review confirms risk and consultation context is acceptable.",
-        "A follow-up compliance review no longer returns this open flag.",
-        "The content remains draft-only until compliance approval is recorded."
+        "절대적 안전성 표현을 삭제했거나, 검수를 거친 균형 잡힌 표현으로 바꿨다.",
+        "법무 검수에서 위험 고지와 상담 안내 맥락이 적절함을 확인했다.",
+        "후속 의료광고법 검수에서 이 지적이 열린 상태로 다시 나오지 않는다.",
+        "검수 승인이 기록될 때까지 콘텐츠가 초안 상태로만 남아 있다."
       ],
       verificationMethod:
-        "Run compliance review on the revised draft and confirm the flag is approved, dismissed, or resolved before publication.",
+        "수정한 초안에 의료광고법 검수를 다시 돌려, 게재 전에 해당 지적이 승인·기각·해소 처리됐는지 확인합니다.",
       estimatedEffort: "m",
       relatedIssues: []
     });
@@ -376,35 +376,35 @@ describe("GEO visibility report to work order mapper", () => {
     const report = createGeoVisibilityReport();
 
     expect(createWorkOrderFromGeoVisibilityReport(report)).toEqual({
-      title: "Example Clinic GEO visibility improvement",
+      title: "Example Clinic GEO 노출 개선",
       problem:
-        "GEO visibility is visible with a 72/100 score, 67% mention rate, and 67% owned citation rate.",
+        "GEO 노출이 visible 상태입니다. 점수 72/100, 언급률 67%, 자사 인용률 67%.",
       evidence: {
         url: "https://example.com/",
         observedValue: "status visible; score 72; mention 67%; citation 67%; competitor 33%",
         expectedValue:
-          "strong score >= 75; mention >= 70%; owned citation >= 50%; competitor citation <= 40%",
+          "점수 75 이상(strong); 언급률 70% 이상; 자사 인용률 50% 이상; 경쟁사 인용률 40% 이하",
         sourceField: "geoVisibilityReport"
       },
       impact:
-        "AI answer engines may omit the brand, cite competitors, or fail to cite owned URLs when users ask non-brand discovery queries.",
+        "이용자가 비브랜드 탐색 질의를 할 때 AI 답변엔진이 브랜드를 빠뜨리거나, 경쟁사를 인용하거나, 자사 URL 을 인용하지 않을 수 있습니다.",
       instructions: [
-        "Review GEO observations by query and provider before editing content.",
-        "Prioritize owned pages that already match the query intent and can be cited naturally.",
-        "Keep all medical or claim-like content as draft until compliance review is complete.",
-        "Update entity and brand signals on answer-ready pages so the brand is explicitly mentioned in relevant query contexts."
+        "콘텐츠를 고치기 전에 질의별·제공자별 GEO 관측 결과를 확인합니다.",
+        "이미 질의 의도에 맞고 자연스럽게 인용될 수 있는 자사 페이지를 먼저 손봅니다.",
+        "의학적 내용이나 효과 주장에 해당하는 문구는 의료광고법 검수가 끝날 때까지 초안 상태로 둡니다.",
+        "답변에 쓰이는 페이지의 브랜드·기관 정보를 보강해, 관련 질의 맥락에서 브랜드가 분명히 언급되게 합니다."
       ],
       ownerType: "marketer",
       priority: "p2",
       acceptanceCriteria: [
-        "Next GEO visibility report reaches strong status.",
-        "Mention rate is at or above 70%.",
-        "Owned citation rate is at or above 50%.",
-        "Competitor citation rate is at or below 40%.",
-        "Report covers at least three distinct queries and two providers."
+        "다음 GEO 노출 리포트가 strong 상태에 도달한다.",
+        "언급률이 70% 이상이다.",
+        "자사 인용률이 50% 이상이다.",
+        "경쟁사 인용률이 40% 이하다.",
+        "리포트가 서로 다른 질의 3개, 제공자 2곳 이상을 다룬다."
       ],
       verificationMethod:
-        "Create a new GEO visibility report from the same query set and confirm the score, mention rate, citation rate, and competitor citation risk meet the acceptance criteria.",
+        "같은 질의 세트로 GEO 노출 리포트를 새로 만들어, 점수·언급률·인용률·경쟁사 인용 위험이 수용 기준을 만족하는지 확인합니다.",
       estimatedEffort: "m",
       relatedIssues: []
     });
@@ -428,7 +428,7 @@ describe("GEO visibility report to work order mapper", () => {
     ).toMatchObject({
       estimatedEffort: "s",
       priority: "p3",
-      title: "Example Clinic GEO visibility maintenance"
+      title: "Example Clinic GEO 노출 유지"
     });
   });
 
@@ -467,7 +467,7 @@ describe("Schema recommendation to work order mapper", () => {
       expect(workOrder.title).toContain("/services/seo");
       expect(workOrder.title).toContain(schemaType);
       expect(workOrder.relatedIssues).toEqual(["SCHEMA_MISSING"]);
-      expect(workOrder.verificationMethod).toContain("schema recommendation recheck");
+      expect(workOrder.verificationMethod).toContain("스키마 추천 재검사");
     }
   });
 
@@ -475,7 +475,7 @@ describe("Schema recommendation to work order mapper", () => {
     const recommendation = createSchemaRecommendation("Service");
 
     expect(createWorkOrderFromSchemaRecommendation(recommendation)).toEqual({
-      title: "/services/seo Service JSON-LD implementation",
+      title: "/services/seo Service JSON-LD 적용",
       problem: "The page has no Service JSON-LD block.",
       evidence: {
         url: "https://example.com/services/seo",
@@ -484,22 +484,22 @@ describe("Schema recommendation to work order mapper", () => {
         sourceField: "jsonLd"
       },
       impact:
-        "Structured service data helps search and answer engines understand the offering, provider, and service URL.",
+        "구조화된 서비스 데이터는 검색·답변엔진이 제공 서비스·제공자·서비스 URL 을 이해하게 합니다.",
       instructions: [
-        "Add Service JSON-LD to the service detail page.",
-        "Keep service names factual and avoid unsupported claims.",
+        "시술·서비스 상세 페이지에 Service JSON-LD 를 추가합니다.",
+        "서비스명은 사실 그대로 쓰고, 근거 없는 효과 표현은 넣지 않습니다.",
         "Add Service JSON-LD to the page.",
-        "Required JSON-LD fields: @context, @type, name, url."
+        "필수 JSON-LD 필드: @context, @type, name, url."
       ],
       ownerType: "developer",
       priority: "p1",
       acceptanceCriteria: [
-        "Schema recommendation recheck no longer returns Service for the URL.",
-        "JSON-LD includes service name, provider, and URL.",
-        "The service description matches visible page content."
+        "스키마 추천 재검사에서 이 URL 에 Service 이 더 이상 나오지 않는다.",
+        "JSON-LD 에 서비스명·제공자·URL 이 들어 있다.",
+        "서비스 설명이 화면에 보이는 내용과 일치한다."
       ],
       verificationMethod:
-        "Run schema recommendation recheck for https://example.com/services/seo and confirm no open Service recommendation remains.",
+        "https://example.com/services/seo 에 스키마 추천 재검사를 돌려, 열린 Service 추천이 남지 않았는지 확인합니다.",
       estimatedEffort: "m",
       relatedIssues: ["SCHEMA_MISSING"]
     });
@@ -511,9 +511,9 @@ describe("Schema recommendation to work order mapper", () => {
     );
 
     expect(workOrder.ownerType).toBe("legal");
-    expect(workOrder.title).toBe("/services/seo MedicalClinic JSON-LD compliance review");
+    expect(workOrder.title).toBe("/services/seo MedicalClinic JSON-LD 의료광고법 검수");
     expect(workOrder.acceptanceCriteria).toContain(
-      "Compliance review confirms no unsupported medical claims.",
+      "의료광고법 검수에서 근거 없는 의학적 표현이 없음을 확인했다.",
     );
   });
 
@@ -524,8 +524,8 @@ describe("Schema recommendation to work order mapper", () => {
     ]);
 
     expect(workOrders.map((workOrder) => workOrder.title)).toEqual([
-      "/services/seo WebPage JSON-LD implementation",
-      "/services/seo BreadcrumbList JSON-LD implementation"
+      "/services/seo WebPage JSON-LD 적용",
+      "/services/seo BreadcrumbList JSON-LD 적용"
     ]);
   });
 
@@ -549,7 +549,7 @@ describe("SEO issue to work order mapper", () => {
       expect(workOrder.title).toContain("/services/seo");
       expect(workOrder.instructions.length).toBeGreaterThan(0);
       expect(workOrder.acceptanceCriteria.length).toBeGreaterThan(0);
-      expect(workOrder.verificationMethod).toContain("recheck");
+      expect(workOrder.verificationMethod).toContain("재검사");
     }
   });
 
@@ -557,24 +557,24 @@ describe("SEO issue to work order mapper", () => {
     const issue = createIssue();
 
     expect(createWorkOrderFromSeoIssue(issue)).toEqual({
-      title: "/services/seo missing H1 fix",
-      problem: "The page has no H1 heading.",
+      title: "/services/seo H1 제목 추가",
+      problem: "페이지에 H1 제목이 없습니다.",
       evidence: issue.evidence,
       impact:
-        "Search engines and answer engines may not identify the primary page topic from the visible heading structure.",
+        "화면의 제목 구조만으로는 검색엔진과 답변엔진이 페이지의 핵심 주제를 파악하지 못합니다.",
       instructions: [
-        "Add one descriptive H1 near the top of the page.",
-        "Include the target topic and service name naturally.",
-        "Keep only one H1 on the page."
+        "페이지 상단에 내용을 설명하는 H1 을 하나 추가합니다.",
+        "목표 주제와 서비스명을 자연스럽게 넣습니다.",
+        "페이지에 H1 은 하나만 둡니다."
       ],
       ownerType: "content",
       priority: "p1",
       acceptanceCriteria: [
-        "Re-crawl reports h1Count = 1.",
-        "The H1 text is non-empty.",
-        "The title and H1 describe the same page topic."
+        "재크롤에서 h1Count 가 1로 나온다.",
+        "H1 텍스트가 비어 있지 않다.",
+        "title 과 H1 이 같은 주제를 가리킨다."
       ],
-      verificationMethod: "Run a crawler recheck and confirm h1Count is exactly 1.",
+      verificationMethod: "크롤러 재검사를 돌려 h1Count 가 정확히 1인지 확인합니다.",
       estimatedEffort: "s",
       relatedIssues: ["MULTIPLE_H1", "TITLE_MISSING"]
     });
@@ -596,8 +596,8 @@ describe("SEO issue to work order mapper", () => {
     ]);
 
     expect(workOrders.map((workOrder) => workOrder.title)).toEqual([
-      "/services/seo title tag fix",
-      "/services/seo meta description fix"
+      "/services/seo 타이틀 태그 수정",
+      "/services/seo 메타 설명 수정"
     ]);
   });
 

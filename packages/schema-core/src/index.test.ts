@@ -371,13 +371,13 @@ describe("offline rich result validation", () => {
     expect(result.issues).toEqual([
       {
         field: "provider",
-        message: "Required field provider is missing from Service JSON-LD.",
+        message: "Service JSON-LD 에 필수 필드 provider 이(가) 없습니다.",
         severity: "error",
         sourceField: "jsonLd"
       },
       {
         field: "description",
-        message: "Recommended field description is missing from Service JSON-LD.",
+        message: "Service JSON-LD 에 권장 필드 description 이(가) 없습니다.",
         severity: "warning",
         sourceField: "jsonLd"
       }
@@ -410,7 +410,7 @@ describe("offline rich result validation", () => {
     expect(result.issues).toEqual([
       {
         field: "@type",
-        message: "Root @type must include Service.",
+        message: "최상위 @type 에 Service 이 들어 있어야 합니다.",
         severity: "error",
         sourceField: "jsonLd"
       }

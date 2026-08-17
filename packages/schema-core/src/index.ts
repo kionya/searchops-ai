@@ -84,8 +84,8 @@ export const webSiteRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add WebSite JSON-LD on the homepage.",
-          "Keep the name and canonical homepage URL aligned with the registered site."
+          "홈페이지에 WebSite JSON-LD 를 추가합니다.",
+          "name 과 홈페이지 canonical URL 을 등록된 사이트 정보와 일치시킵니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -95,7 +95,7 @@ export const webSiteRecommendationRule: SchemaRecommendationRule = {
           url: getSiteBaseUrl(context.site)
         },
         priority: "p2",
-        reason: "The homepage has no WebSite JSON-LD block.",
+        reason: "홈페이지에 WebSite JSON-LD 블록이 없습니다.",
         recommendedFields: ["potentialAction"],
         requiredFields: ["@context", "@type", "name", "url"],
         type: "WebSite"
@@ -117,8 +117,8 @@ export const webPageRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add WebPage JSON-LD to the page.",
-          "Use the same URL as the canonical URL after canonical issues are resolved."
+          "이 페이지에 WebPage JSON-LD 를 추가합니다.",
+          "canonical 이슈를 먼저 해결한 뒤, canonical URL 과 같은 URL 을 사용합니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -133,7 +133,7 @@ export const webPageRecommendationRule: SchemaRecommendationRule = {
           url: context.snapshot.url
         },
         priority: "p2",
-        reason: "The page has no WebPage JSON-LD block.",
+        reason: "이 페이지에 WebPage JSON-LD 블록이 없습니다.",
         recommendedFields: ["description", "breadcrumb"],
         requiredFields: ["@context", "@type", "url", "name"],
         type: "WebPage"
@@ -155,8 +155,8 @@ export const breadcrumbRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add BreadcrumbList JSON-LD for nested pages.",
-          "Match each breadcrumb item to the visible navigation trail when one exists."
+          "하위 경로 페이지에 BreadcrumbList JSON-LD 를 추가합니다.",
+          "화면에 표시되는 탐색 경로가 있으면 각 breadcrumb 항목을 그것과 일치시킵니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -164,7 +164,7 @@ export const breadcrumbRecommendationRule: SchemaRecommendationRule = {
           itemListElement: createBreadcrumbItems(context.snapshot.url, segments)
         },
         priority: "p2",
-        reason: "The nested page has no BreadcrumbList JSON-LD block.",
+        reason: "하위 경로 페이지에 BreadcrumbList JSON-LD 블록이 없습니다.",
         recommendedFields: [],
         requiredFields: ["@context", "@type", "itemListElement"],
         type: "BreadcrumbList"
@@ -186,8 +186,8 @@ export const faqPageRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add FAQPage JSON-LD only after the visible page includes reviewed answers.",
-          "Keep every JSON-LD question and answer synchronized with visible content."
+          "검수를 마친 답변이 화면에 실제로 노출된 뒤에만 FAQPage JSON-LD 를 추가합니다.",
+          "JSON-LD 의 모든 질문·답변을 화면에 보이는 내용과 항상 일치시킵니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -196,13 +196,13 @@ export const faqPageRecommendationRule: SchemaRecommendationRule = {
             "@type": "Question",
             acceptedAnswer: {
               "@type": "Answer",
-              text: `Add a concise reviewed answer for: ${question}`
+              text: `검수를 마친 짧은 답변을 여기에 작성하세요: ${question}`
             },
             name: question
           }))
         },
         priority: "p2",
-        reason: "Question-style headings are present but FAQPage JSON-LD is missing.",
+        reason: "질문형 제목이 있는데 FAQPage JSON-LD 가 없습니다.",
         recommendedFields: ["mainEntity.acceptedAnswer.text"],
         requiredFields: ["@context", "@type", "mainEntity"],
         type: "FAQPage"
@@ -224,8 +224,8 @@ export const articleRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add Article JSON-LD to editorial or guide-style pages.",
-          "Confirm headline, author, and publisher values before release."
+          "칼럼·가이드형 페이지에 Article JSON-LD 를 추가합니다.",
+          "게재 전에 headline·author·publisher 값을 확인합니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -245,7 +245,7 @@ export const articleRecommendationRule: SchemaRecommendationRule = {
           }
         },
         priority: "p2",
-        reason: "The editorial page has no Article JSON-LD block.",
+        reason: "칼럼형 페이지에 Article JSON-LD 블록이 없습니다.",
         recommendedFields: ["datePublished", "dateModified", "image"],
         requiredFields: ["@context", "@type", "headline", "mainEntityOfPage"],
         type: "Article"
@@ -265,8 +265,8 @@ export const serviceRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add Service JSON-LD to service detail pages.",
-          "Keep service names factual and avoid unsupported claims."
+          "시술·서비스 상세 페이지에 Service JSON-LD 를 추가합니다.",
+          "서비스명은 사실 그대로 쓰고, 근거 없는 효과 표현은 넣지 않습니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -280,7 +280,7 @@ export const serviceRecommendationRule: SchemaRecommendationRule = {
           url: context.snapshot.url
         },
         priority: "p1",
-        reason: "The service page has no Service JSON-LD block.",
+        reason: "서비스 페이지에 Service JSON-LD 블록이 없습니다.",
         recommendedFields: ["description", "serviceType"],
         requiredFields: ["@context", "@type", "name", "provider", "url"],
         type: "Service"
@@ -300,8 +300,8 @@ export const medicalClinicRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Use MedicalClinic JSON-LD for medical organizations after compliance review.",
-          "Confirm specialties, addresses, and phone numbers before adding optional fields."
+          "의료기관은 의료광고법 검수를 마친 뒤 MedicalClinic JSON-LD 를 사용합니다.",
+          "선택 필드를 추가하기 전에 진료과목·주소·전화번호를 확인합니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -311,7 +311,7 @@ export const medicalClinicRecommendationRule: SchemaRecommendationRule = {
           url: getSiteBaseUrl(context.site)
         },
         priority: "p1",
-        reason: "The medical site has no MedicalClinic JSON-LD block.",
+        reason: "의료 사이트에 MedicalClinic JSON-LD 블록이 없습니다.",
         recommendedFields: ["address", "telephone", "medicalSpecialty", "openingHours"],
         requiredFields: ["@context", "@type", "name", "url"],
         type: "MedicalClinic"
@@ -335,8 +335,8 @@ export const localBusinessRecommendationRule: SchemaRecommendationRule = {
       createRecommendation({
         context,
         instructions: [
-          "Add LocalBusiness JSON-LD to location or contact pages.",
-          "Confirm address and contact details before adding optional fields."
+          "오시는 길·연락처 페이지에 LocalBusiness JSON-LD 를 추가합니다.",
+          "선택 필드를 추가하기 전에 주소와 연락처를 확인합니다."
         ],
         jsonLd: {
           "@context": "https://schema.org",
@@ -346,7 +346,7 @@ export const localBusinessRecommendationRule: SchemaRecommendationRule = {
           url: getSiteBaseUrl(context.site)
         },
         priority: "p2",
-        reason: "The location page has no LocalBusiness JSON-LD block.",
+        reason: "오시는 길 페이지에 LocalBusiness JSON-LD 블록이 없습니다.",
         recommendedFields: ["address", "telephone", "openingHours"],
         requiredFields: ["@context", "@type", "name", "url"],
         type: "LocalBusiness"
@@ -467,20 +467,20 @@ export function validateJsonLdDraft(
       : [
           {
             field: "@type",
-            message: `Root @type must include ${input.type}.`,
+            message: `최상위 @type 에 ${input.type} 이 들어 있어야 합니다.`,
             severity: "error" as const,
             sourceField: "jsonLd"
           }
         ]),
     ...missingRequiredFields.map((field) => ({
       field,
-      message: `Required field ${field} is missing from ${input.type} JSON-LD.`,
+      message: `${input.type} JSON-LD 에 필수 필드 ${field} 이(가) 없습니다.`,
       severity: "error" as const,
       sourceField: "jsonLd"
     })),
     ...missingRecommendedFields.map((field) => ({
       field,
-      message: `Recommended field ${field} is missing from ${input.type} JSON-LD.`,
+      message: `${input.type} JSON-LD 에 권장 필드 ${field} 이(가) 없습니다.`,
       severity: "warning" as const,
       sourceField: "jsonLd"
     }))

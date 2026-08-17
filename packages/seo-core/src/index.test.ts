@@ -110,7 +110,7 @@ describe("SEO issue rules", () => {
       evidence: {
         url: "https://example.com/services",
         observedValue: " ",
-        expectedValue: "Non-empty <title> text",
+        expectedValue: "비어 있지 않은 title 태그",
         sourceField: "title"
       }
     });
@@ -129,7 +129,7 @@ describe("SEO issue rules", () => {
       category: "metadata",
       evidence: {
         observedValue: null,
-        expectedValue: "Non-empty meta description",
+        expectedValue: "비어 있지 않은 meta description",
         sourceField: "metaDescription"
       }
     });
@@ -214,7 +214,7 @@ describe("SEO issue rules", () => {
       category: "canonical",
       evidence: {
         observedValue: null,
-        expectedValue: "Self-referencing canonical URL",
+        expectedValue: "자기 참조 canonical URL",
         sourceField: "canonicalUrl"
       }
     });
@@ -276,7 +276,7 @@ describe("SEO issue rules", () => {
       category: "images",
       evidence: {
         observedValue: ["https://example.com/missing.jpg"],
-        expectedValue: "All images have non-empty alt text",
+        expectedValue: "의미 있는 이미지마다 설명형 alt 텍스트",
         sourceField: "images[].alt"
       }
     });

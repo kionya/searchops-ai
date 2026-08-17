@@ -3817,7 +3817,7 @@ describe("api foundation", () => {
         ownerType: "marketer",
         priority: "p2",
         status: "open",
-        title: "Example Clinic GEO visibility improvement",
+        title: "Example Clinic GEO 노출 개선",
       },
     });
     expect(secondResponse.statusCode).toBe(201);
@@ -3831,7 +3831,7 @@ describe("api foundation", () => {
     expect(listResponse.json().workOrders).toEqual([
       expect.objectContaining({
         geoVisibilityReportId: "geo_report_seed",
-        title: "Example Clinic GEO visibility improvement",
+        title: "Example Clinic GEO 노출 개선",
       }),
     ]);
   });
@@ -4701,7 +4701,7 @@ describe("api foundation", () => {
         seoIssueId: null,
         schemaRecommendationId: "schema_rec_seed",
         priority: "p1",
-        title: "/services/seo Service JSON-LD implementation",
+        title: "/services/seo Service JSON-LD 적용",
         ownerType: "developer",
         relatedIssues: ["SCHEMA_MISSING"],
       },
