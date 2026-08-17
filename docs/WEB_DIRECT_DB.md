@@ -35,7 +35,7 @@ API 가 웹에 더해주던 것은 **데이터 접근 하나뿐이었다.**
 
 | 조건 | 모드 | 화면 표시 |
 |---|---|---|
-| `DATABASE_URL` 있음 | **직접 DB** | "실데이터 (DB 직접)" |
+| `SEARCHOPS_WEB_DATABASE_URL` 있음 | **직접 DB** | "실데이터 (DB 직접)" |
 | `SEARCHOPS_API_BASE_URL` 있음 | API | "API 데이터" |
 | 둘 다 없음 | fixture | "데모 데이터" 배너 |
 
@@ -73,23 +73,25 @@ Supabase JWT 검증 (서명·sub 일치·role=authenticated)   ← 인증. 그�
    기존 시드 행(`owner@example.com` / `org_demo`)을 그대로 쓰려면 2번에서 그 이메일로 만들면 된다.
 4. custom access token hook 은 **설치하지 않아도 된다**(위 참고).
 
-⚠️ 1번만 하고 `DATABASE_URL` 을 안 넣으면 데모 데이터가, `DATABASE_URL` 만 넣고 1번을 안 하면 로그인 화면이 나온다. **둘 다 필요하다.**
+⚠️ 1번만 하고 `SEARCHOPS_WEB_DATABASE_URL` 을 안 넣으면 데모 데이터가, 그것만 넣고 1번을 안 하면 로그인 화면이 나온다. **둘 다 필요하다.**
 
 ### 1. 최소권한 역할 생성
 
 Supabase SQL Editor 에서 `scripts/sql/web-readonly-role.sql` 을 **비밀번호를 바꿔서** 실행한다.
 
-이 역할은 대시보드 6개 테이블에 `SELECT` 만 갖는다. `ProviderAccount`, `ConnectorOAuthCredential` 같은 credential 테이블과 모든 쓰기는 권한 자체가 없다.
+이 역할은 대시보드 6개 테이블 `SELECT` 와 `User` 의 4개 컬럼(`id`·`organizationId`·`email`·`role`, 로그인 소속 확인용)만 갖는다. `ProviderAccount`, `ConnectorOAuthCredential` 같은 credential 테이블과 모든 쓰기는 권한 자체가 없다.
 
 ### 2. Vercel 환경변수
 
 ```
-DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@<host>:6543/postgres?pgbouncer=true
+SEARCHOPS_WEB_DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@<host>:6543/postgres?pgbouncer=true
 ```
+
+⚠️ **왜 `DATABASE_URL` 이 아닌가.** 그 이름은 마이그레이션·워커·호스팅 플랫폼 통합이 저마다 쓴다. 그걸 스위치로 삼으면 누가 주입한 **전권 연결 문자열**을 모르는 새 집어 쓰게 되고, 최소권한 역할을 쓰겠다는 설계가 조용히 무력화된다. 실제로 이 프로젝트의 Vercel 에는 이미 `DATABASE_URL` 이 있었다. 직접 DB 모드는 위 전용 변수를 명시적으로 넣었을 때만 켜지며, 기존 `DATABASE_URL` 은 **건드릴 필요가 없다.**
 
 ⚠️ **넣지 말아야 할 것:**
 
-- `DIRECT_DATABASE_URL` — 마이그레이션 전용이다. 서버리스에서 쓰면 Supabase 커넥션 한도를 금방 먹는다. 포트 6543(풀러)를 써라.
+- 마이그레이션용 direct/session URL — 서버리스에서 쓰면 Supabase 커넥션 한도를 금방 먹는다. 포트 6543(풀러)를 써라.
 - `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` — **절대.** 이게 Vercel 에 있으면 프론트 침해 한 번으로 전 테넌트의 BYOK credential 이 복호화된다. 그래서 이 경로로는 커넥터/Integrations 화면을 살릴 수 없고, 살리지도 않는다.
 
 ## 자격증명 경계 — 원래 규칙과의 관계
@@ -99,7 +101,7 @@ DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@<host>:6543/po
 규칙의 취지(프론트 침해 시 폭발 반경 억제)는 다음으로 지킨다:
 
 1. **encryption key 는 여전히 Vercel 에 없다.** 크라운 주얼은 그대로 보호된다.
-2. **역할이 읽기 전용이고 대시보드 테이블에만 붙는다.** 코드가 아니라 `GRANT` 로 막으므로 코드에 버그가 나도 권한은 남지 않는다.
+2. **역할이 읽기 전용이고 대시보드 테이블(+`User` 4개 컬럼)에만 붙는다.** 코드가 아니라 `GRANT` 로 막으므로 코드에 버그가 나도 권한은 남지 않는다.
 3. **새 테이블에 권한이 자동으로 새지 않는다** — `alter default privileges ... revoke all`.
 
 남는 위험: Vercel 이 침해되면 **모든 조직의 SEO 데이터를 읽을 수 있다**(조직 스코프는 애플리케이션 레벨이라 DB 역할로는 못 막는다). 이걸 더 줄이려면 테이블마다 RLS 정책을 걸고 사용자 JWT 로 붙는 방식으로 가야 하는데, Prisma 관리 스키마 25개 테이블에 RLS 를 얹는 별도 작업이다. 현재 테넌트가 사실상 하나라 그 비용을 지금 낼 이유가 없다고 판단했다 — 테넌트가 늘면 재검토 대상이다.
@@ -110,7 +112,7 @@ DATABASE_URL = postgresql://searchops_web_readonly:<비밀번호>@<host>:6543/po
 pnpm smoke:web-db
 ```
 
-임시 Postgres 에 실제 마이그레이션을 적용하고, 두 조직을 심고, 16가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** credential 테이블과 쓰기가 실제로 거부되는지까지. CI(`credential-smoke` 잡)에서도 돈다.
+임시 Postgres 에 실제 마이그레이션을 적용하고, 두 조직을 심고, 22가지를 확인한다 — 실데이터 조회, 타 조직 차단, 존재 여부 미노출, 그리고 **운영에 쓸 역할 SQL 을 그대로 돌려** credential 테이블과 쓰기가 실제로 거부되는지까지. CI(`credential-smoke` 잡)에서도 돈다.
 
 ## 아직 API 가 필요한 것
 

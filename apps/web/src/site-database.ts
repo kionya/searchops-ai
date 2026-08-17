@@ -4,6 +4,10 @@ import type { SiteDashboardSnapshot } from "@searchops/db";
 import type { Site } from "@searchops/types";
 
 import { getCurrentProviderUser } from "./provider-accounts";
+import { getWebDatabaseUrl, isDirectDatabaseMode } from "./web-database-url";
+
+// 스위치는 web-database-url.ts 가 정본이다. 기존 호출자를 위해 여기서도 내보낸다.
+export { getWebDatabaseUrl, isDirectDatabaseMode } from "./web-database-url";
 
 // SearchOps API 를 배포하지 않고도 대시보드가 실데이터를 그리게 하는 경로.
 //
@@ -24,18 +28,17 @@ import { getCurrentProviderUser } from "./provider-accounts";
 // @searchops/db 는 정적으로 임포트하지 않는다. 정적 임포트면 DATABASE_URL 이 없는
 // 환경(단위 테스트, 픽스처 모드)에서도 Prisma 엔진을 끌고 온다.
 
-export function isDirectDatabaseMode(): boolean {
-  return Boolean(process.env.DATABASE_URL?.trim());
-}
-
 // 서버리스에서 요청마다 새 클라이언트를 만들면 커넥션이 폭발하므로 모듈 스코프에 캐시한다.
-// DATABASE_URL 은 반드시 풀러(pgbouncer) 쪽이어야 한다 — DIRECT_DATABASE_URL 은
-// 마이그레이션 전용이고 서버리스에서 쓰면 Supabase 커넥션 한도를 금방 먹는다.
+// URL 은 반드시 풀러(pgbouncer) 쪽이어야 한다 — direct/session URL 을 서버리스에서
+// 쓰면 Supabase 커넥션 한도를 금방 먹는다.
 let cachedPrisma: unknown = null;
 
 async function getDb() {
   const db = await import("@searchops/db");
-  cachedPrisma ??= db.createSearchOpsPrismaClient();
+  const datasourceUrl = getWebDatabaseUrl();
+  cachedPrisma ??= db.createSearchOpsPrismaClient(
+    datasourceUrl === null ? {} : { datasourceUrl },
+  );
   return { db, prisma: cachedPrisma as Parameters<typeof db.loadSiteDashboardSnapshot>[0] };
 }
 

@@ -29,6 +29,7 @@ import type { SearchOpsPrismaClient } from "@searchops/db";
 
 import { getApiBaseUrl } from "./api-base-url";
 import { apiFetchAsUser } from "./api-client";
+import { getWebDatabaseUrl } from "./web-database-url";
 import { getSupabaseServerClient } from "./supabase-server";
 
 const apiKeyProviders = [
@@ -176,7 +177,10 @@ async function lookupMembershipFromDatabase(
   if (typeof claims.organization_id === "string" && claims.organization_id.trim().length > 0) {
     return null;
   }
-  if (!process.env.DATABASE_URL?.trim()) {
+  // 직접 DB 모드의 스위치는 site-database.ts 한 곳에만 둔다. 여기서 환경변수를 다시
+  // 읽으면 두 곳이 어긋나 로그인만 되고 데이터는 안 나오는 상태가 생긴다.
+  const datasourceUrl = getWebDatabaseUrl();
+  if (datasourceUrl === null) {
     return null;
   }
   const email = typeof claims.email === "string" ? claims.email.trim() : "";
@@ -185,7 +189,7 @@ async function lookupMembershipFromDatabase(
   }
   try {
     const db = await import("@searchops/db");
-    membershipPrisma ??= db.createSearchOpsPrismaClient();
+    membershipPrisma ??= db.createSearchOpsPrismaClient({ datasourceUrl });
     return await db.findUserMembershipByEmail(membershipPrisma, email);
   } catch {
     // 소속 조회 실패는 미인증으로 떨어뜨린다 — 조용히 다른 조직으로 넘어가는 것보다 낫다.
