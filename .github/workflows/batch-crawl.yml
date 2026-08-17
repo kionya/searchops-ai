@@ -129,23 +129,33 @@ jobs:
       # cancelled 는 실패가 아니므로 아무것도 하지 않는다.
       - name: Report batch status
         if: always()
+        # ⚠️ 이 스텝은 잡을 실패시키면 안 된다. 2026-08-17 GitHub 장애 때 gh issue list 가
+        # 503 을 받고 죽으면서, 크롤이 전부 성공한 실행을 실패로 뒤집었다(로그의
+        # STATUS 는 success 였다). 알림 장치가 없는 장애를 만들어 낸 셈이다.
+        # 보고에 실패하면 경고만 남기고 잡의 결론은 실제 작업 결과 그대로 둔다.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # gh 호출이 실패해도 여기서 멈추지 않는다. 알림을 못 보내는 것과
+          # 배치가 실패한 것은 다른 일이고, 섞이면 원인을 못 찾는다.
           title="batch-crawl 실패"
           number="$(gh issue list --state open --search "$title in:title" --json number,title \
-            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty" 2>/dev/null || true)"
           if [ "$STATUS" = "success" ]; then
             if [ -n "$number" ]; then
-              gh issue close "$number" --comment "복구됨: $RUN_URL"
+              gh issue close "$number" --comment "복구됨: $RUN_URL" \
+                || echo "::warning::이슈 #$number 를 닫지 못했다. 수동으로 닫아라."
             fi
           elif [ "$STATUS" = "failure" ]; then
             body="배치 실패. 로그: $RUN_URL — 크롤/richdoc 적재/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '적재 실패' 와 '[batch-connector-sync]' 를 먼저 확인해라."
             if [ -n "$number" ]; then
-              gh issue comment "$number" --body "$body"
+              gh issue comment "$number" --body "$body" \
+                || echo "::warning::이슈 알림 실패. 배치는 실제로 실패했다: $RUN_URL"
             else
-              gh issue create --title "$title" --body "$body"
+              gh issue create --title "$title" --body "$body" \
+                || echo "::warning::이슈 생성 실패. 배치는 실제로 실패했다: $RUN_URL"
             fi
           fi
