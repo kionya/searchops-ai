@@ -44,7 +44,13 @@ async function getDb() {
 
 export type DatabaseProbeResult =
   | { readonly reachable: true }
-  | { readonly reachable: false; readonly reason: DatabaseProbeFailure };
+  | {
+      readonly reachable: false;
+      readonly reason: DatabaseProbeFailure;
+      // 엔진/모듈 문제일 때만 채운다. 이 두 경우의 메시지에는 접속 문자열이나
+      // 사용자명이 들어가지 않고 탐색 경로만 들어간다 — 그게 진단에 필요한 전부다.
+      readonly detail?: string;
+    };
 
 // 원문 오류를 그대로 내보내지 않는다 — 호스트명과 사용자명이 들어 있다.
 export type DatabaseProbeFailure =
@@ -70,7 +76,12 @@ export async function probeDatabase(): Promise<DatabaseProbeResult> {
     await prisma.$queryRaw`select 1`;
     return { reachable: true };
   } catch (error) {
-    return { reachable: false, reason: classifyDatabaseFailure(error) };
+    const reason = classifyDatabaseFailure(error);
+    if (reason !== "engine_missing" && reason !== "unknown") {
+      return { reachable: false, reason };
+    }
+    const text = error instanceof Error ? error.message : String(error);
+    return { detail: text.replace(/\s+/g, " ").slice(0, 700), reachable: false, reason };
   }
 }
 
