@@ -104,31 +104,62 @@ curl -sI https://api.totopapa.com/health | head -1   # HTTP/2 200
 
 `render.yaml` 이 레포 루트에 있다. API 웹 서비스와 Key Value(Redis 호환) 인스턴스를 함께 정의한다.
 
-**1) Render 대시보드 → New → Blueprint → 이 레포 선택 → Apply**
+**이미지는 Render 가 굽지 않는다.** 무료 플랜의 빌드 자원으로는 이 모노레포 빌드(pnpm install + tsc + prisma generate)가 메모리 부족으로 죽는다. GitHub Actions 가 굽어 GHCR 에 올리고, Render 는 받아서 띄우기만 한다(`.github/workflows/api-image.yml`). 같은 이미지를 GitHub 러너는 4분 안에 굽는다.
 
-`sync: false` 로 표시된 값만 물어본다. 지금은 아래 둘만 채우고 나머지는 비워도 된다:
+```
+main 에 푸시
+  └ api-image 워크플로
+      ├ 이미지 빌드 (레이어 캐시로 2회차부터 수십 초)
+      ├ 부팅 확인 (env 없이 돌려 검증 오류가 나오는지)
+      ├ GHCR 푸시  ghcr.io/kionya/searchops-api:{latest,<sha>}
+      └ Render deploy hook 호출 (imgURL 로 <sha> 태그를 못 박음)
+```
+
+### 1) GHCR 패키지를 먼저 만든다
+
+`main` 에 푸시하면 워크플로가 이미지를 올린다. 첫 푸시 후 GitHub → 프로필/조직 → **Packages** → `searchops-api` 가 보인다.
+
+**패키지를 public 으로 바꾼다** — Package settings → Danger Zone → Change visibility → Public.
+
+이미지에 비밀값은 없다. 모든 env 는 런타임에 주입하고 `.dockerignore` 가 `.env` 를 제외하며, 레포 자체가 공개라 새로 새는 정보가 없다. private 로 두려면 Render Workspace Settings 에 `read:packages` 권한의 PAT 를 등록하고 `render.yaml` 의 `image.creds` 에 그 이름을 적는다.
+
+### 2) Blueprint 적용
+
+Render 대시보드 → **New → Blueprint → 이 레포 선택 → Apply**
+
+`sync: false` 로 표시된 값만 물어본다:
 
 | 키 | 값 |
 |---|---|
 | `DATABASE_URL` | Supabase 풀러(6543) 주소 |
 | `DIRECT_DATABASE_URL` | Supabase 세션 풀러(5432) 주소 |
-| `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` | 아래 명령으로 생성 |
+| `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY` | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` |
+| `SEARCHOPS_IDP_JWKS_JSON` | `curl -s https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` 결과 전체 |
+| `SEARCHOPS_IDP_ISSUER` | `https://<ref>.supabase.co/auth/v1` |
+
+OAuth 3종은 **도메인이 정해진 뒤** 3~4절에서 채운다. 비어 있어도 API 는 정상 기동한다.
+
+### 3) Deploy hook 을 GitHub 에 등록한다
+
+이미지 기반 서비스는 태그가 갱신돼도 **자동으로 재배포되지 않는다**(Render 공식 문서). 워크플로가 명시적으로 걸어야 한다.
+
+Render → `searchops-api` → **Settings → Deploy Hook** 의 URL 을 복사해서:
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+gh secret set RENDER_DEPLOY_HOOK_URL --body '<복사한 URL>'
 ```
 
-OAuth 3종(`CLIENT_ID`·`CLIENT_SECRET`·`REDIRECT_URI`)은 **도메인이 정해진 뒤** 3~4절에서 채운다. 비어 있어도 API 는 정상 기동한다.
+⚠️ 이 URL 은 **누구든 호출하면 배포가 걸리는 값**이다. 코드나 문서에 적지 말고 secret 으로만 둔다.
 
-**2) 배포가 끝나면 주소가 나온다** — `https://searchops-api.onrender.com` 형태. 이게 `<API도메인>` 이다.
+이 secret 이 없으면 워크플로는 이미지만 올리고 배포는 건너뛴다(경고만 남긴다). 그때는 Render 대시보드에서 **Deploy latest reference** 를 직접 누르면 된다.
+
+### 4) 확인
 
 ```bash
 curl -s https://searchops-api.onrender.com/health
 ```
 
-⚠️ **무료 플랜은 15분 유휴 후 정지**한다. 다음 요청에서 다시 뜨는 데 수십 초 걸린다. 커넥터 화면 첫 로딩이 느릴 뿐이고, **데이터 동기화는 배치가 하므로 신선도에는 영향이 없다.** 거슬리면 Starter 로 올리면 된다.
-
-⚠️ **검증필요**: 무료 플랜은 빌드 자원도 작아서 이 모노레포 빌드(tsc + prisma generate)가 메모리 부족으로 실패할 수 있다. 실패하면 두 가지 중 하나로 간다 — Starter 플랜으로 올리거나, GitHub Actions 에서 이미지를 빌드해 GHCR 에 올리고 Render 가 그 이미지를 받게 한다(`runtime: image`).
+⚠️ **무료 플랜은 15분 유휴 후 정지**한다. 다음 요청에서 다시 뜨는 데 수십 초 걸린다. 커넥터 화면 첫 로딩이 느릴 뿐이고, **데이터 동기화는 배치가 하므로 신선도에는 영향이 없다.**
 
 ⚠️ `region: singapore` 가 무료 플랜에서 선택 불가면 `oregon` 으로 바꿔라. 동작에는 지장 없고 DB 왕복만 느려진다.
 
@@ -140,7 +171,7 @@ curl -s https://searchops-api.onrender.com/health
 docker build -f apps/api/Dockerfile -t searchops-api .
 ```
 
-CI 가 매 푸시마다 이 빌드와 부팅을 확인한다(`api-image` 잡). 로컬에서 안 돌려도 된다.
+`api-image` 워크플로가 매 푸시마다 같은 빌드와 부팅 확인을 한다. 로컬에서 안 돌려도 된다.
 
 호스트가 Dockerfile 을 직접 읽는 경우(Render/Fly/Koyeb 대부분), **Dockerfile 경로 `apps/api/Dockerfile`, 빌드 컨텍스트 `.`(레포 루트)** 로 설정한다. 컨텍스트를 `apps/api` 로 두면 워크스페이스 패키지를 못 찾아 실패한다.
 

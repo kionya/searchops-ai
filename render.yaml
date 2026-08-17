@@ -9,17 +9,27 @@
 services:
   - type: web
     name: searchops-api
-    runtime: docker
+    # 이미지를 여기서 굽지 않는다. 무료 플랜의 빌드 자원으로는 이 모노레포 빌드가
+    # 메모리 부족으로 죽는다. GitHub Actions(.github/workflows/api-image.yml)가 굽고
+    # GHCR 에 올리면 Render 는 받아서 띄우기만 한다.
+    runtime: image
+    image:
+      # 실제로 뜨는 이미지는 deploy hook 이 imgURL 로 지정하는 커밋 SHA 태그다.
+      # 여기 latest 는 서비스를 처음 만들 때의 시작점일 뿐이다.
+      url: ghcr.io/kionya/searchops-api:latest
+      # ⚠️ 패키지를 private 로 두면 이 줄이 필요하다:
+      #   creds: <Render Workspace Settings 에 등록한 자격증명 이름>
+      # public 으로 두면 없어도 된다. 이미지에 비밀값은 없고(모든 env 는 런타임 주입,
+      # .dockerignore 가 .env 를 제외한다) 레포 자체가 공개라 새로 새는 정보가 없다.
     plan: free
     # 운영 DB(Supabase)가 서울이다. Render 리전 중 가장 가까운 곳을 고른다.
     # ⚠️ 무료 플랜에서 singapore 를 못 고르면 oregon 으로 바꿔라 — 동작에는 지장 없고
     # DB 왕복만 느려진다.
     region: singapore
-    # 컨텍스트는 반드시 레포 루트다. apps/api 로 두면 workspace 패키지를 못 찾아 실패한다.
-    dockerfilePath: ./apps/api/Dockerfile
-    dockerContext: .
     healthCheckPath: /health
-    autoDeploy: true
+    # 이미지 기반 서비스는 태그가 갱신돼도 자동 재배포되지 않는다(Render 공식 문서).
+    # 배포는 워크플로가 deploy hook 으로 명시적으로 건다.
+    autoDeploy: false
     envVars:
       # 아래 Key Value 서비스의 내부 접속 주소가 자동으로 들어간다. 손으로 넣지 마라.
       - key: REDIS_URL
