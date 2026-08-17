@@ -190,11 +190,46 @@ SEARCHOPS_RATE_LIMIT_ENABLED (기본: production 이면 켜짐)
 
 **API 도메인이 정해진 뒤에 한다**(0절 순서 참고). 도메인이 없으면 리디렉트 URI 를 쓸 수 없다.
 
-Google Cloud Console → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션):
+### 코드가 요구하는 scope (정본: `apps/api/src/google-oauth.ts`)
 
-- **승인된 리디렉션 URI**: `https://<API도메인>/connectors/google/oauth/callback`
-  `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI` 와 **한 글자도 다르면 안 된다.**
-- 사용 설정할 API: Search Console API, Google Analytics Data API
+```
+openid
+email
+https://www.googleapis.com/auth/webmasters.readonly     ← GSC
+https://www.googleapis.com/auth/analytics.readonly      ← GA4
+```
+
+둘 다 **읽기 전용**이다. 쓰기 권한은 요구하지 않는다.
+
+인증 URL 에 `access_type=offline` 과 `prompt=consent` 를 붙이므로 refresh token 이 발급된다 — 이게 있어야 배치가 매일 토큰을 갱신하며 돈다.
+
+### ⚠️ 게시 상태를 "프로덕션" 으로 올려야 한다
+
+Google 문서: *"외부 사용자 유형이고 게시 상태가 '테스트' 인 프로젝트는 **7일 만에 만료되는** refresh token 을 발급한다 — 요청 scope 가 이름·이메일·프로필의 부분집합인 경우는 예외."*
+
+우리 scope 는 그 예외에 **해당하지 않는다.** 테스트 상태로 두면 연결 일주일 뒤 배치가 조용히 실패하기 시작한다. 증상이 "어제까지 되던 게 안 된다" 라서 원인을 찾기 어렵다.
+
+- **Google Workspace 계정이 있으면**: 사용자 유형을 **내부(Internal)** 로 하면 이 문제가 없고 확인(verification)도 필요 없다. 이쪽이 가장 깔끔하다.
+- **일반 Gmail 계정이면**: 외부(External)로 만들고 **게시 상태를 "프로덕션" 으로 전환**한다. 확인받지 않은 앱이라 동의 화면에 경고가 뜨는데, 본인이 쓰는 것이므로 `고급` → `<앱 이름>(안전하지 않음)으로 이동` 으로 통과하면 된다. 민감한 scope 를 확인 없이 쓸 때 사용자 100명 상한이 있는데, 운영자 몇 명이면 문제되지 않는다.
+
+### 절차
+
+1. **프로젝트 선택** — 기존 프로젝트를 쓰거나 새로 만든다.
+2. **API 사용 설정** — `API 및 서비스` → `라이브러리` 에서 두 개를 각각 검색해 **사용** 을 누른다.
+   - `Google Search Console API`
+   - `Google Analytics Data API`
+3. **OAuth 동의 화면 구성** — `API 및 서비스` → `OAuth 동의 화면`
+   - 사용자 유형: 위 경고 참고
+   - 앱 이름 / 사용자 지원 이메일 / 개발자 연락처 이메일 입력
+   - `범위 추가 또는 삭제` 에서 위 4개를 추가
+4. **게시 상태를 프로덕션으로 전환** — 같은 화면의 `앱 게시` 버튼. **이 단계를 빠뜨리지 마라.**
+5. **클라이언트 생성** — `사용자 인증 정보` → `사용자 인증 정보 만들기` → `OAuth 클라이언트 ID` → **웹 애플리케이션**
+   - 승인된 JavaScript 원본: **비워둔다**(서버 사이드 흐름이라 필요 없다)
+   - **승인된 리디렉션 URI**: `https://<API도메인>/connectors/google/oauth/callback`
+     `SEARCHOPS_GOOGLE_OAUTH_REDIRECT_URI` 와 **한 글자도 다르면 안 된다.**
+6. 발급된 **클라이언트 ID / 보안 비밀번호** 를 2절의 env 에 넣는다.
+
+⚠️ 나중에 **연결을 승인하는 Google 계정**은 대상 사이트의 Search Console 속성과 GA4 속성에 접근 권한이 있어야 한다. 권한 없는 계정으로 연결하면 인증은 성공하는데 데이터가 비어 온다.
 
 ## 4. Vercel 쪽 복구
 
@@ -258,6 +293,8 @@ gh run watch
 | 커넥터 화면에 "이 모드에서는 설정할 수 없습니다" | Vercel 에 `SEARCHOPS_API_BASE_URL` 없음 | 4절 |
 | `?oauth=not_configured` | API 에 Google OAuth env 없음 | 2·3절 |
 | OAuth 콜백에서 `redirect_uri_mismatch` | Console 의 URI 와 env 불일치 | 3절 — 한 글자까지 대조 |
+| **연결 일주일 뒤부터 동기화 실패** | 게시 상태가 '테스트' 라 refresh token 이 7일 만에 만료 | 3절 — 게시 상태를 프로덕션으로 올리고 재연결 |
+| 인증은 됐는데 데이터가 비어 옴 | 승인한 Google 계정에 해당 속성 권한이 없음 | Search Console/GA4 에서 그 계정 권한 확인 |
 | 계정은 연결됐는데 저장 버튼 비활성 | 계정 목록 조회 실패 | `/ops/connector-live-setup` 으로 원인 확인 |
 | 동기화를 눌러도 아무 일 없음 | 워커 없음(정상) | 배치가 매일 처리한다. 즉시 원하면 5절 끝 참고 |
 | 배치 로그에 `키링을 읽지 못했다` | GitHub Secret 의 키가 API 와 다름 | 5절 — 같은 값이어야 한다 |
