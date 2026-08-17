@@ -35,6 +35,12 @@ grant select on
   public."SchemaRecommendation"
 to searchops_web_readonly;
 
+-- 로그인한 사용자의 조직 소속을 확인하는 데만 쓴다(findUserMembershipByEmail).
+-- 이게 있어야 Supabase custom access token hook 없이 로그인이 동작한다.
+-- 컬럼 단위로 준다 — 이름·가입일까지 열 이유가 없다.
+grant select ("id", "organizationId", "email", "role") on public."User"
+to searchops_web_readonly;
+
 -- 앞으로 만들어질 테이블에 기본 권한이 새지 않게 한다. Prisma 마이그레이션이 새 테이블을
 -- 만들어도 이 역할은 자동으로 접근권을 얻지 않는다.
 alter default privileges in schema public revoke all on tables from searchops_web_readonly;

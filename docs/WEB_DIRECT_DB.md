@@ -39,7 +39,34 @@ API 가 웹에 더해주던 것은 **데이터 접근 하나뿐이었다.**
 | `SEARCHOPS_API_BASE_URL` 있음 | API | "API 데이터" |
 | 둘 다 없음 | fixture | "데모 데이터" 배너 |
 
+## 로그인: custom access token hook 이 더 이상 필요 없다
+
+원래 웹은 Supabase JWT 의 커스텀 클레임 `organization_id` / `user_role` 에 의존했고, 그건 **custom access token hook** 을 따로 설치해야 나온다. 웹이 DB 를 직접 읽는 지금은 그 훅 없이도 소속을 알 수 있다.
+
+```
+Supabase JWT 검증 (서명·sub 일치·role=authenticated)   ← 인증. 그대로 유지
+  └ 클레임에 organization_id 가 있으면 그걸 쓴다        ← 기존 경로, 신뢰 모델 불변
+  └ 없으면 검증된 email 로 User 테이블 조회             ← 새 경로, 훅 불필요
+```
+
+조회 키는 **검증된 클레임의 이메일**이다. `user_metadata` 처럼 사용자가 고칠 수 있는 값은 쓰지 않는다 — 쓰면 아무 조직이나 주장할 수 있다.
+
+⚠️ `User.email` 은 조직별 unique 라 같은 이메일이 두 조직에 있을 수 있다. 그 경우 **실패로 닫는다**(어느 쪽인지 결정할 근거가 없는데 아무거나 고르면 그게 테넌트 유출이다). 그런 사용자는 토큰 클레임으로만 해결되므로 훅이 필요하다.
+
 ## 설정 절차
+
+### 0. Supabase 인증 (아직 안 돼 있으면 여기부터)
+
+2026-08-17 기준 배포된 웹의 `/login` 은 "현재 로그인을 사용할 수 없습니다" 를 띄운다 — Vercel 에 Supabase 인증 값이 없고 `auth.users` 도 비어 있다. 데이터 경로가 살아도 여기가 막히면 아무도 대시보드에 도달하지 못한다.
+
+1. Vercel 에 `NEXT_PUBLIC_SUPABASE_URL` 과 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(또는 `..._ANON_KEY`) 를 넣는다.
+2. Supabase 대시보드에서 사용자를 하나 만든다.
+3. 같은 이메일로 `User` 행을 만든다 — 이게 조직 소속의 근거다.
+   ```sql
+   insert into "User" (id, "organizationId", email, name, role)
+   values (gen_random_uuid()::text, '<조직id>', '<로그인 이메일>', '<이름>', 'owner');
+   ```
+4. custom access token hook 은 **설치하지 않아도 된다**(위 참고).
 
 ### 1. 최소권한 역할 생성
 

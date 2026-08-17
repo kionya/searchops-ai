@@ -55,8 +55,12 @@ try {
     { encoding: "utf8", env: { ...process.env, DATABASE_URL: dbUrl, DIRECT_DATABASE_URL: dbUrl }, stdio: "pipe" },
   );
 
-  const { createSearchOpsPrismaClient, listOrganizationSites, loadSiteDashboardSnapshot } =
-    await import(dbDist);
+  const {
+    createSearchOpsPrismaClient,
+    findUserMembershipByEmail,
+    listOrganizationSites,
+    loadSiteDashboardSnapshot
+  } = await import(dbDist);
 
   process.env.DATABASE_URL = dbUrl;
   process.env.DIRECT_DATABASE_URL = dbUrl;
@@ -211,6 +215,36 @@ try {
     orgASites.map((site) => site.id),
   );
 
+  // ---- 2b) 소속 조회: custom access token hook 없이 로그인이 되게 하는 경로 ----
+  await prisma.user.create({
+    data: { email: "owner@a.example.com", id: "user_a", name: "A", organizationId: "org_a", role: "owner" }
+  });
+  const membership = await findUserMembershipByEmail(prisma, "owner@a.example.com");
+  check(
+    "이메일로 조직 소속을 찾는다",
+    membership?.organizationId === "org_a" && membership?.role === "owner",
+    membership,
+  );
+  check(
+    "대소문자가 달라도 찾는다",
+    (await findUserMembershipByEmail(prisma, "Owner@A.Example.com"))?.organizationId === "org_a",
+  );
+  check("없는 이메일은 null", (await findUserMembershipByEmail(prisma, "nobody@x.test")) === null);
+
+  // User.email 은 조직별 unique 라 같은 이메일이 두 조직에 있을 수 있다. 그때 아무 조직이나
+  // 고르면 그게 곧 테넌트 유출이므로 실패로 닫아야 한다.
+  await prisma.user.create({
+    data: { email: "owner@a.example.com", id: "user_b", name: "B", organizationId: "org_b", role: "owner" }
+  });
+  check(
+    "같은 이메일이 두 조직에 있으면 fail-closed",
+    (await findUserMembershipByEmail(prisma, "owner@a.example.com")) === null,
+  );
+  // 아래 최소권한 역할 검사에서 쓸, 조직이 하나뿐인 사용자.
+  await prisma.user.create({
+    data: { email: "solo@a.example.com", id: "user_solo", name: "Solo", organizationId: "org_a", role: "owner" }
+  });
+
   // ---- 3) Vercel 에 둘 최소권한 역할이 실제로 막는가 ----
   // 운영에 적용할 SQL 을 그대로 돌린다. 비밀번호만 이 실행용으로 바꾼다.
   const roleSqlText = execFileSync("cat", [roleSql], { encoding: "utf8" }).replace(
@@ -265,6 +299,11 @@ try {
     organizationId: "org_a",
     siteId: "site_a1"
   });
+  // 소속 조회도 이 역할로 돼야 한다. 안 되면 운영에서 로그인 자체가 실패한다.
+  // GRANT 가 빠지면 Prisma 가 던지므로, 스택트레이스 대신 실패한 검사로 보이게 잡는다.
+  const readonlyMembership = await findUserMembershipByEmail(webPrisma, "solo@a.example.com").catch(
+    (error) => ({ error: String(error).slice(0, 120) }),
+  );
   check(
     "최소권한 역할로도 스냅샷 전체가 조회됨",
     readonlySnapshot !== null &&
@@ -276,6 +315,19 @@ try {
       recs: readonlySnapshot.schemaRecommendations.length,
       workOrders: readonlySnapshot.workOrders.length
     },
+  );
+
+  check(
+    "최소권한 역할로도 조직 소속 조회가 됨 (로그인 경로)",
+    readonlyMembership?.organizationId === "org_a",
+    readonlyMembership,
+  );
+  // 이름·가입일까지 열리면 컬럼 단위 GRANT 가 무너진 것이다.
+  const nameDenied = deniedBy('select "name" from "User" limit 1');
+  check(
+    "User 의 불필요한 컬럼은 여전히 거부",
+    nameDenied !== null && /permission denied/i.test(nameDenied),
+    nameDenied,
   );
 
   console.log(

@@ -171,6 +171,45 @@ export async function loadSiteDashboardSnapshot(
   };
 }
 
+export interface UserMembership {
+  readonly organizationId: string;
+  readonly role: string;
+  readonly userId: string;
+}
+
+/**
+ * 검증된 이메일로 조직 소속을 찾는다.
+ *
+ * 왜 필요한가: 웹은 원래 Supabase JWT 의 `organization_id`/`user_role` 커스텀 클레임에
+ * 의존했고, 그 클레임은 custom access token hook 을 따로 설치해야 나온다. 웹이 DB 를
+ * 직접 읽게 된 이상 그 훅은 필요 없다 — 소속은 여기서 확인하면 된다.
+ *
+ * ⚠️ 동명이인 방지: `User.email` 은 조직별 unique 라 같은 이메일이 여러 조직에 있을 수
+ * 있다. 그 경우 어느 조직인지 결정할 근거가 없으므로 **null 을 돌려 실패로 닫는다**.
+ * 아무 조직이나 고르면 그게 곧 테넌트 유출이다. 그런 사용자는 토큰 클레임으로만
+ * 해결할 수 있고, 그건 호출자가 판단한다.
+ */
+export async function findUserMembershipByEmail(
+  prisma: SearchOpsPrismaClient,
+  email: string,
+): Promise<UserMembership | null> {
+  const normalized = email.trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+  // 두 건까지만 읽으면 "여러 건인가"를 판정하는 데 충분하다.
+  const matches = await prisma.user.findMany({
+    select: { id: true, organizationId: true, role: true },
+    take: 2,
+    where: { email: { equals: normalized, mode: "insensitive" } }
+  });
+  const [only] = matches;
+  if (matches.length !== 1 || only === undefined) {
+    return null;
+  }
+  return { organizationId: only.organizationId, role: only.role, userId: only.id };
+}
+
 /**
  * 조직이 소유한 사이트 목록. `/sites` 페이지가 쓴다.
  */

@@ -128,6 +128,23 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 여전히 API 가 필요한 것: **쓰기 전부**(사이트 등록·지시서 상태 변경·재검수 큐잉 — 읽기 전용 역할이라 막힌다)와 **커넥터/Integrations**(credential 복호화 필요). GEO·컴플라이언스·콘텐츠는 API 문제가 아니라 데이터를 만드는 실행 주체가 없어서다.
 
+#### 파고 보니 API 는 네 번째 차단 요인이었다
+
+배포된 `/login` 이 **"현재 로그인을 사용할 수 없습니다"** 를 띄운다. 확인 결과 실제 차단 사슬은 이랬다:
+
+| # | 차단 요인 | 상태 |
+|---|---|---|
+| 1 | Vercel 에 Supabase 인증 env 없음 | ❌ 운영자 작업 |
+| 2 | `auth.users` 0명 (identities 도 0) | ❌ 운영자 작업 |
+| 3 | `organization_id` 클레임을 넣는 custom access token hook 필요 | ✅ **없앴다** |
+| 4 | 데이터 접근 (API) | ✅ 해결 |
+
+**3번을 없앤 방법**: 웹이 DB 를 읽게 된 이상 소속을 토큰이 아니라 `User` 테이블에서 확인하면 된다. 인증(서명·`sub` 일치·`role=authenticated`)은 그대로 요구하고, 클레임에 `organization_id` 가 있으면 그걸 쓰고 **없을 때만** 검증된 email 로 조회한다 — 기존 API 경로의 신뢰 모델은 건드리지 않는다. 조회 키가 반드시 검증된 클레임의 email 이어야 한다는 것, 그리고 같은 email 이 두 조직에 있으면 **실패로 닫는다**는 것이 핵심이다(아무 조직이나 고르면 그게 테넌트 유출이다).
+
+⚠️ 이 과정에서 **버그를 하나 만들었다가 검증기로 잡았다**: 최소권한 역할에 `User` 읽기 권한이 없어 운영에서 로그인이 실패할 상황이었다. 컬럼 단위 GRANT(`id`,`organizationId`,`email`,`role`)로 열고, 그 GRANT 를 빼면 정확히 그 검사가 실패하는 것까지 확인했다.
+
+**남은 운영자 작업은 1·2번뿐이다** — 절차는 `docs/WEB_DIRECT_DB.md` 0절.
+
 ---
 
 ## Multi-tenant provider credential 구현 상태

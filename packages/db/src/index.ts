@@ -164,10 +164,12 @@ export {
 } from "./geo-visibility.js";
 
 export {
+  findUserMembershipByEmail,
   listOrganizationSites,
   loadSiteDashboardSnapshot,
   type LoadSiteDashboardSnapshotInput,
-  type SiteDashboardSnapshot
+  type SiteDashboardSnapshot,
+  type UserMembership
 } from "./site-dashboard.js";
 
 export const phaseOneSeedIds = {

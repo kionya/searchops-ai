@@ -25,6 +25,8 @@ import {
   type UpdateProviderAccountMetadataRequest,
 } from "@searchops/types";
 
+import type { SearchOpsPrismaClient } from "@searchops/db";
+
 import { getApiBaseUrl } from "./api-base-url";
 import { apiFetchAsUser } from "./api-client";
 import { getSupabaseServerClient } from "./supabase-server";
@@ -83,16 +85,34 @@ export interface ResolveVerifiedProviderUserInput {
   readonly sessionUserId: string | null | undefined;
 }
 
-export function resolveVerifiedProviderUser({
-  accessToken,
-  claims,
-  sessionUserId,
-}: ResolveVerifiedProviderUserInput): ProviderUserContext {
+export interface ProviderUserMembership {
+  readonly organizationId: string;
+  readonly role: string;
+}
+
+/**
+ * 토큰 클레임이 조직/역할을 담고 있지 않을 때 DB 소속으로 메운다.
+ *
+ * 커스텀 클레임(`organization_id`, `user_role`)은 Supabase custom access token hook 을
+ * 따로 설치해야 나온다. 웹이 DB 를 직접 읽는 지금은 그 훅 없이도 소속을 알 수 있다.
+ * 클레임이 있으면 그쪽을 그대로 쓴다 — 기존 API 경로의 신뢰 모델을 바꾸지 않기 위해서다.
+ *
+ * 인증 자체(서명 검증, sub 일치, role=authenticated)는 여기서도 똑같이 요구한다.
+ * membership 은 "이 사람이 누구인가"가 아니라 "어느 조직 소속인가"만 채운다.
+ */
+export function resolveVerifiedProviderUser(
+  { accessToken, claims, sessionUserId }: ResolveVerifiedProviderUserInput,
+  membership?: ProviderUserMembership | null,
+): ProviderUserContext {
   const token = accessToken?.trim();
   const userId = typeof claims?.sub === "string" ? claims.sub.trim() : "";
-  const organizationId =
+  const claimOrganizationId =
     typeof claims?.organization_id === "string" ? claims.organization_id.trim() : "";
-  const role = AuthRoleSchema.safeParse(claims?.user_role);
+  const organizationId =
+    claimOrganizationId.length > 0 ? claimOrganizationId : (membership?.organizationId.trim() ?? "");
+  const role = AuthRoleSchema.safeParse(
+    claims?.user_role ?? (claimOrganizationId.length > 0 ? undefined : membership?.role),
+  );
   const tokenUse = claims?.token_use;
   const principalType = claims?.principal_type;
 
@@ -133,12 +153,49 @@ export async function getCurrentProviderUser(): Promise<ProviderUserContext> {
     throw new ProviderAccountClientError("authentication_required");
   }
 
-  return resolveVerifiedProviderUser({
-    accessToken: sessionResult.data.session.access_token,
-    claims: claimsResult.data.claims as Record<string, unknown>,
-    sessionUserId: sessionResult.data.session.user.id,
-  });
+  const claims = claimsResult.data.claims as Record<string, unknown>;
+  return resolveVerifiedProviderUser(
+    {
+      accessToken: sessionResult.data.session.access_token,
+      claims,
+      sessionUserId: sessionResult.data.session.user.id,
+    },
+    await lookupMembershipFromDatabase(claims),
+  );
 }
+
+/**
+ * 커스텀 클레임이 없고 직접 DB 모드일 때만 소속을 조회한다.
+ *
+ * 조회 키는 반드시 **검증된 클레임의 이메일**이어야 한다. user_metadata 처럼 사용자가
+ * 고칠 수 있는 값을 쓰면 아무 조직이나 주장할 수 있다.
+ */
+async function lookupMembershipFromDatabase(
+  claims: Record<string, unknown>,
+): Promise<ProviderUserMembership | null> {
+  if (typeof claims.organization_id === "string" && claims.organization_id.trim().length > 0) {
+    return null;
+  }
+  if (!process.env.DATABASE_URL?.trim()) {
+    return null;
+  }
+  const email = typeof claims.email === "string" ? claims.email.trim() : "";
+  if (email.length === 0) {
+    return null;
+  }
+  try {
+    const db = await import("@searchops/db");
+    membershipPrisma ??= db.createSearchOpsPrismaClient();
+    return await db.findUserMembershipByEmail(membershipPrisma, email);
+  } catch {
+    // 소속 조회 실패는 미인증으로 떨어뜨린다 — 조용히 다른 조직으로 넘어가는 것보다 낫다.
+    return null;
+  }
+}
+
+// Prisma 클라이언트를 모듈 스코프에 캐시한다 — 서버리스에서 요청마다 만들면 커넥션이
+// 폭발한다. 타입만 정적으로 가져오고(런타임에 지워진다) 값은 동적 임포트로 만든다.
+let membershipPrisma: SearchOpsPrismaClient | null = null;
 
 export function canManageProviderAccounts(role: AuthRole): boolean {
   return role === "admin" || role === "owner" || role === "system";
