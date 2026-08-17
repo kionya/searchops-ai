@@ -99,21 +99,23 @@ async function inspectEngineLocations(): Promise<Record<string, string[] | strin
   const { readdir } = await import("node:fs/promises");
   const path = await import("node:path");
   const cwd = process.cwd();
+  // Prisma 가 실제로 뒤지는 경로를 그대로 넣는다(오류 메시지의 "searched" 목록).
+  // ⚠️ 이름을 거르지 마라 — 처음엔 점 들어간 이름을 걸렀다가 `.prisma` 를 못 보고
+  // 한 번 더 헛짚었다.
   const candidates = [
+    ".",
+    ".prisma/client",
+    ".next/server",
     "packages/db/src/generated/prisma",
-    "packages/db/dist/generated/prisma",
-    "node_modules/@searchops/db/src/generated/prisma",
-    "node_modules/@searchops/db/dist/generated/prisma",
-    ".next/server/chunks",
-    "."
+    "../../packages/db/src/generated/prisma"
   ];
   const result: Record<string, string[] | string> = { cwd };
   for (const candidate of candidates) {
     try {
       const entries = await readdir(path.join(cwd, candidate));
-      result[candidate] = entries.filter((entry) => entry.endsWith(".node") || !entry.includes("."));
+      result[candidate] = entries.slice(0, 40);
     } catch (error) {
-      result[candidate] = error instanceof Error ? error.message.slice(0, 60) : "unreadable";
+      result[candidate] = error instanceof Error ? error.message.slice(0, 80) : "unreadable";
     }
   }
   return result;
