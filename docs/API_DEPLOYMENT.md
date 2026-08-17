@@ -50,6 +50,42 @@ GitHub Actions (배치) ← 암호화 키 여기(Secret). 크롤 + 커넥터 동
 
 ⚠️ `searchops-api-production.up.railway.app` 은 **죽은 주소**다. `progress.md` 의 옛 기록에 남아 있을 뿐이니 재사용하지 마라.
 
+### Cloudflare 에 `api.totopapa.com` 붙이기
+
+⚠️ **배포한 뒤에 한다.** CNAME 이 가리킬 대상(호스트가 준 주소)이 있어야 만들 수 있다.
+
+**1) Cloudflare 대시보드** → `totopapa.com` → 왼쪽 **DNS** → **Add record**
+
+| 항목 | 값 |
+|---|---|
+| Type | `CNAME` |
+| Name | `api` |
+| Target | 호스트가 준 주소 (`searchops-api.onrender.com` 처럼 **`https://` 와 끝 슬래시를 뺀 호스트명만**) |
+| Proxy status | **DNS only (회색 구름)** |
+| TTL | Auto |
+
+프록시(주황 구름)를 켜면 호스트가 Let's Encrypt 인증서를 발급하지 못해 HTTPS 가 깨진다. Cloudflare 문서도 서드파티 서비스용 CNAME 은 DNS only 로 두라고 안내한다.
+
+**2) 호스트 쪽에도 등록한다.** DNS 만 걸면 호스트가 그 호스트명으로 온 요청을 자기 것으로 인정하지 않는다.
+
+| 호스트 | 위치 |
+|---|---|
+| Render | Settings → Custom Domains → Add |
+| Fly.io | `fly certs add api.totopapa.com` |
+| Koyeb | Service → Settings → Domains |
+| Railway | Settings → Networking → Custom Domain |
+
+**3) 확인** (전파에 보통 1~2분, 최대 수십 분):
+
+```bash
+dig +short api.totopapa.com          # 호스트 주소가 나와야 한다
+curl -sI https://api.totopapa.com/health | head -1   # HTTP/2 200
+```
+
+`curl` 이 인증서 오류를 내면 아직 발급 전이거나 프록시가 켜져 있다.
+
+**안 붙여도 된다.** 호스트가 준 주소를 그대로 써도 전부 동작한다. 나중에 호스트를 옮길 때 Google Console 의 리디렉트 URI 만 다시 등록하면 되고, 그건 2분짜리 일이다. 서브도메인은 그 2분을 미리 없애는 선택일 뿐이다.
+
 ### 순서 (도메인이 없으면 3절을 못 한다)
 
 ```
