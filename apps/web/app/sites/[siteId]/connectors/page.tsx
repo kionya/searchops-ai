@@ -29,6 +29,7 @@ import {
   type ConnectorLiveSetupTone,
   type ProtectedConnectorLiveSetupData,
 } from "../../../../src/connector-live-setup";
+import { getApiBaseUrl } from "../../../../src/api-base-url";
 import {
   createGoogleOAuthStartPath,
 } from "../../../../src/connector-oauth";
@@ -565,6 +566,9 @@ function ProviderBindingsPanel({
     (account) => account.provider.startsWith("geo_") && account.status === "connected",
   );
   const oauthPath = createGoogleOAuthStartPath(siteId, ["gsc", "ga4"]);
+  // 커넥터 관련 읽기·쓰기는 전부 provider-accounts.ts 의 request() 를 지나고,
+  // 거기서 API base URL 이 없으면 not_configured 로 즉시 던진다.
+  const connectorsConfigured = getApiBaseUrl() !== null;
   const feedbackMessage = {
     deleted: "사이트 연결을 해제했습니다.",
     failed: "사이트 연결 요청을 처리하지 못했습니다.",
@@ -581,10 +585,23 @@ function ProviderBindingsPanel({
           <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
             현재 역할: {canManage ? "변경 가능" : "조회 전용"}
           </p>
-          {loadFailed ? <p style={bindingErrorStyle}>연결 정보를 불러오지 못했습니다.</p> : null}
+          {/* 커넥터는 이 모드에서 동작할 수 없다. 그런데 화면은 비활성 버튼과
+              ?oauth=not_configured 만 보여줘서 이유를 알 방법이 없었다. 되지 않는
+              이유를 그 자리에서 말한다 — 죽은 컨트롤만 두는 것보다 낫다. */}
+          {connectorsConfigured ? null : (
+            <p style={bindingErrorStyle}>
+              커넥터 연동은 이 모드(DB 직접 연결)에서 설정할 수 없습니다. SearchOps API,
+              Google OAuth 설정, 자격증명 암호화 키가 모두 있어야 하는데, 암호화 키는
+              프론트가 뚫리면 전 테넌트의 연동 토큰이 한 번에 풀리므로 Vercel 에 두지
+              않습니다. 설계 근거와 대안은 docs/WEB_DIRECT_DB.md 에 있습니다.
+            </p>
+          )}
+          {connectorsConfigured && loadFailed ? (
+            <p style={bindingErrorStyle}>연결 정보를 불러오지 못했습니다.</p>
+          ) : null}
           {feedbackMessage ? <p aria-live="polite" style={bindingFeedbackStyle}>{feedbackMessage}</p> : null}
         </div>
-        {canManage && oauthPath ? (
+        {canManage && oauthPath && connectorsConfigured ? (
           <a href={oauthPath} style={oauthLinkButtonStyle}>Google 연결 / 재연결</a>
         ) : null}
       </header>
@@ -680,8 +697,11 @@ function ConnectorBindingControl({
             ))}
           </select>
           <label htmlFor={`${siteId}-${provider}-resource`}>리소스</label>
+          {/* 계정이 없으면 저장이 불가능한데 입력만 살아 있었다. 타이핑은 되는데
+              저장 버튼이 죽어 있으니 "왜 저장이 안 되냐" 로만 보인다. 같이 잠근다. */}
           <input
             defaultValue={connector?.externalResourceId ?? ""}
+            disabled={accounts.length === 0}
             id={`${siteId}-${provider}-resource`}
             name="externalResourceId"
             placeholder={placeholder}
