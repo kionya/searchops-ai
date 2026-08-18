@@ -102,6 +102,18 @@ const authContextResolver =
         allowTrustedHeaders: env.NODE_ENV !== "production",
         tokenVerifier: deploymentTokenVerifier
       });
+
+// 검증기가 없으면 인증이 필요한 경로가 401 이 아니라 **500** 을 낸다. 증상만 보면
+// 인증 설정 문제로 보이지 않아서 원인을 한참 못 찾는다(실제로 겪었다). 운영에서는
+// 토큰을 검증할 수 없는 API 는 어차피 쓸 수 없으므로, 조용히 뜨는 대신 여기서 끊는다.
+if (authContextResolver === undefined && env.NODE_ENV === "production") {
+  throw new Error(
+    "Invalid SearchOps environment: 토큰 검증기가 구성되지 않았다. " +
+      "SEARCHOPS_IDP_JWKS_JSON(권장) 또는 SEARCHOPS_IDP_JWT_HS256_SECRET 중 하나가 필요하다. " +
+      "Supabase 는 https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json 에서 받는다. " +
+      "자세한 절차는 docs/API_DEPLOYMENT.md 2절.",
+  );
+}
 const operationalLogDrain =
   env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL === undefined
     ? undefined

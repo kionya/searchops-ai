@@ -465,6 +465,43 @@ describe("types foundation", () => {
     ).toBe("service");
   });
 
+  // 호스팅 플랫폼(Render 등)은 "설정하지 않음" 을 빈 문자열로 주입한다. 그걸 그대로
+  // 스키마에 넘기면 안 채운 값이 "형식이 틀렸다" 로 보고돼 원인을 엉뚱한 데서 찾게 된다.
+  it("treats blank env values as unset, not as malformed", () => {
+    expect(() =>
+      parseSearchOpsEnv({
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
+        REDIS_URL: "redis://localhost:6379",
+        SEARCHOPS_IDP_JWKS_JSON: "",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      parseSearchOpsEnv({
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
+        REDIS_URL: "redis://localhost:6379",
+        SEARCHOPS_IDP_JWKS_JSON: "   ",
+      }),
+    ).not.toThrow();
+  });
+
+  it("reports a blank required value as missing rather than malformed", () => {
+    expect(() =>
+      parseSearchOpsEnv({ DATABASE_URL: "", REDIS_URL: "redis://localhost:6379" }),
+    ).toThrow(/DATABASE_URL/);
+  });
+
+  // 실제로 잘못 채운 값은 여전히 거부돼야 한다 — 빈 값 정규화가 검증을 무디게 하면 안 된다.
+  it("still rejects a malformed JSON env value", () => {
+    expect(() =>
+      parseSearchOpsEnv({
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/searchops",
+        REDIS_URL: "redis://localhost:6379",
+        SEARCHOPS_IDP_JWKS_JSON: "not-json",
+      }),
+    ).toThrow(/SEARCHOPS_IDP_JWKS_JSON/);
+  });
+
   it("fails env validation with clear field names", () => {
     expect(() => parseSearchOpsEnv({ REDIS_URL: "redis://localhost:6379" })).toThrow(
       /DATABASE_URL/,

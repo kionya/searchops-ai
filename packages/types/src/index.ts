@@ -353,7 +353,20 @@ export const SearchOpsEnvSchema = z.object({
 export type SearchOpsEnv = z.infer<typeof SearchOpsEnvSchema>;
 
 export function parseSearchOpsEnv(input: Record<string, string | undefined>) {
-  const parsed = SearchOpsEnvSchema.safeParse(input);
+  // 호스팅 플랫폼은 "설정하지 않음" 을 빈 문자열로 주입하는 경우가 많다 —
+  // Render 의 Blueprint 에서 sync:false 값을 비워두면 그렇게 된다. 빈 값을 그대로
+  // 스키마에 넘기면 "Expected a JSON object string" 처럼 **잘못 채운 것 같은** 메시지가
+  // 나온다. 실제로는 안 채운 것인데 형식 문제로 보여서 원인을 엉뚱한 데서 찾게 된다.
+  // 여기서 미설정으로 정규화하면 필수 값은 "Required" 로, 선택 값은 그냥 없는 것으로
+  // 정확하게 보고된다. 값 자체는 trim 하지 않는다 — 판단에만 쓴다.
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      normalized[key] = value;
+    }
+  }
+
+  const parsed = SearchOpsEnvSchema.safeParse(normalized);
   if (!parsed.success) {
     const message = parsed.error.issues
       .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
