@@ -6441,7 +6441,10 @@ describe.sequential("provider credential startup wiring", () => {
     const response = await server.inject({ method: "GET", url: "/ops/deployment" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ database: { reachable: true } });
+    expect(response.json()).toEqual({
+    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
+      database: { reachable: true },
+    });
   });
 
   it("classifies a missing pgbouncer option instead of reporting a generic failure", async () => {
@@ -6455,6 +6458,7 @@ describe.sequential("provider credential startup wiring", () => {
     const response = await server.inject({ method: "GET", url: "/ops/deployment" });
 
     expect(response.json()).toEqual({
+    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
       database: { reachable: false, reason: "pgbouncer_option_missing" },
     });
   });
@@ -6469,7 +6473,38 @@ describe.sequential("provider credential startup wiring", () => {
 
     expect(response.payload).not.toContain("secret-host");
     expect(response.json()).toEqual({
+    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
       database: { reachable: false, reason: "unreachable" },
+    });
+  });
+
+  // 커넥터가 안 붙을 때 API 는 503 하나만 낸다. 어느 조각이 빠졌는지 밖에서 볼 수
+  // 없으면 env 를 하나씩 찍어보는 수밖에 없다 — 실제로 그렇게 반나절을 썼다.
+  it("reports which connector dependency is missing without leaking any value", async () => {
+    const server = buildApiServer({
+      databaseProbe: async () => undefined,
+      googleOAuthClient: {
+        createAuthorizationUrl: () => {
+          throw new Error("unused");
+        },
+      } as never,
+      googleOAuthStateStore: {
+        consume: async () => true,
+        issue: async () => {
+          throw new Error("connect ECONNREFUSED red-secret-host:6379");
+        },
+      },
+      providerAccountService: undefined,
+    });
+
+    const response = await server.inject({ method: "GET", url: "/ops/deployment" });
+
+    expect(response.payload).not.toContain("red-secret-host");
+    expect(response.json().connectors).toEqual({
+      credentialStore: false,
+      googleOAuthClient: true,
+      // Redis 왕복이 실패하면 "구성됐다" 가 아니라 false 여야 한다.
+      stateStore: false,
     });
   });
 

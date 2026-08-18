@@ -1065,18 +1065,53 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   //
   // ⚠️ 값은 절대 내지 않는다. 접속 문자열·호스트·사용자명은 자격증명의 일부다.
   // 실패 사유만 분류해서 낸다 — 그것만으로 처방이 갈린다.
-  server.get("/ops/deployment", async () => {
+  async function probeDatabaseHealth() {
     if (databaseProbe === undefined) {
-      return { database: { reachable: false, reason: "not_configured" } };
+      return { reachable: false, reason: "not_configured" };
     }
     try {
       await databaseProbe();
-      return { database: { reachable: true } };
+      return { reachable: true };
     } catch (error) {
       const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-      return { database: { reachable: false, reason: classifyDatabaseFailure(text) } };
+      return { reachable: false, reason: classifyDatabaseFailure(text) };
     }
-  });
+  }
+
+  // state 저장소는 "구성됐다" 와 "실제로 붙는다" 가 다르다. Redis 가 죽어 있어도
+  // 객체는 멀쩡히 만들어지고, 실패는 사용자가 연결 버튼을 누른 뒤에야 503 으로 나온다.
+  // 여기서 한 번 왕복시켜 그 차이를 미리 드러낸다. 발급한 state 는 바로 회수한다.
+  async function probeOAuthStateStore(): Promise<boolean> {
+    if (googleOAuthStateStore === undefined) {
+      return false;
+    }
+    const identifier = `ops-probe-${randomUUID()}`;
+    try {
+      const issued = await googleOAuthStateStore.issue({
+        expiresAt: new Date(currentTime().getTime() + 60_000).toISOString(),
+        identifier,
+      });
+      await googleOAuthStateStore.consume(identifier);
+      return issued;
+    } catch {
+      return false;
+    }
+  }
+
+  server.get("/ops/deployment", async () => ({
+    database: await probeDatabaseHealth(),
+    // 커넥터가 왜 안 붙는지 밖에서 확인할 수 있는 유일한 창구다. OAuth start 는
+    // 인증이 필요해서 밖에서 찔러볼 수 없고, 실패하면 503 하나만 돌아온다.
+    // 어느 조각이 없는지만 말한다 — 값은 여기서도 절대 내지 않는다.
+    connectors: {
+      // SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REDIRECT_URI/_STATE_SECRET
+      googleOAuthClient: googleOAuthClient !== undefined,
+      // SEARCHOPS_CREDENTIAL_STORAGE_MODE + _ENCRYPTION_KEY(_ID)
+      credentialStore: providerAccountService !== undefined,
+      // REDIS_URL 로 실제 왕복이 되는지
+      stateStore: await probeOAuthStateStore(),
+    },
+  }));
 
   server.get("/metrics", async () =>
     ApiMetricsResponseSchema.parse({

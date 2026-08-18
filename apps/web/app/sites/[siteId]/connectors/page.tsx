@@ -80,6 +80,7 @@ interface ConnectorsPageProps {
     readonly binding?: string;
     readonly connectorOAuth?: string;
     readonly oauth?: string;
+    readonly oauthReason?: string;
     readonly runId?: string;
     readonly sync?: string;
   }>;
@@ -153,6 +154,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
           pageData.connectorLoadFailed ||
           oauth.errorMessage !== null
         }
+        oauthReason={triggerSearchParams.oauthReason}
         oauthStatus={
           triggerSearchParams.connectorOAuth ??
           triggerSearchParams.oauth ??
@@ -542,12 +544,33 @@ function PageSpeedSetupPanel({
   );
 }
 
+// Google 연결이 실패했을 때 "실패했습니다" 만 띄우면 운영자가 손댈 곳을 못 찾는다.
+// API 가 돌려준 코드마다 고쳐야 할 자리를 바로 지목한다.
+function describeOAuthFailure(reason: string | undefined): string {
+  const suffix = reason === undefined ? "" : ` (코드: ${reason})`;
+  const message = {
+    api_unreachable: "SearchOps API 에 연결하지 못했습니다. API 배포 상태를 확인하세요.",
+    forbidden: "현재 역할로는 provider 연결을 변경할 수 없습니다.",
+    invalid_response: "API 응답 형식이 예상과 다릅니다. API 버전을 확인하세요.",
+    oauth_service_unavailable:
+      "API 에 Google OAuth 설정이 없습니다. SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID / _CLIENT_SECRET / _REDIRECT_URI / _STATE_SECRET 과 자격증명 암호화 키를 확인하세요.",
+    oauth_state_store_unavailable:
+      "OAuth state 저장소(Redis)에 연결하지 못했습니다. API 의 REDIS_URL 을 확인하세요.",
+    unauthorized: "로그인 세션이 만료됐습니다. 다시 로그인하세요.",
+    validation_error: "돌아갈 주소가 허용되지 않았습니다.",
+  }[reason ?? ""];
+  return message === undefined
+    ? `Google 연결 요청이 실패했습니다.${suffix} 진단: https://api.totopapa.com/ops/deployment`
+    : message + suffix;
+}
+
 function ProviderBindingsPanel({
   accounts,
   bindingStatus,
   canManage,
   connectors,
   loadFailed,
+  oauthReason,
   oauthStatus,
   siteId,
 }: {
@@ -556,6 +579,7 @@ function ProviderBindingsPanel({
   readonly canManage: boolean;
   readonly connectors: readonly SiteConnector[];
   readonly loadFailed: boolean;
+  readonly oauthReason: string | undefined;
   readonly oauthStatus: string | undefined;
   readonly siteId: string;
 }) {
@@ -576,6 +600,8 @@ function ProviderBindingsPanel({
   }[bindingStatus ?? ""] ?? (
     oauthStatus === "connected" ? "Google 계정을 연결했습니다." : null
   );
+  const oauthFailureMessage =
+    oauthStatus === "failed" ? describeOAuthFailure(oauthReason) : null;
 
   return (
     <section aria-label="사이트 Provider 연결" style={bindingSectionStyle}>
@@ -598,6 +624,9 @@ function ProviderBindingsPanel({
           )}
           {connectorsConfigured && loadFailed ? (
             <p style={bindingErrorStyle}>연결 정보를 불러오지 못했습니다.</p>
+          ) : null}
+          {oauthFailureMessage ? (
+            <p role="status" style={bindingErrorStyle}>{oauthFailureMessage}</p>
           ) : null}
           {feedbackMessage ? <p aria-live="polite" style={bindingFeedbackStyle}>{feedbackMessage}</p> : null}
         </div>
