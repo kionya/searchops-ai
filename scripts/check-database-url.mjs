@@ -5,16 +5,19 @@
 // libpq 다. 여기서는 실제 운영이 쓰는 Prisma 클라이언트로 붙어본다. 배포 왕복(2분)을
 // 로컬 10초로 줄이는 게 목적이다.
 //
-// 실행: node scripts/check-database-url.mjs
-//   URL 은 프롬프트로 받는다 — 인자로 주면 셸 히스토리에 남는다.
+// 실행 (URL 을 복사한 뒤):
+//   pbpaste | pnpm check:database-url
+//
+// 클립보드에서 바로 읽으므로 셸 히스토리에도 화면에도 남지 않는다. 인자로 주면
+// 히스토리에 남고, 대화형 프롬프트는 pnpm 을 거치면 입력을 못 받는 경우가 있어
+// 쓰지 않는다(실제로 그렇게 막혔다).
 //
 // 값은 절대 출력하지 않는다. 사용자명(비밀 아님)과 비밀번호의 "모양" 만 낸다.
 
-import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const raw = await ask("DATABASE_URL (입력은 보이지 않습니다): ");
+const raw = await readUrlFromStdin();
 // 붙여넣기 사고를 흡수한다. 따옴표째 복사하는 일이 잦고, 그러면 URL 파싱부터 실패해
 // 정작 접속 문제인지 형식 문제인지 구분이 안 된다.
 const url = raw.replace(/^["']|["']$/g, "").trim();
@@ -86,7 +89,7 @@ function describeShape(value) {
 
 function classify(text) {
   if (/prepared statement|bind message|PgBouncer|42P05|26000/i.test(text)) return "pgbouncer_option_missing";
-  if (/Tenant or user not found|ENOIDENTIFIER|no tenant identifier/i.test(text)) return "tenant_not_found";
+  if (/Tenant or user not found|tenant.user .{0,80}not found|ENOIDENTIFIER|no tenant identifier/i.test(text)) return "tenant_not_found";
   if (/authentication failed|denied access|P1000|P1010/i.test(text)) return "auth_failed";
   if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|reach database server|P1001|P1002/i.test(text)) return "unreachable";
   if (/query engine|libquery_engine/i.test(text)) return "engine_missing";
@@ -104,16 +107,15 @@ function advice(reason) {
   }[reason];
 }
 
-function ask(prompt) {
-  return new Promise((resolvePrompt) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // 입력을 화면에 찍지 않는다. 붙여넣기는 정상 동작한다.
-    rl.output.write(prompt);
-    rl._writeToOutput = () => {};
-    rl.question("", (answer) => {
-      rl.output.write("\n");
-      rl.close();
-      resolvePrompt(answer.trim());
-    });
-  });
+async function readUrlFromStdin() {
+  if (process.stdin.isTTY) {
+    console.error("URL 을 표준입력으로 넘겨라. 클립보드에 복사한 뒤:");
+    console.error("  pbpaste | pnpm check:database-url");
+    process.exit(2);
+  }
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
