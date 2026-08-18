@@ -8,6 +8,7 @@
                                 "outputs":  [
                                                 "dist/**",
                                                 "src/generated/prisma/**",
+                                                ".prisma/client/**",
                                                 ".next/**",
                                                 "!.next/cache/**"
                                             ]
