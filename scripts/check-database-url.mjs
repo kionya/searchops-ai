@@ -21,6 +21,18 @@ const raw = await readUrlFromStdin();
 // 붙여넣기 사고를 흡수한다. 따옴표째 복사하는 일이 잦고, 그러면 URL 파싱부터 실패해
 // 정작 접속 문제인지 형식 문제인지 구분이 안 된다.
 const url = raw.replace(/^["']|["']$/g, "").trim();
+// ⚠️ 정리한 사실 자체를 보고한다. 이 도구는 정리 후 값으로 검사하는데, Render 는
+// 붙여넣은 그대로 저장한다. 그래서 여기서 ✅ 가 나와도 Render 에서는 실패할 수 있다 —
+// 실제로 그 차이 때문에 배포 왕복을 여러 번 했다.
+if (raw.length > 0 && raw !== url) {
+  const stray = raw.length - url.length;
+  console.log("");
+  console.log("⚠️⚠️ 입력에 군더더기 문자가 " + stray + "개 붙어 있다(공백·줄바꿈·따옴표).");
+  console.log("     이 도구는 벗겨내고 검사하지만 Render 는 그대로 저장한다.");
+  console.log("     Render 입력칸에 붙여넣을 때 그 문자가 같이 들어가면 비밀번호가 달라진다.");
+  console.log("     아래 명령으로 정리된 값을 클립보드에 다시 담아라:");
+  console.log("       pbpaste | tr -d '\\r\\n' | pbcopy");
+}
 if (!url) {
   console.error("입력이 없다. 프롬프트가 뜬 뒤에 붙여넣고 Enter 를 눌러라.");
   process.exit(2);
