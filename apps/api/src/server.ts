@@ -3061,6 +3061,11 @@ function classifyDatabaseFailure(text: string): string {
   if (/prepared statement|bind message|PgBouncer|42P05|26000/i.test(text)) {
     return "pgbouncer_option_missing";
   }
+  // 사용자명에 `.프로젝트ref` 가 없으면 Supavisor 가 테넌트를 못 찾는다. auth_failed 와
+  // 처방이 완전히 다르다(비밀번호가 아니라 사용자명 형식 문제다).
+  if (/Tenant or user not found|ENOIDENTIFIER|no tenant identifier/i.test(text)) {
+    return "tenant_not_found";
+  }
   if (/permission denied for/i.test(text)) {
     return "permission_denied";
   }
