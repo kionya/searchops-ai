@@ -556,7 +556,11 @@ function describeOAuthFailure(reason: string | undefined): string {
       "API 에 Google OAuth 설정이 없습니다. SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID / _CLIENT_SECRET / _REDIRECT_URI / _STATE_SECRET 과 자격증명 암호화 키를 확인하세요.",
     oauth_state_store_unavailable:
       "OAuth state 저장소(Redis)에 연결하지 못했습니다. API 의 REDIS_URL 을 확인하세요.",
-    unauthorized: "로그인 세션이 만료됐습니다. 다시 로그인하세요.",
+    // 세션 만료로 단정하면 안 된다. API 가 토큰을 거절하는 이유는 만료 말고도
+    // 클레임 부족(user_role 없음)·서명 키 불일치·issuer 불일치가 있고, 실제로
+    // 걸린 건 Supabase 기본 토큰에 user_role 이 없던 경우였다.
+    unauthorized:
+      "API 가 로그인 토큰을 거부했습니다. 다시 로그인해도 같다면 토큰에 user_role 클레임이 없는 것입니다 — scripts/sql/supabase-access-token-hook.sql 을 적용하고 Supabase → Authentication → Hooks 에서 켜세요.",
     validation_error: "돌아갈 주소가 허용되지 않았습니다.",
   }[reason ?? ""];
   return message === undefined
