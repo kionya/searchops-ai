@@ -208,6 +208,10 @@ const server = buildApiServer({
   ...(rateLimitStore === undefined ? {} : { rateLimitStore }),
   schemaRichResultValidationQueue,
   secretRotationExecutor,
+  // 접속만 확인한다. 데이터는 읽지 않는다.
+  databaseProbe: async () => {
+    await prisma.$queryRaw`select 1`;
+  },
   repository: createPrismaRepository(
     prisma,
     richdocContract === undefined

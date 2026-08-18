@@ -6436,6 +6436,43 @@ describe.sequential("provider credential startup wiring", () => {
     expect(mocks.server.listen).toHaveBeenCalledOnce();
   });
 
+  it("reports database reachability without authentication and without leaking values", async () => {
+    const server = buildApiServer({ databaseProbe: async () => undefined });
+    const response = await server.inject({ method: "GET", url: "/ops/deployment" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ database: { reachable: true } });
+  });
+
+  it("classifies a missing pgbouncer option instead of reporting a generic failure", async () => {
+    // Supabase 트랜잭션 풀러에 ?pgbouncer=true 를 빠뜨리면 접속은 되는데 첫 쿼리에서만
+    // 깨진다. "DB 가 안 된다" 로만 보이면 원인을 엉뚱한 데서 찾게 된다.
+    const server = buildApiServer({
+      databaseProbe: async () => {
+        throw new Error('prepared statement "s0" already exists');
+      },
+    });
+    const response = await server.inject({ method: "GET", url: "/ops/deployment" });
+
+    expect(response.json()).toEqual({
+      database: { reachable: false, reason: "pgbouncer_option_missing" },
+    });
+  });
+
+  it("never puts the original database error text in the probe response", async () => {
+    const server = buildApiServer({
+      databaseProbe: async () => {
+        throw new Error("connect ECONNREFUSED db.secret-host.supabase.co:5432");
+      },
+    });
+    const response = await server.inject({ method: "GET", url: "/ops/deployment" });
+
+    expect(response.payload).not.toContain("secret-host");
+    expect(response.json()).toEqual({
+      database: { reachable: false, reason: "unreachable" },
+    });
+  });
+
   it("fails closed before server construction when configured keyring parsing fails", async () => {
     const keyringError = new Error("malformed credential keyring");
     const mocks = installApiEntrypointMocks({

@@ -240,6 +240,11 @@ const GoogleOAuthCallbackQuerySchema = z.object({
 
 export interface BuildApiServerOptions {
   readonly repository?: SearchOpsRepository;
+  /**
+   * DB 접속만 확인한다(데이터는 읽지 않는다). /ops/deployment 가 쓴다.
+   * 주입식인 이유: server.ts 는 prisma 를 직접 들지 않는다 — repository 뒤에 있다.
+   */
+  readonly databaseProbe?: () => Promise<void>;
   readonly crawlRunQueue?: CrawlRunQueue;
   readonly connectorSyncQueue?: ConnectorSyncQueue;
   readonly geoAnswerMonitorQueue?: GeoAnswerMonitorQueue;
@@ -448,6 +453,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
   const operationalAlertRouter =
     options.operationalAlertRouter ?? createNoopOperationalAlertRouter();
   const operationalLogDrain = options.operationalLogDrain ?? createNoopOperationalLogDrain();
+  const databaseProbe = options.databaseProbe;
   const authContextResolver = options.authContextResolver ?? resolveAuthenticatedUserContext;
   const backupRestoreDrillScheduler =
     options.backupRestoreDrillScheduler ?? createNoopBackupRestoreDrillScheduler();
@@ -626,6 +632,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     if (
       routeUrl === "/health" ||
       routeUrl === "/metrics" ||
+      routeUrl === "/ops/deployment" ||
       routeUrl === "/auth/context" ||
       routeUrl === "/connectors/google/oauth/callback" ||
       routeUrl === "/sites/:id/cms/content-updated-events" ||
@@ -1052,6 +1059,24 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       service: "api",
     }),
   );
+
+  // 배포가 실제로 동작하는지 밖에서 확인하는 유일한 창구다. /health 는 DB 를 건드리지
+  // 않으므로(건드리면 DB 순단마다 Render 가 서비스를 재시작한다) 여기서 따로 본다.
+  //
+  // ⚠️ 값은 절대 내지 않는다. 접속 문자열·호스트·사용자명은 자격증명의 일부다.
+  // 실패 사유만 분류해서 낸다 — 그것만으로 처방이 갈린다.
+  server.get("/ops/deployment", async () => {
+    if (databaseProbe === undefined) {
+      return { database: { reachable: false, reason: "not_configured" } };
+    }
+    try {
+      await databaseProbe();
+      return { database: { reachable: true } };
+    } catch (error) {
+      const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+      return { database: { reachable: false, reason: classifyDatabaseFailure(text) } };
+    }
+  });
 
   server.get("/metrics", async () =>
     ApiMetricsResponseSchema.parse({
@@ -3022,4 +3047,28 @@ function isDomainAllowedForSite(domain: string, siteDomain: string) {
     normalizedDomain === normalizedSiteDomain ||
     normalizedDomain.endsWith(`.${normalizedSiteDomain}`)
   );
+}
+
+// 원문 오류를 그대로 내보내지 않는다 — 호스트명과 사용자명이 들어 있다.
+// 규칙은 apps/web/src/site-database.ts 의 같은 이름 함수와 맞춘다. 두 곳이 다른 말을
+// 하면 같은 장애를 다르게 진단하게 된다.
+function classifyDatabaseFailure(text: string): string {
+  if (/query engine|libquery_engine|PrismaClientInitializationError.*platform/i.test(text)) {
+    return "engine_missing";
+  }
+  // prepared statement 관련은 Supabase 트랜잭션 풀러에 ?pgbouncer=true 를 빠뜨린 경우다.
+  // 접속은 되는데 첫 쿼리에서만 깨져서 "DB 가 안 된다" 로만 보인다.
+  if (/prepared statement|bind message|PgBouncer|42P05|26000/i.test(text)) {
+    return "pgbouncer_option_missing";
+  }
+  if (/permission denied for/i.test(text)) {
+    return "permission_denied";
+  }
+  if (/authentication failed|denied access|P1000|P1010/i.test(text)) {
+    return "auth_failed";
+  }
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|reach database server|P1001|P1002/i.test(text)) {
+    return "unreachable";
+  }
+  return "unknown";
 }
