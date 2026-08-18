@@ -24,7 +24,9 @@ describe("output file tracing", () => {
     if (block === null) {
       throw new Error("next.config.mjs 의 prismaEngine 배열을 찾지 못했다.");
     }
-    const traced = [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    const traced = [...(block[1] ?? "").matchAll(/"([^"]+)"/g)].flatMap(
+      (match) => match[1] ?? [],
+    );
     expect(traced.length).toBeGreaterThan(0);
 
     // ../.. 로 나가는 경로는 다른 패키지 소유라 그쪽 outputs 가 책임진다.
