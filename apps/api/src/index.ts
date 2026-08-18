@@ -42,23 +42,62 @@ const googleOAuthStateStore =
     ? undefined
     : createIoredisGoogleOAuthStateStore({ redisUrl: env.REDIS_URL });
 const prisma = createSearchOpsPrismaClient();
-const credentialKeyring =
-  env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined
-    ? undefined
-    : parseCredentialKeyring({
-        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
-          ? {}
-          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
-        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
-          ? {}
-          : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
-        ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
-          ? {}
-          : {
-              SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
-                env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
-            })
-      });
+// parseCredentialKeyring 은 어느 조건이 깨졌는지 말하지 않고 credential_keyring_invalid
+// 하나만 던진다. 그 문자열은 시스템 전체가 에러 코드로 쓰고 있어(worker 의 processor,
+// 회전 스크립트) 바꿀 수 없다. 대신 부팅 때만 원인을 짚어준다 — 값은 절대 찍지 않는다.
+function describeKeyringProblem(): string | undefined {
+  const keyId = env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID;
+  const material = env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY;
+  if (keyId === undefined || keyId.trim().length === 0) {
+    return "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID 가 비어 있다.";
+  }
+  if (material === undefined || material.trim().length === 0) {
+    return "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY 가 비어 있다.";
+  }
+  const decoded = Buffer.from(material, "base64");
+  // 정규형 일치까지 요구한다 — 공백·줄바꿈이 섞이거나 base64url(-, _)이면 여기서 걸린다.
+  if (decoded.toString("base64") !== material) {
+    return "SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY 가 표준 base64 가 아니다(공백·줄바꿈이 섞였거나 base64url 형식).";
+  }
+  if (decoded.length !== 32) {
+    return `SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY 를 디코딩하면 ${decoded.length}바이트다. AES-256 은 정확히 32바이트를 요구한다.`;
+  }
+  return undefined;
+}
+
+function buildCredentialKeyring() {
+  if (env.SEARCHOPS_CREDENTIAL_STORAGE_MODE === undefined) {
+    return undefined;
+  }
+  try {
+    return parseCredentialKeyring({
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY === undefined
+        ? {}
+        : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID === undefined
+        ? {}
+        : { SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID: env.SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY_ID }),
+      ...(env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON === undefined
+        ? {}
+        : {
+            SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON:
+              env.SEARCHOPS_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS_JSON
+          })
+    });
+  } catch (error) {
+    // 원래 오류는 cause 로 남긴다 — credential_keyring_invalid 라는 코드 자체는
+    // 다른 곳에서 의미를 갖는다. 여기서는 운영자가 고칠 수 있게 이유만 덧붙인다.
+    const reason = describeKeyringProblem() ?? "이전 키 JSON 이 잘못됐거나 활성 키 id 와 겹친다.";
+    throw new Error(
+      `자격증명 키링을 읽지 못했다: ${reason} 생성: ` +
+        `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))" ` +
+        "(자세한 절차는 docs/API_DEPLOYMENT.md 2절)",
+      { cause: error },
+    );
+  }
+}
+
+const credentialKeyring = buildCredentialKeyring();
 const providerCredentialStore = createPrismaProviderCredentialStore(prisma);
 const providerAccountService =
   credentialKeyring === undefined

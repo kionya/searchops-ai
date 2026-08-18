@@ -6443,7 +6443,12 @@ describe.sequential("provider credential startup wiring", () => {
       keyringError,
     });
 
-    await expect(import("./index.js")).rejects.toBe(keyringError);
+    // 부팅을 끊는다는 계약은 그대로다. 다만 운영자가 고칠 수 있도록 원인을 덧붙여
+    // 다시 던지므로, 원래 오류는 cause 에 남는다.
+    await expect(import("./index.js")).rejects.toMatchObject({
+      cause: keyringError,
+      message: expect.stringContaining("자격증명 키링을 읽지 못했다"),
+    });
 
     expect(mocks.parseCredentialKeyring).toHaveBeenCalledOnce();
     expect(mocks.createPrismaProviderCredentialStore).not.toHaveBeenCalled();
