@@ -14,9 +14,12 @@ import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const url = await ask("DATABASE_URL (입력은 보이지 않습니다): ");
+const raw = await ask("DATABASE_URL (입력은 보이지 않습니다): ");
+// 붙여넣기 사고를 흡수한다. 따옴표째 복사하는 일이 잦고, 그러면 URL 파싱부터 실패해
+// 정작 접속 문제인지 형식 문제인지 구분이 안 된다.
+const url = raw.replace(/^["']|["']$/g, "").trim();
 if (!url) {
-  console.error("입력이 없다.");
+  console.error("입력이 없다. 프롬프트가 뜬 뒤에 붙여넣고 Enter 를 눌러라.");
   process.exit(2);
 }
 
@@ -34,11 +37,14 @@ try {
 const prisma = new PrismaClient({ datasourceUrl: url });
 try {
   const rows = await prisma.$queryRaw`select current_user, current_database()`;
-  console.log("\n✅ 접속 성공:", JSON.stringify(rows[0]));
+  console.log("\n============================================");
+  console.log("✅ 접속 성공:", JSON.stringify(rows[0]));
   console.log("이 URL 을 그대로 Render 와 GitHub Secret 에 넣으면 된다.");
+  console.log("============================================");
 } catch (error) {
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-  console.log(`\n❌ 접속 실패 — 분류: ${classify(text)}`);
+  console.log("\n============================================");
+  console.log(`❌ 접속 실패 — 분류: ${classify(text)}`);
   // 원문에는 호스트명이 들어 있다. 앞부분만, 그것도 사유 판단에 필요한 만큼만 낸다.
   console.log(text.replace(/\s+/g, " ").slice(0, 220));
   console.log(`\n${advice(classify(text))}`);
@@ -52,7 +58,10 @@ function describeShape(value) {
   try {
     parsed = new URL(value);
   } catch {
-    console.log("⚠️ URL 로 파싱되지 않는다. 따옴표가 붙었거나 형식이 깨졌다.");
+    console.log("⚠️ URL 로 파싱되지 않는다.");
+    // 글자를 전부 x 로 덮은 뼈대만 보여준다. 구두점과 길이가 남아 어디가 깨졌는지는
+    // 보이지만 값은 복원할 수 없다.
+    console.log("뼈대:", value.replace(/[^:/@?&=.\-_]/g, "x").slice(0, 120));
     return;
   }
   const decoded = decodeURIComponent(parsed.password);
