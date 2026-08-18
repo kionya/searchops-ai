@@ -48,9 +48,27 @@ end;
 $$;
 
 -- 훅은 supabase_auth_admin 이 호출한다. 필요한 만큼만 준다.
-grant usage on schema public to supabase_auth_admin;
+--
+-- ⚠️ 여기에 "grant usage on schema public to supabase_auth_admin" 을 넣지 마라.
+-- 스키마 자체에 대한 GRANT 는 소유자(pg_database_owner)만 할 수 있어서 SQL Editor 의
+-- postgres 로는 42501 permission denied for schema public 이 나고, 한 트랜잭션이라
+-- 함수 생성까지 통째로 롤백된다. 그리고 애초에 필요 없다 — supabase_auth_admin 은
+-- 이미 public 에 USAGE 를 갖고 있다. 확인:
+--   select has_schema_privilege('supabase_auth_admin','public','USAGE');
 grant execute on function public.searchops_access_token_hook(jsonb) to supabase_auth_admin;
 grant select on table public."User" to supabase_auth_admin;
 
 -- 일반 사용자가 직접 부를 이유가 없다.
 revoke execute on function public.searchops_access_token_hook(jsonb) from authenticated, anon, public;
+
+-- 적용 확인. 세 값이 모두 true / owner 여야 한다.
+select
+  has_function_privilege('supabase_auth_admin',
+    'public.searchops_access_token_hook(jsonb)', 'EXECUTE')       as auth_admin_can_execute,
+  has_table_privilege('supabase_auth_admin','public."User"','SELECT') as auth_admin_can_read_user,
+  public.searchops_access_token_hook(
+    jsonb_build_object(
+      'user_id', (select "id" from public."User" order by "email" limit 1),
+      'claims', jsonb_build_object('role','authenticated')
+    )
+  )->'claims'->>'user_role'                                        as sample_user_role;
