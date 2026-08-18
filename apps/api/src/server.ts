@@ -1108,6 +1108,9 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       googleOAuthClient: googleOAuthClient !== undefined,
       // SEARCHOPS_CREDENTIAL_STORAGE_MODE + _ENCRYPTION_KEY(_ID)
       credentialStore: providerAccountService !== undefined,
+      // SEARCHOPS_PUBLIC_APP_URL. 없으면 returnTo 가 붙은 요청이 전부 400 이다 —
+      // 웹은 항상 returnTo 를 붙이므로 OAuth 설정이 완벽해도 연결이 시작조차 안 된다.
+      publicAppUrl: publicAppUrl !== undefined && publicAppUrl.trim().length > 0,
       // REDIS_URL 로 실제 왕복이 되는지
       stateStore: await probeOAuthStateStore(),
     },

@@ -81,6 +81,13 @@ services:
       # state 위조 방지용. 사람이 지을 이유가 없어 Render 가 생성하게 둔다.
       - key: SEARCHOPS_GOOGLE_OAUTH_STATE_SECRET
         generateValue: true
+      # ⚠️ 이걸 빠뜨리면 OAuth 가 통째로 죽는다. 웹은 연결 버튼에 항상 returnTo 를
+      # 붙여 보내고, API 는 returnTo 가 이 주소와 같은 origin 인지 검사한다. 값이
+      # 없으면 검사 자체가 실패해 400 validation_error 로 끊긴다 — OAuth 자격증명이
+      # 완벽해도 연결이 시작되지 않는다. 실제로 여기서 막혔다.
+      # 웹(Vercel)에 넣은 SEARCHOPS_PUBLIC_APP_URL 과 반드시 같은 값이어야 한다.
+      - key: SEARCHOPS_PUBLIC_APP_URL
+        sync: false
 
   - type: keyvalue
     name: searchops-keyvalue

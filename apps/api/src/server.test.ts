@@ -6442,7 +6442,12 @@ describe.sequential("provider credential startup wiring", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
+    connectors: {
+      credentialStore: false,
+      googleOAuthClient: false,
+      publicAppUrl: false,
+      stateStore: true,
+    },
       database: { reachable: true },
     });
   });
@@ -6458,7 +6463,12 @@ describe.sequential("provider credential startup wiring", () => {
     const response = await server.inject({ method: "GET", url: "/ops/deployment" });
 
     expect(response.json()).toEqual({
-    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
+    connectors: {
+      credentialStore: false,
+      googleOAuthClient: false,
+      publicAppUrl: false,
+      stateStore: true,
+    },
       database: { reachable: false, reason: "pgbouncer_option_missing" },
     });
   });
@@ -6473,7 +6483,12 @@ describe.sequential("provider credential startup wiring", () => {
 
     expect(response.payload).not.toContain("secret-host");
     expect(response.json()).toEqual({
-    connectors: { credentialStore: false, googleOAuthClient: false, stateStore: true },
+    connectors: {
+      credentialStore: false,
+      googleOAuthClient: false,
+      publicAppUrl: false,
+      stateStore: true,
+    },
       database: { reachable: false, reason: "unreachable" },
     });
   });
@@ -6495,6 +6510,7 @@ describe.sequential("provider credential startup wiring", () => {
         },
       },
       providerAccountService: undefined,
+      publicAppUrl: "https://app.searchops.test",
     });
 
     const response = await server.inject({ method: "GET", url: "/ops/deployment" });
@@ -6503,6 +6519,7 @@ describe.sequential("provider credential startup wiring", () => {
     expect(response.json().connectors).toEqual({
       credentialStore: false,
       googleOAuthClient: true,
+      publicAppUrl: true,
       // Redis 왕복이 실패하면 "구성됐다" 가 아니라 false 여야 한다.
       stateStore: false,
     });
