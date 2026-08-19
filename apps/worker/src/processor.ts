@@ -249,8 +249,34 @@ export async function processAndPersistConnectorSyncJob(
       organizationId: payload.organizationId,
       siteId: payload.siteId,
     }).catch(() => undefined);
+    // 원본 오류는 다음 줄에서 worker_job_failed 하나로 뭉개지고, DB 요약도 고정
+    // 문자열이라 error 인자를 받고 버린다. 그래서 5분 넘게 돌다 죽은 배치를 두고도
+    // 단서가 하나도 없었다. 던지는 값은 그대로 두되(코드로 쓰이는 계약이다) 운영자가
+    // 볼 수 있게 로그에는 남긴다.
+    console.error(
+      `[connector-sync] ${payload.siteDomain} 원인: ${describeWorkerFailure(error)}`,
+    );
     throw normalizeConnectorWorkerFailure(error);
   }
+}
+
+// 값은 남기지 않는다. URL 쿼리스트링에 키가 실려 오는 게 현실적인 유출 경로다
+// (PageSpeed 는 ?key=..., Google 토큰 교환은 본문이지만 리다이렉트가 쿼리로 온다).
+function redactUrlQueries(text: string): string {
+  return text.replace(/\?[^\s"')]*/g, "?<redacted>");
+}
+
+// fetch 실패는 message 가 "fetch failed" 뿐이고 진짜 이유는 cause 에 있다. 사슬을
+// 따라간다 — 깊이는 막아 둔다(순환 cause 가 있으면 여기서 멈춘다).
+function describeWorkerFailure(error: unknown, depth = 0): string {
+  if (!(error instanceof Error)) {
+    return typeof error;
+  }
+  const cause =
+    depth < 3 && error.cause !== undefined && error.cause !== null
+      ? ` <- ${describeWorkerFailure(error.cause, depth + 1)}`
+      : "";
+  return `${error.name}: ${redactUrlQueries(error.message)}${cause}`;
 }
 
 const safeConnectorWorkerFailureCodes = new Set([

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   parseCredentialKeyring,
@@ -2116,3 +2116,54 @@ function createOwnedConnectorSyncPort(
     }
   };
 }
+
+describe("connector sync failure diagnostics", () => {
+  // 원본 오류가 worker_job_failed 하나로 뭉개지고 DB 요약도 고정 문자열이라, 실패
+  // 원인을 밖에서 알 방법이 전혀 없었다. 로그에는 남아야 한다 — 다만 값은 아니다.
+  it("logs the cause chain without the URL query that carries the API key", async () => {
+    const logged: string[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation((message) => {
+      logged.push(String(message));
+    });
+
+    const persistenceClient = {
+      connectorSyncOwnership: {
+        async verify() { return true; },
+        async persist() { return true; },
+        async markFailed() { return true; },
+      },
+      connectorSyncRun: { async create() { return {}; }, async update() { return {}; } },
+      connectorSyncResult: { async upsert() { return {}; } },
+    } as unknown as Parameters<typeof processAndPersistConnectorSyncJob>[1];
+
+    await expect(
+      processAndPersistConnectorSyncJob(
+        {
+          connectorSyncRunId: "sync_1",
+          fetchedAt: "2026-08-19T00:00:00.000Z",
+          organizationId: "org_a",
+          providers: ["pagespeed"],
+          requestedByUserId: "batch",
+          siteDomain: "example.com",
+          siteId: "site_a",
+        },
+        persistenceClient,
+        {
+          async syncConnectors() {
+            throw new Error("fetch failed", {
+              cause: new Error(
+                "request to https://pagespeedonline.googleapis.com/v5/run?key=SUPER-SECRET-KEY failed",
+              ),
+            });
+          },
+        },
+      ),
+    ).rejects.toThrow("worker_job_failed");
+
+    consoleError.mockRestore();
+    const output = logged.join("\n");
+    expect(output).toContain("fetch failed");
+    expect(output).toContain("pagespeedonline.googleapis.com");
+    expect(output).not.toContain("SUPER-SECRET-KEY");
+  });
+});
