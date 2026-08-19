@@ -50,8 +50,14 @@ function describeToken(accessToken: string) {
 
 async function probeAuth() {
   const supabase = await getSupabaseServerClient();
-  const accessToken =
-    supabase === null ? null : (await supabase.auth.getSession()).data.session?.access_token;
+  if (supabase === null) {
+    return { signedIn: false as const };
+  }
+  // getClaims() 를 먼저 부르는 건 장식이 아니다. 화면에서 실제로 도는 경로
+  // (provider-accounts.ts 의 getCurrentProviderUser)가 이 순서고, 이걸 건너뛰고
+  // getSession() 만 부르면 라우트 핸들러에서 세션이 잡히지 않았다.
+  await supabase.auth.getClaims().catch(() => null);
+  const accessToken = (await supabase.auth.getSession()).data.session?.access_token;
   if (!accessToken) {
     return { signedIn: false as const };
   }
@@ -83,6 +89,9 @@ async function probeAuth() {
 }
 
 export async function GET() {
+  // ⚠️ private, no-store 를 반드시 유지해라. auth 블록은 요청한 사람의 세션에 딸린
+  // 값이다. Next 기본값은 public, max-age=0, must-revalidate 이고 Vary 에 cookie 도
+  // 없어서, 공유 캐시가 다른 사람 응답을 물어다 줄 수 있다.
   return Response.json({
     auth: await probeAuth(),
     // 접속만 확인한다(select 1). 데이터도, 호스트명도, 사용자명도 내지 않는다.
@@ -97,5 +106,5 @@ export async function GET() {
       // 꺼져 있으면 로그인 화면이 "사용할 수 없습니다" 로 뜬다.
       supabaseAuth: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL?.trim())
     }
-  });
+  }, { headers: { "cache-control": "private, no-store" } });
 }
