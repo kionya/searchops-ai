@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   connectorAuthModes,
@@ -1603,5 +1603,40 @@ describe("connectors foundation", () => {
     const result = await adapter.sync({ fetchedAt: "2026-05-27T00:00:00.000Z" });
     expect(offsets).toEqual([0, 1000]);
     expect(result.records).toHaveLength(1001);
+  });
+});
+
+describe("transient provider failure diagnostics", () => {
+  // 저장되는 오류는 정본 표로 정규화돼 provider_rate_limited 코드 하나만 남는다.
+  // 그런데 거기에는 429(쿼터)·5xx(장애)·타임아웃이 전부 들어온다 — 처방이 정반대인데도
+  // 운영에서 어느 쪽인지 알 방법이 없었다. 상태 코드는 로그에 남아야 한다.
+  it.each([
+    [429, "HTTP 429"],
+    [503, "HTTP 503"],
+  ])("logs the HTTP status behind a transient %s failure", async (status, expected) => {
+    const warnings: string[] = [];
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+
+    const result = await syncLiveConnectors({
+      fetchedAt: "2026-05-27T00:00:00.000Z",
+      fetch: (async () => new Response("{}", { status })) as typeof fetch,
+      providerConfigs: {
+        pagespeed: { apiKey: "pagespeed-key", siteUrl: "https://example.com/" },
+      },
+      providers: ["pagespeed"],
+    });
+
+    consoleWarn.mockRestore();
+    expect(result.results[0]).toMatchObject({
+      provider: "pagespeed",
+      status: "failed",
+      error: { code: "provider_rate_limited" },
+    });
+    expect(warnings.join("\n")).toContain(expected);
+    expect(warnings.join("\n")).toContain("PageSpeed Insights");
+    // 키는 URL 에 실려 있다. 로그에 나가면 안 된다.
+    expect(warnings.join("\n")).not.toContain("pagespeed-key");
   });
 });
