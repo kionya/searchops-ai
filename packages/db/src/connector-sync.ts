@@ -22,6 +22,17 @@ import type { SearchOpsPrismaClient } from "./client.js";
 import type { EncryptedProviderCredential } from "./credential-crypto.js";
 import type { Prisma } from "./generated/prisma/index.js";
 
+// Prisma 인터랙티브 트랜잭션의 기본 타임아웃은 5초다. 이 트랜잭션은 provider 마다
+// 결과 JSON 을 upsert 하는데, GSC 한 번에 1500건이 넘게 들어오고 provider 가 늘수록
+// 커진다. 운영에서 5초를 넘겨 통째로 깨졌다:
+//   Transaction API error: Transaction not found. Transaction ID is invalid ...
+// 그러면 provider 를 다 성공시켜 놓고도 저장에서 전부 잃는다. 값을 크게 잡는 쪽이
+// 맞다 — 오래 걸려도 저장은 돼야 한다.
+const CONNECTOR_SYNC_WRITE_TRANSACTION_OPTIONS = {
+  maxWait: 15_000,
+  timeout: 120_000,
+} as const;
+
 const connectorSyncProviderAccountSelect = {
   authType: true,
   credentialAuthTag: true,
@@ -336,7 +347,7 @@ export function createPrismaConnectorSyncPersistenceClient(
             throw new Error("connector_sync_run_ownership_changed");
           }
           return true;
-        });
+        }, CONNECTOR_SYNC_WRITE_TRANSACTION_OPTIONS);
       },
       async markFailed(input) {
         return prisma.$transaction(async (transaction) => {
@@ -359,7 +370,7 @@ export function createPrismaConnectorSyncPersistenceClient(
             throw new Error("connector_sync_run_ownership_changed");
           }
           return true;
-        });
+        }, CONNECTOR_SYNC_WRITE_TRANSACTION_OPTIONS);
       }
     },
     connectorOAuthCredential: {

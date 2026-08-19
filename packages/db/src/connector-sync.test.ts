@@ -179,8 +179,13 @@ describe("connector sync persistence helpers", () => {
         },
       },
     };
+    const transactionOptions: unknown[] = [];
     const prisma = {
-      async $transaction(operation: (client: typeof transaction) => Promise<unknown>) {
+      async $transaction(
+        operation: (client: typeof transaction) => Promise<unknown>,
+        options: unknown,
+      ) {
+        transactionOptions.push(options);
         return operation(transaction);
       },
       connectorOAuthCredential: {},
@@ -203,6 +208,11 @@ describe("connector sync persistence helpers", () => {
     });
 
     expect(runUpdates[0]).toMatchObject({ data: { fixture: false, status: "completed" } });
+    // Prisma 기본 5초로는 GSC 1500건 upsert 가 트랜잭션 안에서 끝나지 않아 운영에서
+    // 통째로 깨졌다("Transaction not found"). provider 를 다 성공시켜 놓고 저장에서
+    // 전부 잃는다. 타임아웃을 명시하지 않으면 그 사고가 그대로 돌아온다.
+    expect(transactionOptions[0]).toMatchObject({ timeout: expect.any(Number) });
+    expect((transactionOptions[0] as { timeout: number }).timeout).toBeGreaterThanOrEqual(60_000);
   });
 
   it("classifies partial and failed connector sync runs", () => {
