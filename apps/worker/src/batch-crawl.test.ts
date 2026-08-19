@@ -53,18 +53,18 @@ describe("batch crawl", () => {
 
     await import("./batch-crawl.js");
 
-    const crawledSiteIds = mocks.processAndPersistCrawlJob.mock.calls.map(
-      (call) => (call[0] as { siteId: string }).siteId,
-    );
+    const crawledSiteIds = (
+      mocks.processAndPersistCrawlJob.mock.calls as unknown as readonly (readonly unknown[])[]
+    ).map((call) => (call[0] as { siteId: string }).siteId);
     expect(crawledSiteIds).toEqual(["site_keep"]);
   });
 
   it("crawls every site when no skip list is configured", async () => {
     await import("./batch-crawl.js");
 
-    const crawledSiteIds = mocks.processAndPersistCrawlJob.mock.calls.map(
-      (call) => (call[0] as { siteId: string }).siteId,
-    );
+    const crawledSiteIds = (
+      mocks.processAndPersistCrawlJob.mock.calls as unknown as readonly (readonly unknown[])[]
+    ).map((call) => (call[0] as { siteId: string }).siteId);
     expect(crawledSiteIds).toEqual(["site_keep", "site_demo"]);
   });
 });
