@@ -596,6 +596,46 @@ describe("provider credential resolver", () => {
     expect(result.configs.gsc?.credential.accessToken).toBe("fresh-access");
   });
 
+  // expired 는 회복 가능한 상태다. 그런데 상태 검사가 갱신 경로보다 앞에 있어서, 한 번
+  // expired 로 찍힌 계정은 영원히 갱신되지 못했다 — 상태를 connected 로 되돌릴 수 있는
+  // 건 성공한 갱신뿐인데 그 갱신에 도달하지 못한다. 운영에서 GSC/GA4 가 그렇게 잠겼고,
+  // 매일 배치가 돌아도 사용자에게 남은 길은 수동 재연결뿐이었다.
+  it("refreshes an account already marked expired instead of failing it forever", async () => {
+    const updatedAccounts: unknown[] = [];
+    const resolver = createProviderCredentialResolver({
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({ access_token: "fresh-access", expires_in: 3600, token_type: "Bearer" }),
+          { status: 200 },
+        )) as typeof fetch,
+      googleOAuthClientId: "client-id",
+      googleOAuthClientSecret: "client-secret",
+      keyring,
+      now: () => now,
+      refreshLock: { async withLock(_key, operation) { return operation(); } },
+      storageMode: "encrypted",
+      store: createStore({
+        accounts: [
+          encryptedAccount({ status: "expired", tokenExpiresAt: "2026-07-14T00:01:00.000Z" }),
+        ],
+        connectors: [
+          siteConnector({ provider: "gsc", externalResourceId: "sc-domain:example.com" }),
+        ],
+        onUpdateAccount(input) { updatedAccounts.push(input); },
+        sites: [{ id: "site_a", organizationId: "org_a" }],
+      }),
+    });
+
+    const result = await resolver.resolveConnectorProviderConfigs(
+      connectorJob("site_a", ["gsc"]),
+    );
+
+    expect(result.failures).toEqual({});
+    expect(result.configs.gsc?.credential.accessToken).toBe("fresh-access");
+    // 갱신이 계정을 connected 로 되돌려야 다음 실행이 정상 경로를 탄다.
+    expect(updatedAccounts[0]).toMatchObject({ status: "connected" });
+  });
+
   it("rereads under the lock and skips refresh when another worker already refreshed", async () => {
     const expiring = encryptedAccount({ tokenExpiresAt: "2026-07-14T00:01:00.000Z" });
     const fresh = encryptedAccount({

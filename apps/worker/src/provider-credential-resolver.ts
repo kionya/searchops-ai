@@ -735,7 +735,7 @@ async function resolveGoogleCredential(
   options: CreateProviderCredentialResolverOptions,
 ) {
   const now = options.now?.() ?? new Date();
-  if (!shouldRefresh(initialAccount.tokenExpiresAt, now)) {
+  if (!needsRefresh(initialAccount, now)) {
     return {
       accountUpdatedAt: initialAccount.updatedAt,
       secret: decryptOAuthCredential(initialAccount, options.keyring),
@@ -755,7 +755,7 @@ async function resolveGoogleCredential(
       assertValidGoogleAccountReread(account, initialAccount, requestedProvider);
       const lockedNow = options.now?.() ?? new Date();
       const currentSecret = decryptOAuthCredential(account, options.keyring);
-      if (!shouldRefresh(account.tokenExpiresAt, lockedNow)) {
+      if (!needsRefresh(account, lockedNow)) {
         return { accountUpdatedAt: account.updatedAt, secret: currentSecret };
       }
       if (
@@ -797,7 +797,7 @@ async function resolveGoogleCredential(
           providerAccountId: account.id,
         });
         assertValidGoogleAccountReread(latest, account, requestedProvider);
-        if (shouldRefresh(latest.tokenExpiresAt, lockedNow)) {
+        if (needsRefresh(latest, lockedNow)) {
           throw new ProviderCredentialResolutionError("credential_expired");
         }
         return {
@@ -1134,13 +1134,23 @@ function validateAccountStatus(
   if (account.status === "revoked") {
     return "credential_revoked";
   }
-  if (account.status === "expired") {
+  // ⚠️ expired 를 여기서 끊지 마라. 그건 회복 가능한 상태고, 리프레시 토큰은 바로
+  // 그러라고 있는 것이다. 갱신 경로는 이 검사 **뒤**에 있어서, 여기서 끊으면 한 번
+  // 만료된 계정은 영원히 갱신되지 않는다 — 상태를 connected 로 되돌릴 수 있는 건
+  // 성공한 갱신뿐인데 그 갱신에 영영 도달하지 못한다. 실제로 GSC/GA4 가 그렇게
+  // 잠겼고, 매일 배치가 돌아도 사용자에게는 "재연결" 말고 길이 없었다.
+  // 리프레시 토큰이나 OAuth 클라이언트가 없으면 갱신 경로가 그때 가서 판단한다.
+  if (account.status === "expired" && !isRefreshableGoogleAccount(account)) {
     return "credential_expired";
   }
   if (account.status === "invalid") {
     return "credential_decryption_failed";
   }
   return null;
+}
+
+function isRefreshableGoogleAccount(account: ProviderAccountSecretRecord): boolean {
+  return account.provider === "google" && account.authType === "oauth2";
 }
 
 function isCompatibleAccount(
@@ -1257,6 +1267,12 @@ function credentialContext(account: ProviderAccountSecretRecord) {
     provider: account.provider,
     providerAccountId: account.id,
   };
+}
+
+// expired 로 표시된 계정은 만료 시각과 무관하게 갱신 대상이다. 그래야 상태가
+// connected 로 돌아온다 — 갱신 성공만이 그 상태를 되돌릴 수 있다.
+function needsRefresh(account: ProviderAccountSecretRecord, now: Date) {
+  return account.status === "expired" || shouldRefresh(account.tokenExpiresAt, now);
 }
 
 function shouldRefresh(tokenExpiresAt: string | null, now: Date) {
