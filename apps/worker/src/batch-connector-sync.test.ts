@@ -87,4 +87,32 @@ describe("batch connector sync", () => {
     expect(process.exitCode).toBe(1);
     process.exitCode = 0;
   });
+
+  // pagespeed/bing 은 사이트별 설정이 없어 SiteConnector 행이 생기지 않는다. 배치
+  // 대상이 그 행에서만 나오므로, 키를 넣어도 영영 돌지 않았다.
+  it("adds the platform providers when their keys exist", async () => {
+    process.env.SEARCHOPS_PAGESPEED_API_KEY = "pagespeed-key";
+    process.env.SEARCHOPS_BING_API_KEY = "bing-key";
+
+    await import("./batch-connector-sync.js");
+
+    const call = mocks.processAndPersistConnectorSyncJob.mock.calls[0] as unknown as
+      | readonly unknown[]
+      | undefined;
+    const payload = call?.[0] as { providers?: readonly string[] } | undefined;
+    expect(payload?.providers).toEqual(expect.arrayContaining(["gsc", "pagespeed", "bing"]));
+
+    delete process.env.SEARCHOPS_PAGESPEED_API_KEY;
+    delete process.env.SEARCHOPS_BING_API_KEY;
+  });
+
+  it("leaves the platform providers out when no key is configured", async () => {
+    await import("./batch-connector-sync.js");
+
+    const call = mocks.processAndPersistConnectorSyncJob.mock.calls[0] as unknown as
+      | readonly unknown[]
+      | undefined;
+    const payload = call?.[0] as { providers?: readonly string[] } | undefined;
+    expect(payload?.providers).toEqual(["gsc"]);
+  });
 });

@@ -13,6 +13,9 @@ name: batch-crawl
 #   SEARCHOPS_CREDENTIAL_STORAGE_MODE, SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY(_ID)
 #   SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID, SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET
 #   선택: SEARCHOPS_BING_API_KEY, SEARCHOPS_PAGESPEED_API_KEY
+#         이 둘은 사이트별 설정이 없다. 키를 넣으면 커넥터가 설정된 모든 사이트에
+#         자동으로 붙는다(SiteConnector 행을 만들 필요 없다). 키가 없으면 그 provider
+#         만 조용히 빠진다.
 #
 # 실패하면 "batch-crawl 실패" 이슈를 열고, 다음 성공에서 닫는다(맨 아래 스텝).
 # 외부 알림 서비스도 새 시크릿도 쓰지 않는다.

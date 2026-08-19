@@ -106,6 +106,35 @@ async function main(): Promise<void> {
       existing.providers.push(parsed.data);
     }
 
+    // PageSpeed 와 Bing 은 사이트별 설정이 필요 없다 — 도메인만 있으면 되고 키는
+    // 플랫폼 전체가 하나를 쓴다. 그래서 SiteConnector 행을 만들 이유가 없는데, 배치
+    // 대상은 그 행에서만 나온다. 결과가 뭐냐면 키를 넣어도 이 둘은 영영 돌지 않는다.
+    // 6월에 남은 PageSpeed 실행이 배치가 아니라 화면에서 사람이 돌린 것이었던 게 그
+    // 증거다. 키가 있으면 여기서 직접 붙인다.
+    //
+    // 대상은 이미 커넥터를 설정한 사이트로 한정한다. 등록만 해두고 아무것도 연결하지
+    // 않은 사이트까지 외부 API 쿼터를 쓰게 만들지 않는다. 넓히려면 아래 bySite 를
+    // Site 전체에서 만들면 된다.
+    const platformProviders: ConnectorProvider[] = [];
+    if (process.env.SEARCHOPS_PAGESPEED_API_KEY) {
+      platformProviders.push("pagespeed");
+    }
+    if (process.env.SEARCHOPS_BING_API_KEY) {
+      platformProviders.push("bing");
+    }
+    if (platformProviders.length === 0) {
+      console.log(
+        "[batch-connector-sync] 플랫폼 키가 없어 pagespeed/bing 을 건너뛴다. SEARCHOPS_PAGESPEED_API_KEY / SEARCHOPS_BING_API_KEY 를 보라."
+      );
+    }
+    for (const target of bySite.values()) {
+      for (const provider of platformProviders) {
+        if (!target.providers.includes(provider)) {
+          target.providers.push(provider);
+        }
+      }
+    }
+
     const persistenceClient = createPrismaConnectorSyncPersistenceClient(prisma);
     const processorOptions = {
       bingApiKey: process.env.SEARCHOPS_BING_API_KEY,

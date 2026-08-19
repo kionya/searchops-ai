@@ -441,7 +441,7 @@ describe("provider credential resolver", () => {
     expect(legacyReadCount).toBe(0);
   });
 
-  it("uses legacy Google and global Bing only in dual mode", async () => {
+  it("keeps legacy Google to dual mode but honours the global Bing key in both", async () => {
     const store = createStore({
       legacyCredentials: [
         {
@@ -480,17 +480,23 @@ describe("provider credential resolver", () => {
         ga4: { propertyId: "properties/333" },
         bing: { apiKey: "global-bing", siteUrl: "example.com" },
       },
-      credentialSources: { bing: "legacy", ga4: "legacy" },
+      // 전역 Bing 키의 출처는 이제 두 모드 모두 platform 이다. legacy 는 사이트별
+      // 레거시 자격증명을 가리키는 이름인데 이 키는 그게 아니다.
+      credentialSources: { bing: "platform", ga4: "legacy" },
       failures: {},
     });
+    // encrypted 모드에서 legacy Google 자격증명은 여전히 안 쓴다. 그게 dual 의 존재
+    // 이유다. 다만 전역 Bing 키는 legacy 자격증명이 아니라 PageSpeed 키와 같은 플랫폼
+    // 키인데, 예전에는 이 분기에 묶여 있어 encrypted 모드에서 조용히 무시됐다 —
+    // 운영자가 SEARCHOPS_BING_API_KEY 를 넣어도 아무 일도 일어나지 않았다.
     await expect(
       encryptedResolver.resolveConnectorProviderConfigs(
         connectorJob("site_a", ["ga4", "bing"]),
       ),
     ).resolves.toEqual({
-      configs: {},
-      credentialSources: {},
-      failures: { bing: "connector_missing", ga4: "connector_missing" },
+      configs: { bing: { apiKey: "global-bing", siteUrl: "example.com" } },
+      credentialSources: { bing: "platform" },
+      failures: { ga4: "connector_missing" },
     });
   });
 

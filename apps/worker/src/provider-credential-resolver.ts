@@ -372,6 +372,17 @@ export function createProviderCredentialResolver(
           continue;
         }
 
+        // 전역 Bing 키는 legacy 자격증명이 아니라 PageSpeed 키와 같은 성격의 플랫폼
+        // 키다. 그런데 dual 모드 분기 안에만 있어서 encrypted 모드에서는 조용히
+        // 무시됐다 — 키를 넣어도 아무 일도 일어나지 않는다.
+        // 여기까지 왔다는 건 사이트별 커넥터가 없다는 뜻이므로(있으면 위에서 continue)
+        // 계정 연결이 있는 사이트의 설정을 덮어쓰지 않는다.
+        if (provider === "bing" && options.globalBingApiKey) {
+          configs.bing = { apiKey: options.globalBingApiKey, siteUrl: job.siteDomain };
+          credentialSources.bing = "platform";
+          continue;
+        }
+
         if (options.storageMode === "dual") {
           const legacyCredentials = isGoogleConnectorProvider(provider)
             ? await options.store.listLegacyGoogleCredentials({
