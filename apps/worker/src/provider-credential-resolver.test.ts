@@ -18,6 +18,7 @@ import type {
 import {
   createProviderCredentialResolver,
   createPlatformGeoProviderResolver,
+  createInProcessProviderAccountRefreshLock,
   createRedisProviderAccountRefreshLock,
   type ProviderCredentialResolverStore,
 } from "./provider-credential-resolver.js";
@@ -1568,3 +1569,40 @@ function createStore(input: {
     },
   };
 }
+
+describe("in-process provider account refresh lock", () => {
+  it("serializes the same key and keeps going after a failure", async () => {
+    const lock = createInProcessProviderAccountRefreshLock();
+    const order: string[] = [];
+    const gate = { release: () => {} };
+    const blocked = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+
+    const first = lock
+      .withLock("account", async () => {
+        order.push("first:start");
+        await blocked;
+        order.push("first:end");
+        throw new Error("boom");
+      })
+      .catch(() => order.push("first:rejected"));
+    const second = lock.withLock("account", async () => {
+      order.push("second");
+      return "ok";
+    });
+    // 다른 키는 앞 작업을 기다리지 않는다.
+    const other = lock.withLock("other", async () => {
+      order.push("other");
+      return "ok";
+    });
+
+    await other;
+    expect(order).toEqual(["first:start", "other"]);
+
+    gate.release();
+    await first;
+    await expect(second).resolves.toBe("ok");
+    expect(order).toEqual(["first:start", "other", "first:end", "first:rejected", "second"]);
+  });
+});

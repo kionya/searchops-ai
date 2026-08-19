@@ -169,6 +169,50 @@ export function createRedisProviderAccountRefreshLock(
   };
 }
 
+/**
+ * Redis 없이 도는 프로세스용 갱신 락.
+ *
+ * 왜 필요한가: refreshLock 이 없으면 resolveGoogleAccountSecret 이 갱신을 **시도조차
+ * 하지 않고** credential_expired 를 던진다. Google access token 은 1시간짜리고
+ * 배치(batch-connector-sync.ts)는 하루 한 번 도니까, 연결 직후 1시간 안에 돌지 않는 한
+ * 항상 실패한다. 실제로 GSC/GA4 커넥터가 전부 credential_expired 로 멈춰 있었고,
+ * 배치는 그걸 "성공" 으로 끝냈다.
+ *
+ * 여기서 분산 락이 필요한 상황이 아니다. 배치는 프로세스 하나에서 사이트를 순차로 돌고,
+ * GitHub Actions 의 concurrency 그룹이 두 실행이 겹치는 것을 막는다. 쓰기에는
+ * expectedUpdatedAt 낙관적 잠금이 이미 걸려 있어 경합이 나도 조용히 덮어쓰지 않는다.
+ * 이 프로세스 안에서 같은 계정을 두 번 동시에 갱신하지만 않으면 된다.
+ *
+ * ⚠️ 여러 프로세스가 같은 계정을 갱신하는 배포에는 쓰지 마라. 그건
+ * createRedisProviderAccountRefreshLock 의 몫이다.
+ */
+export function createInProcessProviderAccountRefreshLock(): ProviderAccountRefreshLock {
+  const running = new Map<string, Promise<unknown>>();
+
+  return {
+    async withLock(key, operation) {
+      const previous = running.get(key);
+      // 앞 작업이 실패해도 뒤 작업은 돌아야 한다. 성공/실패 모두 흘려보낸다.
+      const settled =
+        previous === undefined
+          ? Promise.resolve()
+          : previous.then(
+              () => undefined,
+              () => undefined,
+            );
+      const current = settled.then(operation);
+      running.set(key, current);
+      try {
+        return await current;
+      } finally {
+        if (running.get(key) === current) {
+          running.delete(key);
+        }
+      }
+    },
+  };
+}
+
 export interface ResolvedConnectorProviderConfigs {
   readonly configs: LiveConnectorProviderConfigs;
   readonly credentialSources: ConnectorCredentialSources;

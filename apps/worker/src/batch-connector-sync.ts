@@ -28,6 +28,7 @@ import {
 } from "@searchops/types";
 
 import { processAndPersistConnectorSyncJob } from "./processor.js";
+import { createInProcessProviderAccountRefreshLock } from "./provider-credential-resolver.js";
 
 // 모드가 없거나 오타면 복호화 경로가 통째로 꺼진 채 "성공" 으로 끝난다. 값까지 검증해 끊는다.
 const storageMode = CredentialStorageModeSchema.safeParse(
@@ -115,7 +116,12 @@ async function main(): Promise<void> {
       googleOAuthClientSecret: process.env.SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET,
       // 배치의 존재 이유가 실제 외부 API 호출이다. disabled 면 픽스처만 쓰고 끝난다.
       liveExternalApis: "enabled" as const,
-      pagespeedApiKey: process.env.SEARCHOPS_PAGESPEED_API_KEY
+      pagespeedApiKey: process.env.SEARCHOPS_PAGESPEED_API_KEY,
+      // ⚠️ 빼지 마라. 이게 없으면 만료된 Google 토큰을 갱신하지 **못하는** 게 아니라
+      // 갱신을 시도조차 하지 않고 credential_expired 를 던진다. access token 은
+      // 1시간짜리고 이 배치는 하루 한 번 도니까 사실상 100% 실패한다.
+      // Redis 락이 아니어도 되는 이유는 이 함수의 주석에 있다.
+      refreshLock: createInProcessProviderAccountRefreshLock()
     };
 
     let failures = 0;
@@ -140,12 +146,23 @@ async function main(): Promise<void> {
           processorOptions
         );
         const { failedProviders, okProviders, partialProviders } = result.summary;
+        // 자격증명 해결 단계에서 탈락한 provider 는 요약의 어느 칸에도 안 들어간다.
+        // 그래서 전부 탈락하면 ok=0 partial=0 failed=0 이 되고, 아무 일도 안 한 실행이
+        // 깨끗한 실행과 똑같아 보인다. 실제로 GSC/GA4 가 둘 다 credential_expired 로
+        // 떨어진 배치가 초록불로 끝났다. 요청한 수와 집계된 수를 대조한다.
+        const accounted = okProviders + partialProviders + failedProviders;
+        const dropped = target.providers.length - accounted;
         console.log(
-          `[batch-connector-sync] ${target.siteDomain} ok=${okProviders} partial=${partialProviders} failed=${failedProviders} providers=${target.providers.join(",")}`
+          `[batch-connector-sync] ${target.siteDomain} ok=${okProviders} partial=${partialProviders} failed=${failedProviders} dropped=${dropped} providers=${target.providers.join(",")}`
         );
+        if (dropped > 0) {
+          console.error(
+            `[batch-connector-sync] ${target.siteDomain}: provider ${dropped}개가 자격증명 단계에서 탈락했다. SiteConnector 의 lastErrorCode 를 봐라.`
+          );
+        }
         // provider 하나만 실패해도 그 데이터는 안 들어온다. 초록불로 넘기면
         // "동기화는 도는데 숫자가 안 바뀐다" 를 아무도 모르게 된다.
-        if (failedProviders > 0) {
+        if (failedProviders > 0 || dropped > 0) {
           failures += 1;
         }
       } catch (error) {
