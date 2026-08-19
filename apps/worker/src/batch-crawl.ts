@@ -65,13 +65,41 @@ async function main(): Promise<void> {
       return;
     }
 
+    // 등록은 해두되 매일 긁지는 않을 사이트를 빼는 장치. Site 에 on/off 컬럼이 없어서
+    // (스키마 변경 + 화면 작업이 따라붙는다) 환경변수로 둔다.
+    // ⚠️ 위 계약 검사(missing)는 필터 전 목록으로 한다. 스킵은 "크롤하지 않는다" 는
+    // 뜻이지 "DB 에 없다" 는 뜻이 아니라서, 섞으면 richdoc 계약이 엉뚱하게 깨진다.
+    const skipSiteIds = new Set(
+      (process.env.SEARCHOPS_CRAWL_SKIP_SITE_IDS ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    );
+    const crawlTargets = sites.filter((site) => !skipSiteIds.has(site.id));
+    // 조용히 빠지면 "왜 이 사이트만 데이터가 안 늘지" 를 아무도 못 찾는다.
+    for (const site of sites) {
+      if (skipSiteIds.has(site.id)) {
+        console.log(`[batch-crawl] 건너뜀(SEARCHOPS_CRAWL_SKIP_SITE_IDS): ${site.domain}`);
+      }
+    }
+    for (const id of skipSiteIds) {
+      if (!sites.some((site) => site.id === id)) {
+        console.warn(`[batch-crawl] 스킵 목록의 Site.id 가 DB 에 없다: ${id}`);
+      }
+    }
+    if (crawlTargets.length === 0) {
+      console.error("[batch-crawl] 스킵을 적용하고 나니 크롤할 사이트가 없다.");
+      process.exitCode = 2;
+      return;
+    }
+
     const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
     const crawlAnalysisClient = createPrismaCrawlAnalysisPersistenceClient(prisma);
     const schemaRecommendationRecheckClient =
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
     const richdocBridge = createRichdocContractBridge({ prisma, ...contract });
 
-    for (const site of sites) {
+    for (const site of crawlTargets) {
       const startUrl = `https://${site.domain}/`;
       try {
         // CrawlRun 행이 먼저 있어야 한다. 없으면 결과 저장(update)이 실패하고,

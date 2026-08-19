@@ -97,6 +97,9 @@ jobs:
           SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY }}
           SEARCHOPS_RICHDOC_SITE_IDS: ${{ secrets.SEARCHOPS_RICHDOC_SITE_IDS }}
           SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
+          # 등록은 해두되 매일 긁지 않을 Site.id 를 쉼표로 나열한다. 없으면 전부 크롤한다.
+          # 건너뛴 사이트는 로그에 이름이 찍힌다 — 조용히 빠지면 아무도 못 찾는다.
+          SEARCHOPS_CRAWL_SKIP_SITE_IDS: ${{ secrets.SEARCHOPS_CRAWL_SKIP_SITE_IDS }}
         run: node apps/worker/dist/batch-crawl.js
 
       # 커넥터(GSC/GA4/Bing/PageSpeed) 동기화. API 는 "지금 동기화" 를 큐에 넣기만 하고,
