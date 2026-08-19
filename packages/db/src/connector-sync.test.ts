@@ -161,6 +161,50 @@ describe("connector sync persistence helpers", () => {
     expect((updates[0] as { data: { endedAt: unknown } }).data.endedAt).toBeInstanceOf(Date);
   });
 
+  // 실행 행은 fixture=true 로 만들어진다(생성 시점에는 알 수 없으니까). 완료할 때
+  // 덮어쓰지 않으면 진짜 데이터를 받아온 실행까지 전부 픽스처로 기록된다 — 운영에서
+  // GSC 1532건이 들어온 실행이 fixture=true 로 남아 있었다.
+  //
+  // ⚠️ createMockClient 는 persist 를 스스로 다시 구현한 가짜다. 여기서 그걸 쓰면
+  // 가짜의 동작을 검증하게 된다. 실제 쓰기를 하는 Prisma 경로를 직접 겨냥한다.
+  it("records a completed run as real when its provider results are not fixtures", async () => {
+    const runUpdates: unknown[] = [];
+    const transaction = {
+      connectorSyncResult: { async upsert() { return {}; } },
+      connectorSyncRun: {
+        async findFirst() { return { id: "sync_1" }; },
+        async updateMany(args: unknown) {
+          runUpdates.push(args);
+          return { count: 1 };
+        },
+      },
+    };
+    const prisma = {
+      async $transaction(operation: (client: typeof transaction) => Promise<unknown>) {
+        return operation(transaction);
+      },
+      connectorOAuthCredential: {},
+      connectorSyncResult: {},
+      connectorSyncRun: {},
+      providerAccount: {},
+      site: {},
+      siteConnector: {},
+    } as unknown as Parameters<typeof createPrismaConnectorSyncPersistenceClient>[0];
+
+    await persistConnectorSyncJobResult(createPrismaConnectorSyncPersistenceClient(prisma), {
+      connectorSyncRunId: "sync_1",
+      organizationId: "org_1",
+      siteId: "site_1",
+      siteDomain: "example.com",
+      requestedByUserId: "user_1",
+      fetchedAt: "2026-05-22T00:00:00.000Z",
+      results: [{ ...providerResult, fixture: false }],
+      summary
+    });
+
+    expect(runUpdates[0]).toMatchObject({ data: { fixture: false, status: "completed" } });
+  });
+
   it("classifies partial and failed connector sync runs", () => {
     expect(
       classifyConnectorSyncRunStatus({

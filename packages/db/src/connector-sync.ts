@@ -321,6 +321,12 @@ export function createPrismaConnectorSyncPersistenceClient(
           const updated = await transaction.connectorSyncRun.updateMany({
             data: {
               endedAt: input.endedAt,
+              // 생성 시점에는 실제로 픽스처를 쓸지 알 수 없어 true 로 시작한다. 끝났으면
+              // 결과가 답을 알고 있으므로 덮어쓴다. 안 덮으면 진짜 데이터를 받아온
+              // 실행까지 전부 픽스처로 기록된다 — 실제로 GSC 1532건이 들어온 실행이
+              // fixture=true 로 남아 있었다. 결과가 하나도 없으면 판단할 근거가 없어
+              // 생성 시 값(true)이 그대로 유지된다.
+              fixture: input.result.results.every((providerResult) => providerResult.fixture),
               status: input.status,
               summary: toJson(input.result.summary)
             },

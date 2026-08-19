@@ -22,10 +22,26 @@ declare
   found_org text;
   claims jsonb;
 begin
+  -- id 와 이메일 **둘 다** 본다.
+  --
+  -- 왜 이메일도 보나: 초대 수락(acceptInvitation)이 User 행을 만들 때 id 를 지정하지
+  -- 않아 Prisma 가 cuid 를 붙인다. 그 값은 Supabase auth 의 UUID 와 절대 같을 수 없다.
+  -- 그래서 id 로만 찾으면 초대받은 사용자는 전원 user_role 없이 401 을 맞는다 —
+  -- 첫 사용자에게서 실제로 그랬고 손으로 id 를 맞춰 넘겼다. 초대는 이메일로 발행되고
+  -- 앱의 소속 조회(provider-accounts.ts)도 이미 이메일을 키로 쓴다.
+  --
+  -- ⚠️ email_confirmed_at 검사를 빼지 마라. 확인되지 않은 이메일로도 매칭되면
+  -- 아무나 초대받은 주소로 가입해 그 역할을 가져갈 수 있다.
   select u."role"::text, u."organizationId"
     into found_role, found_org
-    from public."User" u
-   where u."id" = event->>'user_id';
+    from auth.users a
+    join public."User" u
+      on u."id" = a.id::text
+      or (a.email_confirmed_at is not null and lower(u."email") = lower(a.email))
+   where a.id::text = event->>'user_id'
+   -- id 가 맞는 행이 있으면 그쪽이 우선이다.
+   order by (u."id" = a.id::text) desc
+   limit 1;
 
   if found_role is null then
     -- 아직 User 행이 없는 계정이다. 클레임 없이 그대로 내보낸다 — 로그인은 되고
@@ -57,6 +73,7 @@ $$;
 --   select has_schema_privilege('supabase_auth_admin','public','USAGE');
 grant execute on function public.searchops_access_token_hook(jsonb) to supabase_auth_admin;
 grant select on table public."User" to supabase_auth_admin;
+-- auth.users 는 supabase_auth_admin 소유라 따로 줄 것이 없다.
 
 -- 일반 사용자가 직접 부를 이유가 없다.
 revoke execute on function public.searchops_access_token_hook(jsonb) from authenticated, anon, public;

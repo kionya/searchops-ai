@@ -3,6 +3,7 @@ import Link from "next/link";
 import Script from "next/script";
 import type { ReactNode } from "react";
 
+import { AccountBar } from "./account-bar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </Script>
           </>
         ) : null}
+        <AccountBar />
         {children}
         <footer
           style={{
