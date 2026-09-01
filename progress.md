@@ -4,6 +4,96 @@
 
 ---
 
+## 운영 콘솔 UI 개편 — 가독성과 로딩 속도
+
+Updated: 2026-09-01 (운영 반영·검증 완료)
+Merged: `e80c579` (PR #102 UI 개편) · `830f137` (PR #103 한글 라벨 세로 쪼개짐) · `80b99cd` (PR #104 좌측 레일 최상단부터)
+Live: web = https://searchops.totopapa.com (운영 도메인. `searchops.ai` 는 이 앱이 아니라 도메인 파킹 페이지다)
+
+우선순위는 **가독성과 속도** 하나였다. 장식을 늘리지 않고 걷어냈다.
+
+### 가독성
+
+| 항목               | Before                            | After                                |
+| ------------------ | --------------------------------- | ------------------------------------ |
+| 본문               | 12~13px                           | 14~15px                              |
+| 마이크로 라벨      | 11~12px                           | 13px                                 |
+| 굵기               | `800`·`750` 남발                  | 라벨 600, 제목 700                   |
+| muted 색           | `#64748b` (틴트 배경에서 AA 미달) | `#54606f` (6.3~6.6:1)                |
+| 레일 muted         | `#94a3b8` (5.6:1)                 | `#a9b6c8` (7.5:1)                    |
+| 로그인 비활성 버튼 | 흰 글자 on `#94a3b8` = **2.3:1**  | AA 통과                              |
+| 액센트             | teal·blue·indigo 혼재             | 파랑 하나 (상태색은 의미색이라 유지) |
+| radius             | 6·8·10 혼재                       | 컨테이너 8, pill 999 두 값만         |
+
+색은 전부 `:root` 변수(`--so-*`)에서만 온다. 로그인 페이지가 따로 갖고 있던 teal 액센트와 radius 6 도 여기 합쳤다.
+
+### 속도
+
+- **웹폰트 요청 0.** 폰트 스택의 `Inter` 는 **선언만 있고 로드하는 코드가 어디에도 없었다** — 죽은 문자열이라 시스템 스택으로 교체했다. 되살리지 말 것.
+- 100vh 셸에 깔린 3층 그라디언트와 카드·테이블의 `0 18px 48px` 그림자 제거. 전면 페인트 비용만 내던 장식이다.
+- **셀 인라인 스타일 253개 제거** (`style={tdStyle}` 117 + `style={thStyle}` 136). 행 수만큼 RSC 페이로드에 직렬화되던 것이라 표가 길수록 손해였다. `globals.css` 의 `.searchops-table` 로 옮겼다.
+- **GTM 을 태그 정본으로.** GTM 컨테이너와 `gtag.js` 를 둘 다 로드해 같은 라이브러리를 두 번 받고 페이지뷰가 양쪽에서 올라갔다. `gtag.js` 직접 로드를 제거하고 GA4 는 GTM 안의 태그로 붙인다. `SEARCHOPS_GA_ID` 는 더 이상 읽지 않는다.
+
+운영 실측: CSS 번들 9.9KB, `Inter`/`linear-gradient`/`box-shadow` **0건**, `gtag/js` 0 · `gtm.js` 1.
+
+### 좌측 레일이 최상단부터 이어지게 (PR #104)
+
+계정바가 셸의 형제로 `body` 최상단에 있어 레일이 그 아래에서 시작했고, 어두운 레일이 위쪽에서 잘려 보였다. 계정바를 셸 본문 칼럼(`.searchops-site-main`) 안으로 옮겼다.
+
+좌우로는 칼럼 패딩만큼 흘려보내야 해서 패딩을 `--so-main-pad-*` 변수로 빼고 계정바의 음수 마진이 **같은 변수**를 쓴다. 하드코딩한 숫자를 양쪽에 두면 한쪽만 바뀌었을 때 어긋난다.
+
+빠뜨리면 깨지는 곳 둘:
+
+- `AccountBar` 는 Supabase 클레임을 읽는 **async 서버 컴포넌트**다. 프레임 안에 넣으면 `loading.tsx` 를 `renderToStaticMarkup` 으로 렌더하는 테스트 4개가 suspend 로 깨진다. **Suspense 경계**를 두고 같은 높이(44px)의 빈 바를 fallback 으로 준다.
+- 이 변경으로 **공개 페이지(`/login`, `/privacy`, `/terms`, 404)에는 계정바가 없다.** 의도한 것이다 — `/login` 의 "로그인" 링크는 그 페이지에서 무의미했고, 법무 문서는 자체 네비게이션이 있으며, 로그아웃이 필요한 화면은 전부 셸을 쓴다.
+
+실측(1920px): 레일 `top=0 left=0 w=264`, 계정바 `left=264` 로 레일과 정확히 접함. 모바일에서는 레일 전체폭 → 계정바 → 본문 순으로 쌓이고 가로 스크롤 없음.
+
+### 내가 만든 회귀 둘 (둘 다 잡았다)
+
+**1. 타입 스케일이 한 단계로 뭉개졌다** (머지 전 리뷰에서 발견, `feacebb`).
+폰트 크기를 올릴 때 perl 치환을 `12→13`, `13→14` 순서로 한 번에 돌렸다. 순차 실행이라 원래 12 였던 것이 13 을 거쳐 14 까지 갔고, **11/12/13 세 단계가 전부 14 로** 뭉개졌다. `fontWeight 700→600` 도 제목까지 눌렀다. main 의 원본 값을 파일별로 다시 읽어 매핑했다.
+
+⚠️ **일괄 치환은 순차 실행이다.** 값 사다리를 옮길 때 한 번의 치환 체인에 넣으면 연쇄된다. 원본 기준으로 매핑하거나 역순으로 돌려야 한다.
+
+**2. 표 좁은 칼럼에서 한글이 세로로 쪼개졌다** (운영 화면 확인에서 발견, PR #103).
+`tableStyle` 을 `.searchops-table` 클래스로 옮길 때 **`minWidth: 780` 기본값을 빠뜨렸다.** `style={{ ...tableStyle, minWidth: N }}` 처럼 값을 명시한 표만 인라인으로 살아남았고, `style={tableStyle}` 만 쓰던 `crawls`·`issues`·`urls` 는 하한을 잃었다. `SEARCHOPS_CREDENTIAL_*` 같은 긴 토큰이 폭을 다 먹으면서 좁은 칼럼이 최소폭까지 눌렸고, pill 에 `white-space` 가 없어 `설/정/됨`, `수/동/후/속` 으로 글자 단위 줄바꿈됐다.
+
+`.searchops-table` 에 `min-width` 를 되돌리고 pill 계열에 `nowrap` 을 줬다. 함께 **`word-break: keep-all`** 을 body 에 넣었다 — CSS 기본값은 한글을 어절이 아니라 글자 단위로 끊는다(`운영 안정 / 화`). 이건 #102 회귀가 아니라 원래 있던 조판 문제다.
+
+운영 실측 효과: pill 높이 59px(3줄) → 25px, 표 행 높이 90px → 73px.
+
+⚠️ **이 회귀는 "표 화면을 육안 확인 못 했다"고 남겨둔 바로 그 구멍에서 나왔다.** 로컬은 인증 게이트, 프리뷰는 Deployment Protection 때문에 못 봤고, 운영 배포 후에야 보였다. 인증 없이 셸을 볼 수 있는 경로는 `/onboarding`, `/ops/hardening`, `/ops/observability`, `/ops/dead-letter`, `/ops/invites`, `/ops/productization` 이다(`isProtectedPath` 는 `/sites/*`, `/ops/readiness`, `/ops/integrations` 만 막는다). **UI 변경 검증은 이 경로들로 하면 된다.**
+
+### Vercel Preview 빌드가 13일간 조용히 깨져 있었다
+
+이 PR 이 13일 만에 `apps/web` 을 건드리면서 처음 드러났다. 빌드가 `@searchops/db#build` 의 `prebuild` 에서 `tsx: command not found` 로 죽었고, 설치 로그에 원인이 그대로 있었다:
+
+```
+devDependencies: skipped because NODE_ENV is set to production
+```
+
+**Vercel 프로젝트에 `NODE_ENV=production` 이 걸려 있어 `pnpm install` 이 devDependencies 를 통째로 건너뛰었다.** 72일 전부터 **Preview 환경에만** 설정돼 있었다 — 그래서 Production 배포는 멀쩡했고 PR 프리뷰만 깨져 있었으며, 그 사이 `apps/web` PR 이 없어 아무도 몰랐다.
+
+승인받아 Preview 의 `NODE_ENV` 를 제거했고 이후 빌드는 통과했다. `apps/web/package.json` 이 `typescript`·`eslint`·`@types/*` 를 전부 `dependencies` 에 넣어둔 것도 같은 제약을 우회한 흔적이다.
+
+⚠️ **`NODE_ENV` 를 Vercel 빌드 환경변수로 다시 걸지 말 것.** Vercel 이 런타임에서 알아서 세팅한다. 빌드 변수로 걸면 모든 devDependency 설치가 죽는다.
+
+부수 수정: `packages/db` 가 스크립트 8곳에서 `tsx` 를 쓰면서 선언은 루트에만 두고 호이스팅에 기대고 있었다 → 쓰는 패키지에 선언했다(`74ed0c6`). 이것만으로는 위 문제가 안 풀린다 — devDependency 라 `--prod` 설치에서 똑같이 스킵된다.
+
+### GA4 (코드 외 설정)
+
+- **교차 도메인 연결 3개 조건.** `완전 일치 / searchops-ai-web.vercel.app` · `완전 일치 / searchops.totopapa.com` · `종료값 / kbeautys-projects.vercel.app`. 마지막 하나로 Vercel 프리뷰 URL 전체가 커버되고 "추천 도메인" 제안이 사라졌다. `포함` 대신 `종료값` 을 쓴 이유: 교차 도메인 링커는 매칭 도메인으로 `_gl`(클라이언트 ID)을 넘기는데, `포함` 은 `kbeautys-projects.vercel.app.attacker.com` 에도 걸린다. Vercel 팀 슬러그는 호스트 끝에 오므로 `종료값` 이 안전하다.
+- **SPA 페이지뷰 트리거는 불필요하다.** 클라이언트 라우트 이동 3회를 실측한 결과 매 이동마다 `gtm.historyChange-v2` 와 함께 `en=page_view` 가 정확한 `dl` 로 1회씩 발동한다. GA4 향상된 측정의 "브라우저 기록 이벤트 기반 페이지 변경"이 이미 처리한다. GTM 에 `history change` 트리거를 **추가하지 말 것** — 중복 집계된다.
+- `태그 품질: 주의 필요` 경고는 설정 직후엔 남는다. 진단 재평가에 시간이 걸린다고 GA4 가 화면에 명시한다.
+
+### 안 한 것
+
+- **em-dash 48건은 그대로 뒀다.** 대부분 주석이고 나머지는 한국어 본문 문장부호다. 카피 보이스 보존이 우선이라 판단했다.
+- **다크 모드는 만들지 않았다.** 색이 아직 인라인 스타일에 하드코딩된 곳이 남아 있어(페이지별 상태색 등) 전면 토큰화 없이는 반쪽이 된다. 요청 범위(가독성·속도) 밖이라 미뤘다.
+
+---
+
 ## richdoc(리쥬엘) 연동 + 배포 전략 전환
 
 Updated: 2026-08-17 (운영 가동 중 — 새 유니크 키 아래 배치 2회 검증 완료)
