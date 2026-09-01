@@ -59,6 +59,8 @@ body {
   font-size: 15px;
   line-height: 1.6;
   margin: 0;
+  /* 한글은 기본값에서 글자 단위로 끊긴다("운영 안정 / 화"). 어절 단위로만 끊는다. */
+  word-break: keep-all;
 }
 
 a {
