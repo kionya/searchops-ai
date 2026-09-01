@@ -6,13 +6,13 @@ import type { CSSProperties } from "react";
 
 export const codeTextStyle: CSSProperties = {
   fontFamily: "var(--so-mono)",
-  fontSize: 14
+  fontSize: 13
 };
 
 export const pillStyle: CSSProperties = {
   borderRadius: 999,
   display: "inline-flex",
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 600,
   lineHeight: 1.3,
   padding: "4px 10px"

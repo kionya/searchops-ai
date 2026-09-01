@@ -226,7 +226,7 @@ function KeywordAeoReadinessPanel({
       <form action={discoveryAction} style={keywordDiscoveryFormStyle}>
         <div>
           <strong>GSC 기반 키워드 발견</strong>
-          <p style={{ ...mutedTextStyle, fontSize: 14, margin: "5px 0 0" }}>
+          <p style={{ ...mutedTextStyle, fontSize: 13, margin: "5px 0 0" }}>
             최근 GSC sync run: {latestGscRunId ?? "없음"}
           </p>
           {keywordDiscoveryFeedback ? (
@@ -481,7 +481,7 @@ function ContentBriefCreatePanel({
           />
         </label>
         <div style={submitRowStyle}>
-          <span style={{ ...mutedTextStyle, fontSize: 14 }}>
+          <span style={{ ...mutedTextStyle, fontSize: 13 }}>
             생성된 브리프는 사람 검토 전까지 초안 전용으로 유지됩니다.
           </span>
           <button style={submitButtonStyle} type="submit">
@@ -571,8 +571,8 @@ const wideFieldStyle = {
 
 const labelStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
-  fontWeight: 600
+  fontSize: 13,
+  fontWeight: 700
 } as const;
 
 const inputStyle = {

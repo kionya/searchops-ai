@@ -26,7 +26,7 @@ export function ProviderAccountRows({
         <td>{formatProviderAccountProvider(account.provider)}</td>
         <td>
           <strong>{account.displayName}</strong>
-          <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 4 }}>
+          <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 4 }}>
             {account.accountEmail ?? account.externalAccountId ?? "API key 계정"}
           </span>
           <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 4 }}>
@@ -48,7 +48,7 @@ export function ProviderAccountRows({
         <td>
           <strong>{account.bindingCount}</strong>
           {account.bindingCount > 0 ? (
-            <span style={{ color: "#b45309", display: "block", fontSize: 14, marginTop: 4 }}>
+            <span style={{ color: "#b45309", display: "block", fontSize: 13, marginTop: 4 }}>
               사용 중
             </span>
           ) : null}

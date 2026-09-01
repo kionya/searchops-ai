@@ -482,7 +482,7 @@ const queryTextareaStyle = {
 
 const queryHelpStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
+  fontSize: 13,
   lineHeight: 1.5
 } as const;
 
@@ -490,7 +490,7 @@ const gscNoteStyle = {
   background: "#eff6ff",
   borderRadius: 6,
   color: "#1d4ed8",
-  fontSize: 14,
+  fontSize: 13,
   lineHeight: 1.5,
   padding: "6px 8px"
 } as const;

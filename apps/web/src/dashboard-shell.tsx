@@ -15,8 +15,6 @@ import { getSiteSnapshot, isDirectDatabaseMode } from "./site-database";
 import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
 
-export const dashboardFontStack = "var(--so-font)";
-
 export const siteRouteItems = [
   { segment: "", label: "개요", summary: "사이트 상태 요약" },
   { segment: "crawls", label: "크롤링", summary: "크롤링 실행 이력" },
@@ -336,7 +334,7 @@ export function SectionHeader({
   return (
     <header style={sectionHeaderStyle}>
       <p style={eyebrowStyle}>{eyebrow}</p>
-      <h2 style={{ fontSize: 22, fontWeight: 600, lineHeight: 1.3, margin: "4px 0 6px" }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.3, margin: "4px 0 6px" }}>
         {title}
       </h2>
       <p style={{ ...mutedTextStyle, maxWidth: 720 }}>{description}</p>
@@ -348,7 +346,7 @@ export function MetricCard({ label, value }: PlaceholderMetric) {
   return (
     <article style={metricCardStyle}>
       <p style={metaLabelStyle}>{label}</p>
-      <strong style={{ display: "block", fontSize: 24, lineHeight: 1.2, marginTop: 6 }}>{value}</strong>
+      <strong style={{ display: "block", fontSize: 24, fontWeight: 700, lineHeight: 1.2, marginTop: 6 }}>{value}</strong>
     </article>
   );
 }
@@ -409,7 +407,7 @@ const sectionHeaderStyle: CSSProperties = {
 const metaLabelStyle: CSSProperties = {
   color: "var(--so-muted)",
   display: "block",
-  fontSize: 14,
+  fontSize: 13,
   margin: 0
 };
 

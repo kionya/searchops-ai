@@ -243,7 +243,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                             ))}
                           </span>
                           {providerErrorMessages.length > 0 ? (
-                            <ul style={{ color: "#b91c1c", fontSize: 14, margin: "8px 0 0", paddingLeft: 18 }}>
+                            <ul style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0", paddingLeft: 18 }}>
                               {providerErrorMessages.map((message) => (
                                 <li key={message}>{message}</li>
                               ))}
@@ -302,7 +302,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                     <td>
                       {formatBooleanLabel(result.fixture)}
                       {providerErrorMessage ? (
-                        <span style={{ color: "#b91c1c", display: "block", fontSize: 14, marginTop: 6 }}>
+                        <span style={{ color: "#b91c1c", display: "block", fontSize: 13, marginTop: 6 }}>
                           {providerErrorMessage}
                         </span>
                       ) : null}
@@ -397,7 +397,7 @@ function ConnectorCommandCenterPanel({
       <div style={liveSetupStripStyle}>
         <div>
           <strong style={{ display: "block", fontSize: 14 }}>PageSpeed live setup</strong>
-          <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 4 }}>
+          <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 4 }}>
             {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
           </span>
         </div>
@@ -453,7 +453,7 @@ function ConnectorOperationsPanel({
               </div>
             </dl>
             <p style={{ fontSize: 14, lineHeight: 1.45, margin: "12px 0 0" }}>{item.message}</p>
-            <p style={{ color: "var(--so-muted)", fontSize: 14, lineHeight: 1.45, margin: "6px 0 0" }}>
+            <p style={{ color: "var(--so-muted)", fontSize: 13, lineHeight: 1.45, margin: "6px 0 0" }}>
               {item.nextAction}
             </p>
             {canRunSync ? (
@@ -462,7 +462,7 @@ function ConnectorOperationsPanel({
                 <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
               </form>
             ) : (
-              <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 14 }}>
+              <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 14 }}>
                 조회 전용
               </span>
             )}
@@ -504,7 +504,7 @@ function PageSpeedSetupPanel({
         <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
         </p>
-        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
           조치: {pageSpeedCheck?.nextAction ?? "권한과 API 연결 상태를 확인하세요."}
         </p>
         {errorMessage ? (
@@ -700,7 +700,7 @@ function ConnectorBindingControl({
     <div className={bindingStyles.bindingRow}>
       <div>
         <strong>{label}</strong>
-        <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 4 }}>
+        <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 4 }}>
           {formatSiteConnectorStatus(status)}
         </span>
       </div>
@@ -936,7 +936,7 @@ const commandCenterBadgeStackStyle = {
 
 const commandCenterEyebrowStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 600,
   margin: 0,
   } as const;
@@ -959,7 +959,7 @@ const commandMetricCardStyle = {
 const commandMetricLabelStyle = {
   color: "var(--so-muted)",
   display: "block",
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 600,
   } as const;
 
@@ -1026,7 +1026,7 @@ const providerCardMetaStyle = {
 
 const providerCardMetaLabelStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
+  fontSize: 13,
   margin: 0
 } as const;
 
@@ -1133,8 +1133,8 @@ const quickProviderButtonStyle = {
   borderRadius: 8,
   color: "var(--so-ink)",
   cursor: "pointer",
-  fontSize: 14,
-  fontWeight: 600,
+  fontSize: 13,
+  fontWeight: 700,
   minHeight: 32,
   padding: "6px 10px"
 } as const;
@@ -1157,8 +1157,8 @@ const providerFieldsetStyle = {
 
 const providerLegendStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
-  fontWeight: 600,
+  fontSize: 13,
+  fontWeight: 700,
   marginBottom: 8,
   width: "100%"
 } as const;
@@ -1170,7 +1170,7 @@ const providerOptionStyle = {
   color: "var(--so-ink)",
   display: "inline-flex",
   fontSize: 14,
-  fontWeight: 600,
+  fontWeight: 700,
   gap: 6,
   minHeight: 34,
   padding: "7px 9px"

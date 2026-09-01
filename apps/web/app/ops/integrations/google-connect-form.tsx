@@ -38,5 +38,5 @@ export function GoogleConnectForm({
 
 const headerFormStyle = { alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 } as const;
 const inputStyle = { border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, minHeight: 38, padding: "8px 10px" } as const;
-const errorStyle = { color: "#b91c1c", fontSize: 14, margin: "6px 0 0" } as const;
-const emptyStyle = { color: "var(--so-muted)", fontSize: 14, margin: "6px 0 0" } as const;
+const errorStyle = { color: "#b91c1c", fontSize: 13, margin: "6px 0 0" } as const;
+const emptyStyle = { color: "var(--so-muted)", fontSize: 13, margin: "6px 0 0" } as const;

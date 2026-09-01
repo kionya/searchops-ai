@@ -115,7 +115,7 @@ function DefinitionList({
 }) {
   return (
     <div>
-      <h4 style={{ color: "var(--so-muted)", fontSize: 14, margin: "0 0 8px" }}>
+      <h4 style={{ color: "var(--so-muted)", fontSize: 13, margin: "0 0 8px" }}>
         {title}
       </h4>
       <ul style={{ display: "grid", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>

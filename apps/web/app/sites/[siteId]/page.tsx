@@ -50,8 +50,8 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
           borderRadius: 999,
           color: overview.source === "database" ? "#047857" : "#3730a3",
           display: "inline-flex",
-          fontSize: 14,
-          fontWeight: 600,
+          fontSize: 13,
+          fontWeight: 700,
           marginBottom: 14,
           padding: "7px 9px"
         }}
@@ -62,7 +62,7 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
       {initialCrawlFeedback ? (
         <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
           <span>{initialCrawlFeedback.message}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 14 }}>{initialCrawlFeedback.crawlRunId}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{initialCrawlFeedback.crawlRunId}</span>
         </section>
       ) : null}
       <div style={metricGridStyle}>
@@ -152,7 +152,7 @@ function WorkOrderSummaryBand({
       >
         {stats.map((stat) => (
           <div key={stat.label}>
-            <dt style={{ color: "var(--so-muted)", fontSize: 14 }}>{stat.label}</dt>
+            <dt style={{ color: "var(--so-muted)", fontSize: 13 }}>{stat.label}</dt>
             <dd style={{ fontSize: 24, fontWeight: 600, margin: "5px 0 0" }}>{stat.value}</dd>
           </div>
         ))}
@@ -227,7 +227,7 @@ function OverviewKpiCard({
 }) {
   return (
     <article style={{ ...kpiCardStyle, borderTopColor: toneColors[tone] }}>
-      <p style={{ color: "var(--so-muted)", fontSize: 14, margin: 0 }}>{label}</p>
+      <p style={{ color: "var(--so-muted)", fontSize: 13, margin: 0 }}>{label}</p>
       <strong style={{ display: "block", fontSize: 28, lineHeight: 1, marginTop: 8 }}>{value}</strong>
       <p style={{ color: "var(--so-muted)", fontSize: 14, lineHeight: 1.4, margin: "10px 0 0" }}>{detail}</p>
     </article>

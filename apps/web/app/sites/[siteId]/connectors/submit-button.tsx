@@ -92,7 +92,7 @@ const buttonBaseStyle = {
 
 const statusTextStyle = {
   color: "var(--so-muted)",
-  fontSize: 14,
+  fontSize: 13,
   minHeight: 16,
   textAlign: "right"
 } as const;

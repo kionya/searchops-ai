@@ -134,7 +134,7 @@ function OperatorSignalCard({
         {signal.summary}
       </span>
       <span style={signalMetricStyle}>{signal.value}</span>
-      <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 7 }}>
+      <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 7 }}>
         {signal.detail}
       </span>
     </Link>
@@ -245,8 +245,8 @@ const signalCardHeaderStyle = {
 const stepNumberStyle = {
   color: "var(--so-muted)",
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  fontSize: 14,
-  fontWeight: 600
+  fontSize: 13,
+  fontWeight: 700
 } as const;
 
 const signalMetricStyle = {
@@ -269,7 +269,7 @@ const sourceRowStyle = {
 const consoleLabelStyle = {
   color: "var(--so-muted)",
   display: "block",
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 600,
   margin: 0,
   } as const;

@@ -83,7 +83,7 @@ const containerStyle: CSSProperties = {
 const brandLinkStyle: CSSProperties = {
   color: "#1d4ed8",
   fontSize: 14,
-  fontWeight: 600,
+  fontWeight: 700,
   textDecoration: "none",
 };
 
@@ -124,7 +124,7 @@ const sectionStyle: CSSProperties = {
 
 const headingStyle: CSSProperties = {
   fontSize: 17,
-  fontWeight: 600,
+  fontWeight: 700,
   margin: "0 0 10px",
 };
 

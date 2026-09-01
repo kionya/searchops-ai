@@ -246,7 +246,7 @@ function SiteRegistrySummary({ registry }: { readonly registry: SiteRegistryData
 function SiteFact({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div style={{ borderTop: "1px solid #eef2f7", paddingTop: 10 }}>
-      <dt style={{ color: "var(--so-muted)", fontSize: 14, fontWeight: 600 }}>{label}</dt>
+      <dt style={{ color: "var(--so-muted)", fontSize: 13, fontWeight: 600 }}>{label}</dt>
       <dd style={{ fontWeight: 600, margin: "4px 0 0" }}>{value}</dd>
     </div>
   );

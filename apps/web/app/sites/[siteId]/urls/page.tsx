@@ -77,7 +77,7 @@ export default async function UrlsPage({ params }: UrlsPageProps) {
                   <td>{urlRecord.statusCode}</td>
                   <td>
                     <IndexabilityPill indexable={urlRecord.indexable} />
-                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 5 }}>
+                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 13, marginTop: 5 }}>
                       {urlRecord.indexabilityReason}
                     </span>
                   </td>
