@@ -15,5 +15,7 @@ export const pillStyle: CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   lineHeight: 1.3,
-  padding: "4px 10px"
+  padding: "4px 10px",
+  // 한글 상태 라벨이 좁은 칼럼에서 "설/정/됨" 으로 쪼개지면 안 된다
+  whiteSpace: "nowrap"
 };

@@ -448,6 +448,11 @@ a {
   color: var(--so-muted);
 }
 
+.searchops-status-pill,
+.searchops-site-status-pill {
+  white-space: nowrap;
+}
+
 .searchops-status-pill {
   border-radius: 999px;
   display: inline-flex;
@@ -484,6 +489,9 @@ a {
 
 .searchops-table {
   border-collapse: collapse;
+  /* 인라인 minWidth 가 없는 표의 기본값. 이게 없으면 긴 env 토큰이 폭을 다 먹고
+     좁은 칼럼이 한 글자씩 세로로 쪼개진다. */
+  min-width: 780px;
   width: 100%;
 }
 
