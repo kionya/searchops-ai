@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import {
   formatContentBriefDate,
@@ -101,17 +95,17 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
         siteId={siteId}
       />
       <ContentBriefCreatePanel domain={site.domain} siteId={siteId} createFeedback={createFeedback} />
-      <section aria-label="콘텐츠 브리프 기록" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="콘텐츠 브리프 기록" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="content-brief-history-heading" style={{ fontSize: 18, margin: 0 }}>
               최근 콘텐츠 브리프
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               최근 생성: {formatContentBriefDate(summary.latestCreatedAt)}. 생성된 모든 브리프는 초안 전용으로 유지됩니다.
             </p>
             {history.errorMessage ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                 API 연결 실패: {history.errorMessage}
               </p>
             ) : null}
@@ -126,48 +120,48 @@ export default async function ContentPage({ params, searchParams }: ContentPageP
             {history.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 940 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 940 }}>
             <thead>
               <tr>
-                <th style={thStyle}>브리프</th>
-                <th style={thStyle}>키워드</th>
-                <th style={thStyle}>의도</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>생성일</th>
-                <th style={thStyle}>산출물</th>
+                <th>브리프</th>
+                <th>키워드</th>
+                <th>의도</th>
+                <th>상태</th>
+                <th>생성일</th>
+                <th>산출물</th>
               </tr>
             </thead>
             <tbody>
               {history.briefs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
+                  <td colSpan={6} className="searchops-muted">
                     아직 콘텐츠 브리프가 없습니다.
                   </td>
                 </tr>
               ) : (
                 history.briefs.map((brief) => (
                   <tr key={brief.id}>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{brief.title}</strong>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                      <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                         {brief.id}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{brief.primaryKeyword}</strong>
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         {brief.locale}
                       </span>
                     </td>
-                    <td style={tdStyle}>{formatContentBriefIntent(brief.intent)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatContentBriefIntent(brief.intent)}</td>
+                    <td>
                       <StatusPill label={formatContentBriefStatus(brief.status)} tone={getContentBriefStatusTone(brief.status)} />
                     </td>
-                    <td style={tdStyle}>{formatContentBriefDate(brief.createdAt)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatContentBriefDate(brief.createdAt)}</td>
+                    <td>
                       섹션 {brief.outline?.length ?? 0}개, FAQ {brief.faqQuestions.length}개
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         {formatContentBriefGenerationMode(brief.generationMode)}; {formatContentBriefPublishPolicy(brief.publishPolicy)}
                       </span>
                     </td>
@@ -199,15 +193,15 @@ function KeywordAeoReadinessPanel({
   const briefAction = createContentBriefAction.bind(null, siteId);
 
   return (
-    <section aria-label="키워드/AEO 준비도" style={tableSectionStyle}>
-      <header style={tableHeaderStyle}>
+    <section aria-label="키워드/AEO 준비도" className="searchops-table-section">
+      <header className="searchops-table-head">
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>키워드/AEO 준비도</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             타깃 키워드, 답변 블록, FAQ 스키마, 인용, 콘텐츠 깊이를 기준으로 한 결정론적 준비도 진단입니다.
           </p>
           {dashboard.errorMessage ? (
-            <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+            <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
               API 연결 실패: {dashboard.errorMessage}
             </p>
           ) : null}
@@ -232,7 +226,7 @@ function KeywordAeoReadinessPanel({
       <form action={discoveryAction} style={keywordDiscoveryFormStyle}>
         <div>
           <strong>GSC 기반 키워드 발견</strong>
-          <p style={{ ...mutedTextStyle, fontSize: 12, margin: "5px 0 0" }}>
+          <p style={{ ...mutedTextStyle, fontSize: 13, margin: "5px 0 0" }}>
             최근 GSC sync run: {latestGscRunId ?? "없음"}
           </p>
           {keywordDiscoveryFeedback ? (
@@ -254,21 +248,21 @@ function KeywordAeoReadinessPanel({
           GSC 후보 갱신
         </button>
       </form>
-      <div style={tableScrollStyle}>
-        <table style={{ ...tableStyle, minWidth: 980 }}>
+      <div className="searchops-table-scroll">
+        <table className="searchops-table" style={{ minWidth: 980 }}>
           <thead>
             <tr>
-              <th style={thStyle}>키워드</th>
-              <th style={thStyle}>상태</th>
-              <th style={thStyle}>점수</th>
-              <th style={thStyle}>후보 페이지</th>
-              <th style={thStyle}>약한 검사</th>
+              <th>키워드</th>
+              <th>상태</th>
+              <th>점수</th>
+              <th>후보 페이지</th>
+              <th>약한 검사</th>
             </tr>
           </thead>
           <tbody>
             {dashboard.reports.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ ...tdStyle, color: "#64748b" }}>
+                <td colSpan={5} className="searchops-muted">
                   아직 키워드/AEO 준비도 리포트가 없습니다.
                 </td>
               </tr>
@@ -278,28 +272,28 @@ function KeywordAeoReadinessPanel({
 
                 return (
                   <tr key={`${report.keyword.phrase}-${report.evaluatedAt}-${report.pageUrl ?? "none"}`}>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{report.keyword.phrase}</strong>
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         {report.keyword.locale}; {formatContentBriefIntent(report.keyword.intent)}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <TonePill
                         label={formatAeoReadinessStatus(report.status)}
                         tone={getAeoReadinessTone(report.status)}
                       />
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{report.score}</strong>
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         deterministic
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    <td className="searchops-code">
                       {report.pageUrl ?? "후보 페이지 없음"}
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       {weakChecks.length === 0 ? (
                         <TonePill label="약한 검사 없음" tone="good" />
                       ) : (
@@ -321,54 +315,54 @@ function KeywordAeoReadinessPanel({
           </tbody>
         </table>
       </div>
-      <div style={{ ...tableScrollStyle, marginTop: 12 }}>
-        <table style={{ ...tableStyle, minWidth: 940 }}>
+      <div className="searchops-table-scroll" style={{ marginTop: 12 }}>
+        <table className="searchops-table" style={{ minWidth: 940 }}>
           <thead>
             <tr>
-              <th style={thStyle}>발견 키워드</th>
-              <th style={thStyle}>출처</th>
-              <th style={thStyle}>점수</th>
-              <th style={thStyle}>후보 페이지</th>
-              <th style={thStyle}>근거</th>
-              <th style={thStyle}>브리프</th>
+              <th>발견 키워드</th>
+              <th>출처</th>
+              <th>점수</th>
+              <th>후보 페이지</th>
+              <th>근거</th>
+              <th>브리프</th>
             </tr>
           </thead>
           <tbody>
             {dashboard.keywordDiscoveries.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
+                <td colSpan={6} className="searchops-muted">
                   아직 키워드 발견 후보가 없습니다.
                 </td>
               </tr>
             ) : (
               dashboard.keywordDiscoveries.slice(0, 8).map((candidate) => (
                 <tr key={candidate.id}>
-                  <td style={tdStyle}>
+                  <td>
                     <strong>{candidate.phrase}</strong>
-                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                       {candidate.locale}; {formatContentBriefIntent(candidate.intent)}
                     </span>
                   </td>
-                  <td style={tdStyle}>
-                    <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+                  <td>
+                    <span style={{ ...pillStyle, background: "#f8fafc", color: "var(--so-muted)" }}>
                       {candidate.source}
                     </span>
                   </td>
-                  <td style={tdStyle}>
+                  <td>
                     <strong>{candidate.score}</strong>
-                    <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                       {formatContentBriefGenerationMode(candidate.generatedBy)}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>
+                  <td className="searchops-code">
                     {candidate.pageUrl ?? "후보 페이지 없음"}
                   </td>
-                  <td style={tdStyle}>
-                    <span style={{ color: "#64748b", display: "block", fontSize: 13 }}>
+                  <td>
+                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14 }}>
                       {candidate.evidence.sourceField}; {candidate.evidence.impressions ?? candidate.evidence.title ?? "기록"}
                     </span>
                   </td>
-                  <td style={tdStyle}>
+                  <td>
                     <form action={briefAction}>
                       <input name="phrase" type="hidden" value={candidate.phrase} />
                       <input name="intent" type="hidden" value={candidate.intent ?? "informational"} />
@@ -403,7 +397,7 @@ function ContentBriefCreatePanel({
     <section aria-label="콘텐츠 브리프 생성" style={createPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>초안 브리프 생성</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           키워드와 선택 페이지 신호를 입력해 결정론적 초안 전용 브리프를 생성합니다.
         </p>
         {createFeedback ? (
@@ -487,7 +481,7 @@ function ContentBriefCreatePanel({
           />
         </label>
         <div style={submitRowStyle}>
-          <span style={{ ...mutedTextStyle, fontSize: 12 }}>
+          <span style={{ ...mutedTextStyle, fontSize: 13 }}>
             생성된 브리프는 사람 검토 전까지 초안 전용으로 유지됩니다.
           </span>
           <button style={submitButtonStyle} type="submit">
@@ -507,7 +501,7 @@ function StatusPill({
   readonly tone: ContentBriefStatusTone;
 }) {
   const toneStyle = {
-    archived: { background: "#f8fafc", color: "#475569" },
+    archived: { background: "#f8fafc", color: "var(--so-muted)" },
     draft: { background: "#ecfdf5", color: "#047857" }
   }[tone];
 
@@ -576,15 +570,15 @@ const wideFieldStyle = {
 } as const;
 
 const labelStyle = {
-  color: "#475569",
-  fontSize: 12,
+  color: "var(--so-muted)",
+  fontSize: 13,
   fontWeight: 700
 } as const;
 
 const inputStyle = {
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   fontFamily: "inherit",
   fontSize: 14,
   minHeight: 38,
@@ -612,7 +606,7 @@ const submitButtonStyle = {
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 40,
   padding: "10px 14px"
 } as const;
@@ -621,7 +615,7 @@ const secondaryButtonStyle = {
   ...submitButtonStyle,
   background: "#ffffff",
   border: "1px solid #dbe4ef",
-  color: "#172033",
+  color: "var(--so-ink)",
   minHeight: 36,
   padding: "8px 12px"
 } as const;
@@ -629,14 +623,14 @@ const secondaryButtonStyle = {
 const createFeedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13
+    fontSize: 14
   },
   success: {
     color: "#047857",
-    fontSize: 13
+    fontSize: 14
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13
+    fontSize: 14
   }
 } as const;

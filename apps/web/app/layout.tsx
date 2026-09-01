@@ -18,8 +18,9 @@ export const metadata: Metadata = {
 };
 
 const isProduction = process.env.NODE_ENV === "production";
+// 태그 정본은 GTM 하나다. GA4 는 GTM 컨테이너 안의 태그로 붙인다 —
+// gtag.js 를 여기서 또 로드하면 같은 라이브러리를 두 번 받고 히트가 중복 집계된다.
 const gtmId = process.env.SEARCHOPS_GTM_ID ?? (isProduction ? "GTM-NRXJR3JB" : "");
-const gaId = process.env.SEARCHOPS_GA_ID ?? (isProduction ? "G-J4S923Y2Z5" : "");
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -47,40 +48,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </Script>
           </>
         ) : null}
-        {isProduction && gaId ? (
-          <>
-            <Script src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`} strategy="afterInteractive" />
-            <Script id="searchops-ga" strategy="afterInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){window.dataLayer.push(arguments);}
-                gtag("js", new Date());
-                gtag("config", "${gaId}");
-              `}
-            </Script>
-          </>
-        ) : null}
         <AccountBar />
         {children}
-        <footer
-          style={{
-            borderTop: "1px solid #e2e8f0",
-            color: "#64748b",
-            display: "flex",
-            flexWrap: "wrap",
-            fontSize: 13,
-            gap: 16,
-            justifyContent: "center",
-            padding: "20px 16px",
-          }}
-        >
+        <footer className="searchops-footer">
           <span>© SearchOps AI</span>
-          <Link href="/privacy" style={{ color: "#475569", textDecoration: "none" }}>
-            개인정보처리방침
-          </Link>
-          <Link href="/terms" style={{ color: "#475569", textDecoration: "none" }}>
-            이용약관
-          </Link>
+          <Link href="/privacy">개인정보처리방침</Link>
+          <Link href="/terms">이용약관</Link>
         </footer>
       </body>
     </html>

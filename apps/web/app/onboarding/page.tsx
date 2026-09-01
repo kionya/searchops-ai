@@ -8,8 +8,6 @@ import {
   SectionHeader,
 } from "../../src/dashboard-shell";
 import {
-  tableHeaderStyle,
-  tableSectionStyle,
 } from "../../src/dashboard-table-styles";
 import {
   onboardingSteps,
@@ -43,13 +41,13 @@ export default function OnboardingPage() {
           <MetricCard label="후속 필요" value={String(summary.blocked)} />
         </div>
 
-        <section aria-label="온보딩 단계" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="온보딩 단계" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 id="onboarding-heading" style={{ fontSize: 18, margin: 0 }}>
                 초기 설정 흐름
               </h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 live connector와 billing은 credential/providing 전까지 선택 또는 후속 단계로 분리합니다.
               </p>
             </div>

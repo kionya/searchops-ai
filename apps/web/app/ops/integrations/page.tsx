@@ -12,12 +12,6 @@ import {
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
 } from "../../../src/dashboard-table-styles";
 import {
   canManageProviderAccounts,
@@ -93,7 +87,7 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
         />
         <div aria-live="polite" style={statusBarStyle}>
           <span>현재 역할: {context.role}</span>
-          <strong style={{ color: statusFeedback?.color ?? "#475569" }}>
+          <strong style={{ color: statusFeedback?.color ?? "var(--so-muted)" }}>
             {statusFeedback?.message ?? (canManage ? "변경 가능" : "조회 전용")}
           </strong>
         </div>
@@ -151,35 +145,35 @@ function ProviderSection({
   readonly title: string;
 }) {
   return (
-    <section aria-label={`${title} 계정`} style={tableSectionStyle}>
-      <header style={tableHeaderStyle}>
+    <section aria-label={`${title} 계정`} className="searchops-table-section">
+      <header className="searchops-table-head">
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>{title}</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             {accounts.length}개 계정
           </p>
         </div>
         {children}
       </header>
-      <div style={tableScrollStyle}>
-        <table style={{ ...tableStyle, minWidth: 1120 }}>
+      <div className="searchops-table-scroll">
+        <table className="searchops-table" style={{ minWidth: 1120 }}>
           <thead>
             <tr>
-              <th style={thStyle}>Provider</th>
-              <th style={thStyle}>계정</th>
-              <th style={thStyle}>상태</th>
-              <th style={thStyle}>기본</th>
-              <th style={thStyle}>사이트 연결</th>
-              <th style={thStyle}>수정</th>
-              <th style={thStyle}>키 교체</th>
-              <th style={thStyle}>삭제</th>
+              <th>Provider</th>
+              <th>계정</th>
+              <th>상태</th>
+              <th>기본</th>
+              <th>사이트 연결</th>
+              <th>수정</th>
+              <th>키 교체</th>
+              <th>삭제</th>
             </tr>
           </thead>
           <tbody>
             <ProviderAccountRows accounts={accounts} canManage={canManage} />
             {accounts.length === 0 && !loadFailed ? (
               <tr>
-                <td colSpan={8} style={{ ...tdStyle, ...mutedTextStyle }}>{emptyLabel}</td>
+                <td colSpan={8} className="searchops-muted">{emptyLabel}</td>
               </tr>
             ) : null}
           </tbody>
@@ -234,8 +228,8 @@ const statusBarStyle = {
   minHeight: 48,
   padding: "10px 14px",
 } as const;
-const errorStyle = { color: "#b91c1c", fontSize: 13, margin: "10px 0" } as const;
+const errorStyle = { color: "#b91c1c", fontSize: 14, margin: "10px 0" } as const;
 const headerFormStyle = { alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 } as const;
-const inputStyle = { border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, minHeight: 38, padding: "8px 10px" } as const;
-const checkLabelStyle = { alignItems: "center", display: "inline-flex", fontSize: 13, gap: 5 } as const;
+const inputStyle = { border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, minHeight: 38, padding: "8px 10px" } as const;
+const checkLabelStyle = { alignItems: "center", display: "inline-flex", fontSize: 14, gap: 5 } as const;
 const srOnlyStyle = { height: 1, margin: -1, overflow: "hidden", padding: 0, position: "absolute", width: 1, clip: "rect(0 0 0 0)" } as const;

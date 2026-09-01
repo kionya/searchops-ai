@@ -9,13 +9,7 @@ import {
 } from "../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
+  pillStyle
 } from "../../../src/dashboard-table-styles";
 import {
   formatInviteDate,
@@ -38,7 +32,7 @@ interface InvitesPageProps {
 
 const statusTone: Record<string, { background: string; color: string }> = {
   accepted: { background: "#ecfdf5", color: "#047857" },
-  expired: { background: "#f8fafc", color: "#475569" },
+  expired: { background: "#f8fafc", color: "var(--so-muted)" },
   pending: { background: "#eff6ff", color: "#1d4ed8" },
   revoked: { background: "#fef2f2", color: "#b91c1c" },
 };
@@ -73,11 +67,11 @@ export default async function OrganizationInvitesPage({ searchParams }: InvitesP
           <MetricCard label="철회됨(revoked)" value={String(operations.summary.revoked)} />
         </div>
 
-        <section aria-label="초대 생성" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="초대 생성" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 style={{ fontSize: 18, margin: 0 }}>새 초대 생성</h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 이메일과 역할을 입력하면 단명 토큰 초대가 생성됩니다.
               </p>
               {createFeedback ? (
@@ -109,12 +103,12 @@ export default async function OrganizationInvitesPage({ searchParams }: InvitesP
           </form>
         </section>
 
-        <section aria-label="초대 목록" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="초대 목록" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 style={{ fontSize: 18, margin: 0 }}>초대 목록</h3>
               {operations.errorMessage ? (
-                <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                   API 연결 실패: {operations.errorMessage}
                 </p>
               ) : null}
@@ -134,36 +128,36 @@ export default async function OrganizationInvitesPage({ searchParams }: InvitesP
               {operations.source === "api" ? "API 데이터" : "데모 데이터"}
             </span>
           </header>
-          <div style={tableScrollStyle}>
-            <table style={{ ...tableStyle, minWidth: 900 }}>
+          <div className="searchops-table-scroll">
+            <table className="searchops-table" style={{ minWidth: 900 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>이메일</th>
-                  <th style={thStyle}>역할</th>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>생성</th>
-                  <th style={thStyle}>만료</th>
-                  <th style={thStyle}>작업</th>
+                  <th>이메일</th>
+                  <th>역할</th>
+                  <th>상태</th>
+                  <th>생성</th>
+                  <th>만료</th>
+                  <th>작업</th>
                 </tr>
               </thead>
               <tbody>
                 {operations.invitations.map((invitation) => (
                   <tr key={invitation.id}>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{invitation.email}</strong>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                      <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                         {invitation.id}
                       </span>
                     </td>
-                    <td style={tdStyle}>{invitation.role}</td>
-                    <td style={tdStyle}>
+                    <td>{invitation.role}</td>
+                    <td>
                       <span style={{ ...pillStyle, ...(statusTone[invitation.status] ?? statusTone.expired) }}>
                         {invitation.status}
                       </span>
                     </td>
-                    <td style={tdStyle}>{formatInviteDate(invitation.createdAt)}</td>
-                    <td style={tdStyle}>{formatInviteDate(invitation.expiresAt)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatInviteDate(invitation.createdAt)}</td>
+                    <td>{formatInviteDate(invitation.expiresAt)}</td>
+                    <td>
                       {invitation.status === "pending" ? (
                         <form action={revokeInvitationAction}>
                           <input name="id" type="hidden" value={invitation.id} />
@@ -172,14 +166,14 @@ export default async function OrganizationInvitesPage({ searchParams }: InvitesP
                           </button>
                         </form>
                       ) : (
-                        <span style={{ ...mutedTextStyle, fontSize: 13 }}>-</span>
+                        <span style={{ ...mutedTextStyle, fontSize: 14 }}>-</span>
                       )}
                     </td>
                   </tr>
                 ))}
                 {operations.invitations.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ ...tdStyle, ...mutedTextStyle }}>
+                    <td colSpan={6} className="searchops-muted">
                       초대가 없습니다. 위에서 새 초대를 생성하세요.
                     </td>
                   </tr>
@@ -215,8 +209,8 @@ const primaryButtonStyle = {
   borderRadius: 8,
   color: "#ffffff",
   cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 38,
   padding: "8px 16px",
 } as const;
@@ -227,14 +221,14 @@ const dangerButtonStyle = {
   borderRadius: 8,
   color: "#b91c1c",
   cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 34,
   padding: "8px 12px",
 } as const;
 
 const feedbackStyle = {
-  info: { color: "#3730a3", fontSize: 13 },
-  success: { color: "#047857", fontSize: 13 },
-  warning: { color: "#b91c1c", fontSize: 13 },
+  info: { color: "#3730a3", fontSize: 14 },
+  success: { color: "#047857", fontSize: 14 },
+  warning: { color: "#b91c1c", fontSize: 14 },
 } as const;

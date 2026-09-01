@@ -9,13 +9,7 @@ import {
 } from "../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
+  pillStyle
 } from "../../../src/dashboard-table-styles";
 import { formatStatusLabel } from "../../../src/korean-labels";
 import {
@@ -76,17 +70,17 @@ export default async function DeadLetterOperationsPage({
           <MetricCard label="대기 중" value={String(operations.summary.waiting)} />
           <MetricCard label="실패 항목" value={String(operations.summary.failed)} />
         </div>
-        <section aria-label="실패 작업 상태" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="실패 작업 상태" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 id="실패 작업-heading" style={{ fontSize: 18, margin: 0 }}>
                 워커 실패 큐
               </h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 최근 실패: {formatDeadLetterDate(operations.summary.latestFailure)}
               </p>
               {operations.errorMessage ? (
-                <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                   API 연결 실패: {operations.errorMessage}
                 </p>
               ) : null}
@@ -111,42 +105,42 @@ export default async function DeadLetterOperationsPage({
               {operations.source === "api" ? "API 데이터" : "데모 데이터"}
             </span>
           </header>
-          <div style={tableScrollStyle}>
-            <table style={{ ...tableStyle, minWidth: 1040 }}>
+          <div className="searchops-table-scroll">
+            <table className="searchops-table" style={{ minWidth: 1040 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>원본 작업</th>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>원본 큐</th>
-                  <th style={thStyle}>시도 횟수</th>
-                  <th style={thStyle}>실패 시각</th>
-                  <th style={thStyle}>사유</th>
-                  <th style={thStyle}>작업</th>
+                  <th>원본 작업</th>
+                  <th>상태</th>
+                  <th>원본 큐</th>
+                  <th>시도 횟수</th>
+                  <th>실패 시각</th>
+                  <th>사유</th>
+                  <th>작업</th>
                 </tr>
               </thead>
               <tbody>
                 {operations.deadLetterJobs.map((job) => (
                   <tr key={job.id}>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{job.payload.originalJobName}</strong>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                      <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                         {job.payload.originalJobId ?? "알 수 없는 원본 ID"}
                       </span>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                      <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                         실패 작업 {job.jobId ?? "알 수 없음"}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <DeadLetterStatusPill
                         label={formatStatusLabel(job.status)}
                         tone={getDeadLetterStatusTone(job.status)}
                       />
                     </td>
-                    <td style={{ ...tdStyle, ...codeTextStyle }}>{job.payload.originalQueue}</td>
-                    <td style={tdStyle}>{job.payload.attemptsMade}</td>
-                    <td style={tdStyle}>{formatDeadLetterDate(job.payload.failedAt)}</td>
-                    <td style={tdStyle}>{job.payload.failedReason}</td>
-                    <td style={tdStyle}>
+                    <td className="searchops-code">{job.payload.originalQueue}</td>
+                    <td>{job.payload.attemptsMade}</td>
+                    <td>{formatDeadLetterDate(job.payload.failedAt)}</td>
+                    <td>{job.payload.failedReason}</td>
+                    <td>
                       <div style={actionGroupStyle}>
                         <form action={planDeadLetterReplayAction}>
                           <input name="id" type="hidden" value={job.id} />
@@ -169,15 +163,15 @@ export default async function DeadLetterOperationsPage({
           </div>
         </section>
         {replayPlan?.plan ? (
-          <section aria-label="재실행 계획" style={tableSectionStyle}>
-            <header style={tableHeaderStyle}>
+          <section aria-label="재실행 계획" className="searchops-table-section">
+            <header className="searchops-table-head">
               <div>
                 <h3 style={{ fontSize: 18, margin: 0 }}>재실행 계획</h3>
-                <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+                <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                   dead-letter metadata만으로는 고객/provider payload를 재구성하지 않습니다.
                 </p>
                 {replayPlan.errorMessage ? (
-                  <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                  <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                     계획 조회 실패: {replayPlan.errorMessage}
                   </p>
                 ) : null}
@@ -192,28 +186,28 @@ export default async function DeadLetterOperationsPage({
                 {replayPlan.plan.status === "ready" ? "준비됨" : "차단됨"}
               </span>
             </header>
-            <div style={tableScrollStyle}>
-              <table style={{ ...tableStyle, minWidth: 900 }}>
+            <div className="searchops-table-scroll">
+              <table className="searchops-table" style={{ minWidth: 900 }}>
                 <thead>
                   <tr>
-                    <th style={thStyle}>단계</th>
-                    <th style={thStyle}>상태</th>
-                    <th style={thStyle}>설명</th>
-                    <th style={thStyle}>명령</th>
+                    <th>단계</th>
+                    <th>상태</th>
+                    <th>설명</th>
+                    <th>명령</th>
                   </tr>
                 </thead>
                 <tbody>
                   {replayPlan.plan.steps.map((step) => (
                     <tr key={step.id}>
-                      <td style={tdStyle}>
+                      <td>
                         <strong>{step.title}</strong>
-                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                        <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                           {step.id}
                         </span>
                       </td>
-                      <td style={tdStyle}>{step.status}</td>
-                      <td style={tdStyle}>{step.description}</td>
-                      <td style={{ ...tdStyle, ...codeTextStyle }}>{step.command ?? "수동 확인"}</td>
+                      <td>{step.status}</td>
+                      <td>{step.description}</td>
+                      <td className="searchops-code">{step.command ?? "수동 확인"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -236,7 +230,7 @@ function DeadLetterStatusPill({
   const toneStyle = {
     done: { background: "#ecfdf5", color: "#047857" },
     failed: { background: "#fef2f2", color: "#b91c1c" },
-    queued: { background: "#f8fafc", color: "#475569" },
+    queued: { background: "#f8fafc", color: "var(--so-muted)" },
     running: { background: "#eff6ff", color: "#1d4ed8" },
   }[tone];
 
@@ -249,8 +243,8 @@ const clearButtonStyle = {
   borderRadius: 8,
   color: "#ffffff",
   cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 34,
   padding: "8px 12px",
 } as const;
@@ -261,8 +255,8 @@ const secondaryButtonStyle = {
   borderRadius: 8,
   color: "#0f172a",
   cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 34,
   padding: "8px 12px",
 } as const;
@@ -276,14 +270,14 @@ const actionGroupStyle = {
 const feedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13,
+    fontSize: 14,
   },
   success: {
     color: "#047857",
-    fontSize: 13,
+    fontSize: 14,
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13,
+    fontSize: 14,
   },
 } as const;

@@ -50,7 +50,7 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
           borderRadius: 999,
           color: overview.source === "database" ? "#047857" : "#3730a3",
           display: "inline-flex",
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: 700,
           marginBottom: 14,
           padding: "7px 9px"
@@ -62,7 +62,7 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
       {initialCrawlFeedback ? (
         <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
           <span>{initialCrawlFeedback.message}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{initialCrawlFeedback.crawlRunId}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{initialCrawlFeedback.crawlRunId}</span>
         </section>
       ) : null}
       <div style={metricGridStyle}>
@@ -80,7 +80,7 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
         <h3 id="site-overview-heading" style={{ fontSize: 18, margin: "0 0 8px" }}>
           다음 작업
         </h3>
-        <p style={{ color: "#64748b", margin: "0 0 14px" }}>
+        <p style={{ color: "var(--so-muted)", margin: "0 0 14px" }}>
           열린 작업 지시서 {summary.activeWorkOrders}개, 열린 이슈 {summary.openIssues}개, 검수 중인 재검수 {summary.rechecksInReview}개가 있습니다.
         </p>
         <div
@@ -97,7 +97,7 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
         </div>
       </section>
       <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
-      <p style={{ color: "#64748b", fontSize: 13, marginTop: 14 }}>
+      <p style={{ color: "var(--so-muted)", fontSize: 14, marginTop: 14 }}>
         실시간 API 조회가 연결되기 전까지 KPI 값은 {site.domain} 기준의 결정론적 fixture 데이터를 사용합니다.
       </p>
     </section>
@@ -136,7 +136,7 @@ function WorkOrderSummaryBand({
           <h3 id="work-order-summary-heading" style={{ fontSize: 18, margin: "0 0 6px" }}>
             작업 지시서 요약
           </h3>
-          <p style={{ color: "#64748b", margin: 0 }}>
+          <p style={{ color: "var(--so-muted)", margin: 0 }}>
             개요 화면은 판단에 필요한 요약만 보여주며, 전체 칸반과 목록은 작업 보드에서 관리합니다.
           </p>
         </div>
@@ -152,8 +152,8 @@ function WorkOrderSummaryBand({
       >
         {stats.map((stat) => (
           <div key={stat.label}>
-            <dt style={{ color: "#64748b", fontSize: 12 }}>{stat.label}</dt>
-            <dd style={{ fontSize: 24, fontWeight: 800, margin: "5px 0 0" }}>{stat.value}</dd>
+            <dt style={{ color: "var(--so-muted)", fontSize: 13 }}>{stat.label}</dt>
+            <dd style={{ fontSize: 24, fontWeight: 600, margin: "5px 0 0" }}>{stat.value}</dd>
           </div>
         ))}
       </dl>
@@ -227,9 +227,9 @@ function OverviewKpiCard({
 }) {
   return (
     <article style={{ ...kpiCardStyle, borderTopColor: toneColors[tone] }}>
-      <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>{label}</p>
+      <p style={{ color: "var(--so-muted)", fontSize: 13, margin: 0 }}>{label}</p>
       <strong style={{ display: "block", fontSize: 28, lineHeight: 1, marginTop: 8 }}>{value}</strong>
-      <p style={{ color: "#475569", fontSize: 13, lineHeight: 1.4, margin: "10px 0 0" }}>{detail}</p>
+      <p style={{ color: "var(--so-muted)", fontSize: 14, lineHeight: 1.4, margin: "10px 0 0" }}>{detail}</p>
     </article>
   );
 }
@@ -250,13 +250,12 @@ const kpiCardStyle: CSSProperties = {
   border: "1px solid #dbe4ef",
   borderRadius: 8,
   borderTop: "4px solid #94a3b8",
-  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.05)",
   minHeight: 132,
   padding: 14
 };
 
 const toneColors = {
-  neutral: "#64748b",
+  neutral: "var(--so-muted)",
   placeholder: "#2563eb",
   positive: "#059669",
   risk: "#dc2626"

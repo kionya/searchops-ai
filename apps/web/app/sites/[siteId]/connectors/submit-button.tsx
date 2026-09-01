@@ -85,14 +85,14 @@ const buttonBaseStyle = {
   borderRadius: 8,
   color: "#ffffff",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 40,
   padding: "10px 14px"
 } as const;
 
 const statusTextStyle = {
-  color: "#475569",
-  fontSize: 12,
+  color: "var(--so-muted)",
+  fontSize: 13,
   minHeight: 16,
   textAlign: "right"
 } as const;
@@ -100,8 +100,8 @@ const statusTextStyle = {
 const bindingButtonStyle = {
   border: "1px solid",
   borderRadius: 8,
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 38,
   padding: "8px 12px",
   whiteSpace: "nowrap",

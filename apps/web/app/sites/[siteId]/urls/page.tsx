@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import {
   loadSiteUrlInventoryDashboard,
@@ -46,55 +40,55 @@ export default async function UrlsPage({ params }: UrlsPageProps) {
         <MetricCard label="색인 제외" value={String(summary.nonIndexable)} />
         <MetricCard label="이슈 있는 URL" value={String(summary.withIssues)} />
       </div>
-      <section aria-label="크롤링된 URL" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="크롤링된 URL" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="url-inventory-heading" style={{ fontSize: 18, margin: 0 }}>
               크롤링된 URL
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               현재 색인 가능한 URL 중 {summary.healthy}개는 열린 URL 단위 이슈가 없습니다.
             </p>
           </div>
           <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={tableStyle}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table">
             <thead>
               <tr>
-                <th style={thStyle}>URL</th>
-                <th style={thStyle}>HTTP</th>
-                <th style={thStyle}>색인 상태</th>
-                <th style={thStyle}>title</th>
-                <th style={thStyle}>meta description</th>
-                <th style={thStyle}>이슈</th>
-                <th style={thStyle}>주요 신호</th>
+                <th>URL</th>
+                <th>HTTP</th>
+                <th>색인 상태</th>
+                <th>title</th>
+                <th>meta description</th>
+                <th>이슈</th>
+                <th>주요 신호</th>
               </tr>
             </thead>
             <tbody>
               {urlInventoryRows.map((urlRecord) => (
                 <tr key={urlRecord.id}>
-                  <td style={tdStyle}>
+                  <td>
                     <strong>{urlRecord.path}</strong>
-                    <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                    <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                       {urlRecord.url}
                     </span>
                   </td>
-                  <td style={tdStyle}>{urlRecord.statusCode}</td>
-                  <td style={tdStyle}>
+                  <td>{urlRecord.statusCode}</td>
+                  <td>
                     <IndexabilityPill indexable={urlRecord.indexable} />
-                    <span style={{ color: "#64748b", display: "block", fontSize: 12, marginTop: 5 }}>
+                    <span style={{ color: "var(--so-muted)", display: "block", fontSize: 13, marginTop: 5 }}>
                       {urlRecord.indexabilityReason}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, color: urlRecord.title ? "#172033" : "#b91c1c" }}>
+                  <td style={{ color: urlRecord.title ? "var(--so-ink)" : "#b91c1c" }}>
                     {urlRecord.title ?? "누락"}
                   </td>
-                  <td style={{ ...tdStyle, color: urlRecord.metaDescription ? "#172033" : "#b91c1c" }}>
+                  <td style={{ color: urlRecord.metaDescription ? "var(--so-ink)" : "#b91c1c" }}>
                     {urlRecord.metaDescription ?? "누락"}
                   </td>
-                  <td style={tdStyle}>{urlRecord.issueCount}</td>
-                  <td style={tdStyle}>{urlRecord.primarySignal}</td>
+                  <td>{urlRecord.issueCount}</td>
+                  <td>{urlRecord.primarySignal}</td>
                 </tr>
               ))}
             </tbody>

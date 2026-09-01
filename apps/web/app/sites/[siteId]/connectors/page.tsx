@@ -13,13 +13,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import { formatBooleanLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
@@ -172,17 +166,17 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         siteId={siteId}
         triggerFeedback={triggerFeedback}
       />
-      <section aria-label="커넥터 동기화 실행" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="커넥터 동기화 실행" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="connector-sync-history-heading" style={{ fontSize: 18, margin: 0 }}>
               최근 커넥터 동기화
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               최근 상태: {formatStatusLabel(summary.latestStatus)}; 정상 provider 결과 {summary.okResults}개.
             </p>
             {history.errorMessage ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                 API 연결 실패: {history.errorMessage}
               </p>
             ) : null}
@@ -197,17 +191,17 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
             {history.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 920 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 920 }}>
             <thead>
               <tr>
-                <th style={thStyle}>실행</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>시작</th>
-                <th style={thStyle}>소요 시간</th>
-                <th style={thStyle}>Provider</th>
-                <th style={thStyle}>기록</th>
-                <th style={thStyle}>Provider 결과</th>
+                <th>실행</th>
+                <th>상태</th>
+                <th>시작</th>
+                <th>소요 시간</th>
+                <th>Provider</th>
+                <th>기록</th>
+                <th>Provider 결과</th>
               </tr>
             </thead>
             <tbody>
@@ -219,24 +213,24 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
 
                 return (
                   <tr key={run.id}>
-                    <td style={tdStyle}>
+                    <td>
                       <strong>{run.id}</strong>
-                      <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                      <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                         요청자 {run.requestedByUserId}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <RunStatusPill label={formatStatusLabel(run.status)} tone={getConnectorSyncRunTone(run.status)} />
                     </td>
-                    <td style={tdStyle}>{formatDateTime(run.startedAt)}</td>
-                    <td style={tdStyle}>{formatSyncDuration(run.startedAt, run.endedAt)}</td>
-                    <td style={tdStyle}>{formatConnectorProviders(run.providers)}</td>
-                    <td style={tdStyle}>{records}</td>
-                    <td style={tdStyle}>
+                    <td>{formatDateTime(run.startedAt)}</td>
+                    <td>{formatSyncDuration(run.startedAt, run.endedAt)}</td>
+                    <td>{formatConnectorProviders(run.providers)}</td>
+                    <td>{records}</td>
+                    <td>
                       {errorMessage ? (
                         <span style={{ color: "#b91c1c" }}>{errorMessage}</span>
                       ) : results.length === 0 ? (
-                        <span style={{ color: "#64748b" }}>대기 중</span>
+                        <span style={{ color: "var(--so-muted)" }}>대기 중</span>
                       ) : (
                         <div>
                           <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -249,7 +243,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
                             ))}
                           </span>
                           {providerErrorMessages.length > 0 ? (
-                            <ul style={{ color: "#b91c1c", fontSize: 12, margin: "8px 0 0", paddingLeft: 18 }}>
+                            <ul style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0", paddingLeft: 18 }}>
                               {providerErrorMessages.map((message) => (
                                 <li key={message}>{message}</li>
                               ))}
@@ -265,25 +259,25 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
           </table>
         </div>
       </section>
-      <section aria-label="Provider 결과 상세" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="Provider 결과 상세" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 style={{ fontSize: 18, margin: 0 }}>Provider 결과 상세</h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               Provider 상태, 수집 시각, 저장된 기록 수를 확인합니다.
             </p>
           </div>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 860 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 860 }}>
             <thead>
               <tr>
-                <th style={thStyle}>Provider</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>실행</th>
-                <th style={thStyle}>수집 시각</th>
-                <th style={thStyle}>기록</th>
-                <th style={thStyle}>데모 여부</th>
+                <th>Provider</th>
+                <th>상태</th>
+                <th>실행</th>
+                <th>수집 시각</th>
+                <th>기록</th>
+                <th>데모 여부</th>
               </tr>
             </thead>
             <tbody>
@@ -295,20 +289,20 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
 
                 return (
                   <tr key={result.id}>
-                    <td style={tdStyle}>{formatConnectorProvider(result.provider)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatConnectorProvider(result.provider)}</td>
+                    <td>
                       <ResultStatusPill
                         label={formatStatusLabel(result.status)}
                         tone={getConnectorSyncResultTone(result.status)}
                       />
                     </td>
-                    <td style={{ ...tdStyle, ...codeTextStyle }}>{result.syncRunId}</td>
-                    <td style={tdStyle}>{formatDateTime(result.fetchedAt)}</td>
-                    <td style={tdStyle}>{result.recordCount}</td>
-                    <td style={tdStyle}>
+                    <td className="searchops-code">{result.syncRunId}</td>
+                    <td>{formatDateTime(result.fetchedAt)}</td>
+                    <td>{result.recordCount}</td>
+                    <td>
                       {formatBooleanLabel(result.fixture)}
                       {providerErrorMessage ? (
-                        <span style={{ color: "#b91c1c", display: "block", fontSize: 12, marginTop: 6 }}>
+                        <span style={{ color: "#b91c1c", display: "block", fontSize: 13, marginTop: 6 }}>
                           {providerErrorMessage}
                         </span>
                       ) : null}
@@ -358,12 +352,12 @@ function ConnectorCommandCenterPanel({
             최신 실행 기준 provider 상태를 먼저 보고, 필요한 provider만 단독 재실행할 수 있습니다.
           </p>
           {historyErrorMessage ? (
-            <p style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0" }}>
+            <p style={{ color: "#b91c1c", fontSize: 14, margin: "8px 0 0" }}>
               API 연결 실패: {historyErrorMessage}
             </p>
           ) : null}
           {liveSetupData.errorMessage ? (
-            <p style={{ color: "#b91c1c", fontSize: 13, margin: "8px 0 0" }}>
+            <p style={{ color: "#b91c1c", fontSize: 14, margin: "8px 0 0" }}>
               Live setup 조회 실패: {liveSetupData.errorMessage}
             </p>
           ) : null}
@@ -387,7 +381,7 @@ function ConnectorCommandCenterPanel({
           >
             {liveSetupData.source === "api" ? "Setup API 데이터" : "Setup 데모 데이터"}
           </span>
-          <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+          <span style={{ ...pillStyle, background: "#f8fafc", color: "var(--so-muted)" }}>
             {liveModeLabel}
           </span>
         </div>
@@ -403,7 +397,7 @@ function ConnectorCommandCenterPanel({
       <div style={liveSetupStripStyle}>
         <div>
           <strong style={{ display: "block", fontSize: 14 }}>PageSpeed live setup</strong>
-          <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 4 }}>
+          <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 4 }}>
             {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
           </span>
         </div>
@@ -434,7 +428,7 @@ function ConnectorOperationsPanel({
       <header style={providerCommandHeaderStyle}>
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>Provider command cards</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             Provider별 최근 결과, 기록 수, 다음 조치를 확인하고 단독 실행합니다.
           </p>
         </div>
@@ -458,8 +452,8 @@ function ConnectorOperationsPanel({
                 <dd style={providerCardMetaValueStyle}>{item.recordCount}</dd>
               </div>
             </dl>
-            <p style={{ fontSize: 13, lineHeight: 1.45, margin: "12px 0 0" }}>{item.message}</p>
-            <p style={{ color: "#475569", fontSize: 12, lineHeight: 1.45, margin: "6px 0 0" }}>
+            <p style={{ fontSize: 14, lineHeight: 1.45, margin: "12px 0 0" }}>{item.message}</p>
+            <p style={{ color: "var(--so-muted)", fontSize: 13, lineHeight: 1.45, margin: "6px 0 0" }}>
               {item.nextAction}
             </p>
             {canRunSync ? (
@@ -468,7 +462,7 @@ function ConnectorOperationsPanel({
                 <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
               </form>
             ) : (
-              <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 14 }}>
+              <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 14 }}>
                 조회 전용
               </span>
             )}
@@ -507,14 +501,14 @@ function PageSpeedSetupPanel({
     <section aria-label="PageSpeed live setup" style={liveSetupPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>PageSpeed live setup</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           {pageSpeedCheck?.summary ?? "PageSpeed 설정을 불러오지 못했습니다."}
         </p>
-        <p style={{ ...mutedTextStyle, fontSize: 12, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
           조치: {pageSpeedCheck?.nextAction ?? "권한과 API 연결 상태를 확인하세요."}
         </p>
         {errorMessage ? (
-          <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 8 }}>
+          <p style={{ color: "#b91c1c", fontSize: 14, marginTop: 8 }}>
             Live setup 조회 실패: {errorMessage}
           </p>
         ) : null}
@@ -526,7 +520,7 @@ function PageSpeedSetupPanel({
             tone={getConnectorLiveSetupTone(pageSpeedCheck.status)}
           />
         ) : <LiveSetupStatusPill label="조회 실패" tone="risk" />}
-        <span style={{ ...codeTextStyle, color: "#475569", marginTop: 8 }}>
+        <span style={{ ...codeTextStyle, color: "var(--so-muted)", marginTop: 8 }}>
           {pageSpeedCheck?.envKeys.join(", ") ?? "환경 정보 없음"}
         </span>
         <span
@@ -612,7 +606,7 @@ function ProviderBindingsPanel({
       <header style={bindingHeaderStyle}>
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>사이트 Provider 연결</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             현재 역할: {canManage ? "변경 가능" : "조회 전용"}
           </p>
           {/* 커넥터는 이 모드에서 동작할 수 없다. 그런데 화면은 비활성 버튼과
@@ -706,7 +700,7 @@ function ConnectorBindingControl({
     <div className={bindingStyles.bindingRow}>
       <div>
         <strong>{label}</strong>
-        <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 4 }}>
+        <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 4 }}>
           {formatSiteConnectorStatus(status)}
         </span>
       </div>
@@ -794,7 +788,7 @@ function ConnectorSyncTriggerPanel({
     <section aria-label="커넥터 동기화 실행" style={triggerPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>커넥터 동기화 실행</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           선택한 provider에 대해 결정론적 데모 기반 동기화 작업을 대기열에 등록합니다.
         </p>
         {triggerFeedback ? (
@@ -830,7 +824,7 @@ function ConnectorSyncTriggerPanel({
           </div>
         </>
       ) : (
-        <p style={{ ...mutedTextStyle, fontSize: 13, margin: 0 }}>조회 전용</p>
+        <p style={{ ...mutedTextStyle, fontSize: 14, margin: 0 }}>조회 전용</p>
       )}
     </section>
   );
@@ -847,7 +841,7 @@ function RunStatusPill({
     complete: { background: "#ecfdf5", color: "#047857" },
     failed: { background: "#fef2f2", color: "#b91c1c" },
     partial: { background: "#fff7ed", color: "#c2410c" },
-    queued: { background: "#f8fafc", color: "#475569" }
+    queued: { background: "#f8fafc", color: "var(--so-muted)" }
   }[tone];
 
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;
@@ -896,7 +890,7 @@ function OperationStatusPill({
 }) {
   const toneStyle = {
     failed: { background: "#fef2f2", color: "#b91c1c" },
-    idle: { background: "#f8fafc", color: "#475569" },
+    idle: { background: "#f8fafc", color: "var(--so-muted)" },
     ok: { background: "#ecfdf5", color: "#047857" },
     partial: { background: "#fff7ed", color: "#c2410c" },
     queued: { background: "#eef2ff", color: "#3730a3" },
@@ -941,13 +935,11 @@ const commandCenterBadgeStackStyle = {
 } as const;
 
 const commandCenterEyebrowStyle = {
-  color: "#64748b",
-  fontSize: 12,
-  fontWeight: 800,
-  letterSpacing: 0,
+  color: "var(--so-muted)",
+  fontSize: 13,
+  fontWeight: 600,
   margin: 0,
-  textTransform: "uppercase"
-} as const;
+  } as const;
 
 const commandMetricGridStyle = {
   display: "grid",
@@ -965,13 +957,11 @@ const commandMetricCardStyle = {
 } as const;
 
 const commandMetricLabelStyle = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   display: "block",
-  fontSize: 12,
-  fontWeight: 800,
-  letterSpacing: 0,
-  textTransform: "uppercase"
-} as const;
+  fontSize: 13,
+  fontWeight: 600,
+  } as const;
 
 const commandMetricValueStyle = {
   display: "block",
@@ -1035,14 +1025,14 @@ const providerCardMetaStyle = {
 } as const;
 
 const providerCardMetaLabelStyle = {
-  color: "#64748b",
-  fontSize: 12,
+  color: "var(--so-muted)",
+  fontSize: 13,
   margin: 0
 } as const;
 
 const providerCardMetaValueStyle = {
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   margin: "4px 0 0",
   overflowWrap: "anywhere"
 } as const;
@@ -1069,15 +1059,15 @@ const bindingRowsStyle = { display: "grid" } as const;
 const bindingInputStyle = {
   border: "1px solid #cbd5e1",
   borderRadius: 8,
-  fontSize: 13,
+  fontSize: 14,
   minHeight: 38,
   minWidth: 0,
   padding: "8px 10px",
   width: "100%",
 } as const;
 
-const bindingErrorStyle = { color: "#b91c1c", fontSize: 13, margin: "8px 0 0" } as const;
-const bindingFeedbackStyle = { color: "#047857", fontSize: 13, margin: "8px 0 0" } as const;
+const bindingErrorStyle = { color: "#b91c1c", fontSize: 14, margin: "8px 0 0" } as const;
+const bindingFeedbackStyle = { color: "#047857", fontSize: 14, margin: "8px 0 0" } as const;
 
 const liveSetupPanelStyle = {
   alignItems: "start",
@@ -1101,9 +1091,9 @@ const oauthLinkButtonStyle = {
   background: "#ffffff",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   cursor: "pointer",
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 600,
   minHeight: 36,
   padding: "8px 14px",
@@ -1141,9 +1131,9 @@ const quickProviderButtonStyle = {
   background: "#ffffff",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   cursor: "pointer",
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 700,
   minHeight: 32,
   padding: "6px 10px"
@@ -1166,8 +1156,8 @@ const providerFieldsetStyle = {
 } as const;
 
 const providerLegendStyle = {
-  color: "#64748b",
-  fontSize: 12,
+  color: "var(--so-muted)",
+  fontSize: 13,
   fontWeight: 700,
   marginBottom: 8,
   width: "100%"
@@ -1177,9 +1167,9 @@ const providerOptionStyle = {
   alignItems: "center",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   display: "inline-flex",
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 700,
   gap: 6,
   minHeight: 34,
@@ -1189,14 +1179,14 @@ const providerOptionStyle = {
 const triggerFeedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13
+    fontSize: 14
   },
   success: {
     color: "#047857",
-    fontSize: 13
+    fontSize: 14
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13
+    fontSize: 14
   }
 } as const;
