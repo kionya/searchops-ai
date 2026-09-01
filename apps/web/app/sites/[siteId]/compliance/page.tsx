@@ -9,13 +9,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import {
   formatComplianceDate,
@@ -99,17 +93,17 @@ export default async function CompliancePage({ params, searchParams }: Complianc
         workOrderFeedback={workOrderFeedback}
       />
       <ComplianceHardeningWorkflowPanel hardeningWorkflow={hardeningWorkflow} />
-      <section aria-label="컴플라이언스 플래그" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="컴플라이언스 플래그" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="compliance-heading" style={{ fontSize: 18, margin: 0 }}>
               플래그 이력
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               열린 플래그 {summary.open}개는 의료 콘텐츠 게시 전 법무 검토가 필요합니다.
             </p>
             {dashboard.errorMessage ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                 API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
@@ -124,23 +118,23 @@ export default async function CompliancePage({ params, searchParams }: Complianc
             {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 1120 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 1120 }}>
             <thead>
               <tr>
-                <th style={thStyle}>플래그</th>
-                <th style={thStyle}>리스크</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>근거</th>
-                <th style={thStyle}>권장 조치</th>
-                <th style={thStyle}>검토</th>
-                <th style={thStyle}>작업 지시서</th>
+                <th>플래그</th>
+                <th>리스크</th>
+                <th>상태</th>
+                <th>근거</th>
+                <th>권장 조치</th>
+                <th>검토</th>
+                <th>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.flags.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, color: "#64748b" }}>
+                  <td colSpan={7} className="searchops-muted">
                     아직 컴플라이언스 플래그가 없습니다.
                   </td>
                 </tr>
@@ -167,31 +161,31 @@ export default async function CompliancePage({ params, searchParams }: Complianc
 
                   return (
                     <tr key={flag.id}>
-                      <td style={tdStyle}>
+                      <td>
                         <strong>{flag.title ?? flag.ruleId ?? "컴플라이언스 플래그"}</strong>
-                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                        <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                           {flag.id} - {formatComplianceDate(flag.createdAt)}
                         </span>
                         {flag.url ? (
-                          <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                          <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                             {flag.url}
                           </span>
                         ) : null}
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <TonePill
                           label={formatComplianceRisk(flag.riskLevel)}
                           tone={getComplianceRiskTone(flag.riskLevel)}
                         />
                       </td>
-                      <td style={tdStyle}>{formatComplianceStatus(flag.status)}</td>
-                      <td style={{ ...tdStyle, maxWidth: 260 }}>
+                      <td>{formatComplianceStatus(flag.status)}</td>
+                      <td style={{ maxWidth: 260 }}>
                         {flag.evidence?.excerpt ?? flag.message}
                       </td>
-                      <td style={{ ...tdStyle, maxWidth: 280 }}>
+                      <td style={{ maxWidth: 280 }}>
                         {flag.recommendation ?? "법무 검토로 전달하세요."}
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <div style={buttonRowStyle}>
                           <form action={approveAction}>
                             <button style={secondaryButtonStyle} type="submit">
@@ -210,7 +204,7 @@ export default async function CompliancePage({ params, searchParams }: Complianc
                           </form>
                         </div>
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         {flag.workOrderId ? (
                           <span style={{ ...codeTextStyle, color: "#047857" }}>
                             {flag.workOrderId}
@@ -241,11 +235,11 @@ function ComplianceHardeningWorkflowPanel({
   readonly hardeningWorkflow: ReturnType<typeof summarizeComplianceHardeningWorkflow>;
 }) {
   return (
-    <section aria-label="컴플라이언스 hardening workflow" style={tableSectionStyle}>
-      <header style={tableHeaderStyle}>
+    <section aria-label="컴플라이언스 hardening workflow" className="searchops-table-section">
+      <header className="searchops-table-head">
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>Hardening workflow</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             {hardeningWorkflow.rulePackId} rule pack {hardeningWorkflow.deterministicRuleCount}개 룰, native signature provider {hardeningWorkflow.nativeSignatureProviders.join(", ")}.
           </p>
         </div>
@@ -253,30 +247,30 @@ function ComplianceHardeningWorkflowPanel({
           auto-publish off
         </span>
       </header>
-      <div style={tableScrollStyle}>
-        <table style={{ ...tableStyle, minWidth: 900 }}>
+      <div className="searchops-table-scroll">
+        <table className="searchops-table" style={{ minWidth: 900 }}>
           <thead>
             <tr>
-              <th style={thStyle}>단계</th>
-              <th style={thStyle}>상태</th>
-              <th style={thStyle}>상세</th>
-              <th style={thStyle}>다음 조치</th>
+              <th>단계</th>
+              <th>상태</th>
+              <th>상세</th>
+              <th>다음 조치</th>
             </tr>
           </thead>
           <tbody>
             {hardeningWorkflow.stages.map((stage) => (
               <tr key={stage.id}>
-                <td style={tdStyle}>
+                <td>
                   <strong>{stage.title}</strong>
-                  <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                  <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                     {stage.id}
                   </span>
                 </td>
-                <td style={tdStyle}>
+                <td>
                   <WorkflowStatusPill status={stage.status} />
                 </td>
-                <td style={{ ...tdStyle, maxWidth: 300 }}>{stage.detail}</td>
-                <td style={{ ...tdStyle, maxWidth: 300 }}>{stage.nextAction}</td>
+                <td style={{ maxWidth: 300 }}>{stage.detail}</td>
+                <td style={{ maxWidth: 300 }}>{stage.nextAction}</td>
               </tr>
             ))}
           </tbody>
@@ -305,7 +299,7 @@ function ComplianceCreatePanel({
     <section aria-label="컴플라이언스 검토 생성" style={createPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>컴플라이언스 검토 실행</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           데모 검토 문구에서 결정론적 의료광고 플래그를 저장합니다.
         </p>
         {[createFeedback, workOrderFeedback, statusFeedback, recheckFeedback].map((feedback) =>
@@ -369,7 +363,7 @@ const createButtonStyle = {
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 40,
   padding: "10px 14px"
 } as const;
@@ -378,10 +372,10 @@ const secondaryButtonStyle = {
   background: "#f8fafc",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 38,
   padding: "9px 12px"
 } as const;
@@ -395,14 +389,14 @@ const buttonRowStyle = {
 const feedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13
+    fontSize: 14
   },
   success: {
     color: "#047857",
-    fontSize: 13
+    fontSize: 14
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13
+    fontSize: 14
   }
 } as const;

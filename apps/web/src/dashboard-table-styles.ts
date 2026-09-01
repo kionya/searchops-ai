@@ -1,63 +1,19 @@
 import type { CSSProperties } from "react";
 
-export const tableSectionStyle: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ef",
-  borderRadius: 8,
-  boxShadow: "0 18px 48px rgba(15, 23, 42, 0.06)",
-  marginTop: 14,
-  overflow: "hidden"
-};
-
-export const tableHeaderStyle: CSSProperties = {
-  alignItems: "start",
-  background: "#ffffff",
-  borderBottom: "1px solid #dbe4ef",
-  display: "grid",
-  gap: 8,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  padding: 16
-};
-
-export const tableScrollStyle: CSSProperties = {
-  overflowX: "auto"
-};
-
-export const tableStyle: CSSProperties = {
-  borderCollapse: "collapse",
-  minWidth: 780,
-  width: "100%"
-};
-
-export const thStyle: CSSProperties = {
-  background: "#f1f5f9",
-  borderBottom: "1px solid #dbe4ef",
-  color: "#475569",
-  fontSize: 12,
-  fontWeight: 800,
-  letterSpacing: 0,
-  padding: "11px 12px",
-  textAlign: "left",
-  textTransform: "uppercase"
-};
-
-export const tdStyle: CSSProperties = {
-  borderBottom: "1px solid #eef2f7",
-  fontSize: 14,
-  lineHeight: 1.42,
-  padding: "12px"
-};
+// 테이블/헤더/스크롤 컨테이너 스타일은 globals.css 의 .searchops-table* 클래스로 옮겼다.
+// 셀마다 스타일 객체를 직렬화하면 RSC 페이로드가 행 수만큼 커진다.
+// 여기 남은 둘은 값에 따라 동적으로 합쳐 쓰는 것들이다.
 
 export const codeTextStyle: CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  fontSize: 13
+  fontFamily: "var(--so-mono)",
+  fontSize: 14
 };
 
 export const pillStyle: CSSProperties = {
   borderRadius: 999,
   display: "inline-flex",
-  fontSize: 12,
-  fontWeight: 800,
-  lineHeight: 1,
-  padding: "7px 9px"
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: 1.3,
+  padding: "4px 10px"
 };

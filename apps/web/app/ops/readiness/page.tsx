@@ -8,14 +8,7 @@ import {
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
-  codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
+  pillStyle
 } from "../../../src/dashboard-table-styles";
 import {
   formatReadinessCategory,
@@ -71,13 +64,13 @@ export default async function OperationalReadinessPage() {
           <MetricCard label="수동 후속" value={String(readiness.summary.manualFollowup)} />
         </div>
 
-        <section aria-label="출시 준비도 요약" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="출시 준비도 요약" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 id="readiness-heading" style={{ fontSize: 18, margin: 0 }}>
                 남은 작업 추적
               </h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 생성 시각: {readiness.generatedAt.replace("T", " ").slice(0, 16)}
               </p>
             </div>
@@ -98,7 +91,7 @@ export default async function OperationalReadinessPage() {
                 <h4 style={{ fontSize: 16, margin: 0 }}>
                   {formatReadinessCategory(category as OperationalReadinessCategory)}
                 </h4>
-                <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 4 }}>
+                <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 4 }}>
                   {items.length}개 항목
                 </p>
               </article>
@@ -106,46 +99,46 @@ export default async function OperationalReadinessPage() {
           </div>
         </section>
 
-        <section aria-label="출시 준비도 상세" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="출시 준비도 상세" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 style={{ fontSize: 18, margin: 0 }}>상세 항목</h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 실제 credential 값은 표시하지 않고, 필요한 env key와 다음 조치만 보여줍니다.
               </p>
             </div>
           </header>
-          <div style={tableScrollStyle}>
-            <table style={{ ...tableStyle, minWidth: 1080 }}>
+          <div className="searchops-table-scroll">
+            <table className="searchops-table" style={{ minWidth: 1080 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>범주</th>
-                  <th style={thStyle}>항목</th>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>필요 env</th>
-                  <th style={thStyle}>다음 조치</th>
+                  <th>범주</th>
+                  <th>항목</th>
+                  <th>상태</th>
+                  <th>필요 env</th>
+                  <th>다음 조치</th>
                 </tr>
               </thead>
               <tbody>
                 {readiness.items.map((item) => (
                   <tr key={item.id}>
-                    <td style={tdStyle}>{formatReadinessCategory(item.category)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatReadinessCategory(item.category)}</td>
+                    <td>
                       <strong>{item.title}</strong>
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         {item.summary}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <ReadinessStatusPill
                         label={formatReadinessStatus(item.status)}
                         tone={getReadinessTone(item.status)}
                       />
                     </td>
-                    <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    <td className="searchops-code">
                       {item.envKeys.length === 0 ? "정책 확정" : item.envKeys.join(", ")}
                     </td>
-                    <td style={tdStyle}>{item.nextAction}</td>
+                    <td>{item.nextAction}</td>
                   </tr>
                 ))}
               </tbody>
@@ -173,8 +166,8 @@ function OperationalReadinessUnavailable({
       eyebrow="Operations"
       title="출시 준비도"
     >
-      <section aria-live="polite" role="status" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-live="polite" role="status" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 style={{ fontSize: 18, margin: 0 }}>출시 준비도 확인 불가</h3>
             <p style={{ color: "#b91c1c", fontSize: 14, margin: "8px 0 0" }}>

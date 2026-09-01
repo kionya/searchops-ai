@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import { formatCategoryLabel, formatOwnerLabel, formatStatusLabel } from "../../../../src/korean-labels";
 import {
@@ -47,50 +41,50 @@ export default async function IssuesPage({ params }: IssuesPageProps) {
         <MetricCard label="P0/P1" value={String(summary.critical)} />
         <MetricCard label="해결됨" value={String(summary.resolved)} />
       </div>
-      <section aria-label="감지된 SEO 이슈" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="감지된 SEO 이슈" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="seo-issue-list-heading" style={{ fontSize: 18, margin: 0 }}>
               감지된 이슈
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               이슈 {summary.inReview}개가 결정론적 재검수를 기다리고 있습니다.
             </p>
           </div>
           <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={tableStyle}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table">
             <thead>
               <tr>
-                <th style={thStyle}>이슈</th>
-                <th style={thStyle}>우선순위</th>
-                <th style={thStyle}>심각도</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>카테고리</th>
-                <th style={thStyle}>URL</th>
-                <th style={thStyle}>담당</th>
+                <th>이슈</th>
+                <th>우선순위</th>
+                <th>심각도</th>
+                <th>상태</th>
+                <th>카테고리</th>
+                <th>URL</th>
+                <th>담당</th>
               </tr>
             </thead>
             <tbody>
               {issueListRows.map((issue) => (
                 <tr key={issue.id}>
-                  <td style={tdStyle}>
+                  <td>
                     <strong>{issue.title}</strong>
-                    <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                    <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                       {issue.ruleId}
                     </span>
                   </td>
-                  <td style={tdStyle}>
+                  <td>
                     <PriorityPill priority={issue.priority} />
                   </td>
-                  <td style={tdStyle}>{formatStatusLabel(issue.severity)}</td>
-                  <td style={tdStyle}>
+                  <td>{formatStatusLabel(issue.severity)}</td>
+                  <td>
                     <StatusPill status={issue.status} />
                   </td>
-                  <td style={tdStyle}>{formatCategoryLabel(issue.category)}</td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>{issue.url}</td>
-                  <td style={tdStyle}>{formatOwnerLabel(issue.ownerHint)}</td>
+                  <td>{formatCategoryLabel(issue.category)}</td>
+                  <td className="searchops-code">{issue.url}</td>
+                  <td>{formatOwnerLabel(issue.ownerHint)}</td>
                 </tr>
               ))}
             </tbody>
@@ -109,9 +103,8 @@ function PriorityPill({ priority }: { readonly priority: string }) {
       style={{
         ...pillStyle,
         background: riskTone ? "#fef2f2" : "#f8fafc",
-        color: riskTone ? "#b91c1c" : "#475569",
-        textTransform: "uppercase"
-      }}
+        color: riskTone ? "#b91c1c" : "var(--so-muted)",
+        }}
     >
       {priority}
     </span>
@@ -127,7 +120,7 @@ function StatusPill({ status }: { readonly status: string }) {
       style={{
         ...pillStyle,
         background: resolved ? "#ecfdf5" : inReview ? "#fff7ed" : "#f8fafc",
-        color: resolved ? "#047857" : inReview ? "#c2410c" : "#475569"
+        color: resolved ? "#047857" : inReview ? "#c2410c" : "var(--so-muted)"
       }}
     >
       {status}

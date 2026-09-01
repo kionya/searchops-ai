@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import {
   formatSchemaJsonLdType,
@@ -89,17 +83,17 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
         recheckFeedback={recheckFeedback}
         richResultFeedback={richResultFeedback}
       />
-      <section aria-label="스키마 추천" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="스키마 추천" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="schema-recommendation-heading" style={{ fontSize: 18, margin: 0 }}>
               추천 대기열
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               필수 JSON-LD 필드 {summary.totalRequiredFields}개를 추적 중이며, 높은 우선순위 추천은 {summary.highPriority}개입니다.
             </p>
             {dashboard.errorMessage ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                 API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
@@ -114,23 +108,23 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
             {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 1080 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 1080 }}>
             <thead>
               <tr>
-                <th style={thStyle}>URL</th>
-                <th style={thStyle}>유형</th>
-                <th style={thStyle}>우선순위</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>필수 필드</th>
-                <th style={thStyle}>근거</th>
-                <th style={thStyle}>작업 지시서</th>
+                <th>URL</th>
+                <th>유형</th>
+                <th>우선순위</th>
+                <th>상태</th>
+                <th>필수 필드</th>
+                <th>근거</th>
+                <th>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.recommendations.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, color: "#64748b" }}>
+                  <td colSpan={7} className="searchops-muted">
                     아직 스키마 추천이 없습니다.
                   </td>
                 </tr>
@@ -142,42 +136,42 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
 
                   return (
                     <tr key={recommendation.id}>
-                      <td style={tdStyle}>
+                      <td>
                         <strong>{recommendation.pageUrl}</strong>
-                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                        <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                           {recommendation.id}
                         </span>
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <strong>{formatSchemaJsonLdType(recommendation.type)}</strong>
-                        <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                        <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                           {formatSchemaRecommendationDate(recommendation.updatedAt)}
                         </span>
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <TonePill
                           label={formatSchemaPriority(recommendation.priority)}
                           tone={getSchemaRecommendationPriorityTone(recommendation.priority)}
                         />
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <TonePill
                           label={formatSchemaRecommendationStatus(recommendation.status)}
                           tone={getSchemaRecommendationStatusTone(recommendation.status)}
                         />
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <FieldList values={recommendation.requiredFields} />
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <span>{recommendation.reason}</span>
-                        <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 5 }}>
+                        <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 5 }}>
                           감지됨: {recommendation.evidence.observedTypes.join(", ") || "없음"}
                         </span>
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         {recommendation.status === "resolved" || recommendation.status === "dismissed" ? (
-                          <span style={{ color: "#64748b" }}>
+                          <span style={{ color: "var(--so-muted)" }}>
                             {recommendation.status === "resolved" ? "해결됨" : "조치 없음"}
                           </span>
                         ) : (
@@ -210,11 +204,11 @@ export default async function SchemaPage({ params, searchParams }: SchemaPagePro
           </table>
         </div>
       </section>
-      <section aria-label="JSON-LD 초안 미리보기" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="JSON-LD 초안 미리보기" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 style={{ fontSize: 18, margin: 0 }}>JSON-LD 초안 미리보기</h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               결정론적 초안은 개발자와 콘텐츠 검토자가 참고할 구현 자료로 보관됩니다.
             </p>
           </div>
@@ -253,7 +247,7 @@ function SchemaWorkOrderPanel({
     <section aria-label="스키마 작업 지시서 전환" style={conversionPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>작업 지시서로 전환</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           열린 스키마 추천은 결정론적 구현 작업으로 전환할 수 있습니다.
         </p>
         {createFeedback ? (
@@ -280,7 +274,7 @@ function FieldList({ values }: { readonly values: readonly string[] }) {
   return (
     <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       {values.map((value) => (
-        <span key={value} style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+        <span key={value} style={{ ...pillStyle, background: "#f8fafc", color: "var(--so-muted)" }}>
           {value}
         </span>
       ))}
@@ -318,7 +312,7 @@ const createButtonStyle = {
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 38,
   padding: "9px 12px"
 } as const;
@@ -327,10 +321,10 @@ const secondaryButtonStyle = {
   background: "#f8fafc",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 38,
   padding: "9px 12px"
 } as const;
@@ -380,14 +374,14 @@ const jsonPreviewStyle = {
 const feedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13
+    fontSize: 14
   },
   success: {
     color: "#047857",
-    fontSize: 13
+    fontSize: 14
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13
+    fontSize: 14
   }
 } as const;

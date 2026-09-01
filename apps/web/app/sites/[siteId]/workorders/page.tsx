@@ -20,7 +20,7 @@ import {
 import { updateWorkOrderStatusAction } from "./actions";
 
 const mutedText: CSSProperties = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   margin: 0
 };
 
@@ -35,8 +35,8 @@ const sectionHeaderStyle: CSSProperties = {
 const badgeBaseStyle: CSSProperties = {
   borderRadius: 999,
   display: "inline-flex",
-  fontSize: 12,
-  fontWeight: 700,
+  fontSize: 14,
+  fontWeight: 600,
   lineHeight: 1,
   padding: "7px 9px",
   whiteSpace: "nowrap"
@@ -46,7 +46,7 @@ const statusBadgeStyles: Record<WorkOrderStatus, CSSProperties> = {
   open: { background: "#eff6ff", color: "#1d4ed8" },
   in_progress: { background: "#ecfdf5", color: "#047857" },
   in_review: { background: "#fefce8", color: "#a16207" },
-  done: { background: "#f1f5f9", color: "#475569" },
+  done: { background: "#f1f5f9", color: "var(--so-muted)" },
   blocked: { background: "#fef2f2", color: "#b91c1c" }
 };
 
@@ -135,7 +135,7 @@ export default async function WorkOrdersPage({ params, searchParams }: WorkOrder
             </h2>
             <p style={{ ...mutedText, marginTop: 4 }}>{site.domain} 진행 대상 작업 지시서 {summary.active}개</p>
           </div>
-          <span style={{ color: "#475569", fontSize: 14 }}>진행 중 {summary.inProgress}개</span>
+          <span style={{ color: "var(--so-muted)", fontSize: 14 }}>진행 중 {summary.inProgress}개</span>
         </div>
 
         <div
@@ -169,7 +169,7 @@ export default async function WorkOrdersPage({ params, searchParams }: WorkOrder
                 }}
               >
                 <h3 style={{ fontSize: 14, margin: 0 }}>{column.label}</h3>
-                <span style={{ color: "#64748b", fontSize: 12 }}>
+                <span style={{ color: "var(--so-muted)", fontSize: 14 }}>
                   {groupedWorkOrders[column.status].length}
                 </span>
               </div>
@@ -208,12 +208,11 @@ export default async function WorkOrdersPage({ params, searchParams }: WorkOrder
                       key={heading}
                       style={{
                         borderBottom: "1px solid #dbe4ef",
-                        color: "#475569",
-                        fontSize: 12,
+                        color: "var(--so-muted)",
+                        fontSize: 14,
                         padding: "11px 12px",
                         textAlign: "left",
-                        textTransform: "uppercase"
-                      }}
+                        }}
                     >
                       {heading}
                     </th>
@@ -226,7 +225,7 @@ export default async function WorkOrdersPage({ params, searchParams }: WorkOrder
                 <tr key={workOrder.id}>
                   <td style={tableCellStyle}>
                     <strong style={{ display: "block", marginBottom: 4 }}>{workOrder.title}</strong>
-                    <span style={{ color: "#64748b", fontSize: 13 }}>
+                    <span style={{ color: "var(--so-muted)", fontSize: 14 }}>
                       {formatPriority(workOrder.priority)} - {workOrder.estimatedEffort.toUpperCase()}
                     </span>
                   </td>
@@ -263,7 +262,7 @@ function readStatusChange(
 
 const tableCellStyle: CSSProperties = {
   borderBottom: "1px solid #eef2f7",
-  color: "#172033",
+  color: "var(--so-ink)",
   fontSize: 14,
   padding: 12,
   verticalAlign: "top"
@@ -284,23 +283,23 @@ function WorkOrderCard({
         <Badge style={priorityBadgeStyles[workOrder.priority]}>
           {formatPriority(workOrder.priority)}
         </Badge>
-        <span style={{ color: "#64748b", fontSize: 12 }}>{formatOwnerLabel(workOrder.ownerType)}</span>
+        <span style={{ color: "var(--so-muted)", fontSize: 14 }}>{formatOwnerLabel(workOrder.ownerType)}</span>
       </div>
       <h4 style={{ fontSize: 15, lineHeight: 1.35, margin: "0 0 8px" }}>{workOrder.title}</h4>
-      <p style={{ color: "#475569", fontSize: 13, lineHeight: 1.45, margin: "0 0 10px" }}>
+      <p style={{ color: "var(--so-muted)", fontSize: 14, lineHeight: 1.45, margin: "0 0 10px" }}>
         {workOrder.problem}
       </p>
       <dl style={{ display: "grid", gap: 8, margin: 0 }}>
         <div>
-          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>마감</dt>
-          <dd style={{ fontSize: 13, margin: 0 }}>{formatDate(workOrder.dueDate)}</dd>
+          <dt style={{ color: "var(--so-muted)", fontSize: 14, marginBottom: 3 }}>마감</dt>
+          <dd style={{ fontSize: 14, margin: 0 }}>{formatDate(workOrder.dueDate)}</dd>
         </div>
         <div>
-          <dt style={{ color: "#64748b", fontSize: 11, marginBottom: 3 }}>URL</dt>
+          <dt style={{ color: "var(--so-muted)", fontSize: 14, marginBottom: 3 }}>URL</dt>
           <dd
             style={{
               color: "#334155",
-              fontSize: 12,
+              fontSize: 14,
               margin: 0,
               overflowWrap: "anywhere"
             }}
@@ -326,8 +325,8 @@ function WorkOrderCard({
               background: canEdit ? "#ffffff" : "#f1f5f9",
               border: "1px solid #cbd5f5",
               borderRadius: 6,
-              color: "#172033",
-              fontSize: 13,
+              color: "var(--so-ink)",
+              fontSize: 14,
               minHeight: 34,
               padding: "6px 8px",
               width: "100%"
@@ -347,10 +346,10 @@ function WorkOrderCard({
             background: canEdit ? "#2563eb" : "#e2e8f0",
             border: 0,
             borderRadius: 6,
-            color: canEdit ? "#ffffff" : "#64748b",
+            color: canEdit ? "#ffffff" : "var(--so-muted)",
             cursor: canEdit ? "pointer" : "not-allowed",
-            fontSize: 13,
-            fontWeight: 700,
+            fontSize: 14,
+            fontWeight: 600,
             minHeight: 34,
             padding: "8px 10px"
           }}

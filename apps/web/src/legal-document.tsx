@@ -83,20 +83,20 @@ const containerStyle: CSSProperties = {
 const brandLinkStyle: CSSProperties = {
   color: "#1d4ed8",
   fontSize: 14,
-  fontWeight: 700,
+  fontWeight: 600,
   textDecoration: "none",
 };
 
 const titleStyle: CSSProperties = {
   fontSize: 28,
-  fontWeight: 800,
+  fontWeight: 600,
   letterSpacing: -0.4,
   margin: "16px 0 6px",
 };
 
 const metaStyle: CSSProperties = {
-  color: "#64748b",
-  fontSize: 13,
+  color: "var(--so-muted)",
+  fontSize: 14,
   margin: 0,
 };
 
@@ -105,7 +105,7 @@ const noticeStyle: CSSProperties = {
   border: "1px solid #fed7aa",
   borderRadius: 8,
   color: "#9a3412",
-  fontSize: 13,
+  fontSize: 14,
   lineHeight: 1.6,
   margin: "20px 0 8px",
   padding: "12px 14px",
@@ -124,7 +124,7 @@ const sectionStyle: CSSProperties = {
 
 const headingStyle: CSSProperties = {
   fontSize: 17,
-  fontWeight: 700,
+  fontWeight: 600,
   margin: "0 0 10px",
 };
 

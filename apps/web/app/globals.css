@@ -1,14 +1,45 @@
+/* SearchOps AI 운영 콘솔 토큰.
+   원칙 두 가지: (1) 읽히는 게 먼저다 (2) 장식은 페인트 비용만 낸다.
+   웹폰트 0개, 그라디언트 0개, 그림자 0개. 색은 전부 여기 변수에서만 온다. */
 :root {
   color-scheme: light;
-  --searchops-ink: #172033;
-  --searchops-muted: #64748b;
-  --searchops-line: #dbe4ef;
-  --searchops-paper: #ffffff;
-  --searchops-rail: #111827;
-  --searchops-rail-soft: #1f2937;
-  --searchops-accent: #0f766e;
-  --searchops-blue: #2563eb;
-  --searchops-amber: #b45309;
+
+  /* 표면 */
+  --so-bg: #f2f5f9;
+  --so-paper: #ffffff;
+  --so-subtle: #f7f9fb;
+  --so-line: #d5dee9;
+  --so-line-soft: #e6ecf3;
+
+  /* 본문 */
+  --so-ink: #16202f;
+  --so-muted: #54606f; /* 흰 배경 6.6:1, 틴트 배경 6.3:1 — 둘 다 AA 통과 */
+
+  /* 사이드 레일 */
+  --so-rail: #111827;
+  --so-rail-ink: #e8eefa;
+  --so-rail-muted: #a9b6c8; /* 레일 배경 대비 7.5:1 */
+  --so-rail-line: rgba(232, 238, 250, 0.14);
+
+  /* 단일 액센트. 상태색(초록/노랑/빨강)은 의미색이라 액센트가 아니다. */
+  --so-accent: #1d4ed8;
+  --so-accent-soft: #eef4ff;
+
+  --so-ready: #046c4e;
+  --so-ready-soft: #e9f8f1;
+  --so-warn: #8a5200;
+  --so-warn-soft: #fdf5e6;
+  --so-risk: #b4231d;
+  --so-risk-soft: #fdf0ef;
+  --so-info: var(--so-accent);
+  --so-info-soft: var(--so-accent-soft);
+
+  /* 라운드는 두 값만: 컨테이너 8, 인터랙티브 pill 999 */
+  --so-radius: 8px;
+
+  --so-font: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo",
+    "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --so-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * {
@@ -16,13 +47,17 @@
 }
 
 html {
-  background: #eef3f8;
+  background: var(--so-bg);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(238, 243, 248, 0.96)),
-    #eef3f8;
+  background: var(--so-bg);
+  color: var(--so-ink);
+  font-family: var(--so-font);
+  /* 한글 본문 기준선. 12~13px 은 운영자가 하루 종일 볼 크기가 아니다. */
+  font-size: 15px;
+  line-height: 1.6;
   margin: 0;
 }
 
@@ -30,23 +65,23 @@ a {
   color: inherit;
 }
 
+:focus-visible {
+  outline: 2px solid var(--so-accent);
+  outline-offset: 2px;
+}
+
+/* ── 셸 ─────────────────────────────────────────────── */
+
 .searchops-site-shell {
-  background:
-    linear-gradient(90deg, #111827 0 276px, transparent 276px),
-    linear-gradient(180deg, #f8fafc 0, #eef3f8 100%);
-  color: var(--searchops-ink);
   display: grid;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  grid-template-columns: 276px minmax(0, 1fr);
+  grid-template-columns: 264px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .searchops-site-rail {
-  background:
-    linear-gradient(180deg, rgba(15, 118, 110, 0.18), rgba(17, 24, 39, 0) 34%),
-    var(--searchops-rail);
-  border-right: 1px solid rgba(219, 228, 239, 0.12);
-  color: #e5eefb;
+  background: var(--so-rail);
+  border-right: 1px solid var(--so-rail-line);
+  color: var(--so-rail-ink);
   height: 100vh;
   overflow: auto;
   padding: 20px 16px;
@@ -55,38 +90,41 @@ a {
 }
 
 .searchops-rail-back {
-  color: #93c5fd;
+  color: #a9c9fb;
   display: inline-flex;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 22px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 20px;
   text-decoration: none;
 }
 
+.searchops-rail-back:hover {
+  text-decoration: underline;
+}
+
 .searchops-rail-brand {
-  border-bottom: 1px solid rgba(219, 228, 239, 0.14);
+  border-bottom: 1px solid var(--so-rail-line);
   padding-bottom: 18px;
 }
 
 .searchops-rail-kicker {
-  color: #7dd3fc;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
-  margin: 0 0 7px;
-  text-transform: uppercase;
+  color: var(--so-rail-muted);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 6px;
 }
 
 .searchops-rail-title {
-  font-size: 22px;
-  line-height: 1.12;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
   margin: 0;
 }
 
 .searchops-rail-domain {
-  color: #cbd5e1;
-  font-size: 13px;
-  line-height: 1.35;
+  color: var(--so-rail-muted);
+  font-size: 14px;
+  line-height: 1.5;
   margin: 8px 0 0;
   overflow-wrap: anywhere;
 }
@@ -99,56 +137,57 @@ a {
 }
 
 .searchops-rail-meta-item {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(219, 228, 239, 0.12);
-  border-radius: 8px;
+  border: 1px solid var(--so-rail-line);
+  border-radius: var(--so-radius);
+  font-size: 14px;
   padding: 10px;
 }
 
 .searchops-rail-meta-label {
-  color: #94a3b8;
+  color: var(--so-rail-muted);
   display: block;
-  font-size: 11px;
-  margin-bottom: 4px;
+  font-size: 13px;
+  margin-bottom: 3px;
 }
 
 .searchops-site-nav {
   display: grid;
-  gap: 7px;
-  margin-top: 18px;
+  gap: 4px;
+  margin-top: 16px;
 }
 
 .searchops-site-nav-link {
-  border: 1px solid rgba(219, 228, 239, 0.11);
-  border-radius: 8px;
-  color: #e5eefb;
+  border-radius: var(--so-radius);
+  color: var(--so-rail-ink);
   display: grid;
-  gap: 4px;
-  min-height: 58px;
-  padding: 11px 12px;
+  gap: 2px;
+  padding: 9px 11px;
   text-decoration: none;
 }
 
 .searchops-site-nav-link:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(125, 211, 252, 0.35);
+  background: rgba(232, 238, 250, 0.09);
+}
+
+.searchops-site-nav-label {
+  font-weight: 600;
 }
 
 .searchops-site-nav-summary {
-  color: #94a3b8;
-  font-size: 12px;
+  color: var(--so-rail-muted);
+  font-size: 13px;
 }
 
 .searchops-site-main {
   min-width: 0;
-  padding: 28px 32px 48px;
+  padding: 24px 28px 48px;
 }
 
 .searchops-site-topbar {
   align-items: start;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
+  background: var(--so-paper);
+  border: 1px solid var(--so-line);
+  border-radius: var(--so-radius);
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -156,24 +195,22 @@ a {
 }
 
 .searchops-site-eyebrow {
-  color: var(--searchops-muted);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
+  color: var(--so-muted);
+  font-size: 13px;
+  font-weight: 600;
   margin: 0;
-  text-transform: uppercase;
 }
 
 .searchops-site-title {
-  font-size: 31px;
-  letter-spacing: 0;
-  line-height: 1.08;
-  margin: 5px 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 4px 0 6px;
 }
 
 .searchops-site-subtitle {
-  color: var(--searchops-muted);
-  line-height: 1.4;
+  color: var(--so-muted);
+  line-height: 1.55;
   margin: 0;
 }
 
@@ -186,27 +223,28 @@ a {
 }
 
 .searchops-site-status-pill {
-  background: #ecfdf5;
-  border: 1px solid #bbf7d0;
+  background: var(--so-ready-soft);
   border-radius: 999px;
-  color: #047857;
+  color: var(--so-ready);
   display: inline-flex;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-  padding: 7px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
 }
 
 .searchops-site-locale {
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
+  border: 1px solid var(--so-line);
+  border-radius: var(--so-radius);
+  font-size: 14px;
   min-width: 156px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .searchops-site-content {
   margin-top: 18px;
 }
+
+/* ── 컨트롤 ──────────────────────────────────────────── */
 
 .searchops-action-row {
   align-items: center;
@@ -218,45 +256,64 @@ a {
 
 .searchops-button {
   align-items: center;
-  background: var(--searchops-rail);
-  border: 1px solid var(--searchops-rail);
-  border-radius: 8px;
+  background: var(--so-rail);
+  border: 1px solid var(--so-rail);
+  border-radius: var(--so-radius);
   color: #ffffff;
+  cursor: pointer;
   display: inline-flex;
-  font-size: 13px;
-  font-weight: 800;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
   justify-content: center;
   min-height: 38px;
-  padding: 9px 13px;
+  padding: 8px 14px;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .searchops-button:hover {
-  background: #0f172a;
+  background: #000000;
+  border-color: #000000;
+}
+
+.searchops-button:active {
+  transform: translateY(1px);
 }
 
 .searchops-button.secondary {
-  background: #ffffff;
-  border-color: var(--searchops-line);
-  color: var(--searchops-ink);
+  background: var(--so-paper);
+  border-color: var(--so-line);
+  color: var(--so-ink);
 }
 
 .searchops-button.secondary:hover {
-  border-color: #94a3b8;
+  background: var(--so-subtle);
+  border-color: #96a4b6;
 }
 
-.searchops-surface {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
+/* opacity 로 흐리면 라벨이 배경에 먹힌다. 비활성도 글자는 읽혀야 한다. */
+.searchops-button[disabled] {
+  background: #e3e8ef;
+  border-color: #cbd4e0;
+  color: #4d5866;
+  cursor: not-allowed;
+}
+
+.searchops-surface,
+.searchops-panel,
+.searchops-card {
+  background: var(--so-paper);
+  border: 1px solid var(--so-line);
+  border-radius: var(--so-radius);
 }
 
 .searchops-panel {
-  background: #ffffff;
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
   padding: 16px;
+}
+
+.searchops-card {
+  padding: 15px;
 }
 
 .searchops-card-grid {
@@ -271,24 +328,14 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
 }
 
-.searchops-card {
-  background: #ffffff;
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
-  min-height: 118px;
-  padding: 15px;
-}
-
-.searchops-card:hover {
-  border-color: #94a3b8;
-}
-
 .searchops-sites-command-grid {
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(0, 1.7fr) minmax(240px, 0.8fr);
   margin-top: 14px;
 }
+
+/* ── 폼 ─────────────────────────────────────────────── */
 
 .searchops-registration-form {
   display: grid;
@@ -303,33 +350,36 @@ a {
 
 .searchops-field {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .searchops-field span {
-  color: var(--searchops-muted);
-  font-size: 12px;
-  font-weight: 800;
+  color: var(--so-ink);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .searchops-field input,
 .searchops-field select {
-  background: #f8fafc;
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
-  color: var(--searchops-ink);
+  background: var(--so-paper);
+  border: 1px solid #b9c5d4;
+  border-radius: var(--so-radius);
+  color: var(--so-ink);
   font: inherit;
   min-height: 40px;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 8px 10px;
   width: 100%;
 }
 
-.searchops-field input:focus,
-.searchops-field select:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-  outline: none;
+.searchops-field input::placeholder {
+  color: #6b7787; /* 흰 입력창 대비 4.9:1 */
+}
+
+.searchops-field input:focus-visible,
+.searchops-field select:focus-visible {
+  border-color: var(--so-accent);
+  outline-offset: 0;
 }
 
 .searchops-field-pair {
@@ -346,31 +396,31 @@ a {
 
 .searchops-checkbox-field {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid var(--searchops-line);
-  border-radius: 8px;
-  color: #334155;
+  background: var(--so-subtle);
+  border: 1px solid var(--so-line);
+  border-radius: var(--so-radius);
+  cursor: pointer;
   display: flex;
-  font-size: 13px;
-  font-weight: 750;
+  font-size: 14px;
   gap: 8px;
   min-height: 38px;
   padding: 8px 10px;
 }
 
 .searchops-checkbox-field input[type="checkbox"] {
-  accent-color: #2563eb;
+  accent-color: var(--so-accent);
   height: 16px;
   width: 16px;
 }
 
+/* ── 상태 표시 ───────────────────────────────────────── */
+
 .searchops-registration-feedback {
   align-items: center;
-  border-radius: 8px;
+  border-radius: var(--so-radius);
   display: flex;
   flex-wrap: wrap;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: 14px;
   gap: 10px;
   justify-content: space-between;
   margin-top: 12px;
@@ -381,26 +431,6 @@ a {
   color: inherit;
 }
 
-.searchops-registration-feedback.ready {
-  background: #ecfdf5;
-  color: #047857;
-}
-
-.searchops-registration-feedback.info {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.searchops-registration-feedback.warning {
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.searchops-registration-feedback.risk {
-  background: #fef2f2;
-  color: #b91c1c;
-}
-
 .searchops-registry-summary {
   display: grid;
   gap: 12px;
@@ -408,56 +438,114 @@ a {
 }
 
 .searchops-label {
-  color: var(--searchops-muted);
+  color: var(--so-muted);
   display: block;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .searchops-muted {
-  color: var(--searchops-muted);
+  color: var(--so-muted);
 }
 
 .searchops-status-pill {
   border-radius: 999px;
   display: inline-flex;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-  padding: 7px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
 }
 
+.searchops-registration-feedback.ready,
 .searchops-status-pill.ready {
-  background: #ecfdf5;
-  color: #047857;
+  background: var(--so-ready-soft);
+  color: var(--so-ready);
 }
 
+.searchops-registration-feedback.info,
 .searchops-status-pill.info {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--so-info-soft);
+  color: var(--so-info);
 }
 
+.searchops-registration-feedback.warning,
 .searchops-status-pill.warning {
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--so-warn-soft);
+  color: var(--so-warn);
 }
 
+.searchops-registration-feedback.risk,
 .searchops-status-pill.risk {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--so-risk-soft);
+  color: var(--so-risk);
+}
+
+/* ── 테이블 ─────────────────────────────────────────── */
+
+.searchops-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.searchops-table th {
+  background: var(--so-subtle);
+  border-bottom: 1px solid var(--so-line);
+  color: var(--so-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.searchops-table td {
+  border-bottom: 1px solid var(--so-line-soft);
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 11px 12px;
+  vertical-align: top;
+}
+
+.searchops-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.searchops-table tbody tr:hover td {
+  background: var(--so-subtle);
+}
+
+.searchops-code {
+  font-family: var(--so-mono);
+  font-size: 13px;
+}
+
+/* ── 푸터 ───────────────────────────────────────────── */
+
+.searchops-footer {
+  border-top: 1px solid var(--so-line);
+  color: var(--so-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 14px;
+  gap: 16px;
+  justify-content: center;
+  padding: 20px 16px;
+}
+
+.searchops-footer a {
+  color: var(--so-muted);
+  text-decoration: none;
+}
+
+.searchops-footer a:hover {
+  text-decoration: underline;
 }
 
 .searchops-not-found {
   align-items: center;
-  background:
-    linear-gradient(90deg, #111827 0 276px, transparent 276px),
-    linear-gradient(180deg, #f8fafc 0, #eef3f8 100%);
-  color: var(--searchops-ink);
+  color: var(--so-ink);
   display: flex;
   flex-direction: column;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   justify-content: center;
   min-height: 100vh;
   padding: 24px;
@@ -466,28 +554,24 @@ a {
 
 @media (max-width: 860px) {
   .searchops-site-shell {
-    background: #eef3f8;
     display: block;
   }
 
   .searchops-site-rail {
     height: auto;
-    padding: 18px 16px;
+    padding: 16px;
     position: relative;
   }
 
   .searchops-site-nav {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   }
 
   .searchops-site-main {
-    padding: 18px 16px 36px;
+    padding: 16px 16px 36px;
   }
 
-  .searchops-site-topbar {
-    grid-template-columns: 1fr;
-  }
-
+  .searchops-site-topbar,
   .searchops-sites-command-grid,
   .searchops-field-pair {
     grid-template-columns: 1fr;
@@ -495,5 +579,48 @@ a {
 
   .searchops-site-status {
     min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 테이블 섹션 (dashboard-table-styles 대체) ─────────── */
+
+.searchops-table-section {
+  background: var(--so-paper);
+  border: 1px solid var(--so-line);
+  border-radius: var(--so-radius);
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.searchops-table-head {
+  align-items: start;
+  border-bottom: 1px solid var(--so-line);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 14px 16px;
+}
+
+.searchops-table-head h2,
+.searchops-table-head h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.searchops-table-scroll {
+  overflow-x: auto;
+}
+
+@media (max-width: 860px) {
+  .searchops-table-head {
+    grid-template-columns: 1fr;
   }
 }

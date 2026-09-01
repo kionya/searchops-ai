@@ -76,7 +76,7 @@ export default async function SitesPage({ searchParams }: SitesPageProps) {
                 <div>
                   <span className="searchops-label">site workspace</span>
                   <h3 style={{ fontSize: 22, margin: "5px 0 6px" }}>{site.name}</h3>
-                  <p style={{ color: "#475569", margin: 0 }}>{site.domain}</p>
+                  <p style={{ color: "var(--so-muted)", margin: 0 }}>{site.domain}</p>
                 </div>
                 <Link className="searchops-button" href={`/sites/${site.id}`}>
                   대시보드 열기
@@ -246,8 +246,8 @@ function SiteRegistrySummary({ registry }: { readonly registry: SiteRegistryData
 function SiteFact({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div style={{ borderTop: "1px solid #eef2f7", paddingTop: 10 }}>
-      <dt style={{ color: "#64748b", fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>{label}</dt>
-      <dd style={{ fontWeight: 800, margin: "4px 0 0" }}>{value}</dd>
+      <dt style={{ color: "var(--so-muted)", fontSize: 14, fontWeight: 600 }}>{label}</dt>
+      <dd style={{ fontWeight: 600, margin: "4px 0 0" }}>{value}</dd>
     </div>
   );
 }

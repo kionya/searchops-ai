@@ -8,14 +8,7 @@ import {
   SectionHeader,
 } from "../../../src/dashboard-shell";
 import {
-  codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
+  pillStyle
 } from "../../../src/dashboard-table-styles";
 import {
   formatProductizationArea,
@@ -55,17 +48,17 @@ export default async function ProductizationPage() {
           <MetricCard label="수동 후속" value={String(productization.summary.manualFollowup)} />
         </div>
 
-        <section aria-label="제품화 준비도" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="제품화 준비도" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 id="productization-heading" style={{ fontSize: 18, margin: 0 }}>
                 Launch blockers
               </h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 생성 시각: {productization.generatedAt.replace("T", " ").slice(0, 16)}
               </p>
               {dashboard.errorMessage ? (
-                <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                   API 연결 실패: {dashboard.errorMessage}
                 </p>
               ) : null}
@@ -80,39 +73,39 @@ export default async function ProductizationPage() {
               {productization.canLaunch ? "출시 가능" : "출시 전 후속 필요"}
             </span>
           </header>
-          <div style={tableScrollStyle}>
-            <table style={{ ...tableStyle, minWidth: 1120 }}>
+          <div className="searchops-table-scroll">
+            <table className="searchops-table" style={{ minWidth: 1120 }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>영역</th>
-                  <th style={thStyle}>항목</th>
-                  <th style={thStyle}>상태</th>
-                  <th style={thStyle}>필요 env</th>
-                  <th style={thStyle}>근거</th>
-                  <th style={thStyle}>다음 조치</th>
+                  <th>영역</th>
+                  <th>항목</th>
+                  <th>상태</th>
+                  <th>필요 env</th>
+                  <th>근거</th>
+                  <th>다음 조치</th>
                 </tr>
               </thead>
               <tbody>
                 {productization.items.map((item) => (
                   <tr key={item.id}>
-                    <td style={tdStyle}>{formatProductizationArea(item.area)}</td>
-                    <td style={tdStyle}>
+                    <td>{formatProductizationArea(item.area)}</td>
+                    <td>
                       <strong>{item.title}</strong>
-                      <span style={{ color: "#64748b", display: "block", fontSize: 13, marginTop: 3 }}>
+                      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, marginTop: 3 }}>
                         {item.summary}
                       </span>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <ProductizationStatusPill
                         label={formatProductizationStatus(item.status)}
                         tone={getProductizationTone(item.status)}
                       />
                     </td>
-                    <td style={{ ...tdStyle, ...codeTextStyle }}>
+                    <td className="searchops-code">
                       {item.envKeys.length === 0 ? "정책 확정" : item.envKeys.join(", ")}
                     </td>
-                    <td style={tdStyle}>{item.evidence.join(" ")}</td>
-                    <td style={tdStyle}>{item.nextAction}</td>
+                    <td>{item.evidence.join(" ")}</td>
+                    <td>{item.nextAction}</td>
                   </tr>
                 ))}
               </tbody>

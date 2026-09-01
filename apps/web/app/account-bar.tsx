@@ -34,28 +34,28 @@ export async function AccountBar() {
 
 const barStyle = {
   alignItems: "center",
-  borderBottom: "1px solid #e2e8f0",
+  borderBottom: "1px solid var(--so-line)",
   display: "flex",
-  fontSize: 13,
+  fontSize: 14,
   gap: 12,
   justifyContent: "flex-end",
   padding: "10px 16px",
 } as const;
 
-const emailStyle = { color: "#475569" } as const;
+const emailStyle = { color: "var(--so-muted)" } as const;
 
 const linkStyle = {
-  color: "#1d4ed8",
+  color: "var(--so-accent)",
   fontWeight: 600,
   textDecoration: "none",
 } as const;
 
 const buttonStyle = {
-  background: "#fff",
-  border: "1px solid #cbd5e1",
-  borderRadius: 6,
-  color: "#334155",
+  background: "var(--so-paper)",
+  border: "1px solid var(--so-line)",
+  borderRadius: 8,
+  color: "var(--so-ink)",
   cursor: "pointer",
-  fontSize: 13,
+  fontSize: 14,
   padding: "5px 12px",
 } as const;

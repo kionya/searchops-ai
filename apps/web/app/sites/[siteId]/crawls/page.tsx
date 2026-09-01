@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import { formatStatusLabel } from "../../../../src/korean-labels";
 import {
@@ -50,50 +44,50 @@ export default async function CrawlsPage({ params }: CrawlsPageProps) {
         <MetricCard label="실패" value={String(summary.failed)} />
         <MetricCard label="크롤링 페이지" value={String(summary.pagesCrawled)} />
       </div>
-      <section aria-label="최근 크롤링 실행" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="최근 크롤링 실행" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="crawl-history-heading" style={{ fontSize: 18, margin: 0 }}>
               최근 크롤링 실행
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               최근 상태: {formatStatusLabel(summary.latestStatus)}
             </p>
           </div>
           <span style={{ ...pillStyle, background: "#eef2ff", color: "#3730a3" }}>{site.domain}</span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={tableStyle}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table">
             <thead>
               <tr>
-                <th style={thStyle}>실행</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>시작</th>
-                <th style={thStyle}>소요 시간</th>
-                <th style={thStyle}>페이지</th>
-                <th style={thStyle}>URLs</th>
-                <th style={thStyle}>이슈</th>
-                <th style={thStyle}>실패 사유</th>
+                <th>실행</th>
+                <th>상태</th>
+                <th>시작</th>
+                <th>소요 시간</th>
+                <th>페이지</th>
+                <th>URLs</th>
+                <th>이슈</th>
+                <th>실패 사유</th>
               </tr>
             </thead>
             <tbody>
               {crawlRunRows.map((crawlRun) => (
                 <tr key={crawlRun.id}>
-                  <td style={tdStyle}>
+                  <td>
                     <strong>{crawlRun.label}</strong>
-                    <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                    <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                       {crawlRun.id}
                     </span>
                   </td>
-                  <td style={tdStyle}>
+                  <td>
                     <StatusPill label={formatStatusLabel(crawlRun.status)} tone={getCrawlRunTone(crawlRun.status)} />
                   </td>
-                  <td style={tdStyle}>{formatDateTime(crawlRun.startedAt)}</td>
-                  <td style={tdStyle}>{formatDuration(crawlRun.durationSeconds)}</td>
-                  <td style={tdStyle}>{crawlRun.pagesCrawled}</td>
-                  <td style={tdStyle}>{crawlRun.urlsDiscovered}</td>
-                  <td style={tdStyle}>{crawlRun.issuesFound}</td>
-                  <td style={{ ...tdStyle, color: crawlRun.failureReason ? "#b91c1c" : "#64748b" }}>
+                  <td>{formatDateTime(crawlRun.startedAt)}</td>
+                  <td>{formatDuration(crawlRun.durationSeconds)}</td>
+                  <td>{crawlRun.pagesCrawled}</td>
+                  <td>{crawlRun.urlsDiscovered}</td>
+                  <td>{crawlRun.issuesFound}</td>
+                  <td style={{ color: crawlRun.failureReason ? "#b91c1c" : "var(--so-muted)" }}>
                     {crawlRun.failureReason ?? "없음"}
                   </td>
                 </tr>
@@ -110,7 +104,7 @@ function StatusPill({ label, tone }: { readonly label: string; readonly tone: "c
   const toneStyle = {
     complete: { background: "#ecfdf5", color: "#047857" },
     failed: { background: "#fef2f2", color: "#b91c1c" },
-    queued: { background: "#f8fafc", color: "#475569" }
+    queued: { background: "#f8fafc", color: "var(--so-muted)" }
   }[tone];
 
   return <span style={{ ...pillStyle, ...toneStyle }}>{label}</span>;

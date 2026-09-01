@@ -130,11 +130,11 @@ function OperatorSignalCard({
         <TonePill tone={signal.tone} />
       </div>
       <strong style={{ display: "block", fontSize: 17, marginTop: 14 }}>{signal.title}</strong>
-      <span style={{ color: "#475569", display: "block", fontSize: 13, lineHeight: 1.45, marginTop: 7 }}>
+      <span style={{ color: "var(--so-muted)", display: "block", fontSize: 14, lineHeight: 1.45, marginTop: 7 }}>
         {signal.summary}
       </span>
       <span style={signalMetricStyle}>{signal.value}</span>
-      <span style={{ ...mutedTextStyle, display: "block", fontSize: 12, marginTop: 7 }}>
+      <span style={{ ...mutedTextStyle, display: "block", fontSize: 14, marginTop: 7 }}>
         {signal.detail}
       </span>
     </Link>
@@ -228,7 +228,7 @@ const signalCardStyle = {
   background: "#ffffff",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   display: "block",
   minHeight: 214,
   padding: 15,
@@ -243,17 +243,17 @@ const signalCardHeaderStyle = {
 } as const;
 
 const stepNumberStyle = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  fontSize: 12,
-  fontWeight: 700
+  fontSize: 14,
+  fontWeight: 600
 } as const;
 
 const signalMetricStyle = {
   borderTop: "1px solid #eef2f7",
   display: "block",
   fontSize: 20,
-  fontWeight: 800,
+  fontWeight: 600,
   lineHeight: 1,
   marginTop: 14,
   paddingTop: 13
@@ -267,17 +267,15 @@ const sourceRowStyle = {
 } as const;
 
 const consoleLabelStyle = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   display: "block",
-  fontSize: 12,
-  fontWeight: 800,
-  letterSpacing: 0,
+  fontSize: 14,
+  fontWeight: 600,
   margin: 0,
-  textTransform: "uppercase"
-} as const;
+  } as const;
 
 const consoleToneStyles = {
-  neutral: { background: "#f8fafc", border: "#dbe4ef", color: "#475569" },
+  neutral: { background: "#f8fafc", border: "var(--so-line)", color: "var(--so-muted)" },
   ready: { background: "#ecfdf5", border: "#bbf7d0", color: "#047857" },
   risk: { background: "#fef2f2", border: "#fecaca", color: "#b91c1c" },
   warning: { background: "#fffbeb", border: "#fde68a", color: "#92400e" }

@@ -9,13 +9,7 @@ import {
 } from "../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
+  pillStyle
 } from "../../../src/dashboard-table-styles";
 import {
   getBackupRestoreDrillRunFeedback,
@@ -61,17 +55,17 @@ export default async function OperationsHardeningPage({
           <MetricCard label="데이터 출처" value={dashboard.source === "api" ? "API" : "데모"} />
         </div>
 
-        <section aria-label="Restore drill" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="Restore drill" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 id="ops-hardening-heading" style={{ fontSize: 18, margin: 0 }}>
                 Backup/restore drill
               </h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 계획 ID {dashboard.backupRestorePlan.id}. 실제 DB에는 이 화면이 직접 연결하지 않습니다.
               </p>
               {dashboard.errorMessage ? (
-                <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+                <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                   API 연결 실패: {dashboard.errorMessage}
                 </p>
               ) : null}
@@ -92,11 +86,11 @@ export default async function OperationsHardeningPage({
           <RunbookStepTable steps={dashboard.backupRestorePlan.steps} />
         </section>
 
-        <section aria-label="Migration deploy gate" style={tableSectionStyle}>
-          <header style={tableHeaderStyle}>
+        <section aria-label="Migration deploy gate" className="searchops-table-section">
+          <header className="searchops-table-head">
             <div>
               <h3 style={{ fontSize: 18, margin: 0 }}>Migration deploy gate</h3>
-              <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+              <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
                 GitHub Actions의 임시 PostgreSQL service에서 migrate deploy/status를 검증합니다.
               </p>
             </div>
@@ -123,28 +117,28 @@ function RunbookStepTable({
   }[];
 }) {
   return (
-    <div style={tableScrollStyle}>
-      <table style={{ ...tableStyle, minWidth: 900 }}>
+    <div className="searchops-table-scroll">
+      <table className="searchops-table" style={{ minWidth: 900 }}>
         <thead>
           <tr>
-            <th style={thStyle}>단계</th>
-            <th style={thStyle}>상태</th>
-            <th style={thStyle}>설명</th>
-            <th style={thStyle}>명령</th>
+            <th>단계</th>
+            <th>상태</th>
+            <th>설명</th>
+            <th>명령</th>
           </tr>
         </thead>
         <tbody>
           {steps.map((step) => (
             <tr key={step.id}>
-              <td style={tdStyle}>
+              <td>
                 <strong>{step.title}</strong>
-                <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                   {step.id}
                 </span>
               </td>
-              <td style={tdStyle}>{step.status}</td>
-              <td style={tdStyle}>{step.description}</td>
-              <td style={{ ...tdStyle, ...codeTextStyle }}>{step.command ?? "수동 확인"}</td>
+              <td>{step.status}</td>
+              <td>{step.description}</td>
+              <td className="searchops-code">{step.command ?? "수동 확인"}</td>
             </tr>
           ))}
         </tbody>
@@ -159,8 +153,8 @@ const primaryButtonStyle = {
   borderRadius: 8,
   color: "#ffffff",
   cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 36,
   padding: "8px 12px",
 } as const;
@@ -168,14 +162,14 @@ const primaryButtonStyle = {
 const feedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13,
+    fontSize: 14,
   },
   success: {
     color: "#047857",
-    fontSize: 13,
+    fontSize: 14,
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13,
+    fontSize: 14,
   },
 } as const;

@@ -24,7 +24,7 @@
 }
 
 .readonlyStatus {
-  color: #64748b;
+  color: var(--so-muted);
   grid-column: span 2;
 }
 

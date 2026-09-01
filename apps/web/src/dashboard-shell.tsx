@@ -15,8 +15,7 @@ import { getSiteSnapshot, isDirectDatabaseMode } from "./site-database";
 import { resolveSiteFromRegistrationId } from "./site-registry";
 import { demoSite } from "./work-order-board";
 
-export const dashboardFontStack =
-  "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
+export const dashboardFontStack = "var(--so-font)";
 
 export const siteRouteItems = [
   { segment: "", label: "개요", summary: "사이트 상태 요약" },
@@ -205,7 +204,7 @@ export function AppWorkspaceFrame({
         <nav aria-label="앱 섹션" className="searchops-site-nav">
           {appRouteItems.map((item) => (
             <Link className="searchops-site-nav-link" href={item.href} key={item.href}>
-              <span style={{ fontWeight: 800 }}>{item.label}</span>
+              <span className="searchops-site-nav-label">{item.label}</span>
               <span className="searchops-site-nav-summary">{item.summary}</span>
             </Link>
           ))}
@@ -266,7 +265,7 @@ export function SiteDashboardFrame({
               key={item.segment}
               href={getSiteDashboardPath(site.id, item.segment)}
             >
-              <span style={{ fontWeight: 800 }}>{item.label}</span>
+              <span className="searchops-site-nav-label">{item.label}</span>
               <span className="searchops-site-nav-summary">{item.summary}</span>
             </Link>
           ))}
@@ -304,12 +303,12 @@ function DemoDataBanner() {
       role="status"
       style={{
         alignItems: "baseline",
-        background: "#fffbeb",
-        border: "1px solid #fcd34d",
-        borderRadius: 10,
-        color: "#92400e",
+        background: "var(--so-warn-soft)",
+        border: "1px solid var(--so-warn)",
+        borderRadius: 8,
+        color: "var(--so-warn)",
         display: "flex",
-        fontSize: 13,
+        fontSize: 14,
         gap: 8,
         lineHeight: 1.5,
         margin: "16px 24px 0",
@@ -318,7 +317,7 @@ function DemoDataBanner() {
     >
       <span aria-hidden="true">⚠</span>
       <span>
-        <strong>데모 데이터</strong> — SearchOps API가 배포되어 있지 않아 이 사이트 화면은 전부
+        <strong>데모 데이터</strong>: SearchOps API가 배포되어 있지 않아 이 사이트 화면은 전부
         고정 예시로 그려집니다. 실제 크롤 결과는 연동된 콘솔에서 확인하세요.
       </span>
     </div>
@@ -337,7 +336,7 @@ export function SectionHeader({
   return (
     <header style={sectionHeaderStyle}>
       <p style={eyebrowStyle}>{eyebrow}</p>
-      <h2 style={{ fontSize: 27, letterSpacing: 0, lineHeight: 1.1, margin: "4px 0 8px" }}>
+      <h2 style={{ fontSize: 22, fontWeight: 600, lineHeight: 1.3, margin: "4px 0 6px" }}>
         {title}
       </h2>
       <p style={{ ...mutedTextStyle, maxWidth: 720 }}>{description}</p>
@@ -349,7 +348,7 @@ export function MetricCard({ label, value }: PlaceholderMetric) {
   return (
     <article style={metricCardStyle}>
       <p style={metaLabelStyle}>{label}</p>
-      <strong style={{ display: "block", fontSize: 26, lineHeight: 1, marginTop: 8 }}>{value}</strong>
+      <strong style={{ display: "block", fontSize: 24, lineHeight: 1.2, marginTop: 6 }}>{value}</strong>
     </article>
   );
 }
@@ -378,28 +377,22 @@ export function PlaceholderPage({ content }: { readonly content: PlaceholderPage
 }
 
 export const pageStyle: CSSProperties = {
-  background:
-    "linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(238, 243, 248, 0.96))",
-  color: "#172033",
-  fontFamily: dashboardFontStack,
   margin: "0 auto",
   maxWidth: 1180,
   minHeight: "100vh",
-  padding: "32px 24px"
+  padding: "28px 24px"
 };
 
 export const mutedTextStyle: CSSProperties = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   margin: 0
 };
 
 export const eyebrowStyle: CSSProperties = {
-  color: "#64748b",
-  fontSize: 13,
-  fontWeight: 700,
-  letterSpacing: 0,
-  margin: 0,
-  textTransform: "uppercase"
+  color: "var(--so-muted)",
+  fontSize: 14,
+  fontWeight: 600,
+  margin: 0
 };
 
 export const metricGridStyle: CSSProperties = {
@@ -414,26 +407,23 @@ const sectionHeaderStyle: CSSProperties = {
 };
 
 const metaLabelStyle: CSSProperties = {
-  color: "#64748b",
+  color: "var(--so-muted)",
   display: "block",
-  fontSize: 12,
+  fontSize: 14,
   margin: 0
 };
 
 const metricCardStyle: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ef",
+  background: "var(--so-paper)",
+  border: "1px solid var(--so-line)",
   borderRadius: 8,
-  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.05)",
-  minHeight: 86,
   padding: 14
 };
 
 const emptyStateStyle: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ef",
+  background: "var(--so-paper)",
+  border: "1px solid var(--so-line)",
   borderRadius: 8,
   marginTop: 14,
-  minHeight: 130,
   padding: 18
 };

@@ -17,7 +17,7 @@ export function IntegrationSubmitButton({
   const colors = {
     danger: { background: "#ffffff", border: "#fecaca", color: "#b91c1c" },
     primary: { background: "#111827", border: "#111827", color: "#ffffff" },
-    secondary: { background: "#ffffff", border: "#cbd5e1", color: "#172033" },
+    secondary: { background: "#ffffff", border: "#cbd5e1", color: "var(--so-ink)" },
   }[tone];
 
   return (
@@ -39,8 +39,8 @@ export function IntegrationSubmitButton({
 
 const buttonStyle = {
   borderRadius: 8,
-  fontSize: 13,
-  fontWeight: 800,
+  fontSize: 14,
+  fontWeight: 600,
   minHeight: 38,
   padding: "8px 12px",
   whiteSpace: "nowrap",

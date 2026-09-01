@@ -62,25 +62,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         ) : null}
         <AccountBar />
         {children}
-        <footer
-          style={{
-            borderTop: "1px solid #e2e8f0",
-            color: "#64748b",
-            display: "flex",
-            flexWrap: "wrap",
-            fontSize: 13,
-            gap: 16,
-            justifyContent: "center",
-            padding: "20px 16px",
-          }}
-        >
+        <footer className="searchops-footer">
           <span>© SearchOps AI</span>
-          <Link href="/privacy" style={{ color: "#475569", textDecoration: "none" }}>
-            개인정보처리방침
-          </Link>
-          <Link href="/terms" style={{ color: "#475569", textDecoration: "none" }}>
-            이용약관
-          </Link>
+          <Link href="/privacy">개인정보처리방침</Link>
+          <Link href="/terms">이용약관</Link>
         </footer>
       </body>
     </html>

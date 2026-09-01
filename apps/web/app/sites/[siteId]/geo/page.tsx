@@ -7,13 +7,7 @@ import {
 } from "../../../../src/dashboard-shell";
 import {
   codeTextStyle,
-  pillStyle,
-  tableHeaderStyle,
-  tableScrollStyle,
-  tableSectionStyle,
-  tableStyle,
-  tdStyle,
-  thStyle
+  pillStyle
 } from "../../../../src/dashboard-table-styles";
 import { loadConnectorSyncHistory } from "../../../../src/connector-sync-history";
 import {
@@ -116,17 +110,17 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
         workOrderPreview={workOrderPreview}
         workOrderFeedback={workOrderFeedback}
       />
-      <section aria-label="GEO 노출 리포트" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="GEO 노출 리포트" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id="geo-visibility-heading" style={{ fontSize: 18, margin: 0 }}>
               노출 이력
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               최근 상태: {formatGeoStatus(summary.latestStatus)}. 강한 리포트 {summary.strong}개.
             </p>
             {dashboard.errorMessage ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, margin: "6px 0 0" }}>
+              <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
                 API 연결 실패: {dashboard.errorMessage}
               </p>
             ) : null}
@@ -141,24 +135,24 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
             {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 980 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
-                <th style={thStyle}>리포트</th>
-                <th style={thStyle}>상태</th>
-                <th style={thStyle}>언급</th>
-                <th style={thStyle}>인용</th>
-                <th style={thStyle}>질의</th>
-                <th style={thStyle}>Provider</th>
-                <th style={thStyle}>경쟁사 리스크</th>
-                <th style={thStyle}>작업 지시서</th>
+                <th>리포트</th>
+                <th>상태</th>
+                <th>언급</th>
+                <th>인용</th>
+                <th>질의</th>
+                <th>Provider</th>
+                <th>경쟁사 리스크</th>
+                <th>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ ...tdStyle, color: "#64748b" }}>
+                  <td colSpan={8} className="searchops-muted">
                     아직 GEO 노출 리포트가 없습니다.
                   </td>
                 </tr>
@@ -168,24 +162,24 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
 
                   return (
                     <tr key={report.id}>
-                      <td style={tdStyle}>
+                      <td>
                         <strong>{report.brandName}</strong>
-                        <span style={{ ...codeTextStyle, color: "#64748b", display: "block", marginTop: 3 }}>
+                        <span style={{ ...codeTextStyle, color: "var(--so-muted)", display: "block", marginTop: 3 }}>
                           {report.id} - {formatGeoDate(report.evaluatedAt)}
                         </span>
                       </td>
-                      <td style={tdStyle}>
+                      <td>
                         <TonePill
                           label={`${formatGeoStatus(report.status)} ${report.score}`}
                           tone={getGeoVisibilityStatusTone(report.status)}
                         />
                       </td>
-                      <td style={tdStyle}>{report.mentionRate}%</td>
-                      <td style={tdStyle}>{report.citationRate}%</td>
-                      <td style={tdStyle}>{report.queryCount}</td>
-                      <td style={tdStyle}>{report.providerCount}</td>
-                      <td style={tdStyle}>{report.competitorCitationRate}%</td>
-                      <td style={tdStyle}>
+                      <td>{report.mentionRate}%</td>
+                      <td>{report.citationRate}%</td>
+                      <td>{report.queryCount}</td>
+                      <td>{report.providerCount}</td>
+                      <td>{report.competitorCitationRate}%</td>
+                      <td>
                         <form action={workOrderAction}>
                           <button style={secondaryButtonStyle} type="submit">
                             작업 생성
@@ -201,34 +195,34 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
         </div>
       </section>
       <GeoWorkOrderPreviewSection workOrderPreview={workOrderPreview} />
-      <section aria-label="GEO 관측 상세" style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label="GEO 관측 상세" className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 style={{ fontSize: 18, margin: 0 }}>관측 상세</h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
               최근 리포트의 provider, 질의, 답변 근거, 인용 URL 소유 여부를 확인합니다.
             </p>
           </div>
         </header>
-        <div style={tableScrollStyle}>
-          <table style={{ ...tableStyle, minWidth: 920 }}>
+        <div className="searchops-table-scroll">
+          <table className="searchops-table" style={{ minWidth: 920 }}>
             <thead>
               <tr>
-                <th style={thStyle}>Provider</th>
-                <th style={thStyle}>소스</th>
-                <th style={thStyle}>질의</th>
-                <th style={thStyle}>답변 근거</th>
-                <th style={thStyle}>인용 URL</th>
+                <th>Provider</th>
+                <th>소스</th>
+                <th>질의</th>
+                <th>답변 근거</th>
+                <th>인용 URL</th>
               </tr>
             </thead>
             <tbody>
               {(dashboard.reports[0]?.observations ?? []).map((observation) => (
                 <tr key={`${observation.provider}-${observation.query}`}>
-                  <td style={tdStyle}>{formatGeoProvider(observation.provider)}</td>
-                  <td style={tdStyle}>{formatGeoObservationSource(observation.source)}</td>
-                  <td style={tdStyle}>{observation.query}</td>
-                  <td style={{ ...tdStyle, maxWidth: 340 }}>{observation.answerText || "답변 텍스트 없음"}</td>
-                  <td style={{ ...tdStyle, ...codeTextStyle, maxWidth: 320 }}>
+                  <td>{formatGeoProvider(observation.provider)}</td>
+                  <td>{formatGeoObservationSource(observation.source)}</td>
+                  <td>{observation.query}</td>
+                  <td style={{ maxWidth: 340 }}>{observation.answerText || "답변 텍스트 없음"}</td>
+                  <td className="searchops-code" style={{ maxWidth: 320 }}>
                     {observation.citedUrls.length === 0
                       ? "인용 없음"
                       : observation.citedUrls.join(", ")}
@@ -267,10 +261,10 @@ function GeoCreatePanel({
     <section aria-label="GEO 노출 리포트 생성" style={createPanelStyle}>
       <div>
         <h3 style={{ fontSize: 18, margin: 0 }}>GEO 모니터 실행</h3>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
           fixture 관측 저장과 provider 배치 관측 큐 등록을 분리해 추적합니다.
         </p>
-        <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 8 }}>
+        <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 8 }}>
           작업 후보 {workOrderPreview.candidateCount}개, 강한 리포트 제외 {workOrderPreview.excludedStrongCount}개.
         </p>
         {createFeedback ? (
@@ -341,55 +335,55 @@ function GeoWorkOrderPreviewSection({
   readonly workOrderPreview: ReturnType<typeof summarizeGeoWorkOrderBatchPreview>;
 }) {
   return (
-    <section aria-label="GEO 작업 지시서 후보" style={tableSectionStyle}>
-      <header style={tableHeaderStyle}>
+    <section aria-label="GEO 작업 지시서 후보" className="searchops-table-section">
+      <header className="searchops-table-head">
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>작업 지시서 후보 미리보기</h3>
-          <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
             strong 상태를 제외한 리포트 {workOrderPreview.candidateCount}개를 우선순위별로 검토합니다.
           </p>
         </div>
-        <span style={{ ...pillStyle, background: "#f8fafc", color: "#172033" }}>
+        <span style={{ ...pillStyle, background: "#f8fafc", color: "var(--so-ink)" }}>
           후보 {workOrderPreview.candidateCount}
         </span>
       </header>
-      <div style={tableScrollStyle}>
-        <table style={{ ...tableStyle, minWidth: 840 }}>
+      <div className="searchops-table-scroll">
+        <table className="searchops-table" style={{ minWidth: 840 }}>
           <thead>
             <tr>
-              <th style={thStyle}>우선순위</th>
-              <th style={thStyle}>리포트</th>
-              <th style={thStyle}>상태</th>
-              <th style={thStyle}>점수</th>
-              <th style={thStyle}>근거</th>
-              <th style={thStyle}>체크</th>
+              <th>우선순위</th>
+              <th>리포트</th>
+              <th>상태</th>
+              <th>점수</th>
+              <th>근거</th>
+              <th>체크</th>
             </tr>
           </thead>
           <tbody>
             {workOrderPreview.candidates.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...tdStyle, color: "#64748b" }}>
+                <td colSpan={6} className="searchops-muted">
                   작업 지시서 후보가 없습니다.
                 </td>
               </tr>
             ) : (
               workOrderPreview.candidates.map((candidate) => (
                 <tr key={candidate.reportId}>
-                  <td style={tdStyle}>
+                  <td>
                     <span style={{ ...pillStyle, ...priorityToneStyle[candidate.priority] }}>
                       {formatGeoWorkOrderCandidatePriority(candidate.priority)}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>{candidate.reportId}</td>
-                  <td style={tdStyle}>
+                  <td className="searchops-code">{candidate.reportId}</td>
+                  <td>
                     <TonePill
                       label={formatGeoStatus(candidate.status)}
                       tone={getGeoVisibilityStatusTone(candidate.status)}
                     />
                   </td>
-                  <td style={tdStyle}>{candidate.score}</td>
-                  <td style={tdStyle}>{candidate.reason}</td>
-                  <td style={{ ...tdStyle, ...codeTextStyle }}>
+                  <td>{candidate.score}</td>
+                  <td>{candidate.reason}</td>
+                  <td className="searchops-code">
                     {candidate.failingChecks.length === 0
                       ? "부분 노출"
                       : candidate.failingChecks.join(", ")}
@@ -457,19 +451,19 @@ const monitorFormStyle = {
 } as const;
 
 const panelActionTitleStyle = {
-  color: "#172033",
+  color: "var(--so-ink)",
   fontSize: 14
 } as const;
 
 const panelActionDescriptionStyle = {
-  color: "#64748b",
-  fontSize: 13
+  color: "var(--so-muted)",
+  fontSize: 14
 } as const;
 
 const queryFieldLabelStyle = {
-  color: "#172033",
+  color: "var(--so-ink)",
   display: "grid",
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 600,
   gap: 6
 } as const;
@@ -478,7 +472,7 @@ const queryTextareaStyle = {
   border: "1px solid #cbd5e1",
   borderRadius: 8,
   fontFamily: "inherit",
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 400,
   lineHeight: 1.5,
   padding: "8px 10px",
@@ -487,8 +481,8 @@ const queryTextareaStyle = {
 } as const;
 
 const queryHelpStyle = {
-  color: "#64748b",
-  fontSize: 12,
+  color: "var(--so-muted)",
+  fontSize: 14,
   lineHeight: 1.5
 } as const;
 
@@ -496,7 +490,7 @@ const gscNoteStyle = {
   background: "#eff6ff",
   borderRadius: 6,
   color: "#1d4ed8",
-  fontSize: 12,
+  fontSize: 14,
   lineHeight: 1.5,
   padding: "6px 8px"
 } as const;
@@ -509,9 +503,9 @@ const providerGridStyle = {
 
 const providerOptionStyle = {
   alignItems: "center",
-  color: "#172033",
+  color: "var(--so-ink)",
   display: "flex",
-  fontSize: 13,
+  fontSize: 14,
   gap: 7
 } as const;
 
@@ -522,7 +516,7 @@ const createButtonStyle = {
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 40,
   padding: "10px 14px"
 } as const;
@@ -531,10 +525,10 @@ const secondaryButtonStyle = {
   background: "#f8fafc",
   border: "1px solid #dbe4ef",
   borderRadius: 8,
-  color: "#172033",
+  color: "var(--so-ink)",
   cursor: "pointer",
   fontSize: 14,
-  fontWeight: 800,
+  fontWeight: 600,
   minHeight: 38,
   padding: "9px 12px"
 } as const;
@@ -548,14 +542,14 @@ const priorityToneStyle = {
 const feedbackStyle = {
   info: {
     color: "#3730a3",
-    fontSize: 13
+    fontSize: 14
   },
   success: {
     color: "#047857",
-    fontSize: 13
+    fontSize: 14
   },
   warning: {
     color: "#b91c1c",
-    fontSize: 13
+    fontSize: 14
   }
 } as const;

@@ -5,9 +5,7 @@ import {
   SectionHeader
 } from "./dashboard-shell";
 import {
-  pillStyle,
-  tableHeaderStyle,
-  tableSectionStyle
+  pillStyle
 } from "./dashboard-table-styles";
 
 export type FutureModuleKey = "compliance";
@@ -80,15 +78,15 @@ export function FutureModulePage({ moduleKey }: { readonly moduleKey: FutureModu
           <MetricCard key={metric.label} label={metric.label} value={metric.value} />
         ))}
       </div>
-      <section aria-label={content.emptyTitle} style={tableSectionStyle}>
-        <header style={tableHeaderStyle}>
+      <section aria-label={content.emptyTitle} className="searchops-table-section">
+        <header className="searchops-table-head">
           <div>
             <h3 id={`${content.key}-future-module-heading`} style={{ fontSize: 18, margin: 0 }}>
               {content.emptyTitle}
             </h3>
-            <p style={{ ...mutedTextStyle, fontSize: 13, marginTop: 6 }}>{content.emptyDescription}</p>
+            <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>{content.emptyDescription}</p>
           </div>
-          <span style={{ ...pillStyle, background: "#f8fafc", color: "#475569" }}>
+          <span style={{ ...pillStyle, background: "#f8fafc", color: "var(--so-muted)" }}>
             {content.status === "planned" ? "계획됨" : content.status}
           </span>
         </header>
@@ -117,7 +115,7 @@ function DefinitionList({
 }) {
   return (
     <div>
-      <h4 style={{ color: "#475569", fontSize: 12, margin: "0 0 8px", textTransform: "uppercase" }}>
+      <h4 style={{ color: "var(--so-muted)", fontSize: 14, margin: "0 0 8px" }}>
         {title}
       </h4>
       <ul style={{ display: "grid", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>
