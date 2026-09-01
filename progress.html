@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SearchOps AI Multi-tenant Credential Progress</title>
+    <title>SearchOps AI Progress</title>
     <style>
       :root {
         color-scheme: light;
@@ -197,16 +197,216 @@
   <body>
     <main>
       <header>
-        <h1>SearchOps AI Multi-tenant Credential Progress</h1>
+        <h1>SearchOps AI Progress</h1>
         <p class="meta">
-          Updated: 2026-07-14 · Branch: <code>codex/multitenant-provider-credentials</code> · Task
-          12 final code commit: <code>01a0d40</code>
+          Updated: 2026-09-01 · Latest: <code>80b99cd</code> (PR #104) · Live:
+          <a href="https://searchops.totopapa.com">searchops.totopapa.com</a>
         </p>
         <p class="lead">
-          Tasks 1-13 are complete and verified locally. Production expand, backfill, and cutover
-          have not started and require explicit operator approval.
+          위쪽이 최신 작업이고 아래로 갈수록 과거다. 아래 credential 섹션은 2026-07-14 기준이며
+          Tasks 1-13 은 로컬 검증까지 완료, 운영 expand/backfill/cutover 는 시작하지 않았다.
         </p>
       </header>
+
+      <section aria-label="운영 콘솔 UI 개편">
+        <h2>운영 콘솔 UI 개편 — 가독성과 로딩 속도</h2>
+        <p class="small">
+          2026-09-01 운영 반영·검증 완료 · <code>e80c579</code> (PR #102) · <code>830f137</code> (PR
+          #103) · <code>80b99cd</code> (PR #104) · Live:
+          <a href="https://searchops.totopapa.com">searchops.totopapa.com</a>
+        </p>
+        <div class="summary">
+          <div class="stat">
+            <strong>0</strong><span>웹폰트 요청 (Inter 는 죽은 선언이었다)</span>
+          </div>
+          <div class="stat"><strong>253</strong><span>제거한 셀 인라인 스타일</span></div>
+          <div class="stat"><strong>9.9KB</strong><span>운영 CSS 번들</span></div>
+          <div class="stat"><strong>183</strong><span>테스트 통과 (변동 없음)</span></div>
+        </div>
+
+        <h3 style="margin-top: 22px">가독성</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>Before</th>
+              <th>After</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>본문</td>
+              <td>12~13px</td>
+              <td>14~15px</td>
+            </tr>
+            <tr>
+              <td>마이크로 라벨</td>
+              <td>11~12px</td>
+              <td>13px</td>
+            </tr>
+            <tr>
+              <td>굵기</td>
+              <td><code>800</code>·<code>750</code> 남발</td>
+              <td>라벨 600, 제목 700</td>
+            </tr>
+            <tr>
+              <td>muted 색</td>
+              <td><code>#64748b</code> — 틴트 배경 AA 미달</td>
+              <td><code>#54606f</code> (6.3~6.6:1)</td>
+            </tr>
+            <tr>
+              <td>레일 muted</td>
+              <td><code>#94a3b8</code> (5.6:1)</td>
+              <td><code>#a9b6c8</code> (7.5:1)</td>
+            </tr>
+            <tr>
+              <td>로그인 비활성 버튼</td>
+              <td><span class="status partial">2.3:1</span> 라벨이 안 읽힘</td>
+              <td><span class="status done">AA 통과</span></td>
+            </tr>
+            <tr>
+              <td>액센트 / radius</td>
+              <td>teal·blue·indigo, 6·8·10 혼재</td>
+              <td>파랑 하나, 8·999 두 값</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 22px">속도</h3>
+        <div class="grid">
+          <article class="card">
+            <h3>죽은 웹폰트 제거</h3>
+            <p class="small">
+              폰트 스택의 <code>Inter</code> 는 선언만 있고 로드하는 코드가 어디에도 없었다. 시스템
+              스택으로 교체 — <strong>되살리지 말 것</strong>.
+            </p>
+          </article>
+          <article class="card">
+            <h3>페인트 비용 제거</h3>
+            <p class="small">
+              100vh 셸의 3층 그라디언트와 카드·테이블의
+              <code>0 18px 48px</code> 그림자 삭제. 운영 CSS 에
+              <code>Inter</code>/<code>linear-gradient</code>/<code>box-shadow</code> 0건 확인.
+            </p>
+          </article>
+          <article class="card">
+            <h3>RSC 페이로드 축소</h3>
+            <p class="small">
+              <code>style={tdStyle}</code> 117개 + <code>style={thStyle}</code> 136개는 행 수만큼
+              직렬화되던 것이라 표가 길수록 손해였다. <code>.searchops-table</code> 클래스로 이전.
+            </p>
+          </article>
+          <article class="card">
+            <h3>GTM 태그 정본화</h3>
+            <p class="small">
+              GTM 과 <code>gtag.js</code> 를 둘 다 로드해 같은 라이브러리를 두 번 받고 페이지뷰가
+              중복 집계됐다. <code>gtag.js</code> 직접 로드 제거. <code>SEARCHOPS_GA_ID</code> 는 더
+              이상 읽지 않는다.
+            </p>
+          </article>
+        </div>
+
+        <h3 style="margin-top: 22px">내가 만든 회귀 둘 (둘 다 잡았다)</h3>
+        <div class="plan-list">
+          <div class="plan">
+            <div class="tag">1</div>
+            <div>
+              <strong>타입 스케일이 한 단계로 뭉개졌다</strong> — 머지 전 리뷰에서 발견
+              (<code>feacebb</code>). 일괄 치환을 <code>12→13</code>, <code>13→14</code> 순서로 한
+              번에 돌려 순차 연쇄가 일어났고 11/12/13 세 단계가 전부 14 가 됐다. <br /><span
+                class="small"
+                >⚠️ 일괄 치환은 순차 실행이다. 값 사다리를 옮길 땐 원본 기준으로 매핑하거나 역순으로
+                돌려라.</span
+              >
+            </div>
+          </div>
+          <div class="plan">
+            <div class="tag">2</div>
+            <div>
+              <strong>표 좁은 칼럼에서 한글이 세로로 쪼개졌다</strong> — 운영 화면 확인에서 발견 (PR
+              #103). <code>tableStyle</code> 을 클래스로 옮기며 <code>minWidth: 780</code> 기본값을
+              빠뜨려 <code>crawls</code>·<code>issues</code>·<code>urls</code> 가 하한을 잃었다.
+              pill 에 <code>nowrap</code>, body 에 <code>word-break: keep-all</code> 을 함께 넣었다.
+              pill 높이 59px → 25px, 행 높이 90px → 73px. <br /><span class="small"
+                >⚠️ "표 화면을 육안 확인 못 했다"고 남겨둔 바로 그 구멍에서 나왔다. 인증 없이 셸을
+                볼 수 있는 경로: <code>/onboarding</code>, <code>/ops/hardening</code>,
+                <code>/ops/observability</code>, <code>/ops/dead-letter</code>,
+                <code>/ops/invites</code>, <code>/ops/productization</code>.</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 22px">Vercel Preview 빌드가 13일간 조용히 깨져 있었다</h3>
+        <div class="guardrails">
+          <p class="small">
+            이 PR 이 13일 만에 <code>apps/web</code> 을 건드리면서 처음 드러났다. 설치 로그:
+            <code>devDependencies: skipped because NODE_ENV is set to production</code>.
+            <strong>Vercel 프로젝트의 <code>NODE_ENV=production</code></strong> 이 72일 전부터
+            <strong>Preview 환경에만</strong> 걸려 있어 <code>pnpm install</code> 이 devDependencies
+            를 통째로 건너뛰었다. Production 엔 없어서 운영 배포는 멀쩡했고 PR 프리뷰만 깨져 있었다.
+          </p>
+          <p class="small">
+            ⚠️ <strong><code>NODE_ENV</code> 를 Vercel 빌드 환경변수로 다시 걸지 말 것.</strong>
+            Vercel 이 런타임에서 알아서 세팅한다. 빌드 변수로 걸면 모든 devDependency 설치가 죽는다.
+            <code>apps/web</code> 이 <code>typescript</code>·<code>eslint</code>·<code
+              >@types/*</code
+            >
+            를 <code>dependencies</code> 에 넣어둔 것도 같은 제약을 우회한 흔적이다.
+          </p>
+        </div>
+
+        <h3 style="margin-top: 22px">GA4 (코드 외 설정)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>상태</th>
+              <th>내용</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>교차 도메인 연결</td>
+              <td><span class="status done">완료</span></td>
+              <td>
+                <code>완전 일치 / searchops-ai-web.vercel.app</code> ·
+                <code>완전 일치 / searchops.totopapa.com</code> ·
+                <code>종료값 / kbeautys-projects.vercel.app</code>. <code>포함</code> 이 아니라
+                <code>종료값</code> 인 이유 — 링커가 매칭 도메인으로 <code>_gl</code>(클라이언트
+                ID)을 넘기는데 <code>포함</code> 은 <code>…vercel.app.attacker.com</code> 에도
+                걸린다.
+              </td>
+            </tr>
+            <tr>
+              <td>SPA 페이지뷰</td>
+              <td><span class="status done">조치 불필요</span></td>
+              <td>
+                라우트 이동 3회 실측 — 매 이동마다 <code>gtm.historyChange-v2</code> 와 함께
+                <code>en=page_view</code> 가 정확한 <code>dl</code> 로 1회씩 발동한다. GTM 에
+                <code>history change</code> 트리거를 <strong>추가하면 중복 집계된다</strong>.
+              </td>
+            </tr>
+            <tr>
+              <td>태그 품질 경고</td>
+              <td><span class="status defer">반영 대기</span></td>
+              <td>설정 직후엔 남는다. 진단 재평가에 시간이 걸린다고 GA4 가 화면에 명시한다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 22px">안 한 것</h3>
+        <ul class="small">
+          <li>
+            <strong>em-dash 48건</strong> — 대부분 주석이고 나머지는 한국어 본문 문장부호다. 카피
+            보이스 보존을 우선했다.
+          </li>
+          <li>
+            <strong>다크 모드</strong> — 색이 아직 인라인 스타일에 하드코딩된 곳이 남아 있어 전면
+            토큰화 없이는 반쪽이 된다. 요청 범위(가독성·속도) 밖이라 미뤘다.
+          </li>
+        </ul>
+      </section>
 
       <section aria-label="현재 구현 상태">
         <h2>Current Implementation</h2>
