@@ -13,16 +13,14 @@ export async function AccountBar() {
   const email = typeof claims?.email === "string" ? claims.email : null;
 
   return (
-    <div style={barStyle}>
+    <div className="searchops-account-bar">
       {email === null ? (
-        <Link href="/login" style={linkStyle}>
-          로그인
-        </Link>
+        <Link href="/login">로그인</Link>
       ) : (
         <>
-          <span style={emailStyle}>{email}</span>
+          <span className="searchops-muted">{email}</span>
           <form action={signOutAction}>
-            <button type="submit" style={buttonStyle}>
+            <button className="searchops-button secondary" type="submit">
               로그아웃
             </button>
           </form>
@@ -32,30 +30,6 @@ export async function AccountBar() {
   );
 }
 
-const barStyle = {
-  alignItems: "center",
-  borderBottom: "1px solid var(--so-line)",
-  display: "flex",
-  fontSize: 14,
-  gap: 12,
-  justifyContent: "flex-end",
-  padding: "10px 16px",
-} as const;
 
-const emailStyle = { color: "var(--so-muted)" } as const;
 
-const linkStyle = {
-  color: "var(--so-accent)",
-  fontWeight: 600,
-  textDecoration: "none",
-} as const;
 
-const buttonStyle = {
-  background: "var(--so-paper)",
-  border: "1px solid var(--so-line)",
-  borderRadius: 8,
-  color: "var(--so-ink)",
-  cursor: "pointer",
-  fontSize: 14,
-  padding: "5px 12px",
-} as const;

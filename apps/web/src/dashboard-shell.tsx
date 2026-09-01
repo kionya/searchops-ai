@@ -1,5 +1,7 @@
 import Link from "next/link";
-import React, { type CSSProperties, type ReactNode } from "react";
+
+import { AccountBar } from "../app/account-bar";
+import React, { Suspense, type CSSProperties, type ReactNode } from "react";
 
 import { productName, SiteSchema, type Site } from "@searchops/types";
 
@@ -209,6 +211,9 @@ export function AppWorkspaceFrame({
         </nav>
       </aside>
       <section className="searchops-site-main">
+        <Suspense fallback={<div className="searchops-account-bar" />}>
+          <AccountBar />
+        </Suspense>
         <header className="searchops-site-topbar">
           <div>
             <p className="searchops-site-eyebrow">{eyebrow}</p>
@@ -270,6 +275,9 @@ export function SiteDashboardFrame({
         </nav>
       </aside>
       <section className="searchops-site-main">
+        <Suspense fallback={<div className="searchops-account-bar" />}>
+          <AccountBar />
+        </Suspense>
         <header className="searchops-site-topbar">
           <div>
             <p className="searchops-site-eyebrow">사이트 대시보드</p>

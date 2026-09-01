@@ -181,8 +181,39 @@ a {
 }
 
 .searchops-site-main {
+  --so-main-pad-x: 28px;
+  --so-main-pad-t: 20px;
   min-width: 0;
-  padding: 24px 28px 48px;
+  padding: var(--so-main-pad-t) var(--so-main-pad-x) 48px;
+}
+
+/* 계정바는 레일이 아니라 본문 칼럼 위에만 얹힌다. 그래야 좌측 레일이 화면
+   최상단부터 끊기지 않고 이어진다. 좌우로는 칼럼 패딩만큼 흘려보낸다. */
+.searchops-account-bar {
+  align-items: center;
+  border-bottom: 1px solid var(--so-line);
+  display: flex;
+  font-size: 14px;
+  gap: 12px;
+  justify-content: flex-end;
+  margin: calc(var(--so-main-pad-t) * -1) calc(var(--so-main-pad-x) * -1) var(--so-main-pad-t);
+  min-height: 44px;
+  padding: 6px var(--so-main-pad-x);
+}
+
+.searchops-account-bar a {
+  color: var(--so-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.searchops-account-bar a:hover {
+  text-decoration: underline;
+}
+
+.searchops-account-bar .searchops-button {
+  min-height: 32px;
+  padding: 4px 12px;
 }
 
 .searchops-site-topbar {
@@ -578,7 +609,9 @@ a {
   }
 
   .searchops-site-main {
-    padding: 16px 16px 36px;
+    --so-main-pad-x: 16px;
+    --so-main-pad-t: 14px;
+    padding: var(--so-main-pad-t) var(--so-main-pad-x) 36px;
   }
 
   .searchops-site-topbar,
