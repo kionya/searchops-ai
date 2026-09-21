@@ -2590,6 +2590,16 @@ describe("web foundation", () => {
     expect(dashboard.flags).toHaveLength(1);
   });
 
+  // T4: 리포트 계약에 9항목 체크리스트·verdict 가 필수다. 픽스처는 항목 8 미확인.
+  const fixtureChecklist = (flaggedItem: number | null) =>
+    Array.from({ length: 9 }, (_, index) => ({
+      item: index + 1,
+      label: `항목 ${index + 1}`,
+      legalClause: "의료법 §56②",
+      ruleIds: [],
+      status: index + 1 === flaggedItem ? "flagged" : index === 7 ? "needs_verification" : "pass"
+    }));
+
   it("creates compliance reviews through the API response contract", async () => {
     const complianceFlag = demoComplianceFlags[0];
     if (!complianceFlag) {
@@ -2638,7 +2648,9 @@ describe("web foundation", () => {
             overallRiskLevel: "high",
             publishPolicy: "draft_only",
             rulePackId: "kr-medical",
-            status: "blocked"
+            status: "blocked",
+            checklist: fixtureChecklist(1),
+            verdict: "danger"
           }
         });
       }),
@@ -2774,7 +2786,9 @@ describe("web foundation", () => {
             overallRiskLevel: null,
             publishPolicy: "draft_only",
             rulePackId: "kr-medical",
-            status: "clear"
+            status: "clear",
+            checklist: fixtureChecklist(null),
+            verdict: "needs_review"
           },
           resolved: true,
           workOrder: {

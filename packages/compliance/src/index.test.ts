@@ -29,7 +29,7 @@ const baseInput = {
   locale: "ko-KR",
   industry: "medical",
   title: "Botox clinic service page",
-  text: "Our clinic provides botox treatment after consultation.",
+  text: "Our clinic provides botox treatment after consultation. Side effects may occur; consult our medical staff.",
   publishState: "draft",
   source: "fixture"
 } satisfies ComplianceReviewInput;
@@ -200,7 +200,7 @@ describe("compliance report evaluation", () => {
 
   it("applies Korean medical advertising refinements only in the KR medical rule pack", () => {
     const input = createInput({
-      text: "이 의료 클리닉은 부작용 없는 보톡스 시술과 선착순 할인 이벤트를 안내합니다."
+      text: "이 의료 클리닉은 부작용 없는 보톡스 시술과 선착순 할인 이벤트를 안내합니다. 시술 후 부작용이 발생할 수 있습니다."
     });
 
     expect(evaluateCompliance(input, { evaluatedAt, rulePackId: "global" }).flags).toHaveLength(0);
@@ -238,7 +238,8 @@ describe("compliance report evaluation", () => {
       "ABSOLUTE_SAFETY_CLAIM",
       "BEFORE_AFTER_REFERENCE",
       "PATIENT_TESTIMONIAL_REFERENCE",
-      "PRICE_DISCOUNT_PROMOTION"
+      "PRICE_DISCOUNT_PROMOTION",
+      "SIDE_EFFECT_DISCLOSURE_MISSING"
     ]);
   });
 
@@ -258,6 +259,81 @@ describe("compliance report evaluation", () => {
         }
       ],
       rulePackId: "kr-medical"
+    });
+  });
+
+  describe("T4 medical-ad-guard 9항목", () => {
+    const ko = (text: string, overrides: Partial<ComplianceReviewInput> = {}) =>
+      evaluateCompliance(createInput({ text, ...overrides }), { evaluatedAt, rulePackId: "kr-medical" });
+    const ruleIds = (text: string) => ko(text).flags.map((flag) => flag.ruleId);
+    const disclaimer = " 시술 후 부작용이 발생할 수 있으므로 의료진과 상담하시기 바랍니다.";
+
+    it("every flag carries a legal clause and a checklist item", () => {
+      const report = ko("100% 효과 보장 전후 사진 타 병원보다 저렴 임상 입증 김OO 기자 = 선착순 할인 시술");
+      expect(report.flags.length).toBeGreaterThanOrEqual(7);
+      for (const flag of report.flags) {
+        expect(flag.legalClause).toMatch(/의료법 §/u);
+        expect(flag.checklistItem).toBeGreaterThanOrEqual(1);
+      }
+      expect(report.flags.find((flag) => flag.ruleId === "PRICE_DISCOUNT_PROMOTION")?.legalClause).toBe("의료법 §27③");
+    });
+
+    it("item 4 comparative/defamatory: positive x2, negative x2", () => {
+      expect(ruleIds("타 병원보다 저렴한 보톡스 시술" + disclaimer)).toContain("COMPARATIVE_OR_DEFAMATORY_CLAIM");
+      expect(ruleIds("다른 의원과 달리 저희 클리닉은 시술" + disclaimer)).toContain("COMPARATIVE_OR_DEFAMATORY_CLAIM");
+      expect(ruleIds("저희 클리닉의 보톡스 시술 안내" + disclaimer)).not.toContain("COMPARATIVE_OR_DEFAMATORY_CLAIM");
+      expect(ruleIds("병원 위치와 진료 시간 안내" + disclaimer)).not.toContain("COMPARATIVE_OR_DEFAMATORY_CLAIM");
+    });
+
+    it("item 6 unsubstantiated/new tech: positive x2, negative x2", () => {
+      expect(ruleIds("임상적으로 입증된 리프팅 시술" + disclaimer)).toContain("UNSUBSTANTIATED_OR_NEW_TECH_CLAIM");
+      expect(ruleIds("국내 최초 도입 특허 장비 시술" + disclaimer)).toContain("UNSUBSTANTIATED_OR_NEW_TECH_CLAIM");
+      expect(ruleIds("리프팅 시술 과정과 회복 기간 안내" + disclaimer)).not.toContain("UNSUBSTANTIATED_OR_NEW_TECH_CLAIM");
+      expect(ruleIds("의료진 소개와 진료 과목" + disclaimer)).not.toContain("UNSUBSTANTIATED_OR_NEW_TECH_CLAIM");
+    });
+
+    it("item 7 side-effect disclosure: flags procedure copy without disclaimer only", () => {
+      expect(ruleIds("보톡스 시술 안내와 예약 방법")).toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+      expect(ruleIds("레이저 제모 프로그램 소개")).toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+      expect(ruleIds("보톡스 시술 안내" + disclaimer)).not.toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+      expect(ruleIds("의료진 소개와 진료 시간")).not.toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+      // "부작용 없는" 은 고지가 아니다
+      expect(ruleIds("부작용 없는 보톡스 시술")).toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+    });
+
+    it("item 9 advertorial format: positive x2, negative x2", () => {
+      expect(ruleIds("김민수 기자 = 이 클리닉의 시술이 주목받고 있다" + disclaimer)).toContain("ADVERTORIAL_FORMAT");
+      expect(ruleIds("단독 인터뷰: 전문가 의견에 따르면 시술 효과" + disclaimer)).toContain("ADVERTORIAL_FORMAT");
+      expect(ruleIds("클리닉 시술 안내" + disclaimer)).not.toContain("ADVERTORIAL_FORMAT");
+      expect(ruleIds("진료 예약은 전화로" + disclaimer)).not.toContain("ADVERTORIAL_FORMAT");
+    });
+
+    it("item 3 before/after with a disclaimer is downgraded, without one stays medium", () => {
+      const withDisclosure = ko("시술 전후 사진" + disclaimer).flags.find((flag) => flag.ruleId === "BEFORE_AFTER_REFERENCE");
+      const without = ko("시술 전후 사진").flags.find((flag) => flag.ruleId === "BEFORE_AFTER_REFERENCE");
+      expect(withDisclosure?.riskLevel).toBe("low");
+      expect(without?.riskLevel).toBe("medium");
+    });
+
+    it("report level: safe verdict is impossible while any item is unverified (item 8)", () => {
+      const clean = "의료진 소개와 진료 시간 안내";
+      const unknown = ko(clean);
+      expect(unknown.status).toBe("clear");
+      expect(unknown.checklist).toHaveLength(9);
+      expect(unknown.checklist.find((entry) => entry.item === 8)?.status).toBe("needs_verification");
+      expect(unknown.verdict).toBe("needs_review");
+
+      const confirmed = ko(clean, { priorReviewStatus: "confirmed" });
+      expect(confirmed.checklist.every((entry) => entry.status === "pass")).toBe(true);
+      expect(confirmed.verdict).toBe("safe");
+
+      const published = ko(clean, { priorReviewStatus: "confirmed", publishState: "published" });
+      expect(published.checklist.find((entry) => entry.item === 8)).toMatchObject({ status: "flagged", ruleIds: ["UNREVIEWED_MEDICAL_PUBLISH"] });
+      expect(published.flags[0]?.priorReviewRequired).toBe(true);
+      expect(published.verdict).toBe("danger");
+
+      const risky = ko("타 병원보다 저렴", { priorReviewStatus: "confirmed" });
+      expect(risky.verdict).toBe("danger");
     });
   });
 

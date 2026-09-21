@@ -2863,6 +2863,10 @@ describe("types foundation", () => {
       "PATIENT_TESTIMONIAL_REFERENCE",
       "PRICE_DISCOUNT_PROMOTION",
       "UNREVIEWED_MEDICAL_PUBLISH",
+      "COMPARATIVE_OR_DEFAMATORY_CLAIM",
+      "UNSUBSTANTIATED_OR_NEW_TECH_CLAIM",
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
+      "ADVERTORIAL_FORMAT",
     ]);
     expect(ComplianceRulePackIdSchema.options).toEqual(["global", "kr-medical"]);
 
@@ -2950,7 +2954,16 @@ describe("types foundation", () => {
       publishPolicy: "draft_only",
       generatedBy: "deterministic",
       evaluatedAt: "2026-05-24T00:00:00.000Z",
+      checklist: Array.from({ length: 9 }, (_, index) => ({
+        item: index + 1,
+        label: `item ${index + 1}`,
+        legalClause: "의료법 §56②",
+        status: index === 0 ? "flagged" : index === 7 ? "needs_verification" : "pass",
+        ruleIds: index === 0 ? ["ABSOLUTE_SAFETY_CLAIM"] : [],
+      })),
+      verdict: "danger",
     });
+    expect(report.verdict).toBe("danger");
 
     expect(CreateComplianceReviewRequestSchema.parse(input)).toMatchObject({
       publishState: "scheduled",

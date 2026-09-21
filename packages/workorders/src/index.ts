@@ -472,6 +472,22 @@ const complianceRuleAcceptanceCriteria = {
   UNREVIEWED_MEDICAL_PUBLISH: [
     "콘텐츠를 초안으로 되돌렸거나, 게재 전 의료광고법 검수 승인을 받았다.",
     "게재 절차가 미검수 의료 콘텐츠를 차단한다."
+  ],
+  COMPARATIVE_OR_DEFAMATORY_CLAIM: [
+    "타 병원·의료인과의 비교(우위 주장 없는 단순 비교 포함)·비방 문구를 삭제했다.",
+    "남은 문구가 자사 서비스 사실만 설명한다(§56② 4·5호)."
+  ],
+  UNSUBSTANTIATED_OR_NEW_TECH_CLAIM: [
+    "'임상 입증·최초·특허' 등 단정 문구에 객관적 근거를 붙였거나 삭제했다.",
+    "신의료기술은 평가(§53) 통과 여부를 확인했고, 미평가면 광고에서 뺐다."
+  ],
+  SIDE_EFFECT_DISCLOSURE_MISSING: [
+    "시술 유형에 맞는 부작용·주의사항 면책 문구를 본문에 넣었다.",
+    "면책 문구가 스크롤 없이 보이는 위치 또는 소재 본문에 있다(§56② 7호)."
+  ],
+  ADVERTORIAL_FORMAT: [
+    "보도·취재·전문가 의견 형식을 걷어내고 광고임이 드러나는 형식으로 바꿨다.",
+    "기자·언론사 표기, 인터뷰 형식 등 기사 오인 요소가 없다."
   ]
 } as const satisfies Record<ComplianceRuleId, readonly string[]>;
 

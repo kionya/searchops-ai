@@ -4,6 +4,8 @@ import {
   ComplianceReviewReportSchema
 } from "@searchops/types";
 import type {
+  ComplianceChecklistItem,
+  ComplianceChecklistResult,
   ComplianceFlagDraft,
   ComplianceReviewInput,
   ComplianceReviewReport,
@@ -56,6 +58,13 @@ export interface ComplianceRulePackRefinementPlan {
 
 interface CompliancePatternRuleConfig {
   readonly id: ComplianceRuleId;
+  /** 의료법 조항. 정본: medical-ad-guard DANGER 표. */
+  readonly legalClause: string;
+  /** medical-ad-guard 9항목 번호. */
+  readonly checklistItem: ComplianceChecklistItem;
+  readonly priorReviewRequired?: boolean;
+  /** 면책(부작용 고지)이 같이 있으면 이 위험도로 낮춘다(항목 3 전후사진). */
+  readonly riskLevelWithDisclosure?: ComplianceRiskLevel;
   readonly riskLevel: ComplianceRiskLevel;
   readonly title: string;
   readonly message: string;
@@ -77,11 +86,33 @@ export const supportedComplianceRuleIds = [
   "BEFORE_AFTER_REFERENCE",
   "PATIENT_TESTIMONIAL_REFERENCE",
   "PRICE_DISCOUNT_PROMOTION",
-  "UNREVIEWED_MEDICAL_PUBLISH"
+  "UNREVIEWED_MEDICAL_PUBLISH",
+  "COMPARATIVE_OR_DEFAMATORY_CLAIM",
+  "UNSUBSTANTIATED_OR_NEW_TECH_CLAIM",
+  "SIDE_EFFECT_DISCLOSURE_MISSING",
+  "ADVERTORIAL_FORMAT"
 ] as const satisfies readonly ComplianceRuleId[];
+
+/**
+ * medical-ad-guard 9항목 ↔ 룰 1:1 대응표. 정본은 SKILL.md 의 "검수 필수 체크리스트 — 9항목 전수".
+ * 항목 8(사전심의)은 외부 사실이라 룰이 아니라 input.priorReviewStatus 로만 닫힌다.
+ */
+export const complianceChecklistCanon = [
+  { item: 1, label: "보장성·최상급 표현", legalClause: "의료법 §56② 3·4·7·8호", ruleIds: ["GUARANTEED_RESULT_CLAIM", "ABSOLUTE_SAFETY_CLAIM", "SUPERLATIVE_CLAIM"] },
+  { item: 2, label: "치료 경험담(후기)", legalClause: "의료법 §56② 2호", ruleIds: ["PATIENT_TESTIMONIAL_REFERENCE"] },
+  { item: 3, label: "전후(Before/After) 사진", legalClause: "의료법 §56② 2호", ruleIds: ["BEFORE_AFTER_REFERENCE"] },
+  { item: 4, label: "비교·비방광고", legalClause: "의료법 §56② 4·5호", ruleIds: ["COMPARATIVE_OR_DEFAMATORY_CLAIM"] },
+  { item: 5, label: "환자 유인·알선", legalClause: "의료법 §27③", ruleIds: ["PRICE_DISCOUNT_PROMOTION"] },
+  { item: 6, label: "객관적 근거·신의료기술", legalClause: "의료법 §56② 3호·§53", ruleIds: ["UNSUBSTANTIATED_OR_NEW_TECH_CLAIM"] },
+  { item: 7, label: "부작용 등 중요정보 누락", legalClause: "의료법 §56② 7호", ruleIds: ["SIDE_EFFECT_DISCLOSURE_MISSING"] },
+  { item: 8, label: "사전심의", legalClause: "의료법 §57", ruleIds: ["UNREVIEWED_MEDICAL_PUBLISH"] },
+  { item: 9, label: "기사형 광고", legalClause: "의료법 §56②", ruleIds: ["ADVERTORIAL_FORMAT"] }
+] as const satisfies readonly Omit<ComplianceChecklistResult, "status">[];
 
 const guaranteedResultClaimRuleConfig = {
   id: "GUARANTEED_RESULT_CLAIM",
+  legalClause: "의료법 §56② 3호·8호",
+  checklistItem: 1,
   riskLevel: "critical",
   title: "Guaranteed medical result claim",
   message: "The content appears to promise a guaranteed or permanent medical outcome.",
@@ -101,6 +132,8 @@ const guaranteedResultClaimRuleConfig = {
 
 const absoluteSafetyClaimRuleConfig = {
   id: "ABSOLUTE_SAFETY_CLAIM",
+  legalClause: "의료법 §56② 3호·7호",
+  checklistItem: 1,
   riskLevel: "high",
   title: "Absolute safety claim",
   message: "The content uses absolute safety language for a medical service or treatment.",
@@ -121,6 +154,8 @@ const absoluteSafetyClaimRuleConfig = {
 
 const superlativeClaimRuleConfig = {
   id: "SUPERLATIVE_CLAIM",
+  legalClause: "의료법 §56② 4호·8호",
+  checklistItem: 1,
   riskLevel: "medium",
   title: "Unqualified superlative claim",
   message: "The content uses ranking or superiority language that needs substantiation.",
@@ -141,6 +176,9 @@ const superlativeClaimRuleConfig = {
 
 const beforeAfterReferenceRuleConfig = {
   id: "BEFORE_AFTER_REFERENCE",
+  legalClause: "의료법 §56② 2호",
+  checklistItem: 3,
+  riskLevelWithDisclosure: "low",
   riskLevel: "medium",
   title: "Before-and-after reference",
   message: "The content references before-and-after material that may need review.",
@@ -158,6 +196,8 @@ const beforeAfterReferenceRuleConfig = {
 
 const patientTestimonialReferenceRuleConfig = {
   id: "PATIENT_TESTIMONIAL_REFERENCE",
+  legalClause: "의료법 §56② 2호",
+  checklistItem: 2,
   riskLevel: "medium",
   title: "Patient testimonial reference",
   message: "The content references testimonials or patient reviews.",
@@ -177,6 +217,8 @@ const patientTestimonialReferenceRuleConfig = {
 
 const priceDiscountPromotionRuleConfig = {
   id: "PRICE_DISCOUNT_PROMOTION",
+  legalClause: "의료법 §27③",
+  checklistItem: 5,
   riskLevel: "medium",
   title: "Price or discount promotion",
   message: "The content uses price promotion language that may require review.",
@@ -195,7 +237,138 @@ const priceDiscountPromotionRuleConfig = {
   ]
 } as const satisfies CompliancePatternRuleConfig;
 
+const comparativeOrDefamatoryClaimRuleConfig = {
+  id: "COMPARATIVE_OR_DEFAMATORY_CLAIM",
+  legalClause: "의료법 §56② 4호·5호",
+  checklistItem: 4,
+  riskLevel: "high",
+  title: "Comparative or defamatory claim",
+  message: "The content compares with, or disparages, other clinics or practitioners. Plain comparison counts even without a superiority claim.",
+  expectedValue: "No comparison with or disparagement of other medical institutions or practitioners.",
+  recommendation: "Remove the comparison or disparagement and describe only this clinic's own facts.",
+  replacementSuggestion: "State the clinic's own service scope, credentials, and process without referencing others.",
+  patterns: [
+    /\b(better|cheaper|safer|faster)\s+than\s+(other|any|most)\s+(clinics?|hospitals?|doctors?)\b/iu,
+    /\bunlike\s+other\s+(clinics?|hospitals?)\b/iu,
+    /\bcompared\s+(to|with)\s+other\s+(clinics?|hospitals?)\b/iu
+  ]
+} as const satisfies CompliancePatternRuleConfig;
+
+const unsubstantiatedOrNewTechClaimRuleConfig = {
+  id: "UNSUBSTANTIATED_OR_NEW_TECH_CLAIM",
+  legalClause: "의료법 §56② 3호·§53",
+  checklistItem: 6,
+  riskLevel: "high",
+  title: "Unsubstantiated or new medical technology claim",
+  message: "The content asserts clinical proof, first adoption, patents, or new medical technology without evidence.",
+  expectedValue: "Objective evidence attached, or the claim removed; new medical technology must have passed assessment (§53).",
+  recommendation: "Attach verifiable evidence or remove the assertion; confirm §53 assessment status for new technology.",
+  replacementSuggestion: "Describe the procedure factually and cite the assessment or study only when it can be shown.",
+  patterns: [
+    /\bclinically\s+proven\b/iu,
+    /\bscientifically\s+proven\b/iu,
+    /\bfirst\s+in\s+(korea|asia|the\s+world)\b/iu,
+    /\bpatented\s+(treatment|procedure|technique|technology)\b/iu
+  ]
+} as const satisfies CompliancePatternRuleConfig;
+
+const advertorialFormatRuleConfig = {
+  id: "ADVERTORIAL_FORMAT",
+  legalClause: "의료법 §56②",
+  checklistItem: 9,
+  riskLevel: "medium",
+  title: "Advertorial (news or expert-opinion) format",
+  message: "The content is styled as news coverage, an interview, or expert opinion, which can disguise an advertisement.",
+  expectedValue: "Advertising must be recognizable as advertising, not as reporting or expert commentary.",
+  recommendation: "Remove reporter/press framing and expert-opinion styling; present the content plainly as clinic information.",
+  replacementSuggestion: "Use first-person clinic voice with clear service information instead of an editorial format.",
+  patterns: [
+    /\bstaff\s+writer\b/iu,
+    /\bpress\s+release\b/iu,
+    /\baccording\s+to\s+(the\s+)?experts?\b/iu,
+    /\bexperts?\s+say\b/iu,
+    /\b(reporter|correspondent)\b/iu
+  ]
+} as const satisfies CompliancePatternRuleConfig;
+
 export const guaranteedResultClaimRule = createPatternRule(guaranteedResultClaimRuleConfig);
+export const comparativeOrDefamatoryClaimRule = createPatternRule(comparativeOrDefamatoryClaimRuleConfig);
+export const unsubstantiatedOrNewTechClaimRule = createPatternRule(unsubstantiatedOrNewTechClaimRuleConfig);
+export const advertorialFormatRule = createPatternRule(advertorialFormatRuleConfig);
+
+export const krComparativeOrDefamatoryClaimRule = createPatternRule({
+  ...comparativeOrDefamatoryClaimRuleConfig,
+  patterns: [
+    ...comparativeOrDefamatoryClaimRuleConfig.patterns,
+    /(타|다른|여느)\s*(병원|의원|클리닉|의료진|의사)\s*(보다|대비|과\s*달리|와\s*달리|에\s*비해)/u,
+    /(병원|의원|클리닉)\s*(비교|랭킹|순위)/u,
+    /(타|다른)\s*(병원|의원|클리닉)\s*(은|는)\s*(못|안|위험|엉터리)/u,
+    /(비방|폄하|헐뜯)/u
+  ]
+});
+
+export const krUnsubstantiatedOrNewTechClaimRule = createPatternRule({
+  ...unsubstantiatedOrNewTechClaimRuleConfig,
+  patterns: [
+    ...unsubstantiatedOrNewTechClaimRuleConfig.patterns,
+    /임상(적으로)?\s*(입증|증명|검증)/u,
+    /과학적으로\s*(입증|증명)/u,
+    /(국내|세계|아시아)\s*최초\s*(도입|시술|개발)?/u,
+    /특허\s*(받은|시술|기술|장비)/u,
+    /신의료기술/u
+  ]
+});
+
+export const krAdvertorialFormatRule = createPatternRule({
+  ...advertorialFormatRuleConfig,
+  patterns: [
+    ...advertorialFormatRuleConfig.patterns,
+    /(본지|취재진|기자)\s*(가|는|이|=)/u,
+    /[가-힣]{2,4}\s*기자\b/u,
+    /(단독|특별)\s*(보도|취재|인터뷰)/u,
+    /전문가\s*(의견|칼럼)에\s*따르면/u,
+    /(뉴스|신문)\s*(보도|기사)에\s*따르면/u
+  ]
+});
+
+// 항목 7: 시술 문구가 있는데 부작용·주의사항 고지가 없다. 페이지 단위 판정이라 패턴 룰이 아니다.
+const procedureKeywordPattern =
+  /(레이저|보톡스|필러|리프팅|시술|수술|주사|박피|제모|임플란트|교정|laser|botox|filler|lifting|surgery|injection|implant)/iu;
+const sideEffectDisclosurePattern =
+  /(부작용|주의사항)[^.。\n]{0,20}(있|발생|생길|나타날|안내|상담)|side[\s-]*effects?\s+(may|can|could|might)|risks?\s+(may|can|include)/iu;
+
+export const sideEffectDisclosureMissingRule = {
+  id: "SIDE_EFFECT_DISCLOSURE_MISSING",
+  evaluate(input) {
+    const parsedInput = ComplianceReviewInputSchema.parse(input);
+    if (!isMedicalContext(parsedInput)) {
+      return [];
+    }
+    const procedure = procedureKeywordPattern.exec(parsedInput.text);
+    if (!procedure || sideEffectDisclosurePattern.test(parsedInput.text)) {
+      return [];
+    }
+    return [
+      createComplianceFlagDraft({
+        input: parsedInput,
+        match: { index: procedure.index, match: procedure[0] },
+        ruleId: "SIDE_EFFECT_DISCLOSURE_MISSING",
+        legalClause: "의료법 §56② 7호",
+        checklistItem: 7,
+        riskLevel: "medium",
+        title: "Side-effect disclosure missing",
+        message: "The content describes a procedure but carries no side-effect or precaution notice.",
+        observedValue: "no side-effect disclosure",
+        expectedValue: "Procedure-type disclaimer present (개인차·부작용 발생 가능·의료진 상담).",
+        sourceField: "text",
+        recommendation:
+          "Add the required disclaimer for this procedure type where it is visible without scrolling; 검토 필요 — 자동 차단 아님.",
+        replacementSuggestion:
+          "시술 및 수술 후 부작용이 발생할 수 있으므로 의료진과 충분히 상담하시기 바랍니다."
+      })
+    ];
+  }
+} satisfies ComplianceRule;
 export const absoluteSafetyClaimRule = createPatternRule(absoluteSafetyClaimRuleConfig);
 export const superlativeClaimRule = createPatternRule(superlativeClaimRuleConfig);
 export const beforeAfterReferenceRule = createPatternRule(beforeAfterReferenceRuleConfig);
@@ -292,6 +465,9 @@ export const unreviewedMedicalPublishRule = {
           match: parsedInput.publishState
         },
         ruleId: "UNREVIEWED_MEDICAL_PUBLISH",
+        legalClause: "의료법 §57",
+        checklistItem: 8,
+        priorReviewRequired: true,
         riskLevel: "critical",
         title: "Medical content is not draft-only",
         message: "Medical content is scheduled or published without an explicit compliance pass.",
@@ -313,7 +489,11 @@ export const defaultComplianceRules = [
   beforeAfterReferenceRule,
   patientTestimonialReferenceRule,
   priceDiscountPromotionRule,
-  unreviewedMedicalPublishRule
+  unreviewedMedicalPublishRule,
+  comparativeOrDefamatoryClaimRule,
+  unsubstantiatedOrNewTechClaimRule,
+  sideEffectDisclosureMissingRule,
+  advertorialFormatRule
 ] as const satisfies readonly ComplianceRule[];
 
 export const krMedicalComplianceRules = [
@@ -323,7 +503,11 @@ export const krMedicalComplianceRules = [
   krBeforeAfterReferenceRule,
   krPatientTestimonialReferenceRule,
   krPriceDiscountPromotionRule,
-  unreviewedMedicalPublishRule
+  unreviewedMedicalPublishRule,
+  krComparativeOrDefamatoryClaimRule,
+  krUnsubstantiatedOrNewTechClaimRule,
+  sideEffectDisclosureMissingRule,
+  krAdvertorialFormatRule
 ] as const satisfies readonly ComplianceRule[];
 
 export const complianceRulePacks = {
@@ -349,17 +533,48 @@ export function evaluateCompliance(
   const rules = options.rules ?? complianceRulePacks[rulePackId].rules;
   const flags = rules.flatMap((rule) => rule.evaluate(parsedInput));
   const overallRiskLevel = getHighestRiskLevel(flags);
+  const status = getReviewStatus(overallRiskLevel);
+  const checklist = buildComplianceChecklist(parsedInput, flags);
 
   return ComplianceReviewReportSchema.parse({
     input: parsedInput,
     flags,
     rulePackId,
-    status: getReviewStatus(overallRiskLevel),
+    status,
     overallRiskLevel,
     publishPolicy: "draft_only",
     generatedBy: complianceGenerationMode,
-    evaluatedAt
+    evaluatedAt,
+    checklist,
+    verdict: getComplianceVerdict(status, checklist)
   });
+}
+
+/** 9항목 전수. 항목 8 은 룰이 아니라 사람이 넘긴 priorReviewStatus 로만 pass 가 된다. */
+export function buildComplianceChecklist(
+  input: ComplianceReviewInput,
+  flags: readonly ComplianceFlagDraft[]
+): ComplianceChecklistResult[] {
+  const flaggedItems = new Set(flags.map((flag) => flag.checklistItem));
+  return complianceChecklistCanon.map((entry) => {
+    const flagged = flaggedItems.has(entry.item);
+    const status =
+      flagged ? "flagged"
+      : entry.item === 8 && (input.priorReviewStatus ?? "unknown") === "unknown" ? "needs_verification"
+      : "pass";
+    return { ...entry, ruleIds: [...entry.ruleIds], status };
+  });
+}
+
+/** safe 는 9항목 전부 pass 일 때만. 미확인이 하나라도 있으면 safe 판정 불가(정본 판정 원칙). */
+export function getComplianceVerdict(
+  status: ComplianceReviewReport["status"],
+  checklist: readonly ComplianceChecklistResult[]
+): ComplianceReviewReport["verdict"] {
+  if (status === "blocked") {
+    return "danger";
+  }
+  return checklist.every((entry) => entry.status === "pass") ? "safe" : "needs_review";
 }
 
 export function selectComplianceRulePackId(input: ComplianceReviewInput): ComplianceRulePackId {
@@ -466,12 +681,16 @@ function createPatternRule(config: CompliancePatternRuleConfig): ComplianceRule 
         return [];
       }
 
+      const disclosed = config.riskLevelWithDisclosure !== undefined && sideEffectDisclosurePattern.test(parsedInput.text);
       return [
         createComplianceFlagDraft({
           input: parsedInput,
           match,
           ruleId: config.id,
-          riskLevel: config.riskLevel,
+          legalClause: config.legalClause,
+          checklistItem: config.checklistItem,
+          ...(config.priorReviewRequired === undefined ? {} : { priorReviewRequired: config.priorReviewRequired }),
+          riskLevel: disclosed ? (config.riskLevelWithDisclosure ?? config.riskLevel) : config.riskLevel,
           title: config.title,
           message: config.message,
           observedValue: match.match,
@@ -486,10 +705,13 @@ function createPatternRule(config: CompliancePatternRuleConfig): ComplianceRule 
 }
 
 function createComplianceFlagDraft({
+  checklistItem,
   expectedValue,
   input,
+  legalClause,
   match,
   message,
+  priorReviewRequired = false,
   observedValue,
   recommendation,
   replacementSuggestion,
@@ -498,10 +720,13 @@ function createComplianceFlagDraft({
   sourceField,
   title
 }: {
+  readonly checklistItem: ComplianceChecklistItem;
   readonly expectedValue: string;
   readonly input: ComplianceReviewInput;
+  readonly legalClause: string;
   readonly match: ComplianceMatch;
   readonly message: string;
+  readonly priorReviewRequired?: boolean;
   readonly observedValue: string;
   readonly recommendation: string;
   readonly replacementSuggestion: string;
@@ -528,7 +753,10 @@ function createComplianceFlagDraft({
     replacementSuggestion,
     ownerType: "legal",
     publishPolicy: "draft_only",
-    generatedBy: complianceGenerationMode
+    generatedBy: complianceGenerationMode,
+    legalClause,
+    checklistItem,
+    priorReviewRequired
   });
 }
 

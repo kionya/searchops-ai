@@ -584,6 +584,7 @@ Remaining:
 Status: Closed-loop compliance MVP completed.
 
 Implemented:
+- T4 (2026-09-21): medical-ad-guard 9항목 1:1 대응(`complianceChecklistCanon`). 신규 룰 4종(비교·비방 §56② 4·5호, 근거 없는 단정·신의료기술 §56② 3호·§53, 부작용 고지 누락 §56② 7호(페이지 단위), 기사형 §56②). 플래그에 `legalClause`·`checklistItem`·`priorReviewRequired`(마이그레이션 `20260921020000_compliance_checklist_clause`). 리포트 `checklist[9]`·`verdict` — 항목 8 은 `input.priorReviewStatus` 없이는 `needs_verification` 이라 safe 불가. 판정은 flag 까지, 승인/반려는 사람. `docs/COMPLIANCE_SPEC.md` 대응표.
 
 - Compliance contracts and deterministic medical advertising rules.
 - Global and `kr-medical` rule pack selection.

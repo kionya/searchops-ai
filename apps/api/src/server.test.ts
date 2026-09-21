@@ -3992,6 +3992,8 @@ describe("api foundation", () => {
     expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId)).toEqual([
       "ABSOLUTE_SAFETY_CLAIM",
       "PRICE_DISCOUNT_PROMOTION",
+      // T4 항목 7: 레이저 치료 문구에 부작용 고지가 없다
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
     ]);
   });
 
