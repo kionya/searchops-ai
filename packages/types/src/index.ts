@@ -341,6 +341,10 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_RICH_RESULT_VALIDATOR_URL: HttpUrlSchema.optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
+  // T7 텔레그램. 운영 알림(OPS)과 제품 알림(PRODUCT, 주간 GEO 요약)은 채널을 분리한다.
+  SEARCHOPS_TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_OPS_CHAT_ID: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID: z.string().min(1).optional(),
   // BullMQ worker polling tuning. Raising these cuts idle Redis commands, which
   // matters on per-command Redis (Upstash free tier). drainDelay is the blocking
   // BRPOPLPUSH timeout (ms); stalledInterval is the stalled-job check period (ms).
