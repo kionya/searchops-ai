@@ -2041,6 +2041,27 @@ describe("api foundation", () => {
     });
   });
 
+  it("upserts and lists site keywords (GEO question set)", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({ organizations: [seededOrganization], sites: [seededSite] }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "editor" };
+    const created = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/keywords",
+      headers,
+      payload: { keywords: [{ phrase: "서초 바디필러 잘하는 곳", intent: "local" }, { phrase: "골반필러 추천 병원" }] },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().keywords).toHaveLength(2);
+    const again = await server.inject({ method: "POST", url: "/sites/site_seed/keywords", headers, payload: { keywords: [{ phrase: "골반필러 추천 병원" }] } });
+    expect(again.statusCode).toBe(201);
+    const listed = await server.inject({ method: "GET", url: "/sites/site_seed/keywords", headers });
+    expect(listed.json().keywords.map((keyword: { phrase: string }) => keyword.phrase)).toEqual(["서초 바디필러 잘하는 곳", "골반필러 추천 병원"]);
+    const missing = await server.inject({ method: "GET", url: "/sites/site_missing/keywords", headers });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it("renders diagnosis/proposal HTML and refuses blank targets (T6)", async () => {
     const server = buildApiServer({
       repository: createMemoryRepository({

@@ -4,6 +4,8 @@ import {
 } from "node:crypto";
 
 import {
+  KeywordSchema,
+  type Keyword,
   AeoReadinessReportRecordSchema,
   ClosedLoopAuditEventSchema,
   ComplianceFlagSchema,
@@ -854,6 +856,33 @@ export function createPrismaRepository(
           data: buildGeoVisibilityReportCreateArgs(siteId, input.visibilityReport)
         }),
       );
+    },
+
+    async upsertKeywords(siteId, input) {
+      const site = await prisma.site.findUnique({ select: { id: true }, where: { id: siteId } });
+      if (site === null) {
+        return null;
+      }
+      const saved = [];
+      for (const entry of input.keywords) {
+        saved.push(
+          await prisma.keyword.upsert({
+            create: { intent: entry.intent, locale: entry.locale, phrase: entry.phrase, siteId },
+            update: entry.intent === null ? {} : { intent: entry.intent },
+            where: { siteId_phrase_locale: { locale: entry.locale, phrase: entry.phrase, siteId } }
+          }),
+        );
+      }
+      return saved.map(toKeyword);
+    },
+
+    async listKeywords(siteId) {
+      const site = await prisma.site.findUnique({ select: { id: true }, where: { id: siteId } });
+      if (site === null) {
+        return null;
+      }
+      const records = await prisma.keyword.findMany({ orderBy: [{ createdAt: "asc" }, { phrase: "asc" }], where: { siteId } });
+      return records.map(toKeyword);
     },
 
     async listGeoVisibilityReports(siteId) {
@@ -2000,4 +2029,20 @@ function toUrlRecord(record: NonNullable<UrlRecordResult>): UrlRecord {
 
 function toNullableSeoIssue(record: SeoIssueRecord): SeoIssue | null {
   return record === null ? null : toSeoIssue(record);
+}
+
+type KeywordRecord = NonNullable<Awaited<ReturnType<SearchOpsPrismaClient["keyword"]["findFirst"]>>>;
+
+function toKeyword(record: KeywordRecord): Keyword {
+  return KeywordSchema.parse({
+    id: record.id,
+    siteId: record.siteId,
+    phrase: record.phrase,
+    locale: record.locale,
+    intent: record.intent,
+    createdAt: record.createdAt.toISOString(),
+    monthlyVolumePc: record.monthlyVolumePc,
+    monthlyVolumeMobile: record.monthlyVolumeMobile,
+    volumeFetchedAt: record.volumeFetchedAt === null ? null : record.volumeFetchedAt.toISOString()
+  });
 }

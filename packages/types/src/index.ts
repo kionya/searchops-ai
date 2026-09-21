@@ -920,6 +920,26 @@ export const KeywordSchema = z.object({
 
 export type Keyword = z.infer<typeof KeywordSchema>;
 
+/** 사이트 질문 세트(GEO 주간 배치의 질의 소스). phrase+locale 로 upsert. */
+export const UpsertKeywordsRequestSchema = z.object({
+  keywords: z
+    .array(
+      z.object({
+        phrase: NonEmptyStringSchema.max(200),
+        locale: z.string().min(2).default("ko-KR"),
+        intent: KeywordIntentSchema.nullable().default(null),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export type UpsertKeywordsRequest = z.infer<typeof UpsertKeywordsRequestSchema>;
+
+export const KeywordListResponseSchema = z.object({
+  keywords: z.array(KeywordSchema),
+});
+
 export const KeywordVolumeTierSchema = z.enum(["evidence", "exploratory"]);
 
 export type KeywordVolumeTier = z.infer<typeof KeywordVolumeTierSchema>;

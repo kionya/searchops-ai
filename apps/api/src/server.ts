@@ -109,6 +109,8 @@ import {
   UpdateComplianceFlagRequestSchema,
   UpdateProviderAccountMetadataRequestSchema,
   UpdateSiteRequestSchema,
+  UpsertKeywordsRequestSchema,
+  KeywordListResponseSchema,
   GeoVisibilityTrendQuerySchema,
   GeoVisibilityTrendResponseSchema,
   UpdateWorkOrderRequestSchema,
@@ -1758,6 +1760,28 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(GeoVisibilityReportListResponseSchema.parse({ reports }));
+  });
+
+  // 사이트 질문 세트(Keyword). GEO 주간 배치가 여기서 질의를 가져간다(최대 10, 오래된 순).
+  server.get("/sites/:id/keywords", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const keywords = await repository.listKeywords(id);
+    if (!keywords) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    reply.send(KeywordListResponseSchema.parse({ keywords }));
+  });
+
+  server.post("/sites/:id/keywords", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const input = UpsertKeywordsRequestSchema.parse(request.body ?? {});
+    const keywords = await repository.upsertKeywords(id, input);
+    if (!keywords) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    reply.status(201).send(KeywordListResponseSchema.parse({ keywords }));
   });
 
   // T6: 진단서·제안서 HTML. 목표 수치(target*)가 없으면 Zod 가 400 으로 끊는다 — 공란 리포트 금지.
