@@ -571,6 +571,7 @@ Implemented:
 - GEO answer monitor fixture adapters.
 - Live GEO answer monitor adapter port in `packages/connectors`, using explicit injected clients only.
 - `geo-answer-monitor` API enqueue, worker processor, deterministic `geo-core` evaluation, and DB persistence boundary are wired in CDX-125.
+- T0 (2026-09-21): 리포트 루트 `liveShare`(connector 관측 비율)·`warnings[]`(`partial-fixture`/`no-observations`); 과거 리포트는 읽을 때 파생, 필드 없으면 대시보드에 unknown. 계획: `docs/plans/2026-09-21-geo-diagnosis-gaps.md`.
 
 Remaining:
 

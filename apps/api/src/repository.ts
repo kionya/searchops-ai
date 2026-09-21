@@ -1,3 +1,4 @@
+import { summarizeGeoObservationSources } from "@searchops/geo-core";
 import type {
   AcceptInvitationResponse,
   AeoReadinessReport,
@@ -977,6 +978,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         checks: input.visibilityReport.checks,
         generatedBy: input.visibilityReport.generatedBy,
         evaluatedAt: input.visibilityReport.evaluatedAt,
+        ...summarizeGeoObservationSources(input.visibilityReport.observations),
         createdAt: nowIso()
       };
       geoVisibilityReportCounter += 1;

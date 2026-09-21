@@ -1,3 +1,4 @@
+import { summarizeGeoObservationSources } from "@searchops/geo-core";
 import {
   randomUUID
 } from "node:crypto";
@@ -1833,7 +1834,7 @@ function orderKeywordDiscoveryCandidates(
 function toGeoVisibilityReportRecord(
   record: NonNullable<GeoVisibilityReportRecordResult>,
 ): GeoVisibilityReportRecord {
-  return GeoVisibilityReportRecordSchema.parse({
+  const parsed = GeoVisibilityReportRecordSchema.parse({
     id: record.id,
     siteId: record.siteId,
     brandName: record.brandName,
@@ -1855,6 +1856,7 @@ function toGeoVisibilityReportRecord(
     evaluatedAt: record.evaluatedAt.toISOString(),
     createdAt: record.createdAt.toISOString()
   });
+  return { ...parsed, ...summarizeGeoObservationSources(parsed.observations) };
 }
 
 function toSchemaRecommendationRecord(

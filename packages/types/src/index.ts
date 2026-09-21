@@ -1443,6 +1443,9 @@ export const GeoVisibilityReportSchema = z.object({
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
+  /** connector(실측) 관측 비율 0~1. 없으면 unknown(T0 이전 리포트). */
+  liveShare: z.number().min(0).max(1).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -1468,6 +1471,8 @@ export const GeoVisibilityReportRecordSchema = z
     checks: z.array(GeoVisibilityCheckSchema).min(1),
     generatedBy: z.literal("deterministic"),
     evaluatedAt: IsoDateTimeSchema,
+    liveShare: z.number().min(0).max(1).optional(),
+    warnings: z.array(z.string()).optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();
