@@ -59,7 +59,7 @@ describe("batch geo (T3)", () => {
 
     // T7: 사이트별 주간 요약 1통
     expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
-    expect(mocks.sendMessage.mock.calls[0]?.[0]).toBe(
+    expect((mocks.sendMessage.mock.calls as unknown as readonly (readonly unknown[])[])[0]?.[0]).toBe(
       "[GEO 주간] a.example · run #4\n언급률 50% (+20p)\nSOV 40% (-10p)\n실측 비율 50% ⚠ fixture/수동 포함\n엔진 chatgpt"
     );
 

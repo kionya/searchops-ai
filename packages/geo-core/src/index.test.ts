@@ -16,7 +16,8 @@ import {
   countCompetitorMentions,
   isOwnedUrl,
   normalizeBrandName,
-  summarizeGeoCitationsByKind
+  summarizeGeoCitationsByKind,
+  summarizeGeoObservationSources
 } from "./index.js";
 
 const target = {
@@ -46,6 +47,16 @@ describe("geo-core", () => {
         "example.com"
       )
     ).toEqual({ owned: 1, platform: 1, competitor: 0, community: 1, other: 0 });
+  });
+
+  it("summarizes live share and flags partial fixture (T0)", () => {
+    const fixture = { source: "fixture" } as const;
+    const live = { source: "connector" } as const;
+    expect(summarizeGeoObservationSources([])).toEqual({ liveShare: 0, warnings: ["no-observations"] });
+    expect(summarizeGeoObservationSources([fixture, fixture])).toEqual({ liveShare: 0, warnings: ["partial-fixture"] });
+    expect(summarizeGeoObservationSources([live, fixture])).toEqual({ liveShare: 0.5, warnings: ["partial-fixture"] });
+    expect(summarizeGeoObservationSources([live, { source: "manual" }])).toEqual({ liveShare: 0.5, warnings: ["partial-fixture"] });
+    expect(summarizeGeoObservationSources([live, live])).toEqual({ liveShare: 1, warnings: [] });
   });
 
   it("detects brand mentions by brand name or domain", () => {
@@ -164,6 +175,8 @@ describe("geo-core", () => {
       citationsByKind: { owned: 3, platform: 0, competitor: 0, community: 0, other: 0 },
       competitorCitationRate: 0,
       generatedBy: "deterministic",
+      liveShare: 0,
+      warnings: ["partial-fixture"],
       mentionRate: 100,
       providerCount: 3,
       queryCount: 3,

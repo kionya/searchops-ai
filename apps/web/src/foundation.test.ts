@@ -157,7 +157,8 @@ import {
   summarizeGeoWorkOrderBatchPreview,
   summarizeGeoVisibilityDashboard,
   formatGeoSov,
-  buildSparklinePoints
+  buildSparklinePoints,
+  formatGeoLiveShare
 } from "./geo-visibility-dashboard";
 import {
   createKeywordDiscoveryFromConnectorRun,
@@ -411,6 +412,8 @@ describe("web foundation", () => {
     const connector = createDemoConnectorSyncHistory(registeredSite);
     const keywordAeo = createDemoKeywordAeoDashboard(registeredSite);
     const content = createDemoContentBriefHistory(registeredSite);
+    expect(formatGeoLiveShare(undefined)).toBe("unknown");
+    expect(formatGeoLiveShare(0.5)).toBe("실측 50%");
     const geo = createDemoGeoVisibilityDashboard(registeredSite);
     const compliance = createDemoComplianceDashboard(registeredSite);
     const serialized = JSON.stringify({

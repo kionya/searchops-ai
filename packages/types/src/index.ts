@@ -1487,6 +1487,9 @@ export const GeoVisibilityReportSchema = z.object({
   /** T2 SOV(%) = 자사 언급 / (자사 + Σ경쟁사 언급). 경쟁사 미설정이면 자사 언급 유무만 반영. */
   sov: PercentageScoreSchema.optional(),
   competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
+  /** connector(실측) 관측 비율 0~1. 없으면 unknown(T0 이전 리포트). */
+  liveShare: z.number().min(0).max(1).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -1518,6 +1521,8 @@ export const GeoVisibilityReportRecordSchema = z
     /** T3 주간 배치 run 번호. 수동 리포트에는 없다. */
     runSeq: z.number().int().positive().optional(),
     previousReportId: IdSchema.optional(),
+    liveShare: z.number().min(0).max(1).optional(),
+    warnings: z.array(z.string()).optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();
