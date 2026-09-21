@@ -2051,10 +2051,20 @@ describe("api foundation", () => {
       method: "POST",
       url: "/sites/site_seed/keywords",
       headers,
-      payload: { keywords: [{ phrase: "서초 바디필러 잘하는 곳", intent: "local" }, { phrase: "골반필러 추천 병원" }] },
+      payload: {
+        keywords: [
+          { phrase: "서초 바디필러 잘하는 곳", intent: "local", purpose: "geo_query" },
+          { phrase: "골반필러 추천 병원" },
+        ],
+      },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().keywords).toHaveLength(2);
+    // 용도를 명시하면 그대로, 생략하면 both(하위호환)
+    expect(created.json().keywords.map((keyword: { purpose: string }) => keyword.purpose)).toEqual([
+      "geo_query",
+      "both",
+    ]);
     const again = await server.inject({ method: "POST", url: "/sites/site_seed/keywords", headers, payload: { keywords: [{ phrase: "골반필러 추천 병원" }] } });
     expect(again.statusCode).toBe(201);
     const listed = await server.inject({ method: "GET", url: "/sites/site_seed/keywords", headers });
@@ -2066,7 +2076,7 @@ describe("api foundation", () => {
   it("dedupes an upsert against a seeded keyword of the same phrase", async () => {
     const server = buildApiServer({
       repository: createMemoryRepository({
-        keywords: [{ id: "kw_seed", siteId: "site_seed", phrase: "다이어트", locale: "ko-KR", intent: null, createdAt, monthlyVolumePc: 400, monthlyVolumeMobile: 600, volumeFetchedAt: createdAt }],
+        keywords: [{ id: "kw_seed", siteId: "site_seed", phrase: "다이어트", locale: "ko-KR", intent: null, purpose: "both", createdAt, monthlyVolumePc: 400, monthlyVolumeMobile: 600, volumeFetchedAt: createdAt }],
         organizations: [seededOrganization],
         sites: [seededSite],
       }),
@@ -2121,6 +2131,7 @@ describe("api foundation", () => {
   it("wires keyword demand, SEO/work orders and AEO readiness into the diagnosis (T6 D·E·F)", async () => {
     const seedKeyword = (id: string, phrase: string, monthlyVolumePc: number | null, monthlyVolumeMobile: number | null): Keyword => ({
       id,
+      purpose: "both",
       siteId: "site_seed",
       phrase,
       locale: "ko-KR",

@@ -276,6 +276,84 @@ describe("geo-core", () => {
       .toHaveLength(1);
   });
 
+  describe("인용 도메인 정규화 (2026-09-21 운영 배치 실패 회귀)", () => {
+    const observe = (citedUrls: readonly string[]): GeoAnswerObservation => ({
+      provider: "chatgpt",
+      query: "서초 바디필러 잘하는 곳",
+      locale: target.locale,
+      answerText: "Example Clinic 을 포함한 여러 곳이 있습니다.",
+      citedUrls: [...citedUrls],
+      observedAt,
+      source: "connector"
+    });
+
+    it("계약을 통과 못 하는 호스트는 그 인용만 버리고 리포트는 살린다", () => {
+      const observations = [
+        observe([
+          "https://example.com/service",
+          "https://192.168.0.1/admin",
+          "https://localhost/x",
+          "https://my_host.com/y"
+        ])
+      ];
+
+      // 고치기 전에는 여기서 ZodError 가 나 관측 전체가 버려졌다.
+      const report = evaluateGeoVisibility({ target, observations });
+
+      expect(report.citations.map((citation) => citation.domain)).toEqual(["example.com"]);
+      expect(report.warnings).toContain("citations-dropped:3");
+      expect(report.mentionRate).toBe(100);
+    });
+
+    it("FQDN 루트 표기는 정규화해 살리고, 버린 게 없으면 경고도 없다", () => {
+      const report = evaluateGeoVisibility({
+        target,
+        observations: [observe(["https://example.com./service"])]
+      });
+
+      expect(report.citations).toHaveLength(1);
+      expect(report.citations[0]).toMatchObject({ domain: "example.com", owned: true });
+      expect(report.warnings ?? []).not.toContain("citations-dropped:1");
+    });
+
+    it("www. 는 떼고도 점이 남을 때만 뗀다", () => {
+      expect(
+        evaluateGeoVisibility({ target, observations: [observe(["https://www.example.com/a"])] }).citations[0]
+      ).toMatchObject({ domain: "example.com", owned: true });
+
+      // www.kr 에서 www. 를 떼면 단일 레이블 "kr" 이 돼 도메인이 아니게 된다.
+      expect(
+        evaluateGeoVisibility({ target, observations: [observe(["https://www.kr/a"])] }).citations[0]
+      ).toMatchObject({ domain: "www.kr", owned: false });
+    });
+
+    it("소유 URL 판정도 같은 정규화를 쓴다", () => {
+      expect(isOwnedUrl("https://www.example.com/a", "example.com")).toBe(true);
+      expect(isOwnedUrl("https://example.com./a", "example.com")).toBe(true);
+      expect(isOwnedUrl("https://192.168.0.1/a", "example.com")).toBe(false);
+    });
+  });
+
+  it("접미어를 떼고 두 글자 미만이 되면 떼지 않는다 (짧은 경쟁사명 오탐 방지)", () => {
+    expect(normalizeBrandName("뷰성형외과")).toBe("뷰성형외과");
+    expect(normalizeBrandName("린클리닉")).toBe("린클리닉");
+    expect(normalizeBrandName("고운몸의원")).toBe("고운몸");
+    expect(normalizeBrandName("Rival Clinic")).toBe("rival");
+
+    const observation = (answerText: string): GeoAnswerObservation => ({
+      provider: "chatgpt", query: "q", locale: target.locale, answerText, citedUrls: [], observedAt, source: "connector"
+    });
+    // "뷰" 로 깎였다면 아래 두 문장 모두에 걸려 언급 2회로 부풀려졌다.
+    const mentions = countCompetitorMentions(
+      { ...target, competitors: ["뷰성형외과", "린클리닉"] },
+      [observation("뷰티 시술 후 뷰파인더 각도가 중요합니다"), observation("뷰성형외과를 추천합니다")]
+    );
+    expect(mentions).toEqual([
+      { count: 1, name: "뷰성형외과", questions: ["q"] },
+      { count: 0, name: "린클리닉", questions: [] }
+    ]);
+  });
+
   it("classifies score thresholds", () => {
     expect(classifyGeoVisibilityStatus(75)).toBe("strong");
     expect(classifyGeoVisibilityStatus(50)).toBe("visible");

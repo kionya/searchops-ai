@@ -46,7 +46,12 @@ export const NormalizedUrlSchema = HttpUrlSchema;
 
 export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
 
-const DomainSchema = z
+/**
+ * bare domain 계약. `GeoCitation.domain` 등 도메인 필드의 정본이다.
+ * 호스트명을 이 계약에 넣기 전에 검사하려면 `DomainSchema.safeParse` 를 써라 —
+ * IP·IPv6·localhost·밑줄 호스트는 통과하지 못한다.
+ */
+export const DomainSchema = z
   .string()
   .min(1)
   .transform((value) => value.trim().toLowerCase())
@@ -905,12 +910,22 @@ export const KeywordTargetSchema = z.object({
 
 export type KeywordTarget = z.infer<typeof KeywordTargetSchema>;
 
+/**
+ * 키워드의 용도. AI 질문 세트와 검색 수요 키워드는 성격이 다르다 —
+ * "힙딥 시술 어디서 받아요" 는 AI 에게 묻는 말이라 네이버 검색량이 월 10회 미만이고,
+ * 그걸 검색 수요 근거로 세면 진단서가 거짓을 말한다(2026-09-21 실측).
+ */
+export const KeywordPurposeSchema = z.enum(["geo_query", "search_demand", "both"]);
+
+export type KeywordPurpose = z.infer<typeof KeywordPurposeSchema>;
+
 export const KeywordSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
   phrase: NonEmptyStringSchema,
   locale: z.string().min(2).default("ko-KR"),
   intent: KeywordIntentSchema.nullable(),
+  purpose: KeywordPurposeSchema.default("both"),
   createdAt: IsoDateTimeSchema,
   /** T5 월간 검색량(네이버 검색광고). 없으면 미조회. */
   monthlyVolumePc: z.number().int().nonnegative().nullable().optional(),
@@ -928,6 +943,7 @@ export const UpsertKeywordsRequestSchema = z.object({
         phrase: NonEmptyStringSchema.max(200),
         locale: z.string().min(2).default("ko-KR"),
         intent: KeywordIntentSchema.nullable().default(null),
+        purpose: KeywordPurposeSchema.default("both"),
       }),
     )
     .min(1)
