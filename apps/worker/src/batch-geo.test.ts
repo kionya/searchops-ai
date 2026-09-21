@@ -72,6 +72,9 @@ describe("batch geo (T3)", () => {
     const payload = calls[0]?.[0] as { queries: unknown[]; providers: string[] };
     expect(payload.queries).toEqual([{ query: "강남 피부과" }]);
     expect(payload.providers).toEqual(["chatgpt"]);
+    // 모델 secret 이 없으면 geoProviderModels 에 undefined 키를 만들지 않는다(기본 모델이 살아야 한다)
+    const resolverOptions = (mocks.createPlatformGeoProviderResolver.mock.calls as unknown as readonly (readonly unknown[])[])[0]?.[0] as { geoProviderModels: Record<string, unknown> };
+    expect(resolverOptions.geoProviderModels).toEqual({});
     expect(mocks.reportUpdate).toHaveBeenCalledWith({
       data: { previousReportId: "r3", runSeq: 4 },
       where: { id: "r4" },
