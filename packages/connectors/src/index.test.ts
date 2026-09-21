@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  defaultGeoAnswerProviderConcurrency,
   connectorAuthModes,
   connectorProviders,
   connectorsPackage,
@@ -1638,5 +1639,56 @@ describe("transient provider failure diagnostics", () => {
     expect(warnings.join("\n")).toContain("PageSpeed Insights");
     // 키는 URL 에 실려 있다. 로그에 나가면 안 된다.
     expect(warnings.join("\n")).not.toContain("pagespeed-key");
+  });
+});
+
+describe("질의 동시 호출 상한 (Gemini 429 대응)", () => {
+  function countingClient(provider: "gemini" | "chatgpt") {
+    let inFlight = 0;
+    let peak = 0;
+    return {
+      peak: () => peak,
+      client: {
+        provider,
+        async ask(input: { readonly query: string; readonly observedAt: string }) {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight -= 1;
+          return { answerText: `답변 ${input.query}`, citedUrls: [], observedAt: input.observedAt };
+        }
+      }
+    };
+  }
+  const request = {
+    observedAt: "2026-09-21T00:00:00.000Z",
+    queries: Array.from({ length: 6 }, (_, index) => ({ query: `질의${index}` })),
+    target: { siteId: "site_1", brandName: "예시", domain: "example.com", locale: "ko-KR", market: "KR" }
+  };
+
+  it("상한을 주면 동시에 그 수만큼만 호출하고 순서는 보존한다", async () => {
+    const counting = countingClient("gemini");
+    const adapter = createLiveGeoAnswerMonitorAdapter({ client: counting.client, concurrency: 1 });
+
+    const result = await adapter.monitor(request);
+
+    expect(counting.peak()).toBe(1);
+    expect(result.observations.map((observation) => observation.query)).toEqual(
+      request.queries.map((query) => query.query)
+    );
+  });
+
+  it("상한이 없으면 기존처럼 전부 병렬로 던진다", async () => {
+    const counting = countingClient("chatgpt");
+    const adapter = createLiveGeoAnswerMonitorAdapter({ client: counting.client });
+
+    await adapter.monitor(request);
+
+    expect(counting.peak()).toBe(6);
+  });
+
+  it("키 기반 팩토리는 gemini 에만 상한을 건다", () => {
+    expect(defaultGeoAnswerProviderConcurrency.gemini).toBe(1);
+    expect(defaultGeoAnswerProviderConcurrency.chatgpt).toBeUndefined();
   });
 });

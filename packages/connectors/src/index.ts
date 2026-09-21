@@ -339,6 +339,8 @@ export interface LiveGeoAnswerProviderClient {
 
 export interface LiveGeoAnswerMonitorAdapterConfig {
   readonly client: LiveGeoAnswerProviderClient;
+  /** 질의 동시 호출 상한. 없으면 전부 병렬(기존 동작). 무료 티어 분당 한도 회피용. */
+  readonly concurrency?: number;
   readonly observedAt?: () => string;
   readonly provider?: GeoAnswerMonitorProvider;
 }
@@ -1019,8 +1021,33 @@ export function createFixtureGeoAnswerMonitorAdapter({
   };
 }
 
+/**
+ * 순서를 지키면서 동시 실행 수를 제한한다. limit 이 없거나 항목 수 이상이면 전부 병렬.
+ * 무료 티어 답변엔진은 분당 요청 한도가 빡빡해 질의 10개를 한꺼번에 던지면 429 가 난다.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number | undefined,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (limit === undefined || limit <= 0 || limit >= items.length) {
+    return Promise.all(items.map((item) => run(item)));
+  }
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: limit }, async () => {
+      for (let index = next++; index < items.length; index = next++) {
+        results[index] = await run(items[index] as T);
+      }
+    }),
+  );
+  return results;
+}
+
 export function createLiveGeoAnswerMonitorAdapter({
   client,
+  concurrency,
   observedAt: getObservedAt,
   provider = client.provider
 }: LiveGeoAnswerMonitorAdapterConfig): GeoAnswerMonitorAdapter {
@@ -1034,8 +1061,10 @@ export function createLiveGeoAnswerMonitorAdapter({
     async monitor(request) {
       const parsedRequest = GeoAnswerMonitorRequestSchema.parse(request);
       const observedAt = parsedRequest.observedAt ?? getObservedAt?.() ?? new Date().toISOString();
-      const observations = await Promise.all(
-        parsedRequest.queries.map(async (query) => {
+      const observations = await mapWithConcurrency(
+        parsedRequest.queries,
+        concurrency,
+        async (query) => {
           const queryLocale = query.locale ?? parsedRequest.target.locale;
           const response = await client.ask({
             observedAt,
@@ -1053,7 +1082,7 @@ export function createLiveGeoAnswerMonitorAdapter({
             query: query.query,
             source: "connector"
           });
-        }),
+        },
       );
 
       return GeoAnswerMonitorResultSchema.parse({
@@ -1368,7 +1397,7 @@ export function createOpenAiCompatibleGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`${options.provider} GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
+        throw new Error(`${options.provider} GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 1000)}`);
       }
       const json = (await response.json()) as OpenAiChatCompletionResponse;
       const answerText = json.choices?.[0]?.message?.content ?? "";
@@ -1415,7 +1444,7 @@ export function createGeminiGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`gemini GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
+        throw new Error(`gemini GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 1000)}`);
       }
       const json = (await response.json()) as GeminiGenerateContentResponse;
       const answerText = (json.candidates?.[0]?.content?.parts ?? [])
@@ -1469,7 +1498,7 @@ export function createAnthropicGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`claude GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
+        throw new Error(`claude GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 1000)}`);
       }
       const json = (await response.json()) as AnthropicMessagesResponse;
       const answerText = (json.content ?? [])
@@ -1490,6 +1519,15 @@ export const defaultGeoAnswerProviderModels = {
   gemini: "gemini-3.6-flash",
   perplexity: "sonar"
 } as const;
+
+/**
+ * provider 별 질의 동시 호출 상한. 2026-09-21 실측: Gemini 무료 티어가 질의 10개 병렬에
+ * 429(quota exceeded)로 응답했다. 상한을 두면 분당 한도에 걸리는 경우를 피한다.
+ * 일일·계정 한도라면 이것으로 해결되지 않고 로그의 쿼터 이름이 그 사실을 알려준다.
+ */
+export const defaultGeoAnswerProviderConcurrency: Partial<Record<GeoAnswerMonitorProvider, number>> = {
+  gemini: 1
+};
 
 export interface LiveGeoAnswerClientKeys {
   readonly chatgptApiKey?: string | undefined;
@@ -1515,6 +1553,9 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   const fetchImpl = keys.fetchImpl;
   if (keys.chatgptApiKey) {
     adapters.chatgpt = createLiveGeoAnswerMonitorAdapter({
+      ...(defaultGeoAnswerProviderConcurrency.chatgpt === undefined
+        ? {}
+        : { concurrency: defaultGeoAnswerProviderConcurrency.chatgpt }),
       client: createOpenAiCompatibleGeoAnswerClient({
         apiKey: keys.chatgptApiKey,
         endpoint: "https://api.openai.com/v1/chat/completions",
@@ -1526,6 +1567,9 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.perplexityApiKey) {
     adapters.perplexity = createLiveGeoAnswerMonitorAdapter({
+      ...(defaultGeoAnswerProviderConcurrency.perplexity === undefined
+        ? {}
+        : { concurrency: defaultGeoAnswerProviderConcurrency.perplexity }),
       client: createOpenAiCompatibleGeoAnswerClient({
         apiKey: keys.perplexityApiKey,
         endpoint: "https://api.perplexity.ai/chat/completions",
@@ -1537,6 +1581,9 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.geminiApiKey) {
     adapters.gemini = createLiveGeoAnswerMonitorAdapter({
+      ...(defaultGeoAnswerProviderConcurrency.gemini === undefined
+        ? {}
+        : { concurrency: defaultGeoAnswerProviderConcurrency.gemini }),
       client: createGeminiGeoAnswerClient({
         apiKey: keys.geminiApiKey,
         fetchImpl,
@@ -1546,6 +1593,9 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.claudeApiKey) {
     adapters.claude = createLiveGeoAnswerMonitorAdapter({
+      ...(defaultGeoAnswerProviderConcurrency.claude === undefined
+        ? {}
+        : { concurrency: defaultGeoAnswerProviderConcurrency.claude }),
       client: createAnthropicGeoAnswerClient({
         apiKey: keys.claudeApiKey,
         fetchImpl,
