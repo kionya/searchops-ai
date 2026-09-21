@@ -79,6 +79,11 @@ jobs:
           SEARCHOPS_GEO_PERPLEXITY_API_KEY: ${{ secrets.SEARCHOPS_GEO_PERPLEXITY_API_KEY }}
           SEARCHOPS_GEO_GEMINI_API_KEY: ${{ secrets.SEARCHOPS_GEO_GEMINI_API_KEY }}
           SEARCHOPS_GEO_CLAUDE_API_KEY: ${{ secrets.SEARCHOPS_GEO_CLAUDE_API_KEY }}
+          # 선택: 벤더가 모델을 폐기했을 때 코드 배포 없이 교체
+          SEARCHOPS_GEO_CHATGPT_MODEL: ${{ secrets.SEARCHOPS_GEO_CHATGPT_MODEL }}
+          SEARCHOPS_GEO_PERPLEXITY_MODEL: ${{ secrets.SEARCHOPS_GEO_PERPLEXITY_MODEL }}
+          SEARCHOPS_GEO_GEMINI_MODEL: ${{ secrets.SEARCHOPS_GEO_GEMINI_MODEL }}
+          SEARCHOPS_GEO_CLAUDE_MODEL: ${{ secrets.SEARCHOPS_GEO_CLAUDE_MODEL }}
           SEARCHOPS_GEO_BATCH_MAX_QUERIES: ${{ inputs.max_queries || '10' }}
           SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE: ${{ inputs.allow_fixture || '0' }}
           SEARCHOPS_GEO_BATCH_FORCE: ${{ inputs.force || '0' }}

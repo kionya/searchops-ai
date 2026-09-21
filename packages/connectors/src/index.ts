@@ -1485,7 +1485,8 @@ export const defaultGeoAnswerProviderModels = {
   chatgpt: "gpt-4o",
   // 2026-09-21 운영 실측: claude-opus-4-8 → 400, gemini-2.0-flash → 404(공식 문서 Shut down). 현행 ID 로 교체.
   claude: "claude-sonnet-5",
-  gemini: "gemini-2.5-flash",
+  // 2026-09-21 운영 404: "gemini-2.5-flash is no longer available to new users ... use gemini-3.6-flash".
+  gemini: "gemini-3.6-flash",
   perplexity: "sonar"
 } as const;
 

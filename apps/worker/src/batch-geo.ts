@@ -70,7 +70,16 @@ async function main(): Promise<void> {
     }
 
     const persistenceClient = createPrismaGeoVisibilityPersistenceClient(prisma);
-    const resolver = createPlatformGeoProviderResolver({ geoPlatformApiKeys });
+    // 모델 오버라이드(SEARCHOPS_GEO_*_MODEL). 벤더가 모델을 폐기하면 코드 배포 없이 secret 만 바꿔 복구한다.
+    const resolver = createPlatformGeoProviderResolver({
+      geoPlatformApiKeys,
+      geoProviderModels: {
+        chatgpt: process.env.SEARCHOPS_GEO_CHATGPT_MODEL,
+        claude: process.env.SEARCHOPS_GEO_CLAUDE_MODEL,
+        gemini: process.env.SEARCHOPS_GEO_GEMINI_MODEL,
+        perplexity: process.env.SEARCHOPS_GEO_PERPLEXITY_MODEL
+      }
+    });
     const observedAt = new Date();
     const weekStart = startOfIsoWeek(observedAt);
     // T7: 제품 알림 채널. 토큰/chat_id 없으면 null → 요약은 로그에만 남는다.
