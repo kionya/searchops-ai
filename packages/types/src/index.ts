@@ -46,7 +46,12 @@ export const NormalizedUrlSchema = HttpUrlSchema;
 
 export type NormalizedUrl = z.infer<typeof NormalizedUrlSchema>;
 
-const DomainSchema = z
+/**
+ * bare domain 계약. `GeoCitation.domain` 등 도메인 필드의 정본이다.
+ * 호스트명을 이 계약에 넣기 전에 검사하려면 `DomainSchema.safeParse` 를 써라 —
+ * IP·IPv6·localhost·밑줄 호스트는 통과하지 못한다.
+ */
+export const DomainSchema = z
   .string()
   .min(1)
   .transform((value) => value.trim().toLowerCase())
