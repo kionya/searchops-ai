@@ -342,6 +342,9 @@ model Keyword {
   phrase    String
   locale    String   @default("ko-KR")
   intent    String?
+  /// AI 질문 세트(geo_query) / 검색 수요 키워드(search_demand) / 둘 다(both).
+  /// batch-geo 는 geo_query·both 만 질의로 쓰고, 진단서 키워드 수요 절은 search_demand·both 만 근거로 본다.
+  purpose   String   @default("both")
   /// T5 네이버 검색광고 월간 검색량. null = 미조회. 진단서 근거는 PC+모바일 ≥ 100 만.
   monthlyVolumePc     Int?
   monthlyVolumeMobile Int?
@@ -354,6 +357,7 @@ model Keyword {
   keywordDiscoveries KeywordDiscoveryCandidate[]
 
   @@unique([siteId, phrase, locale])
+  @@index([siteId, purpose])
   @@index([siteId])
 }
 
@@ -485,6 +489,8 @@ model GeoVisibilityReport {
   sov                    Int?
   competitorMentions     Json?
   /// T3: 주간 배치 run 번호(사이트별 증가). 수동 리포트는 null.
+  /// 리포트 경고(partial-fixture·citations-dropped·citations-unresolved). 없으면 읽을 때 파생한다.
+  warnings               Json?
   runSeq                 Int?
   previousReportId       String?
   createdAt              DateTime @default(now())

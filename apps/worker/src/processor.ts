@@ -1,10 +1,12 @@
 import {
+  filterUnresolvedCitations,
   geoAnswerMonitorProviders,
   monitorFixtureGeoAnswersBatch,
   syncLiveConnectors,
   syncFixtureConnectors,
   type ConnectorBatchSyncRequest,
   type ConnectorBatchSyncResult,
+  type CitationDomainResolver,
   type GeoAnswerMonitorBatchRequest,
   type GeoAnswerMonitorBatchResult,
   type SchemaRichResultValidatorAdapterInput
@@ -15,7 +17,11 @@ import {
   recommendJsonLdForSnapshots,
   validateJsonLdDraft
 } from "@searchops/schema-core";
-import { GEO_NO_OBSERVATIONS_WARNING, evaluateGeoVisibility } from "@searchops/geo-core";
+import {
+  GEO_CITATIONS_UNRESOLVED_WARNING,
+  GEO_NO_OBSERVATIONS_WARNING,
+  evaluateGeoVisibility
+} from "@searchops/geo-core";
 import { analyzeUrlSeoSnapshots } from "@searchops/seo-core";
 import {
   createWorkOrdersFromSeoIssues,
@@ -118,6 +124,11 @@ export interface ProcessGeoAnswerMonitorJobOptions {
   readonly geoPlatformApiKeys?: CreateProviderCredentialResolverOptions["geoPlatformApiKeys"];
   readonly geoProviderModels?: CreateProviderCredentialResolverOptions["geoProviderModels"];
   readonly liveExternalApis?: "disabled" | "enabled";
+  /**
+   * 인용 도메인 실재 확인기. 주면 라이브 모드에서 DNS 로 확인되지 않는 인용을 집계에서 뺀다.
+   * 없으면 검증하지 않는다(fixture·테스트 기본값).
+   */
+  readonly resolveCitationDomains?: CitationDomainResolver;
   /** 라이브 엔진 실패의 실제 원인(HTTP 상태·Zod 이슈)을 받는다. 결과 코드는 provider_request_failed 로 뭉개지므로 로그는 여기서만 가능하다. */
   readonly onProviderError?: (provider: GeoAnswerMonitorProvider, error: unknown) => void;
   readonly monitorGeoAnswers?: (
@@ -372,18 +383,42 @@ export async function processGeoAnswerMonitorJob(
     );
     monitorResult = await monitorLiveGeoAnswers(request, resolved, options.onProviderError);
   }
-  const visibilityReport =
-    monitorResult.observations.length === 0
+  // AI 가 지어낸 도메인을 인용 집계에서 뺀다. monitorResults 는 "엔진이 이렇게 응답했다" 는
+  // 원시 기록이라 손대지 않는다 — 진단서 답변 원문에는 그대로 남아야 사실이 보존된다.
+  let observations = monitorResult.observations;
+  let unresolvedCitations = 0;
+  if (
+    liveExternalApis === "enabled" &&
+    options.resolveCitationDomains !== undefined &&
+    observations.length > 0
+  ) {
+    const verified = await filterUnresolvedCitations(observations, options.resolveCitationDomains);
+    observations = verified.observations;
+    unresolvedCitations = verified.unresolved;
+  }
+
+  const evaluated =
+    observations.length === 0
       ? createEmptyGeoVisibilityReport(payload.target, payload.observedAt)
       : evaluateGeoVisibility(
           {
-            observations: [...monitorResult.observations],
+            observations: [...observations],
             target: payload.target
           },
           {
             evaluatedAt: payload.observedAt
           },
         );
+  const visibilityReport =
+    unresolvedCitations > 0
+      ? {
+          ...evaluated,
+          warnings: [
+            ...(evaluated.warnings ?? []),
+            `${GEO_CITATIONS_UNRESOLVED_WARNING}:${unresolvedCitations}`
+          ]
+        }
+      : evaluated;
 
   return GeoAnswerMonitorJobResultSchema.parse({
     organizationId: payload.organizationId,

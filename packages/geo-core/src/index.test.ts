@@ -334,6 +334,26 @@ describe("geo-core", () => {
     });
   });
 
+  it("접미어를 떼고 두 글자 미만이 되면 떼지 않는다 (짧은 경쟁사명 오탐 방지)", () => {
+    expect(normalizeBrandName("뷰성형외과")).toBe("뷰성형외과");
+    expect(normalizeBrandName("린클리닉")).toBe("린클리닉");
+    expect(normalizeBrandName("고운몸의원")).toBe("고운몸");
+    expect(normalizeBrandName("Rival Clinic")).toBe("rival");
+
+    const observation = (answerText: string): GeoAnswerObservation => ({
+      provider: "chatgpt", query: "q", locale: target.locale, answerText, citedUrls: [], observedAt, source: "connector"
+    });
+    // "뷰" 로 깎였다면 아래 두 문장 모두에 걸려 언급 2회로 부풀려졌다.
+    const mentions = countCompetitorMentions(
+      { ...target, competitors: ["뷰성형외과", "린클리닉"] },
+      [observation("뷰티 시술 후 뷰파인더 각도가 중요합니다"), observation("뷰성형외과를 추천합니다")]
+    );
+    expect(mentions).toEqual([
+      { count: 1, name: "뷰성형외과", questions: ["q"] },
+      { count: 0, name: "린클리닉", questions: [] }
+    ]);
+  });
+
   it("classifies score thresholds", () => {
     expect(classifyGeoVisibilityStatus(75)).toBe("strong");
     expect(classifyGeoVisibilityStatus(50)).toBe("visible");

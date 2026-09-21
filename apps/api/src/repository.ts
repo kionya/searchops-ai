@@ -900,8 +900,8 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         const key = `${siteId}|${entry.phrase}|${entry.locale}`;
         const existing = keywords.get(key);
         const keyword: Keyword = existing
-          ? { ...existing, intent: entry.intent ?? existing.intent }
-          : { id: createId("keyword", keywordCounter++), siteId, phrase: entry.phrase, locale: entry.locale, intent: entry.intent, createdAt: nowIso() };
+          ? { ...existing, intent: entry.intent ?? existing.intent, purpose: entry.purpose }
+          : { id: createId("keyword", keywordCounter++), siteId, phrase: entry.phrase, locale: entry.locale, intent: entry.intent, purpose: entry.purpose, createdAt: nowIso() };
         keywords.set(key, keyword);
         saved.push(keyword);
       }

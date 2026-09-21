@@ -92,6 +92,8 @@ export function evaluateGeoVisibility(
 }
 
 export const GEO_CITATIONS_DROPPED_WARNING = "citations-dropped";
+/** DNS 로 실재가 확인되지 않아 인용 집계에서 제외된 URL 수. AI 환각 인용을 드러낸다. */
+export const GEO_CITATIONS_UNRESOLVED_WARNING = "citations-unresolved";
 
 function withDroppedCitationWarning(
   sources: { liveShare: number; warnings: string[] },
@@ -107,10 +109,12 @@ function withDroppedCitationWarning(
  * "고운몸의원" 과 "고운몸" 이 같은 경쟁사로 잡히게 한다.
  */
 export function normalizeBrandName(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/\s+/gu, "")
-    .replace(/(의원|병원|피부과|성형외과|한의원|치과|클리닉|clinic)$/u, "");
+  const compact = value.toLowerCase().replace(/\s+/gu, "");
+  const stripped = compact.replace(/(의원|병원|피부과|성형외과|한의원|치과|클리닉|clinic)$/u, "");
+  // 접미어를 떼고 두 글자 미만이 되면 떼지 않는다.
+  // "뷰성형외과" → "뷰", "린클리닉" → "린" 은 답변 아무 곳에나 걸려 언급 횟수를 부풀린다
+  // (2026-09-21 실측 경쟁사 목록에 실제로 들어 있는 이름이다).
+  return stripped.length >= 2 ? stripped : compact;
 }
 
 // ponytail: 정규화 후 부분 문자열 매칭. "고운몸" 이 "고운몸매관리" 에도 걸린다 — 오탐 보고가 오면 경계 토큰 매칭으로 올린다.

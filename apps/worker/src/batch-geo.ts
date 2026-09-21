@@ -7,7 +7,7 @@
 // 엔진은 키가 있는 것만(최대 4). 같은 ISO 주에 이미 배치 run 이 있으면 건너뛴다(멱등).
 // 키가 하나도 없으면 fixture 만 쌓이므로 기본은 중단한다. dry-run 은 SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE=1.
 
-import { createTelegramNotifier } from "@searchops/connectors";
+import { createDnsCitationDomainResolver, createTelegramNotifier } from "@searchops/connectors";
 import {
   createPrismaGeoVisibilityPersistenceClient,
   createSearchOpsPrismaClient
@@ -73,6 +73,8 @@ async function main(): Promise<void> {
     // 모델 오버라이드(SEARCHOPS_GEO_*_MODEL). 벤더가 모델을 폐기하면 코드 배포 없이 secret 만 바꿔 복구한다.
     // ⚠️ undefined 를 넘기면 리졸버가 기본 모델 대신 undefined 를 그대로 쓴다(2026-09-21 run 35603753397:
     // "you must provide a model parameter", models/undefined 404). 값이 있는 키만 넘긴다.
+    // AI 환각 인용을 거른다. 라이브 모드에서만 processor 가 호출한다.
+    const citationDomainResolver = createDnsCitationDomainResolver();
     const resolver = createPlatformGeoProviderResolver({
       geoPlatformApiKeys,
       geoProviderModels: Object.fromEntries(
@@ -106,11 +108,13 @@ async function main(): Promise<void> {
           continue;
         }
 
+        // AI 질문 세트만 질의로 쓴다. 검색 수요 키워드(search_demand)는 진단서 키워드 절의 근거이지
+        // AI 에게 물을 말이 아니다 — 둘을 섞으면 긴 자연어 질문이 검색량 0 으로 근거에서 탈락한다.
         const keywords = await prisma.keyword.findMany({
           orderBy: { createdAt: "asc" },
           select: { phrase: true },
           take: maxQueries,
-          where: { siteId: site.id }
+          where: { purpose: { in: ["geo_query", "both"] }, siteId: site.id }
         });
         const brandName = site.name ?? site.domain;
         const queries = (
@@ -138,6 +142,7 @@ async function main(): Promise<void> {
           persistenceClient,
           {
             liveExternalApis,
+            resolveCitationDomains: citationDomainResolver,
             onProviderError: (provider, error) => {
               const message = error instanceof Error ? error.message : JSON.stringify(error);
               console.warn(`[batch-geo] ${site.domain} ${provider} 실패 원인: ${message.slice(0, 500)}`);

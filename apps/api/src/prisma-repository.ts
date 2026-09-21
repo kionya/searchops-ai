@@ -867,8 +867,8 @@ export function createPrismaRepository(
       for (const entry of input.keywords) {
         saved.push(
           await prisma.keyword.upsert({
-            create: { intent: entry.intent, locale: entry.locale, phrase: entry.phrase, siteId },
-            update: entry.intent === null ? {} : { intent: entry.intent },
+            create: { intent: entry.intent, locale: entry.locale, phrase: entry.phrase, purpose: entry.purpose, siteId },
+            update: { purpose: entry.purpose, ...(entry.intent === null ? {} : { intent: entry.intent }) },
             where: { siteId_phrase_locale: { locale: entry.locale, phrase: entry.phrase, siteId } }
           }),
         );
@@ -1901,7 +1901,15 @@ function toGeoVisibilityReportRecord(
     ...(record.previousReportId === null ? {} : { previousReportId: record.previousReportId }),
     createdAt: record.createdAt.toISOString()
   });
-  return { ...parsed, citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain), ...summarizeGeoObservationSources(parsed.observations) };
+  // 저장된 경고가 정본이다. 없는 과거 행만 관측 소스로 파생한다
+  // (파생으로는 citations-dropped·citations-unresolved 를 복원할 수 없다).
+  const derived = summarizeGeoObservationSources(parsed.observations);
+  return {
+    ...parsed,
+    citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain),
+    liveShare: derived.liveShare,
+    warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : derived.warnings
+  };
 }
 
 function toSchemaRecommendationRecord(
@@ -2040,6 +2048,7 @@ function toKeyword(record: KeywordRecord): Keyword {
     phrase: record.phrase,
     locale: record.locale,
     intent: record.intent,
+    purpose: record.purpose,
     createdAt: record.createdAt.toISOString(),
     monthlyVolumePc: record.monthlyVolumePc,
     monthlyVolumeMobile: record.monthlyVolumeMobile,
