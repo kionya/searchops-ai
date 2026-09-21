@@ -18,6 +18,7 @@
     "@searchops/crawler-core": "workspace:*",
     "@searchops/db": "workspace:*",
     "@searchops/geo-core": "workspace:*",
+    "@searchops/reports": "workspace:*",
     "@searchops/schema-core": "workspace:*",
     "@searchops/types": "workspace:*",
     "@searchops/workorders": "workspace:*",

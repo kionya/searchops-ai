@@ -2041,6 +2041,46 @@ describe("api foundation", () => {
     });
   });
 
+  it("renders diagnosis/proposal HTML and refuses blank targets (T6)", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        geoVisibilityReports: [{ ...seededGeoVisibilityReport, runSeq: 1 }],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" };
+    const ok = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis?run=1&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers["content-type"]).toContain("text/html");
+    expect(ok.body).toContain('id="sec-A"');
+    expect(ok.body).toContain("data-source=\"geo:geo_report_seed;run:1;");
+    const proposal = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/proposal?audience=external&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(proposal.statusCode).toBe(200);
+    expect(proposal.body).toContain('id="sec-11"');
+    expect(proposal.body).not.toContain('data-audience="internal"');
+    const blank = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis`,
+      headers,
+    });
+    expect(blank.statusCode).toBe(400);
+    const missingRun = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis?run=9&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(missingRun.statusCode).toBe(404);
+  });
+
   it("returns weekly GEO trend from batch runs only (T3)", async () => {
     const run = (id: string, runSeq: number, mentionRate: number): GeoVisibilityReportRecord => ({
       ...seededGeoVisibilityReport,

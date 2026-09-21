@@ -69,6 +69,9 @@ importers:
       '@searchops/geo-core':
         specifier: workspace:*
         version: link:../../packages/geo-core
+      '@searchops/reports':
+        specifier: workspace:*
+        version: link:../../packages/reports
       '@searchops/schema-core':
         specifier: workspace:*
         version: link:../../packages/schema-core
@@ -237,6 +240,15 @@ importers:
       '@searchops/types':
         specifier: workspace:*
         version: link:../types
+
+  packages/reports:
+    dependencies:
+      '@searchops/types':
+        specifier: workspace:*
+        version: link:../types
+      zod:
+        specifier: ^3.25.28
+        version: 3.25.76
 
   packages/schema-core:
     dependencies:
