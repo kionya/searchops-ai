@@ -125,6 +125,10 @@ async function main(): Promise<void> {
           persistenceClient,
           {
             liveExternalApis,
+            onProviderError: (provider, error) => {
+              const message = error instanceof Error ? error.message : JSON.stringify(error);
+              console.warn(`[batch-geo] ${site.domain} ${provider} 실패 원인: ${message.slice(0, 500)}`);
+            },
             resolveGeoProviderAdapters: resolver.resolveGeoProviderAdapters.bind(resolver)
           }
         );

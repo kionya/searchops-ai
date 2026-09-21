@@ -1601,8 +1601,12 @@ describe("processCrawlJob", () => {
   });
 
   it("rejects fixture-sourced observations returned by a live GEO adapter", async () => {
+    const providerErrors: string[] = [];
     const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt"]), {
       liveExternalApis: "enabled",
+      onProviderError: (provider, error) => {
+        providerErrors.push(`${provider}:${error instanceof Error ? error.message : String(error)}`);
+      },
       async resolveGeoProviderAdapters() {
         return {
           adapters: {
@@ -1649,6 +1653,9 @@ describe("processCrawlJob", () => {
         status: "failed",
       },
     ]);
+    // fixture 관측은 Zod superRefine(source 불일치)에서 걸려 ZodError 가 훅으로 온다
+    expect(providerErrors).toHaveLength(1);
+    expect(providerErrors[0]).toMatch(/^chatgpt:.*source/su);
   });
 
   it("maps GEO decryption failures to a fixed safe failed result", async () => {
