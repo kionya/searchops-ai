@@ -87,6 +87,8 @@ model Site {
   country        String         @default("KR")
   /// T2: 경쟁사 실명(또는 도메인). 내부 분석 한정 — 외부 리포트에 노출 금지.
   competitors    String[]       @default([])
+  /// T3: 주간 GEO 배치(batch-geo) 대상 여부.
+  geoMonitorEnabled Boolean     @default(false)
   createdAt      DateTime       @default(now())
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -478,10 +480,15 @@ model GeoVisibilityReport {
   evaluatedAt            DateTime
   sov                    Int?
   competitorMentions     Json?
+  /// T3: 주간 배치 run 번호(사이트별 증가). 수동 리포트는 null.
+  runSeq                 Int?
+  previousReportId       String?
   createdAt              DateTime @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
   workOrder WorkOrder?
+
+  @@index([siteId, runSeq])
 
   @@index([siteId])
   @@index([status])

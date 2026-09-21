@@ -278,7 +278,8 @@ export function createPrismaRepository(
             ...(input.industry === undefined ? {} : { industry: input.industry }),
             ...(input.language === undefined ? {} : { language: input.language }),
             ...(input.name === undefined ? {} : { name: input.name }),
-            ...(input.competitors === undefined ? {} : { competitors: input.competitors })
+            ...(input.competitors === undefined ? {} : { competitors: input.competitors }),
+            ...(input.geoMonitorEnabled === undefined ? {} : { geoMonitorEnabled: input.geoMonitorEnabled })
           },
           where: { id }
         }),
@@ -1663,6 +1664,7 @@ function toSite(record: NonNullable<SiteRecord>): Site {
     language: record.language,
     country: record.country,
     competitors: record.competitors,
+    geoMonitorEnabled: record.geoMonitorEnabled,
     createdAt: record.createdAt.toISOString()
   });
 }
@@ -1860,6 +1862,8 @@ function toGeoVisibilityReportRecord(
     evaluatedAt: record.evaluatedAt.toISOString(),
     ...(record.sov === null ? {} : { sov: record.sov }),
     ...(record.competitorMentions === null ? {} : { competitorMentions: record.competitorMentions }),
+    ...(record.runSeq === null ? {} : { runSeq: record.runSeq }),
+    ...(record.previousReportId === null ? {} : { previousReportId: record.previousReportId }),
     createdAt: record.createdAt.toISOString()
   });
   return { ...parsed, citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain) };

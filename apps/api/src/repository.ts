@@ -579,7 +579,8 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         industry: input.industry === undefined ? existing.industry : input.industry,
         language: input.language ?? existing.language,
         country: input.country ?? existing.country,
-        competitors: input.competitors ?? existing.competitors
+        competitors: input.competitors ?? existing.competitors,
+        geoMonitorEnabled: input.geoMonitorEnabled ?? existing.geoMonitorEnabled
       };
       sites.set(id, updated);
       return updated;

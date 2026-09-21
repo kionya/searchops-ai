@@ -2041,6 +2041,37 @@ describe("api foundation", () => {
     });
   });
 
+  it("returns weekly GEO trend from batch runs only (T3)", async () => {
+    const run = (id: string, runSeq: number, mentionRate: number): GeoVisibilityReportRecord => ({
+      ...seededGeoVisibilityReport,
+      id,
+      mentionRate,
+      runSeq,
+    });
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        geoVisibilityReports: [seededGeoVisibilityReport, run("geo_r2", 2, 40), run("geo_r1", 1, 30)],
+      }),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/geo-visibility-trend?runs=12`,
+      headers: { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" },
+    });
+    expect(response.statusCode).toBe(200);
+    const { points } = response.json() as { points: { reportId: string; delta: { mentionRate: number | null } }[] };
+    expect(points.map((point) => point.reportId)).toEqual(["geo_r1", "geo_r2"]);
+    expect(points[1]?.delta.mentionRate).toBe(10);
+    const missing = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/geo-visibility-trend",
+      headers: { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it("updates site competitors via PATCH and caps the list at 20 (T2)", async () => {
     const server = buildApiServer({
       repository: createMemoryRepository({

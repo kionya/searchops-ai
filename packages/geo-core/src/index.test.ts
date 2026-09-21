@@ -12,6 +12,7 @@ import {
   geoCoreGenerationMode,
   geoCorePackage,
   calculateShareOfVoice,
+  computeGeoTrend,
   countCompetitorMentions,
   isOwnedUrl,
   normalizeBrandName,
@@ -244,6 +245,22 @@ describe("geo-core", () => {
       [{ provider: "chatgpt", query: "q", locale: target.locale, answerText: "", citedUrls: ["https://www.rival-clinic.com/a"], observedAt, source: "fixture" }]
     );
     expect(citations[0]).toMatchObject({ kind: "competitor", owned: false });
+  });
+
+  it("computes weekly trend deltas over batch runs and exposes missing runs (T3)", () => {
+    const base = { citationRate: 10, evaluatedAt: observedAt, liveShare: 1 };
+    const points = computeGeoTrend([
+      { ...base, id: "manual", mentionRate: 99 },
+      { ...base, id: "r4", mentionRate: 30, runSeq: 4, sov: 20 },
+      { ...base, id: "r1", mentionRate: 50, runSeq: 1, sov: 60 },
+      { ...base, id: "r2", mentionRate: 40, runSeq: 2 }
+    ]);
+    expect(points.map((point) => point.reportId)).toEqual(["r1", "r2", "r4"]);
+    expect(points[0]).toMatchObject({ delta: { citationRate: null, mentionRate: null, sov: null }, gapFromPrevious: null });
+    expect(points[1]).toMatchObject({ delta: { mentionRate: -10, sov: null }, gapFromPrevious: 1, sov: null });
+    expect(points[2]).toMatchObject({ delta: { citationRate: 0, mentionRate: -10, sov: null }, gapFromPrevious: 2 });
+    expect(computeGeoTrend([{ ...base, id: "r1", mentionRate: 1, runSeq: 1 }, { ...base, id: "r2", mentionRate: 2, runSeq: 2 }], 1))
+      .toHaveLength(1);
   });
 
   it("classifies score thresholds", () => {

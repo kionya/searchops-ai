@@ -4,6 +4,7 @@ import {
   DefaultGeoAnswerMonitorProviders,
   GeoAnswerMonitorProviderSchema,
   GeoVisibilityReportListResponseSchema,
+  GeoVisibilityTrendResponseSchema,
   QueueGeoAnswerMonitorRequestSchema,
   QueueGeoAnswerMonitorResponseSchema,
   type GeoAnswerMonitorProvider,
@@ -11,6 +12,7 @@ import {
   type GeoAnswerObservation,
   type GeoProvider,
   type GeoVisibilityReportRecord,
+  type GeoVisibilityTrendPoint,
   type GeoVisibilityStatus,
   type Site
 } from "@searchops/types";
@@ -244,6 +246,37 @@ export async function loadGeoVisibilityDashboard(
       errorMessage: error instanceof Error ? error.message : "GEO 노출 요청에 실패했습니다"
     };
   }
+}
+
+/** T3: 주간 배치 run 추세. API 가 없거나 실패하면 빈 배열(스파크라인 숨김). */
+export async function loadGeoVisibilityTrend(site: Site, runs = 12): Promise<GeoVisibilityTrendPoint[]> {
+  const apiBaseUrl = getApiBaseUrl();
+  if (apiBaseUrl === null) {
+    return [];
+  }
+  try {
+    const response = await apiFetch(
+      `${apiBaseUrl}/sites/${encodeURIComponent(site.id)}/geo-visibility-trend?runs=${runs}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      return [];
+    }
+    return GeoVisibilityTrendResponseSchema.parse(await response.json()).points;
+  } catch {
+    return [];
+  }
+}
+
+/** 0~100 값 배열 → SVG polyline points. 값 1개면 수평선. */
+export function buildSparklinePoints(values: readonly number[], width = 120, height = 28) {
+  if (values.length === 0) {
+    return "";
+  }
+  const step = values.length === 1 ? 0 : width / (values.length - 1);
+  return values
+    .map((value, index) => `${Math.round(index * step)},${Math.round(height - (Math.min(100, Math.max(0, value)) / 100) * height)}`)
+    .join(" ");
 }
 
 export async function createGeoVisibilityReportFromFixture(

@@ -15,7 +15,9 @@ import {
   extractGscQueriesFromHistory,
   mergeGeoQueryDefaults,
   defaultGeoAnswerMonitorProviders,
+  buildSparklinePoints,
   formatGeoDate,
+  loadGeoVisibilityTrend,
   formatGeoSov,
   formatGeoProvider,
   formatGeoStatus,
@@ -57,6 +59,8 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const createSearchParams = await searchParams;
   const site = await loadDashboardSite(siteId);
   const dashboard = await loadGeoVisibilityDashboard(site);
+  const trend = await loadGeoVisibilityTrend(site);
+  const latestTrend = trend.at(-1);
   const connectorHistory = await loadConnectorSyncHistory(site);
   const gscSuggestion = extractGscQueriesFromHistory(connectorHistory);
   const useGscQueries = gscSuggestion.hasGscData && !gscSuggestion.fixture;
@@ -102,6 +106,26 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
         <MetricCard label="인용률" value={summary.averageCitationRate} />
         <MetricCard label="약함/미노출" value={String(summary.weakOrMissing)} />
       </div>
+      {trend.length > 0 ? (
+        <section aria-label="GEO 주간 추세" style={{ margin: "12px 0 20px" }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, margin: "0 0 6px" }}>
+            주간 run {trend.length}회 · 언급률 최근 {latestTrend?.mentionRate}%
+            {latestTrend?.delta.mentionRate === null || latestTrend?.delta.mentionRate === undefined
+              ? ""
+              : ` (직전 대비 ${latestTrend.delta.mentionRate > 0 ? "+" : ""}${latestTrend.delta.mentionRate}p)`}
+            {latestTrend?.sov === null || latestTrend?.sov === undefined ? "" : ` · SOV ${latestTrend.sov}%`}
+            {latestTrend && latestTrend.liveShare !== null && latestTrend.liveShare < 1 ? " · ⚠ 실측 아님 포함" : ""}
+          </p>
+          <svg aria-label="언급률 스파크라인" height={28} width={120} role="img">
+            <polyline
+              fill="none"
+              points={buildSparklinePoints(trend.map((point) => point.mentionRate))}
+              stroke="#047857"
+              strokeWidth={2}
+            />
+          </svg>
+        </section>
+      ) : null}
       <GeoCreatePanel
         siteId={siteId}
         defaultQueries={defaultQueries}

@@ -16,7 +16,8 @@ import type {
   GeoVisibilityCheckId,
   GeoVisibilityCheckStatus,
   GeoVisibilityReport,
-  GeoVisibilityStatus
+  GeoVisibilityStatus,
+  GeoVisibilityTrendPoint
 } from "@searchops/types";
 
 export {
@@ -380,4 +381,47 @@ function extractHostname(url: string) {
   } catch {
     return null;
   }
+}
+
+/** T3 추세 입력: 리포트 레코드에서 필요한 필드만. */
+export interface GeoTrendReportInput {
+  readonly id: string;
+  readonly runSeq?: number | undefined;
+  readonly evaluatedAt: string;
+  readonly mentionRate: number;
+  readonly citationRate: number;
+  readonly sov?: number | undefined;
+  readonly liveShare?: number | undefined;
+}
+
+/**
+ * 주간 배치 run(runSeq 있는 리포트)만 골라 오래된 순으로 최근 n 개의 delta 를 낸다.
+ * 결측 run 은 gapFromPrevious 로 드러내고, delta 는 실제 직전 run 과 비교한다.
+ */
+export function computeGeoTrend(reports: readonly GeoTrendReportInput[], runs = 12): GeoVisibilityTrendPoint[] {
+  const runReports = reports
+    .filter((report): report is GeoTrendReportInput & { runSeq: number } => report.runSeq !== undefined)
+    .sort((left, right) => left.runSeq - right.runSeq)
+    .slice(-runs);
+  const delta = (current: number | undefined, previous: number | undefined) =>
+    current === undefined || previous === undefined ? null : current - previous;
+
+  return runReports.map((report, index) => {
+    const previous = index === 0 ? undefined : runReports[index - 1];
+    return {
+      citationRate: report.citationRate,
+      delta: {
+        citationRate: delta(report.citationRate, previous?.citationRate),
+        mentionRate: delta(report.mentionRate, previous?.mentionRate),
+        sov: delta(report.sov, previous?.sov)
+      },
+      evaluatedAt: report.evaluatedAt,
+      gapFromPrevious: previous === undefined ? null : report.runSeq - previous.runSeq,
+      liveShare: report.liveShare ?? null,
+      mentionRate: report.mentionRate,
+      reportId: report.id,
+      runSeq: report.runSeq,
+      sov: report.sov ?? null
+    };
+  });
 }

@@ -1,0 +1,104 @@
+name: batch-geo
+
+# 주 1회 GEO 답변 관측(ChatGPT·Perplexity·Gemini·Claude)을 돌려 GeoVisibilityReport 에 run 을 쌓는다.
+# Redis/상시 워커 없이 GitHub Actions cron 만 쓴다(batch-crawl 과 같은 방식).
+# 대상은 Site.geoMonitorEnabled = true 인 사이트. 같은 주에 두 번 돌아도 run 은 1건이다.
+#
+# 필요한 secret: DATABASE_URL, DIRECT_DATABASE_URL
+# 엔진 키(있는 것만 호출한다): SEARCHOPS_GEO_CHATGPT_API_KEY, SEARCHOPS_GEO_PERPLEXITY_API_KEY,
+#                              SEARCHOPS_GEO_GEMINI_API_KEY, SEARCHOPS_GEO_CLAUDE_API_KEY
+# 키가 하나도 없으면 배치는 종료 코드 2 로 멈춘다(fixture 만 쌓이는 것을 막는다).
+# dry-run: workflow_dispatch 의 allow_fixture=1.
+
+on:
+  schedule:
+    - cron: "0 19 * * 0" # UTC 일 19:00 = KST 월 04:00
+  workflow_dispatch:
+    inputs:
+      allow_fixture:
+        description: "키 없이 fixture 로 dry-run (1 이면 허용)"
+        required: false
+        default: "0"
+      max_queries:
+        description: "사이트당 질문 상한(≤10)"
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: batch-geo
+  cancel-in-progress: false
+
+jobs:
+  geo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Fail fast when secrets are missing
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::secret 미설정: DATABASE_URL"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build worker and its dependencies
+        run: pnpm --filter "@searchops/worker..." build
+
+      - name: Run GEO batch
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          SEARCHOPS_GEO_CHATGPT_API_KEY: ${{ secrets.SEARCHOPS_GEO_CHATGPT_API_KEY }}
+          SEARCHOPS_GEO_PERPLEXITY_API_KEY: ${{ secrets.SEARCHOPS_GEO_PERPLEXITY_API_KEY }}
+          SEARCHOPS_GEO_GEMINI_API_KEY: ${{ secrets.SEARCHOPS_GEO_GEMINI_API_KEY }}
+          SEARCHOPS_GEO_CLAUDE_API_KEY: ${{ secrets.SEARCHOPS_GEO_CLAUDE_API_KEY }}
+          SEARCHOPS_GEO_BATCH_MAX_QUERIES: ${{ inputs.max_queries || '10' }}
+          SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE: ${{ inputs.allow_fixture || '0' }}
+        run: node apps/worker/dist/batch-geo.js
+
+      - name: Report batch status
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="batch-geo 실패"
+          number="$(gh issue list --state open --search "$title in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty" 2>/dev/null || true)"
+          if [ "$STATUS" = "success" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "복구됨: $RUN_URL" \
+                || echo "::warning::이슈 #$number 를 닫지 못했다."
+            fi
+          elif [ "$STATUS" = "failure" ]; then
+            body="GEO 주간 배치 실패. 로그: $RUN_URL — '[batch-geo]' 줄을 먼저 확인해라. 키가 없으면 종료 코드 2."
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body "$body" || echo "::warning::이슈 알림 실패: $RUN_URL"
+            else
+              gh issue create --title "$title" --body "$body" || echo "::warning::이슈 생성 실패: $RUN_URL"
+            fi
+          fi

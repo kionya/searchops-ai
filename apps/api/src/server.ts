@@ -13,7 +13,7 @@ import {
   discoverKeywordTargetsFromConnectorResults,
   normalizeCmsWebhookPayload,
 } from "@searchops/connectors";
-import { evaluateGeoVisibility } from "@searchops/geo-core";
+import { evaluateGeoVisibility, computeGeoTrend } from "@searchops/geo-core";
 import {
   extractJsonLdTypes,
   hasSchemaType,
@@ -108,6 +108,8 @@ import {
   UpdateComplianceFlagRequestSchema,
   UpdateProviderAccountMetadataRequestSchema,
   UpdateSiteRequestSchema,
+  GeoVisibilityTrendQuerySchema,
+  GeoVisibilityTrendResponseSchema,
   UpdateWorkOrderRequestSchema,
   UpsertSiteConnectorRequestSchema,
   ReplaceProviderCredentialRequestSchema,
@@ -1755,6 +1757,19 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(GeoVisibilityReportListResponseSchema.parse({ reports }));
+  });
+
+  // T3: 주간 배치 run(runSeq) 간 delta. 수동 리포트는 추세에 넣지 않는다.
+  server.get("/sites/:id/geo-visibility-trend", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const { runs } = GeoVisibilityTrendQuerySchema.parse(request.query ?? {});
+    const reports = await repository.listGeoVisibilityReports(id);
+    if (!reports) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(GeoVisibilityTrendResponseSchema.parse({ points: computeGeoTrend(reports, runs) }));
   });
 
   server.get("/sites/:id/compliance-flags", async (request, reply) => {

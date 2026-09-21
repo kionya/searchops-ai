@@ -632,6 +632,8 @@ export const SiteSchema = z.object({
   country: z.string().min(2).default("KR"),
   /** T2 경쟁사 실명 또는 도메인(최대 20). 내부 분석 한정. */
   competitors: CompetitorListSchema.optional(),
+  /** T3 주간 GEO 배치 대상 여부. */
+  geoMonitorEnabled: z.boolean().optional(),
   createdAt: IsoDateTimeSchema,
 });
 
@@ -1509,11 +1511,41 @@ export const GeoVisibilityReportRecordSchema = z
     citationsByKind: GeoCitationsByKindSchema.optional(),
     sov: PercentageScoreSchema.optional(),
     competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
+    /** T3 주간 배치 run 번호. 수동 리포트에는 없다. */
+    runSeq: z.number().int().positive().optional(),
+    previousReportId: IdSchema.optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();
 
 export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
+
+const GeoTrendDeltaSchema = z.number().int().nullable();
+
+export const GeoVisibilityTrendPointSchema = z.object({
+  reportId: IdSchema,
+  runSeq: z.number().int().positive(),
+  evaluatedAt: IsoDateTimeSchema,
+  mentionRate: PercentageScoreSchema,
+  citationRate: PercentageScoreSchema,
+  sov: PercentageScoreSchema.nullable(),
+  liveShare: z.number().min(0).max(1).nullable(),
+  /** 직전 run 대비. 첫 run 은 null. 결측 run 이 있으면 gapFromPrevious > 1. */
+  delta: z.object({ mentionRate: GeoTrendDeltaSchema, citationRate: GeoTrendDeltaSchema, sov: GeoTrendDeltaSchema }),
+  gapFromPrevious: z.number().int().positive().nullable(),
+});
+
+export type GeoVisibilityTrendPoint = z.infer<typeof GeoVisibilityTrendPointSchema>;
+
+export const GeoVisibilityTrendResponseSchema = z.object({
+  points: z.array(GeoVisibilityTrendPointSchema),
+});
+
+export type GeoVisibilityTrendResponse = z.infer<typeof GeoVisibilityTrendResponseSchema>;
+
+export const GeoVisibilityTrendQuerySchema = z.object({
+  runs: z.coerce.number().int().min(1).max(52).default(12),
+});
 
 export const CreateGeoVisibilityReportRequestSchema = z.object({
   target: GeoTargetSchema,
@@ -1973,6 +2005,7 @@ export const UpdateSiteRequestSchema = z.object({
   language: z.string().min(2).optional(),
   country: z.string().min(2).optional(),
   competitors: CompetitorListSchema.optional(),
+  geoMonitorEnabled: z.boolean().optional(),
 });
 
 export type UpdateSiteRequest = z.infer<typeof UpdateSiteRequestSchema>;
