@@ -5358,6 +5358,7 @@ describe("api foundation", () => {
       startUrl: "https://exampleclinic.com/services",
       maxPages: 1,
       pages: [],
+      recheckWorkOrderId: "wo_seed", // T8: 크롤 워커가 재검수 후처리를 한다
     });
     expect(crawlRunQueue.listQueuedCrawlJobs()).toHaveLength(1);
   });
