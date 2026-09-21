@@ -118,6 +118,7 @@ import {
   type ComplianceFlag,
   type KeywordTarget,
   type RecheckComplianceFlagResponse,
+  type GeoTarget,
   type Site,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
@@ -1961,9 +1962,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     let visibilityReport;
     try {
-      visibilityReport = evaluateGeoVisibility(input, {
-        evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
-      });
+      visibilityReport = evaluateGeoVisibility(
+        { ...input, target: withSiteCompetitors(input.target, site) },
+        { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid GEO visibility input";
       reply.status(400).send({ error: "validation_error", message });
@@ -2013,7 +2015,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       siteId: site.id,
       siteDomain: site.domain,
       requestedByUserId: userContext.userId,
-      target: input.target,
+      target: withSiteCompetitors(input.target, site),
       queries: input.queries,
       observedAt,
       providers: input.providers,
@@ -3114,4 +3116,9 @@ function classifyDatabaseFailure(text: string): string {
     return "unreachable";
   }
   return "unknown";
+}
+
+/** T2: 경쟁사 목록의 정본은 Site.competitors. 요청이 비워 보내면 사이트 설정으로 채운다. */
+function withSiteCompetitors(target: GeoTarget, site: Site): GeoTarget {
+  return { ...target, competitors: target.competitors ?? site.competitors ?? [] };
 }

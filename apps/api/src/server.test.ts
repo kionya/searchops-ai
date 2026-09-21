@@ -2041,6 +2041,31 @@ describe("api foundation", () => {
     });
   });
 
+  it("updates site competitors via PATCH and caps the list at 20 (T2)", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "editor" };
+    const ok = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers,
+      payload: { competitors: ["고운몸의원", "rival-clinic.com"] },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().competitors).toEqual(["고운몸의원", "rival-clinic.com"]);
+    const tooMany = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers,
+      payload: { competitors: Array.from({ length: 21 }, (_, index) => `c${index}`) },
+    });
+    expect(tooMany.statusCode).toBe(400);
+  });
+
   it("creates and lists organizations", async () => {
     const server = buildTestServer();
     const createResponse = await server.inject({

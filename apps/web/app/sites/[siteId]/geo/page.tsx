@@ -16,6 +16,7 @@ import {
   mergeGeoQueryDefaults,
   defaultGeoAnswerMonitorProviders,
   formatGeoDate,
+  formatGeoSov,
   formatGeoProvider,
   formatGeoStatus,
   formatGeoWorkOrderCandidatePriority,
@@ -146,13 +147,14 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                 <th>질의</th>
                 <th>Provider</th>
                 <th>경쟁사 리스크</th>
+                <th>SOV</th>
                 <th>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="searchops-muted">
+                  <td colSpan={9} className="searchops-muted">
                     아직 GEO 노출 리포트가 없습니다.
                   </td>
                 </tr>
@@ -179,6 +181,17 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                       <td>{report.queryCount}</td>
                       <td>{report.providerCount}</td>
                       <td>{report.competitorCitationRate}%</td>
+                      <td title="자사 언급 / (자사 + 경쟁사 언급). 경쟁사 실명은 내부용">
+                        <div
+                          aria-hidden
+                          style={{ background: "#e5e7eb", height: 6, width: 72, borderRadius: 3 }}
+                        >
+                          <div
+                            style={{ background: "#047857", height: 6, width: `${report.sov ?? 0}%`, borderRadius: 3 }}
+                          />
+                        </div>
+                        {formatGeoSov(report.sov)}
+                      </td>
                       <td>
                         <form action={workOrderAction}>
                           <button style={secondaryButtonStyle} type="submit">
