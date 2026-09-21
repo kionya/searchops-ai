@@ -118,6 +118,8 @@ export interface ProcessGeoAnswerMonitorJobOptions {
   readonly geoPlatformApiKeys?: CreateProviderCredentialResolverOptions["geoPlatformApiKeys"];
   readonly geoProviderModels?: CreateProviderCredentialResolverOptions["geoProviderModels"];
   readonly liveExternalApis?: "disabled" | "enabled";
+  /** 라이브 엔진 실패의 실제 원인(HTTP 상태·Zod 이슈)을 받는다. 결과 코드는 provider_request_failed 로 뭉개지므로 로그는 여기서만 가능하다. */
+  readonly onProviderError?: (provider: GeoAnswerMonitorProvider, error: unknown) => void;
   readonly monitorGeoAnswers?: (
     input: GeoAnswerMonitorBatchRequest,
   ) => Promise<GeoAnswerMonitorBatchResult>;
@@ -368,7 +370,7 @@ export async function processGeoAnswerMonitorJob(
       resolved.credentialSources,
       payload.providers,
     );
-    monitorResult = await monitorLiveGeoAnswers(request, resolved);
+    monitorResult = await monitorLiveGeoAnswers(request, resolved, options.onProviderError);
   }
   const visibilityReport =
     monitorResult.observations.length === 0
@@ -442,6 +444,7 @@ function emptyGeoCheck(
 async function monitorLiveGeoAnswers(
   request: GeoAnswerMonitorBatchRequest,
   resolved: ResolvedGeoAdapters,
+  onProviderError?: (provider: GeoAnswerMonitorProvider, error: unknown) => void,
 ): Promise<GeoAnswerMonitorBatchResult> {
   const requestedProviders = new Set(request.providers ?? geoAnswerMonitorProviders);
   const providers = geoAnswerMonitorProviders.filter((provider) =>
@@ -464,6 +467,7 @@ async function monitorLiveGeoAnswers(
           target: request.target,
         }));
         if (!parsedResult.success) {
+          onProviderError?.(provider, parsedResult.error);
           return geoProviderFailureResult(provider, "provider_request_failed");
         }
         const result = parsedResult.data;
@@ -477,10 +481,12 @@ async function monitorLiveGeoAnswers(
               observation.provider !== provider || observation.source !== "connector",
           )
         ) {
+          onProviderError?.(provider, new Error("live adapter returned a non-connector or non-ok result"));
           return geoProviderFailureResult(provider, "provider_request_failed");
         }
         return result;
-      } catch {
+      } catch (error) {
+        onProviderError?.(provider, error);
         return geoProviderFailureResult(provider, "provider_request_failed");
       }
     }),
