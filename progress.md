@@ -571,9 +571,11 @@ Implemented:
 - GEO answer monitor fixture adapters.
 - Live GEO answer monitor adapter port in `packages/connectors`, using explicit injected clients only.
 - `geo-answer-monitor` API enqueue, worker processor, deterministic `geo-core` evaluation, and DB persistence boundary are wired in CDX-125.
+- T7 (2026-09-21): 텔레그램 — `packages/connectors` `createTelegramNotifier`(토큰 없으면 no-op), api `createTelegramOperationalAlertRouter`(OPS 채널, 웹훅과 composite), batch-geo 끝에 사이트별 주간 요약 1통(PRODUCT 채널). env `SEARCHOPS_TELEGRAM_BOT_TOKEN/_OPS_CHAT_ID/_PRODUCT_CHAT_ID`.
 - T3 (2026-09-21): `apps/worker/src/batch-geo.ts` + `.github/workflows/batch-geo.yml`(KST 월 04:00, Redis 없이). `Site.geoMonitorEnabled`, `GeoVisibilityReport.runSeq/previousReportId`(마이그레이션 `20260921010000_geo_weekly_runs`). 같은 ISO 주 재실행은 건너뜀. geo-core `computeGeoTrend`, `GET /sites/:id/geo-visibility-trend?runs=`, 대시보드 스파크라인. 키 없으면 배치는 종료 코드 2(dry-run 은 ALLOW_FIXTURE=1).
 - T2 (2026-09-21): `Site.competitors`(≤20, PATCH /sites/:id)·마이그레이션 `20260921000000_site_competitors_geo_sov`. geo-core `countCompetitorMentions`(접미어 정규화)·`calculateShareOfVoice`, 리포트 `sov`·`competitorMentions`(DB 컬럼). 서버가 GeoTarget 에 사이트 경쟁사 주입. 대시보드 SOV 막대. 경쟁사 실명은 내부용.
 - T1 (2026-09-21): `GeoCitation.kind`(owned|platform|competitor|community|other) + 리포트 `citationsByKind`. 사전은 `packages/geo-core/src/domain-taxonomy.ts`. kind 없는 과거 인용은 읽을 때 재분류. 계획: `docs/plans/2026-09-21-geo-diagnosis-gaps.md`.
+- T0 (2026-09-21): 리포트 루트 `liveShare`(connector 관측 비율)·`warnings[]`(`partial-fixture`/`no-observations`); 과거 리포트는 읽을 때 파생, 필드 없으면 대시보드에 unknown. 계획: `docs/plans/2026-09-21-geo-diagnosis-gaps.md`.
 
 Remaining:
 

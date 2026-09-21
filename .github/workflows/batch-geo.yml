@@ -8,6 +8,7 @@ name: batch-geo
 # 엔진 키(있는 것만 호출한다): SEARCHOPS_GEO_CHATGPT_API_KEY, SEARCHOPS_GEO_PERPLEXITY_API_KEY,
 #                              SEARCHOPS_GEO_GEMINI_API_KEY, SEARCHOPS_GEO_CLAUDE_API_KEY
 # 키가 하나도 없으면 배치는 종료 코드 2 로 멈춘다(fixture 만 쌓이는 것을 막는다).
+# 선택: SEARCHOPS_TELEGRAM_BOT_TOKEN, SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID — 사이트별 주간 요약 1통.
 # dry-run: workflow_dispatch 의 allow_fixture=1.
 
 on:
@@ -76,6 +77,9 @@ jobs:
           SEARCHOPS_GEO_CLAUDE_API_KEY: ${{ secrets.SEARCHOPS_GEO_CLAUDE_API_KEY }}
           SEARCHOPS_GEO_BATCH_MAX_QUERIES: ${{ inputs.max_queries || '10' }}
           SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE: ${{ inputs.allow_fixture || '0' }}
+          # T7 제품 알림(주간 요약). 없으면 로그에만 남는다.
+          SEARCHOPS_TELEGRAM_BOT_TOKEN: ${{ secrets.SEARCHOPS_TELEGRAM_BOT_TOKEN }}
+          SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID: ${{ secrets.SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID }}
         run: node apps/worker/dist/batch-geo.js
 
       - name: Report batch status

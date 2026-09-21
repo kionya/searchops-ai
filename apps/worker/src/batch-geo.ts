@@ -7,12 +7,15 @@
 // 엔진은 키가 있는 것만(최대 4). 같은 ISO 주에 이미 배치 run 이 있으면 건너뛴다(멱등).
 // 키가 하나도 없으면 fixture 만 쌓이므로 기본은 중단한다. dry-run 은 SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE=1.
 
+import { createTelegramNotifier } from "@searchops/connectors";
 import {
   createPrismaGeoVisibilityPersistenceClient,
   createSearchOpsPrismaClient
 } from "@searchops/db";
-import type { GeoAnswerMonitorProvider } from "@searchops/types";
+import { summarizeGeoObservationSources } from "@searchops/geo-core";
+import type { GeoAnswerMonitorProvider, GeoAnswerObservation } from "@searchops/types";
 
+import { formatGeoWeeklySummary } from "./geo-weekly-summary.js";
 import { processAndPersistGeoAnswerMonitorJob } from "./processor.js";
 import { createPlatformGeoProviderResolver } from "./provider-credential-resolver.js";
 
@@ -70,13 +73,18 @@ async function main(): Promise<void> {
     const resolver = createPlatformGeoProviderResolver({ geoPlatformApiKeys });
     const observedAt = new Date();
     const weekStart = startOfIsoWeek(observedAt);
+    // T7: 제품 알림 채널. 토큰/chat_id 없으면 null → 요약은 로그에만 남는다.
+    const notifier = createTelegramNotifier({
+      botToken: process.env.SEARCHOPS_TELEGRAM_BOT_TOKEN,
+      chatId: process.env.SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID
+    });
     let failures = 0;
 
     for (const site of sites) {
       try {
         const previous = await prisma.geoVisibilityReport.findFirst({
           orderBy: { runSeq: "desc" },
-          select: { evaluatedAt: true, id: true, runSeq: true },
+          select: { evaluatedAt: true, id: true, mentionRate: true, runSeq: true, sov: true },
           where: { runSeq: { not: null }, siteId: site.id }
         });
         if (previous && previous.evaluatedAt >= weekStart) {
@@ -123,7 +131,7 @@ async function main(): Promise<void> {
         // persist 는 id 를 돌려주지 않는다. 방금 만든 최신 행에 run 번호를 붙인다.
         const created = await prisma.geoVisibilityReport.findFirst({
           orderBy: { createdAt: "desc" },
-          select: { id: true, mentionRate: true, sov: true },
+          select: { id: true, mentionRate: true, observations: true, sov: true },
           where: { siteId: site.id }
         });
         if (created === null) {
@@ -134,9 +142,24 @@ async function main(): Promise<void> {
           data: { previousReportId: previous?.id ?? null, runSeq },
           where: { id: created.id }
         });
-        console.log(
-          `[batch-geo] ${site.domain} runSeq=${runSeq} mention=${created.mentionRate}% sov=${created.sov ?? "-"} providers=${providers.join(",")} live=${liveExternalApis}`
-        );
+        const summary = formatGeoWeeklySummary({
+          domain: site.domain,
+          liveShare: summarizeGeoObservationSources(
+            (Array.isArray(created.observations) ? created.observations : []) as Pick<GeoAnswerObservation, "source">[]
+          ).liveShare,
+          mentionRate: created.mentionRate,
+          previous: previous === null ? null : { mentionRate: previous.mentionRate, sov: previous.sov },
+          providers,
+          runSeq,
+          sov: created.sov
+        });
+        console.log(`[batch-geo] ${summary.replace(/\n/gu, " | ")}`);
+        if (notifier !== null) {
+          // 알림 실패는 측정 실패가 아니다. 경고만 남기고 배치 결과는 그대로 둔다.
+          await notifier.sendMessage(summary).catch((error: unknown) => {
+            console.warn(`[batch-geo] ${site.domain} 텔레그램 전송 실패`, error);
+          });
+        }
       } catch (error) {
         failures += 1;
         console.error(`[batch-geo] ${site.domain} 실패`, error);

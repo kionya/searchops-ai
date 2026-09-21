@@ -19,6 +19,7 @@ import {
   formatGeoDate,
   loadGeoVisibilityTrend,
   formatGeoSov,
+  formatGeoLiveShare,
   formatGeoProvider,
   formatGeoStatus,
   formatGeoWorkOrderCandidatePriority,
@@ -172,13 +173,14 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                 <th>Provider</th>
                 <th>경쟁사 리스크</th>
                 <th>SOV</th>
+                <th>실측 비율</th>
                 <th>작업 지시서</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="searchops-muted">
+                  <td colSpan={10} className="searchops-muted">
                     아직 GEO 노출 리포트가 없습니다.
                   </td>
                 </tr>
@@ -216,6 +218,9 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                         </div>
                         {formatGeoSov(report.sov)}
                       </td>
+                      <td className={report.liveShare === 1 ? undefined : "searchops-muted"}>
+                        {formatGeoLiveShare(report.liveShare)}
+                      </td>
                       <td>
                         <form action={workOrderAction}>
                           <button style={secondaryButtonStyle} type="submit">
@@ -237,7 +242,8 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
           <div>
             <h3 style={{ fontSize: 18, margin: 0 }}>관측 상세</h3>
             <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
-              최근 리포트의 provider, 질의, 답변 근거, 인용 URL 소유 여부를 확인합니다.
+              최근 리포트의 provider, 질의, 답변 근거, 인용 URL 소유 여부를 확인합니다. 회색 행은
+              fixture·수동 관측(실측 아님)이며, 실측 비율이 unknown 이면 실측 구분 도입 전 리포트입니다.
             </p>
           </div>
         </header>
@@ -254,7 +260,10 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
             </thead>
             <tbody>
               {(dashboard.reports[0]?.observations ?? []).map((observation) => (
-                <tr key={`${observation.provider}-${observation.query}`}>
+                <tr
+                  key={`${observation.provider}-${observation.query}`}
+                  className={observation.source === "connector" ? undefined : "searchops-muted"}
+                >
                   <td>{formatGeoProvider(observation.provider)}</td>
                   <td>{formatGeoObservationSource(observation.source)}</td>
                   <td>{observation.query}</td>

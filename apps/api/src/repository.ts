@@ -1,4 +1,4 @@
-import { summarizeGeoCitationsByKind } from "@searchops/geo-core";
+import { summarizeGeoCitationsByKind, summarizeGeoObservationSources } from "@searchops/geo-core";
 import type {
   AcceptInvitationResponse,
   AeoReadinessReport,
@@ -986,6 +986,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         ),
         sov: input.visibilityReport.sov,
         competitorMentions: input.visibilityReport.competitorMentions,
+        ...summarizeGeoObservationSources(input.visibilityReport.observations),
         createdAt: nowIso()
       };
       geoVisibilityReportCounter += 1;

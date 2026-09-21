@@ -341,6 +341,10 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_RICH_RESULT_VALIDATOR_URL: HttpUrlSchema.optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
+  // T7 텔레그램. 운영 알림(OPS)과 제품 알림(PRODUCT, 주간 GEO 요약)은 채널을 분리한다.
+  SEARCHOPS_TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_OPS_CHAT_ID: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID: z.string().min(1).optional(),
   // BullMQ worker polling tuning. Raising these cuts idle Redis commands, which
   // matters on per-command Redis (Upstash free tier). drainDelay is the blocking
   // BRPOPLPUSH timeout (ms); stalledInterval is the stalled-job check period (ms).
@@ -1483,6 +1487,9 @@ export const GeoVisibilityReportSchema = z.object({
   /** T2 SOV(%) = 자사 언급 / (자사 + Σ경쟁사 언급). 경쟁사 미설정이면 자사 언급 유무만 반영. */
   sov: PercentageScoreSchema.optional(),
   competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
+  /** connector(실측) 관측 비율 0~1. 없으면 unknown(T0 이전 리포트). */
+  liveShare: z.number().min(0).max(1).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -1514,6 +1521,8 @@ export const GeoVisibilityReportRecordSchema = z
     /** T3 주간 배치 run 번호. 수동 리포트에는 없다. */
     runSeq: z.number().int().positive().optional(),
     previousReportId: IdSchema.optional(),
+    liveShare: z.number().min(0).max(1).optional(),
+    warnings: z.array(z.string()).optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();

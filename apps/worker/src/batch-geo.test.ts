@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  createTelegramNotifier: vi.fn(),
+  sendMessage: vi.fn(async () => undefined),
   createPlatformGeoProviderResolver: vi.fn(() => ({ resolveGeoProviderAdapters: vi.fn() })),
   createPrismaGeoVisibilityPersistenceClient: vi.fn(() => ({})),
   createSearchOpsPrismaClient: vi.fn(),
@@ -13,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   ]),
 }));
 
+vi.mock("@searchops/connectors", () => ({
+  createTelegramNotifier: mocks.createTelegramNotifier,
+}));
 vi.mock("@searchops/db", () => ({
   createPrismaGeoVisibilityPersistenceClient: mocks.createPrismaGeoVisibilityPersistenceClient,
   createSearchOpsPrismaClient: mocks.createSearchOpsPrismaClient,
@@ -46,10 +51,17 @@ describe("batch geo (T3)", () => {
   it("runs once per ISO week and chains runSeq/previousReportId", async () => {
     // previous run: 2 weeks ago → run, then created row gets runSeq 4
     mocks.reportFindFirst
-      .mockResolvedValueOnce({ evaluatedAt: new Date(Date.now() - 14 * 86_400_000), id: "r3", runSeq: 3 })
-      .mockResolvedValueOnce({ id: "r4", mentionRate: 50, sov: 40 });
+      .mockResolvedValueOnce({ evaluatedAt: new Date(Date.now() - 14 * 86_400_000), id: "r3", mentionRate: 30, runSeq: 3, sov: 50 })
+      .mockResolvedValueOnce({ id: "r4", mentionRate: 50, observations: [{ source: "connector" }, { source: "fixture" }], sov: 40 });
+    mocks.createTelegramNotifier.mockReturnValueOnce({ chatId: "p", sendMessage: mocks.sendMessage });
 
     await import("./batch-geo.js");
+
+    // T7: 사이트별 주간 요약 1통
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+    expect((mocks.sendMessage.mock.calls as unknown as readonly (readonly unknown[])[])[0]?.[0]).toBe(
+      "[GEO 주간] a.example · run #4\n언급률 50% (+20p)\nSOV 40% (-10p)\n실측 비율 50% ⚠ fixture/수동 포함\n엔진 chatgpt"
+    );
 
     expect(mocks.processAndPersistGeoAnswerMonitorJob).toHaveBeenCalledTimes(1);
     const calls = mocks.processAndPersistGeoAnswerMonitorJob.mock.calls as unknown as readonly (readonly unknown[])[];
@@ -63,11 +75,13 @@ describe("batch geo (T3)", () => {
   });
 
   it("skips a site that already has a run this week (idempotent)", async () => {
-    mocks.reportFindFirst.mockResolvedValueOnce({ evaluatedAt: new Date(), id: "r1", runSeq: 1 });
+    mocks.reportFindFirst.mockResolvedValueOnce({ evaluatedAt: new Date(), id: "r1", mentionRate: 1, runSeq: 1, sov: null });
+    mocks.createTelegramNotifier.mockReturnValueOnce(null);
 
     await import("./batch-geo.js");
 
     expect(mocks.processAndPersistGeoAnswerMonitorJob).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
     expect(mocks.reportUpdate).not.toHaveBeenCalled();
   });
 

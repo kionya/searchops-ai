@@ -1,4 +1,4 @@
-import { summarizeGeoCitationsByKind } from "@searchops/geo-core";
+import { summarizeGeoCitationsByKind, summarizeGeoObservationSources } from "@searchops/geo-core";
 import {
   randomUUID
 } from "node:crypto";
@@ -1866,7 +1866,7 @@ function toGeoVisibilityReportRecord(
     ...(record.previousReportId === null ? {} : { previousReportId: record.previousReportId }),
     createdAt: record.createdAt.toISOString()
   });
-  return { ...parsed, citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain) };
+  return { ...parsed, citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain), ...summarizeGeoObservationSources(parsed.observations) };
 }
 
 function toSchemaRecommendationRecord(

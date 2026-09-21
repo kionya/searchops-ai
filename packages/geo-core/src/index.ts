@@ -82,7 +82,8 @@ export function evaluateGeoVisibility(
     evaluatedAt,
     citationsByKind: summarizeGeoCitationsByKind(citations, parsedInput.target.domain),
     sov,
-    competitorMentions
+    competitorMentions,
+    ...summarizeGeoObservationSources(observations)
   });
 }
 
@@ -142,6 +143,24 @@ export function summarizeGeoCitationsByKind(
     counts[citation.kind ?? classifyGeoCitationDomain(citation.domain, { targetDomain })] += 1;
   }
   return counts;
+}
+
+export const GEO_PARTIAL_FIXTURE_WARNING = "partial-fixture";
+export const GEO_NO_OBSERVATIONS_WARNING = "no-observations";
+
+/**
+ * 실측(connector) 관측 비율. fixture·manual 은 실측이 아니다.
+ * liveShare < 1 이면 진단서에 가짜/수동 수치가 섞였다는 뜻이라 경고를 단다.
+ */
+export function summarizeGeoObservationSources(
+  observations: readonly Pick<GeoAnswerObservation, "source">[]
+): { liveShare: number; warnings: string[] } {
+  const live = observations.filter((observation) => observation.source === "connector").length;
+  if (observations.length === 0) {
+    return { liveShare: 0, warnings: [GEO_NO_OBSERVATIONS_WARNING] };
+  }
+  const liveShare = live / observations.length;
+  return { liveShare, warnings: liveShare < 1 ? [GEO_PARTIAL_FIXTURE_WARNING] : [] };
 }
 
 export function calculateBrandMentionRate(
