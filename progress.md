@@ -571,6 +571,7 @@ Implemented:
 - GEO answer monitor fixture adapters.
 - Live GEO answer monitor adapter port in `packages/connectors`, using explicit injected clients only.
 - `geo-answer-monitor` API enqueue, worker processor, deterministic `geo-core` evaluation, and DB persistence boundary are wired in CDX-125.
+- T2 (2026-09-21): `Site.competitors`(≤20, PATCH /sites/:id)·마이그레이션 `20260921000000_site_competitors_geo_sov`. geo-core `countCompetitorMentions`(접미어 정규화)·`calculateShareOfVoice`, 리포트 `sov`·`competitorMentions`(DB 컬럼). 서버가 GeoTarget 에 사이트 경쟁사 주입. 대시보드 SOV 막대. 경쟁사 실명은 내부용.
 - T1 (2026-09-21): `GeoCitation.kind`(owned|platform|competitor|community|other) + 리포트 `citationsByKind`. 사전은 `packages/geo-core/src/domain-taxonomy.ts`. kind 없는 과거 인용은 읽을 때 재분류. 계획: `docs/plans/2026-09-21-geo-diagnosis-gaps.md`.
 
 Remaining:

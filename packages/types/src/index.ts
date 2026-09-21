@@ -620,6 +620,8 @@ export const AcceptInvitationResponseSchema = z.object({
 
 export type AcceptInvitationResponse = z.infer<typeof AcceptInvitationResponseSchema>;
 
+export const CompetitorListSchema = z.array(NonEmptyStringSchema).max(20);
+
 export const SiteSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,
@@ -628,6 +630,8 @@ export const SiteSchema = z.object({
   industry: z.string().min(1).nullable(),
   language: z.string().min(2).default("ko"),
   country: z.string().min(2).default("KR"),
+  /** T2 경쟁사 실명 또는 도메인(최대 20). 내부 분석 한정. */
+  competitors: CompetitorListSchema.optional(),
   createdAt: IsoDateTimeSchema,
 });
 
@@ -1242,9 +1246,21 @@ export const GeoTargetSchema = z.object({
   domain: DomainSchema,
   locale: z.string().min(2).default("ko-KR"),
   market: z.string().min(2).default("KR"),
+  /** T2: 브랜드 별칭(한글 표기·약칭). brandName 과 같은 정규화기로 매칭. */
+  brandAliases: z.array(NonEmptyStringSchema).max(20).optional(),
+  /** T2: 경쟁사 실명 또는 도메인. 서버가 Site.competitors 로 채운다. */
+  competitors: CompetitorListSchema.optional(),
 });
 
 export type GeoTarget = z.infer<typeof GeoTargetSchema>;
+
+export const GeoCompetitorMentionSchema = z.object({
+  name: NonEmptyStringSchema,
+  count: z.number().int().nonnegative(),
+  questions: z.array(NonEmptyStringSchema),
+});
+
+export type GeoCompetitorMention = z.infer<typeof GeoCompetitorMentionSchema>;
 
 export const GeoCitationKindSchema = z.enum(["owned", "platform", "competitor", "community", "other"]);
 
@@ -1462,6 +1478,9 @@ export const GeoVisibilityReportSchema = z.object({
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
   citationsByKind: GeoCitationsByKindSchema.optional(),
+  /** T2 SOV(%) = 자사 언급 / (자사 + Σ경쟁사 언급). 경쟁사 미설정이면 자사 언급 유무만 반영. */
+  sov: PercentageScoreSchema.optional(),
+  competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -1488,6 +1507,8 @@ export const GeoVisibilityReportRecordSchema = z
     generatedBy: z.literal("deterministic"),
     evaluatedAt: IsoDateTimeSchema,
     citationsByKind: GeoCitationsByKindSchema.optional(),
+    sov: PercentageScoreSchema.optional(),
+    competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();
@@ -1951,6 +1972,7 @@ export const UpdateSiteRequestSchema = z.object({
   industry: z.string().min(1).nullable().optional(),
   language: z.string().min(2).optional(),
   country: z.string().min(2).optional(),
+  competitors: CompetitorListSchema.optional(),
 });
 
 export type UpdateSiteRequest = z.infer<typeof UpdateSiteRequestSchema>;

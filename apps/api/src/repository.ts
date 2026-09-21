@@ -578,7 +578,8 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         name: input.name === undefined ? existing.name : input.name,
         industry: input.industry === undefined ? existing.industry : input.industry,
         language: input.language ?? existing.language,
-        country: input.country ?? existing.country
+        country: input.country ?? existing.country,
+        competitors: input.competitors ?? existing.competitors
       };
       sites.set(id, updated);
       return updated;
@@ -982,6 +983,8 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
           input.visibilityReport.citations,
           input.visibilityReport.target.domain,
         ),
+        sov: input.visibilityReport.sov,
+        competitorMentions: input.visibilityReport.competitorMentions,
         createdAt: nowIso()
       };
       geoVisibilityReportCounter += 1;

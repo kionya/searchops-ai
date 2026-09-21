@@ -11,7 +11,10 @@ import {
   extractGeoCitations,
   geoCoreGenerationMode,
   geoCorePackage,
+  calculateShareOfVoice,
+  countCompetitorMentions,
   isOwnedUrl,
+  normalizeBrandName,
   summarizeGeoCitationsByKind
 } from "./index.js";
 
@@ -208,6 +211,39 @@ describe("geo-core", () => {
       "warning",
       "fail"
     ]);
+  });
+
+  it("counts competitor mentions with suffix normalization and computes SOV (T2)", () => {
+    const observation = (query: string, answerText: string): GeoAnswerObservation => ({
+      provider: "chatgpt", query, locale: target.locale, answerText, citedUrls: [], observedAt, source: "fixture"
+    });
+    const withCompetitors = { ...target, brandAliases: ["예시클리닉"], competitors: ["고운몸의원", "rival-clinic.com"] };
+    const observations = [
+      observation("q1", "고운몸 이 추천됩니다."),
+      observation("q2", "고운몸의원과 Example Clinic 둘 다 언급."),
+      observation("q3", "예시 클리닉 이 좋습니다."),
+      observation("q4", "무관한 답변.")
+    ];
+    const mentions = countCompetitorMentions(withCompetitors, observations);
+    expect(mentions).toEqual([
+      { count: 2, name: "고운몸의원", questions: ["q1", "q2"] },
+      { count: 0, name: "rival-clinic.com", questions: [] }
+    ]);
+    // 자사 2(q2 브랜드명, q3 별칭) / (2 + 2)
+    expect(calculateShareOfVoice(withCompetitors, observations, mentions)).toBe(50);
+    expect(calculateShareOfVoice(target, [])).toBe(0);
+    expect(normalizeBrandName("고운몸 의원")).toBe("고운몸");
+    expect(normalizeBrandName("Rival Clinic")).toBe("rival");
+    const report = evaluateGeoVisibility({ target: withCompetitors, observations });
+    expect(report).toMatchObject({ sov: 50, competitorMentions: mentions });
+  });
+
+  it("classifies competitor domains from target.competitors (T2)", () => {
+    const citations = extractGeoCitations(
+      { ...target, competitors: ["고운몸의원", "rival-clinic.com"] },
+      [{ provider: "chatgpt", query: "q", locale: target.locale, answerText: "", citedUrls: ["https://www.rival-clinic.com/a"], observedAt, source: "fixture" }]
+    );
+    expect(citations[0]).toMatchObject({ kind: "competitor", owned: false });
   });
 
   it("classifies score thresholds", () => {

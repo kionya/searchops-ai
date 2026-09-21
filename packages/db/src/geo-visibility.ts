@@ -117,7 +117,9 @@ export function buildGeoVisibilityReportCreateArgs(
     queryCount: report.queryCount,
     score: report.score,
     siteId,
-    status: report.status
+    status: report.status,
+    ...(report.sov === undefined ? {} : { sov: report.sov }),
+    ...(report.competitorMentions === undefined ? {} : { competitorMentions: toJson(report.competitorMentions) })
   };
 }
 

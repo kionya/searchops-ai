@@ -85,6 +85,8 @@ model Site {
   industry       String?
   language       String         @default("ko")
   country        String         @default("KR")
+  /// T2: 경쟁사 실명(또는 도메인). 내부 분석 한정 — 외부 리포트에 노출 금지.
+  competitors    String[]       @default([])
   createdAt      DateTime       @default(now())
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -474,6 +476,8 @@ model GeoVisibilityReport {
   checks                 Json     @default("[]")
   generatedBy            String   @default("deterministic")
   evaluatedAt            DateTime
+  sov                    Int?
+  competitorMentions     Json?
   createdAt              DateTime @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)

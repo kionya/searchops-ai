@@ -741,6 +741,11 @@ export function formatGeoProvider(provider: GeoProvider) {
   return labels[provider];
 }
 
+/** T2: SOV. 없으면 T2 이전 리포트. */
+export function formatGeoSov(sov: number | undefined) {
+  return sov === undefined ? "unknown" : `${sov}%`;
+}
+
 export function formatGeoDate(isoDate: string) {
   return isoDate.replace("T", " ").slice(0, 16);
 }
@@ -794,6 +799,7 @@ export function createDemoGeoObservations(site: Site): GeoAnswerObservation[] {
 
 function createGeoTarget(site: Site) {
   return {
+    ...(site.competitors === undefined ? {} : { competitors: site.competitors }),
     brandName: site.name ?? site.domain,
     domain: site.domain,
     locale: `${site.language}-${site.country}`,
