@@ -130,6 +130,17 @@ jobs:
           fi
           node apps/worker/dist/batch-connector-sync.js
 
+      # T5 네이버 검색광고 월간 검색량. 키 3종이 없으면 스크립트가 스스로 건너뛴다(0 으로 종료).
+      - name: Run keyword volume batch
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          SEARCHOPS_NAVER_SEARCHAD_CUSTOMER_ID: ${{ secrets.SEARCHOPS_NAVER_SEARCHAD_CUSTOMER_ID }}
+          SEARCHOPS_NAVER_SEARCHAD_ACCESS_LICENSE: ${{ secrets.SEARCHOPS_NAVER_SEARCHAD_ACCESS_LICENSE }}
+          SEARCHOPS_NAVER_SEARCHAD_SECRET_KEY: ${{ secrets.SEARCHOPS_NAVER_SEARCHAD_SECRET_KEY }}
+        run: node apps/worker/dist/batch-keyword-volume.js
+
       # Actions 기본 알림은 메일함에 묻힌다. 이슈는 열려 있는 동안 레포 상태로 남고
       # 댓글마다 다시 알림이 온다. 같은 제목의 열린 이슈에 댓글만 달아 매일 실패해도 쌓이지 않는다.
       # cancelled 는 실패가 아니므로 아무것도 하지 않는다.
