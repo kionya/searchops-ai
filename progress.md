@@ -526,6 +526,7 @@ Remaining:
 Status: Deterministic MVP completed.
 
 Implemented:
+- T5 (2026-09-21): 네이버 검색광고 키워드 도구 클라이언트 `packages/connectors/src/naver-searchad.ts`(HMAC-SHA256 서명, "< 10" 파싱, 5개 청크, fixture 클라이언트, `classifyKeywordVolumeTier` 100회 하한). `Keyword.monthlyVolumePc/Mobile/volumeFetchedAt`(마이그레이션 `20260921030000_keyword_search_volume`). `apps/worker/src/batch-keyword-volume.ts` 를 batch-crawl 워크플로 스텝으로 — 키 없으면 아무것도 쓰지 않는다. env `SEARCHOPS_NAVER_SEARCHAD_CUSTOMER_ID/_ACCESS_LICENSE/_SECRET_KEY`(사용자 발급).
 
 - Keyword/AEO contracts in `packages/types`.
 - Deterministic intent/readiness rules in `packages/aeo-core`.
