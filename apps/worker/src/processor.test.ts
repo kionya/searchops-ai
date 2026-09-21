@@ -1600,6 +1600,53 @@ describe("processCrawlJob", () => {
     expect(JSON.stringify(result)).not.toContain("tenant-secret");
   });
 
+  it("DNS 로 확인되지 않는 인용은 집계에서 빼고 경고로 알린다 (AI 환각 인용)", async () => {
+    const live = ["https://banobagi.com/a", "https://exampleclinic-kangnam.com/price"];
+    const answer = (request: { observedAt?: string; queries: readonly { query: string }[] }) => ({
+      generatedBy: "connector" as const,
+      liveExternalApis: "enabled" as const,
+      observations: [
+        {
+          answerText: "강남X클리닉 https://exampleclinic-kangnam.com/price 를 확인하세요",
+          citedUrls: live,
+          locale: "ko-KR",
+          observedAt: request.observedAt!,
+          provider: "chatgpt" as const,
+          query: request.queries[0]!.query,
+          source: "connector" as const,
+        },
+      ],
+      provider: "chatgpt" as const,
+      status: "ok" as const,
+    });
+    const adapters = {
+      chatgpt: { liveExternalApis: "enabled" as const, provider: "chatgpt" as const, monitor: async (request: never) => answer(request) },
+    };
+
+    const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt"]), {
+      liveExternalApis: "enabled",
+      resolveCitationDomains: { async resolves(domain) { return domain === "banobagi.com"; } },
+      async resolveGeoProviderAdapters() {
+        return { adapters, credentialSources: { chatgpt: "platform" }, failures: {} };
+      },
+    });
+
+    expect(result.visibilityReport.observations[0]?.citedUrls).toEqual(["https://banobagi.com/a"]);
+    expect(result.visibilityReport.warnings).toContain("citations-unresolved:1");
+    // 답변 원문은 "AI 가 이렇게 답했다" 는 사실이므로 그대로 남는다
+    expect(result.visibilityReport.observations[0]?.answerText).toContain("exampleclinic-kangnam.com");
+
+    // 검증기를 주지 않으면 거르지 않는다(fixture·테스트 기본값)
+    const unverified = await processGeoAnswerMonitorJob(geoJob(["chatgpt"]), {
+      liveExternalApis: "enabled",
+      async resolveGeoProviderAdapters() {
+        return { adapters, credentialSources: { chatgpt: "platform" }, failures: {} };
+      },
+    });
+    expect(unverified.visibilityReport.observations[0]?.citedUrls).toEqual(live);
+    expect(unverified.visibilityReport.warnings ?? []).not.toContain("citations-unresolved:1");
+  });
+
   it("rejects fixture-sourced observations returned by a live GEO adapter", async () => {
     const providerErrors: string[] = [];
     const result = await processGeoAnswerMonitorJob(geoJob(["chatgpt"]), {

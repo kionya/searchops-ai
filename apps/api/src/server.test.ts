@@ -2050,10 +2050,20 @@ describe("api foundation", () => {
       method: "POST",
       url: "/sites/site_seed/keywords",
       headers,
-      payload: { keywords: [{ phrase: "서초 바디필러 잘하는 곳", intent: "local" }, { phrase: "골반필러 추천 병원" }] },
+      payload: {
+        keywords: [
+          { phrase: "서초 바디필러 잘하는 곳", intent: "local", purpose: "geo_query" },
+          { phrase: "골반필러 추천 병원" },
+        ],
+      },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().keywords).toHaveLength(2);
+    // 용도를 명시하면 그대로, 생략하면 both(하위호환)
+    expect(created.json().keywords.map((keyword: { purpose: string }) => keyword.purpose)).toEqual([
+      "geo_query",
+      "both",
+    ]);
     const again = await server.inject({ method: "POST", url: "/sites/site_seed/keywords", headers, payload: { keywords: [{ phrase: "골반필러 추천 병원" }] } });
     expect(again.statusCode).toBe(201);
     const listed = await server.inject({ method: "GET", url: "/sites/site_seed/keywords", headers });

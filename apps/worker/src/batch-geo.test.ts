@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  createDnsCitationDomainResolver: vi.fn(() => ({ resolves: async () => true })),
   createTelegramNotifier: vi.fn(),
   sendMessage: vi.fn(async () => undefined),
   createPlatformGeoProviderResolver: vi.fn(() => ({ resolveGeoProviderAdapters: vi.fn() })),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@searchops/connectors", () => ({
+  createDnsCitationDomainResolver: mocks.createDnsCitationDomainResolver,
   createTelegramNotifier: mocks.createTelegramNotifier,
 }));
 vi.mock("@searchops/db", () => ({
@@ -72,6 +74,9 @@ describe("batch geo (T3)", () => {
     const payload = calls[0]?.[0] as { queries: unknown[]; providers: string[] };
     expect(payload.queries).toEqual([{ query: "강남 피부과" }]);
     expect(payload.providers).toEqual(["chatgpt"]);
+    // AI 질문 세트만 질의로 쓴다 — 검색 수요 키워드는 제외
+    const kwArgs = (mocks.keywordFindMany.mock.calls as unknown as readonly (readonly unknown[])[])[0]?.[0] as { where: Record<string, unknown> };
+    expect(kwArgs.where).toMatchObject({ purpose: { in: ["geo_query", "both"] } });
     // 모델 secret 이 없으면 geoProviderModels 에 undefined 키를 만들지 않는다(기본 모델이 살아야 한다)
     const resolverOptions = (mocks.createPlatformGeoProviderResolver.mock.calls as unknown as readonly (readonly unknown[])[])[0]?.[0] as { geoProviderModels: Record<string, unknown> };
     expect(resolverOptions.geoProviderModels).toEqual({});

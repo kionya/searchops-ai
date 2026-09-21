@@ -118,6 +118,7 @@ export function buildGeoVisibilityReportCreateArgs(
     score: report.score,
     siteId,
     status: report.status,
+    ...(report.warnings === undefined ? {} : { warnings: toJson(report.warnings) }),
     ...(report.sov === undefined ? {} : { sov: report.sov }),
     ...(report.competitorMentions === undefined ? {} : { competitorMentions: toJson(report.competitorMentions) })
   };
