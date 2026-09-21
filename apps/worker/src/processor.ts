@@ -22,6 +22,7 @@ import {
   hasWorkOrderTemplate
 } from "@searchops/workorders";
 import {
+  applyWorkOrderRecheck,
   persistGeoAnswerMonitorJobResult,
   persistSchemaRichResultValidationJobResult,
   markConnectorSyncRunFailed,
@@ -38,6 +39,7 @@ import {
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
   type RichdocContractBridge,
+  type WorkOrderRecheckPersistenceClient,
   type SchemaRichResultValidationPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
@@ -80,6 +82,8 @@ import {
 
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlAnalysisClient?: CrawlAnalysisPersistenceClient;
+  /** T8: recheckWorkOrderId 가 있는 크롤 뒤 워크오더 상태 전이·감사 이벤트. */
+  readonly workOrderRecheckClient?: WorkOrderRecheckPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
   readonly richdocBridge?: RichdocContractBridge;
   readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
@@ -652,6 +656,16 @@ export async function processAndPersistCrawlJob(
       result,
       options.schemaRecommendationRecheckClient,
     );
+    if (payload.recheckWorkOrderId && options.workOrderRecheckClient !== undefined) {
+      await applyWorkOrderRecheck(options.workOrderRecheckClient, {
+        crawlRunId: payload.crawlRunId,
+        detectedIssues: analyzeUrlSeoSnapshots(result.snapshots).map((issue) => ({
+          ruleId: issue.ruleId,
+          url: issue.evidence.url
+        })),
+        workOrderId: payload.recheckWorkOrderId
+      });
+    }
     await options.richdocBridge?.syncCrawlRun({
       crawlRunId: payload.crawlRunId,
       siteId: payload.siteId

@@ -5,6 +5,7 @@ import {
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
   createPrismaGeoVisibilityPersistenceClient,
+  createPrismaWorkOrderRecheckPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   createPrismaSchemaRichResultValidationPersistenceClient,
   createRichdocContractBridge,
@@ -275,6 +276,7 @@ export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
   const processorOptions: ProcessAndPersistCrawlJobOptions = {
     crawlAnalysisClient,
     schemaRecommendationRecheckClient,
+    workOrderRecheckClient: createPrismaWorkOrderRecheckPersistenceClient(prisma),
     ...(options.richdocContract === undefined
       ? {}
       : { richdocBridge: createRichdocContractBridge({ prisma, ...options.richdocContract }) }),

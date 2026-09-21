@@ -635,6 +635,11 @@ Remaining:
 - Provider account provisioning for observability, restore scheduler, secret manager, and IdP remains deployment work.
 - RS256/JWKS IdP verification can be added as a provider-specific hardening follow-up.
 
+### T8 (2026-09-21): 워크오더 재검수 큐 경유 후처리
+
+- `POST /work-orders/:id/recheck` 는 이미 crawl 큐를 탄다. 새 큐 대신 크롤 페이로드에 `recheckWorkOrderId` 를 실어, 크롤 워커가 룰 재평가 후 `applyWorkOrderRecheck`(packages/db)로 워크오더 `done`/`open` 전이·SeoIssue `resolved`·`ClosedLoopAuditEvent`(`work_order_done`/`work_order_recheck`, source `worker:recheck`)를 남긴다. 멱등(이미 done 이면 skip).
+- `analyze`·`generate` 잡은 jobs.ts 에 이름만 있고 의미 정의가 없어 **배선하지 않았다**. 정의(입력·출력·상태 전이)가 정해지면 같은 패턴으로 붙인다.
+
 ## Next Implementation Plan
 
 Recommended order:

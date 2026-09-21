@@ -1905,6 +1905,7 @@ export const ClosedLoopAuditEventTypeSchema = z.enum([
   "compliance_recheck",
   "compliance_flag_resolved",
   "work_order_done",
+  "work_order_recheck",
 ]);
 
 export type ClosedLoopAuditEventType = z.infer<typeof ClosedLoopAuditEventTypeSchema>;
@@ -2369,6 +2370,8 @@ export type CrawlAnalysisOptions = z.infer<typeof CrawlAnalysisOptionsSchema>;
 
 export const CrawlJobPayloadSchema = z.object({
   analysis: CrawlAnalysisOptionsSchema.optional(),
+  /** T8: 워크오더 재검수 크롤. 크롤·룰 재평가 후 이 워크오더의 상태를 옮기고 감사 이벤트를 남긴다. */
+  recheckWorkOrderId: IdSchema.nullable().optional(),
   crawlRunId: IdSchema,
   siteId: IdSchema,
   siteDomain: DomainSchema,

@@ -6,6 +6,7 @@ import {
   type ConnectorSyncPersistenceClient,
   type CrawlAnalysisPersistenceClient,
   type CrawlPersistenceClient,
+  type WorkOrderRecheckPersistenceClient,
   type GeoVisibilityPersistenceClient,
   type SchemaRichResultValidationPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
@@ -2165,5 +2166,42 @@ describe("connector sync failure diagnostics", () => {
     expect(output).toContain("fetch failed");
     expect(output).toContain("pagespeedonline.googleapis.com");
     expect(output).not.toContain("SUPER-SECRET-KEY");
+  });
+});
+
+describe("work order recheck via crawl job (T8)", () => {
+  it("applies the recheck after crawl + rule re-evaluation when recheckWorkOrderId is set", async () => {
+    const persistenceClient: CrawlPersistenceClient = {
+      urlRecord: { async upsert(args) { return args; } },
+      crawlRun: { async update(args) { return args; } }
+    };
+    const recheckCalls: unknown[] = [];
+    const workOrderRecheckClient: WorkOrderRecheckPersistenceClient = {
+      closedLoopAuditEvent: { async create(args) { recheckCalls.push(["event", args.data.eventType]); return args; } },
+      seoIssue: {
+        async findUnique() { return { id: "issue_1", ruleId: "MISSING_TITLE", urlRecord: { url: "https://example.com/" } }; },
+        async update(args) { recheckCalls.push(["issue", args.data.status]); return args; }
+      },
+      workOrder: {
+        async findUnique() { return { id: "wo_1", organizationId: "org", seoIssueId: "issue_1", siteId: "site_1", status: "in_review" }; },
+        async update(args) { recheckCalls.push(["workOrder", args.data.status]); return args; }
+      }
+    };
+    await processAndPersistCrawlJob(
+      {
+        crawlRunId: "crawl_1",
+        maxPages: 1,
+        pages: [{ url: "https://example.com/", statusCode: 200, html: "<html><head><title>Fixed title</title></head><body><h1>ok</h1></body></html>" }],
+        recheckWorkOrderId: "wo_1",
+        requestedByUserId: "user_1",
+        siteDomain: "example.com",
+        siteId: "site_1",
+        startUrl: "https://example.com/"
+      },
+      persistenceClient,
+      { workOrderRecheckClient }
+    );
+    // 제목이 있으니 MISSING_TITLE 은 재검출되지 않는다 → done + resolved + work_order_done
+    expect(recheckCalls).toEqual([["workOrder", "done"], ["issue", "resolved"], ["event", "work_order_done"]]);
   });
 });

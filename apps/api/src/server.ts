@@ -3010,6 +3010,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       startUrl,
       maxPages: input.maxPages,
       pages: [],
+      recheckWorkOrderId: id,
     });
     const updatedWorkOrder = await repository.updateWorkOrder(id, { status: "in_review" });
     if (!updatedWorkOrder) {
