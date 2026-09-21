@@ -2,18 +2,30 @@ import {
   CreateGeoVisibilityReportRequestSchema,
   GeoVisibilityReportSchema
 } from "@searchops/types";
+import { classifyGeoCitationDomain, isDomainInScope } from "./domain-taxonomy.js";
+
 import type {
   CreateGeoVisibilityReportRequest,
   GeoAnswerObservation,
   GeoCitation,
+  GeoCitationsByKind,
+  GeoCompetitorMention,
   GeoProvider,
   GeoTarget,
   GeoVisibilityCheck,
   GeoVisibilityCheckId,
   GeoVisibilityCheckStatus,
   GeoVisibilityReport,
-  GeoVisibilityStatus
+  GeoVisibilityStatus,
+  GeoVisibilityTrendPoint
 } from "@searchops/types";
+
+export {
+  classifyGeoCitationDomain,
+  geoCommunityDomains,
+  geoPlatformDomains,
+  isDomainInScope
+} from "./domain-taxonomy.js";
 
 export const geoCorePackage = "geo-core" as const;
 export const geoCoreGenerationMode = "deterministic" as const;
@@ -41,6 +53,8 @@ export function evaluateGeoVisibility(
   const providerCount = countDistinct(observations.map((observation) => observation.provider));
   const citations = extractGeoCitations(parsedInput.target, observations);
   const mentionRate = calculateBrandMentionRate(parsedInput.target, observations);
+  const competitorMentions = countCompetitorMentions(parsedInput.target, observations);
+  const sov = calculateShareOfVoice(parsedInput.target, observations, competitorMentions);
   const citationRate = calculateOwnedCitationRate(parsedInput.target, observations);
   const competitorCitationRate = calculateCompetitorCitationRate(citations);
   const checks = [
@@ -66,8 +80,69 @@ export function evaluateGeoVisibility(
     checks,
     generatedBy: geoCoreGenerationMode,
     evaluatedAt,
+    citationsByKind: summarizeGeoCitationsByKind(citations, parsedInput.target.domain),
+    sov,
+    competitorMentions,
     ...summarizeGeoObservationSources(observations)
   });
+}
+
+/**
+ * T2 브랜드명 정규화: 소문자·공백 제거·의료기관 접미어 제거.
+ * "고운몸의원" 과 "고운몸" 이 같은 경쟁사로 잡히게 한다.
+ */
+export function normalizeBrandName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/gu, "")
+    .replace(/(의원|병원|피부과|성형외과|한의원|치과|클리닉|clinic)$/u, "");
+}
+
+// ponytail: 정규화 후 부분 문자열 매칭. "고운몸" 이 "고운몸매관리" 에도 걸린다 — 오탐 보고가 오면 경계 토큰 매칭으로 올린다.
+function answerMentionsName(answerText: string, name: string) {
+  const normalizedName = normalizeBrandName(name);
+  return normalizedName.length > 0 && normalizeBrandName(answerText).includes(normalizedName);
+}
+
+export function countCompetitorMentions(
+  target: GeoTarget,
+  observations: readonly GeoAnswerObservation[]
+): GeoCompetitorMention[] {
+  return (target.competitors ?? []).map((name) => {
+    const questions = [
+      ...new Set(
+        observations
+          .filter((observation) => answerMentionsName(observation.answerText, name))
+          .map((observation) => observation.query)
+      )
+    ];
+    return { count: questions.length, name, questions };
+  });
+}
+
+/** SOV(%) = 자사 언급 관측 수 / (자사 + Σ경쟁사 언급 관측 수). 분모 0 → 0. */
+export function calculateShareOfVoice(
+  target: GeoTarget,
+  observations: readonly GeoAnswerObservation[],
+  competitorMentions: readonly GeoCompetitorMention[] = countCompetitorMentions(target, observations)
+) {
+  const own = observations.filter((observation) =>
+    answerMentionsBrand(target, observation.answerText)
+  ).length;
+  const total = own + competitorMentions.reduce((sum, mention) => sum + mention.count, 0);
+  return total === 0 ? 0 : percentage(own, total);
+}
+
+/** kind 가 없는(T1 이전) 인용은 도메인 사전으로 재분류해 집계한다. */
+export function summarizeGeoCitationsByKind(
+  citations: readonly GeoCitation[],
+  targetDomain: string
+): GeoCitationsByKind {
+  const counts: GeoCitationsByKind = { owned: 0, platform: 0, competitor: 0, community: 0, other: 0 };
+  for (const citation of citations) {
+    counts[citation.kind ?? classifyGeoCitationDomain(citation.domain, { targetDomain })] += 1;
+  }
+  return counts;
 }
 
 export const GEO_PARTIAL_FIXTURE_WARNING = "partial-fixture";
@@ -131,9 +206,14 @@ export function extractGeoCitations(
         continue;
       }
 
+      const kind = classifyGeoCitationDomain(domain, {
+        competitorDomains: (target.competitors ?? []).filter((entry) => entry.includes(".")),
+        targetDomain: target.domain
+      });
       byUrl.set(url, {
         domain,
-        owned: isDomainInScope(domain, target.domain),
+        kind,
+        owned: kind === "owned",
         url
       });
     }
@@ -164,7 +244,13 @@ export function answerMentionsBrand(target: GeoTarget, answerText: string) {
   const normalizedDomain = normalizeText(target.domain);
   const bareDomain = normalizedDomain.replace(/^www\./u, "");
 
-  return normalizedAnswer.includes(normalizedBrand) || normalizedAnswer.includes(bareDomain);
+  return (
+    normalizedAnswer.includes(normalizedBrand) ||
+    normalizedAnswer.includes(bareDomain) ||
+    [target.brandName, ...(target.brandAliases ?? [])].some((name) =>
+      answerMentionsName(answerText, name)
+    )
+  );
 }
 
 export function isOwnedUrl(url: string, targetDomain: string) {
@@ -316,9 +402,45 @@ function extractHostname(url: string) {
   }
 }
 
-function isDomainInScope(hostname: string, targetDomain: string) {
-  const normalizedHostname = hostname.toLowerCase().replace(/^www\./u, "");
-  const normalizedTarget = targetDomain.toLowerCase().replace(/^www\./u, "");
+/** T3 추세 입력: 리포트 레코드에서 필요한 필드만. */
+export interface GeoTrendReportInput {
+  readonly id: string;
+  readonly runSeq?: number | undefined;
+  readonly evaluatedAt: string;
+  readonly mentionRate: number;
+  readonly citationRate: number;
+  readonly sov?: number | undefined;
+  readonly liveShare?: number | undefined;
+}
 
-  return normalizedHostname === normalizedTarget || normalizedHostname.endsWith(`.${normalizedTarget}`);
+/**
+ * 주간 배치 run(runSeq 있는 리포트)만 골라 오래된 순으로 최근 n 개의 delta 를 낸다.
+ * 결측 run 은 gapFromPrevious 로 드러내고, delta 는 실제 직전 run 과 비교한다.
+ */
+export function computeGeoTrend(reports: readonly GeoTrendReportInput[], runs = 12): GeoVisibilityTrendPoint[] {
+  const runReports = reports
+    .filter((report): report is GeoTrendReportInput & { runSeq: number } => report.runSeq !== undefined)
+    .sort((left, right) => left.runSeq - right.runSeq)
+    .slice(-runs);
+  const delta = (current: number | undefined, previous: number | undefined) =>
+    current === undefined || previous === undefined ? null : current - previous;
+
+  return runReports.map((report, index) => {
+    const previous = index === 0 ? undefined : runReports[index - 1];
+    return {
+      citationRate: report.citationRate,
+      delta: {
+        citationRate: delta(report.citationRate, previous?.citationRate),
+        mentionRate: delta(report.mentionRate, previous?.mentionRate),
+        sov: delta(report.sov, previous?.sov)
+      },
+      evaluatedAt: report.evaluatedAt,
+      gapFromPrevious: previous === undefined ? null : report.runSeq - previous.runSeq,
+      liveShare: report.liveShare ?? null,
+      mentionRate: report.mentionRate,
+      reportId: report.id,
+      runSeq: report.runSeq,
+      sov: report.sov ?? null
+    };
+  });
 }

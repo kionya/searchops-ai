@@ -1,3 +1,4 @@
+import { createTelegramNotifier } from "@searchops/connectors";
 import {
   OperationalMetricsExportResponseSchema,
   type OperationalAlert,
@@ -155,6 +156,43 @@ export function createHttpOperationalAlertRouter(
         kind: "searchops.operational_alerts",
         payload: OperationalMetricsExportResponseSchema.parse(payload),
       });
+    },
+  };
+}
+
+export interface CreateTelegramOperationalAlertRouterOptions {
+  readonly botToken: string;
+  readonly chatId: string;
+  readonly fetchFn?: typeof fetch;
+}
+
+/** T7: 운영 알림을 텔레그램 OPS 채널로. 웹훅 어댑터와 같은 인터페이스. */
+export function createTelegramOperationalAlertRouter(
+  options: CreateTelegramOperationalAlertRouterOptions,
+): OperationalAlertRouter {
+  const notifier = createTelegramNotifier({
+    botToken: options.botToken,
+    chatId: options.chatId,
+    fetchImpl: options.fetchFn,
+  });
+  return {
+    async routeAlerts(alerts, payload) {
+      if (alerts.length === 0 || notifier === null) {
+        return;
+      }
+      const lines = alerts.map((alert) => `[${alert.severity}] ${alert.source}: ${alert.message}`);
+      await notifier.sendMessage(`[SearchOps 운영] ${payload.generatedAt}\n${lines.join("\n")}`);
+    },
+  };
+}
+
+/** 여러 라우터에 같은 알림을 보낸다(웹훅 + 텔레그램). */
+export function createCompositeOperationalAlertRouter(
+  routers: readonly OperationalAlertRouter[],
+): OperationalAlertRouter {
+  return {
+    async routeAlerts(alerts, payload) {
+      await Promise.all(routers.map((router) => router.routeAlerts(alerts, payload)));
     },
   };
 }

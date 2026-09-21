@@ -345,6 +345,10 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_RICH_RESULT_VALIDATOR_URL: HttpUrlSchema.optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL: HttpUrlSchema.optional(),
+  // T7 텔레그램. 운영 알림(OPS)과 제품 알림(PRODUCT, 주간 GEO 요약)은 채널을 분리한다.
+  SEARCHOPS_TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_OPS_CHAT_ID: z.string().min(1).optional(),
+  SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID: z.string().min(1).optional(),
   // BullMQ worker polling tuning. Raising these cuts idle Redis commands, which
   // matters on per-command Redis (Upstash free tier). drainDelay is the blocking
   // BRPOPLPUSH timeout (ms); stalledInterval is the stalled-job check period (ms).
@@ -624,6 +628,8 @@ export const AcceptInvitationResponseSchema = z.object({
 
 export type AcceptInvitationResponse = z.infer<typeof AcceptInvitationResponseSchema>;
 
+export const CompetitorListSchema = z.array(NonEmptyStringSchema).max(20);
+
 export const SiteSchema = z.object({
   id: IdSchema,
   organizationId: IdSchema,
@@ -632,6 +638,10 @@ export const SiteSchema = z.object({
   industry: z.string().min(1).nullable(),
   language: z.string().min(2).default("ko"),
   country: z.string().min(2).default("KR"),
+  /** T2 경쟁사 실명 또는 도메인(최대 20). 내부 분석 한정. */
+  competitors: CompetitorListSchema.optional(),
+  /** T3 주간 GEO 배치 대상 여부. */
+  geoMonitorEnabled: z.boolean().optional(),
   createdAt: IsoDateTimeSchema,
 });
 
@@ -1254,15 +1264,45 @@ export const GeoTargetSchema = z.object({
   domain: DomainSchema,
   locale: z.string().min(2).default("ko-KR"),
   market: z.string().min(2).default("KR"),
+  /** T2: 브랜드 별칭(한글 표기·약칭). brandName 과 같은 정규화기로 매칭. */
+  brandAliases: z.array(NonEmptyStringSchema).max(20).optional(),
+  /** T2: 경쟁사 실명 또는 도메인. 서버가 Site.competitors 로 채운다. */
+  competitors: CompetitorListSchema.optional(),
 });
 
 export type GeoTarget = z.infer<typeof GeoTargetSchema>;
+
+export const GeoCompetitorMentionSchema = z.object({
+  name: NonEmptyStringSchema,
+  count: z.number().int().nonnegative(),
+  questions: z.array(NonEmptyStringSchema),
+});
+
+export type GeoCompetitorMention = z.infer<typeof GeoCompetitorMentionSchema>;
+
+export const GeoCitationKindSchema = z.enum(["owned", "platform", "competitor", "community", "other"]);
+
+export type GeoCitationKind = z.infer<typeof GeoCitationKindSchema>;
 
 export const GeoCitationSchema = z.object({
   url: NormalizedUrlSchema,
   domain: DomainSchema,
   owned: z.boolean(),
+  /** T1 출처 분류. 없으면 T1 이전 리포트 — 읽을 때 도메인 사전으로 재분류. */
+  kind: GeoCitationKindSchema.optional(),
 });
+
+const GeoCitationCountSchema = z.number().int().nonnegative();
+
+export const GeoCitationsByKindSchema = z.object({
+  owned: GeoCitationCountSchema,
+  platform: GeoCitationCountSchema,
+  competitor: GeoCitationCountSchema,
+  community: GeoCitationCountSchema,
+  other: GeoCitationCountSchema,
+});
+
+export type GeoCitationsByKind = z.infer<typeof GeoCitationsByKindSchema>;
 
 export type GeoCitation = z.infer<typeof GeoCitationSchema>;
 
@@ -1455,6 +1495,10 @@ export const GeoVisibilityReportSchema = z.object({
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
+  citationsByKind: GeoCitationsByKindSchema.optional(),
+  /** T2 SOV(%) = 자사 언급 / (자사 + Σ경쟁사 언급). 경쟁사 미설정이면 자사 언급 유무만 반영. */
+  sov: PercentageScoreSchema.optional(),
+  competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
   /** connector(실측) 관측 비율 0~1. 없으면 unknown(T0 이전 리포트). */
   liveShare: z.number().min(0).max(1).optional(),
   warnings: z.array(z.string()).optional(),
@@ -1483,6 +1527,12 @@ export const GeoVisibilityReportRecordSchema = z
     checks: z.array(GeoVisibilityCheckSchema).min(1),
     generatedBy: z.literal("deterministic"),
     evaluatedAt: IsoDateTimeSchema,
+    citationsByKind: GeoCitationsByKindSchema.optional(),
+    sov: PercentageScoreSchema.optional(),
+    competitorMentions: z.array(GeoCompetitorMentionSchema).optional(),
+    /** T3 주간 배치 run 번호. 수동 리포트에는 없다. */
+    runSeq: z.number().int().positive().optional(),
+    previousReportId: IdSchema.optional(),
     liveShare: z.number().min(0).max(1).optional(),
     warnings: z.array(z.string()).optional(),
     createdAt: IsoDateTimeSchema,
@@ -1490,6 +1540,33 @@ export const GeoVisibilityReportRecordSchema = z
   .strict();
 
 export type GeoVisibilityReportRecord = z.infer<typeof GeoVisibilityReportRecordSchema>;
+
+const GeoTrendDeltaSchema = z.number().int().nullable();
+
+export const GeoVisibilityTrendPointSchema = z.object({
+  reportId: IdSchema,
+  runSeq: z.number().int().positive(),
+  evaluatedAt: IsoDateTimeSchema,
+  mentionRate: PercentageScoreSchema,
+  citationRate: PercentageScoreSchema,
+  sov: PercentageScoreSchema.nullable(),
+  liveShare: z.number().min(0).max(1).nullable(),
+  /** 직전 run 대비. 첫 run 은 null. 결측 run 이 있으면 gapFromPrevious > 1. */
+  delta: z.object({ mentionRate: GeoTrendDeltaSchema, citationRate: GeoTrendDeltaSchema, sov: GeoTrendDeltaSchema }),
+  gapFromPrevious: z.number().int().positive().nullable(),
+});
+
+export type GeoVisibilityTrendPoint = z.infer<typeof GeoVisibilityTrendPointSchema>;
+
+export const GeoVisibilityTrendResponseSchema = z.object({
+  points: z.array(GeoVisibilityTrendPointSchema),
+});
+
+export type GeoVisibilityTrendResponse = z.infer<typeof GeoVisibilityTrendResponseSchema>;
+
+export const GeoVisibilityTrendQuerySchema = z.object({
+  runs: z.coerce.number().int().min(1).max(52).default(12),
+});
 
 export const CreateGeoVisibilityReportRequestSchema = z.object({
   target: GeoTargetSchema,
@@ -1985,6 +2062,8 @@ export const UpdateSiteRequestSchema = z.object({
   industry: z.string().min(1).nullable().optional(),
   language: z.string().min(2).optional(),
   country: z.string().min(2).optional(),
+  competitors: CompetitorListSchema.optional(),
+  geoMonitorEnabled: z.boolean().optional(),
 });
 
 export type UpdateSiteRequest = z.infer<typeof UpdateSiteRequestSchema>;

@@ -21,7 +21,9 @@ import {
 } from "./auth.js";
 import { createBullMqDeadLetterJobStore } from "./dead-letter-store.js";
 import {
+  createCompositeOperationalAlertRouter,
   createHttpOperationalAlertRouter,
+  createTelegramOperationalAlertRouter,
   createHttpOperationalLogDrain
 } from "./observability.js";
 import {
@@ -160,13 +162,29 @@ const operationalLogDrain =
         bearerToken: env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_TOKEN,
         endpointUrl: env.SEARCHOPS_OBSERVABILITY_LOG_DRAIN_URL
       });
+const operationalAlertRouters = [
+  ...(env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL === undefined
+    ? []
+    : [
+        createHttpOperationalAlertRouter({
+          bearerToken: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN,
+          endpointUrl: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL
+        })
+      ]),
+  // T7: 운영 채널(OPS). 제품 알림(PRODUCT)은 worker batch-geo 가 따로 보낸다.
+  ...(env.SEARCHOPS_TELEGRAM_BOT_TOKEN === undefined || env.SEARCHOPS_TELEGRAM_OPS_CHAT_ID === undefined
+    ? []
+    : [
+        createTelegramOperationalAlertRouter({
+          botToken: env.SEARCHOPS_TELEGRAM_BOT_TOKEN,
+          chatId: env.SEARCHOPS_TELEGRAM_OPS_CHAT_ID
+        })
+      ])
+];
 const operationalAlertRouter =
-  env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL === undefined
+  operationalAlertRouters.length === 0
     ? undefined
-    : createHttpOperationalAlertRouter({
-        bearerToken: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_TOKEN,
-        endpointUrl: env.SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL
-      });
+    : createCompositeOperationalAlertRouter(operationalAlertRouters);
 const backupRestoreDrillScheduler =
   env.SEARCHOPS_RESTORE_DRILL_WEBHOOK_URL === undefined
     ? undefined

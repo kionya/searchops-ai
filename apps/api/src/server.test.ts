@@ -2041,6 +2041,102 @@ describe("api foundation", () => {
     });
   });
 
+  it("renders diagnosis/proposal HTML and refuses blank targets (T6)", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        geoVisibilityReports: [{ ...seededGeoVisibilityReport, runSeq: 1 }],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" };
+    const ok = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis?run=1&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers["content-type"]).toContain("text/html");
+    expect(ok.body).toContain('id="sec-A"');
+    expect(ok.body).toContain("data-source=\"geo:geo_report_seed;run:1;");
+    const proposal = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/proposal?audience=external&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(proposal.statusCode).toBe(200);
+    expect(proposal.body).toContain('id="sec-11"');
+    expect(proposal.body).not.toContain("경쟁 구도 (내부용)"); // 외부용은 경쟁 구도 제거
+    const blank = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis`,
+      headers,
+    });
+    expect(blank.statusCode).toBe(400);
+    const missingRun = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis?run=9&targetMentionRate=70&targetCitationRate=50&targetSov=60`,
+      headers,
+    });
+    expect(missingRun.statusCode).toBe(404);
+  });
+
+  it("returns weekly GEO trend from batch runs only (T3)", async () => {
+    const run = (id: string, runSeq: number, mentionRate: number): GeoVisibilityReportRecord => ({
+      ...seededGeoVisibilityReport,
+      id,
+      mentionRate,
+      runSeq,
+    });
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        geoVisibilityReports: [seededGeoVisibilityReport, run("geo_r2", 2, 40), run("geo_r1", 1, 30)],
+      }),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: `/sites/${seededGeoVisibilityReport.siteId}/geo-visibility-trend?runs=12`,
+      headers: { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" },
+    });
+    expect(response.statusCode).toBe(200);
+    const { points } = response.json() as { points: { reportId: string; delta: { mentionRate: number | null } }[] };
+    expect(points.map((point) => point.reportId)).toEqual(["geo_r1", "geo_r2"]);
+    expect(points[1]?.delta.mentionRate).toBe(10);
+    const missing = await server.inject({
+      method: "GET",
+      url: "/sites/site_missing/geo-visibility-trend",
+      headers: { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("updates site competitors via PATCH and caps the list at 20 (T2)", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "editor" };
+    const ok = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers,
+      payload: { competitors: ["고운몸의원", "rival-clinic.com"] },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().competitors).toEqual(["고운몸의원", "rival-clinic.com"]);
+    const tooMany = await server.inject({
+      method: "PATCH",
+      url: "/sites/site_seed",
+      headers,
+      payload: { competitors: Array.from({ length: 21 }, (_, index) => `c${index}`) },
+    });
+    expect(tooMany.statusCode).toBe(400);
+  });
+
   it("creates and lists organizations", async () => {
     const server = buildTestServer();
     const createResponse = await server.inject({

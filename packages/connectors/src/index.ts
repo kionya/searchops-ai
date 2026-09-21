@@ -39,6 +39,7 @@ import {
 } from "@searchops/types";
 
 export * from "./cms-webhooks.js";
+export * from "./telegram.js";
 export * from "./naver-searchad.js";
 
 export const connectorsPackage = "connectors" as const;

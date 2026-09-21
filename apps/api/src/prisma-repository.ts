@@ -1,4 +1,4 @@
-import { summarizeGeoObservationSources } from "@searchops/geo-core";
+import { summarizeGeoCitationsByKind, summarizeGeoObservationSources } from "@searchops/geo-core";
 import {
   randomUUID
 } from "node:crypto";
@@ -277,7 +277,9 @@ export function createPrismaRepository(
             ...(input.domain === undefined ? {} : { domain: input.domain }),
             ...(input.industry === undefined ? {} : { industry: input.industry }),
             ...(input.language === undefined ? {} : { language: input.language }),
-            ...(input.name === undefined ? {} : { name: input.name })
+            ...(input.name === undefined ? {} : { name: input.name }),
+            ...(input.competitors === undefined ? {} : { competitors: input.competitors }),
+            ...(input.geoMonitorEnabled === undefined ? {} : { geoMonitorEnabled: input.geoMonitorEnabled })
           },
           where: { id }
         }),
@@ -1367,7 +1369,9 @@ function buildGeoVisibilityReportCreateArgs(
     queryCount: report.queryCount,
     score: report.score,
     siteId,
-    status: report.status
+    status: report.status,
+    ...(report.sov === undefined ? {} : { sov: report.sov }),
+    ...(report.competitorMentions === undefined ? {} : { competitorMentions: toJson(report.competitorMentions) })
   };
 }
 
@@ -1665,6 +1669,8 @@ function toSite(record: NonNullable<SiteRecord>): Site {
     industry: record.industry,
     language: record.language,
     country: record.country,
+    competitors: record.competitors,
+    geoMonitorEnabled: record.geoMonitorEnabled,
     createdAt: record.createdAt.toISOString()
   });
 }
@@ -1860,9 +1866,13 @@ function toGeoVisibilityReportRecord(
     checks: record.checks,
     generatedBy: record.generatedBy,
     evaluatedAt: record.evaluatedAt.toISOString(),
+    ...(record.sov === null ? {} : { sov: record.sov }),
+    ...(record.competitorMentions === null ? {} : { competitorMentions: record.competitorMentions }),
+    ...(record.runSeq === null ? {} : { runSeq: record.runSeq }),
+    ...(record.previousReportId === null ? {} : { previousReportId: record.previousReportId }),
     createdAt: record.createdAt.toISOString()
   });
-  return { ...parsed, ...summarizeGeoObservationSources(parsed.observations) };
+  return { ...parsed, citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain), ...summarizeGeoObservationSources(parsed.observations) };
 }
 
 function toSchemaRecommendationRecord(

@@ -1,4 +1,4 @@
-import { summarizeGeoObservationSources } from "@searchops/geo-core";
+import { summarizeGeoCitationsByKind, summarizeGeoObservationSources } from "@searchops/geo-core";
 import type {
   AcceptInvitationResponse,
   AeoReadinessReport,
@@ -578,7 +578,9 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         name: input.name === undefined ? existing.name : input.name,
         industry: input.industry === undefined ? existing.industry : input.industry,
         language: input.language ?? existing.language,
-        country: input.country ?? existing.country
+        country: input.country ?? existing.country,
+        competitors: input.competitors ?? existing.competitors,
+        geoMonitorEnabled: input.geoMonitorEnabled ?? existing.geoMonitorEnabled
       };
       sites.set(id, updated);
       return updated;
@@ -978,6 +980,12 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         checks: input.visibilityReport.checks,
         generatedBy: input.visibilityReport.generatedBy,
         evaluatedAt: input.visibilityReport.evaluatedAt,
+        citationsByKind: summarizeGeoCitationsByKind(
+          input.visibilityReport.citations,
+          input.visibilityReport.target.domain,
+        ),
+        sov: input.visibilityReport.sov,
+        competitorMentions: input.visibilityReport.competitorMentions,
         ...summarizeGeoObservationSources(input.visibilityReport.observations),
         createdAt: nowIso()
       };

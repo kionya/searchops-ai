@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createCompositeOperationalAlertRouter,
   createHttpOperationalAlertRouter,
+  createTelegramOperationalAlertRouter,
   createHttpOperationalLogDrain,
   createMemoryOperationalAlertRouter,
   createMemoryOperationalLogDrain,
@@ -190,5 +192,33 @@ describe("observability export", () => {
         },
       },
     ]);
+  });
+
+  it("routes alerts to telegram and fans out through the composite router (T7)", async () => {
+    const exportPayload = createOperationalMetricsExport({
+      generatedAt: new Date("2026-05-26T00:00:12.000Z"),
+      metricsStartedAtMs: new Date("2026-05-26T00:00:00.000Z").getTime(),
+      requestMetrics: { total: 1, byStatus: { "500": 1 } },
+      workerDeadLetterSummary: { total: 0, byQueue: {}, byStatus: {} },
+    });
+    const bodies: unknown[] = [];
+    const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const telegram = createTelegramOperationalAlertRouter({ botToken: "tok", chatId: "ops", fetchFn });
+    const memory = createMemoryOperationalAlertRouter(() => new Date("2026-05-26T00:00:13.000Z"));
+    await createCompositeOperationalAlertRouter([telegram, memory]).routeAlerts(exportPayload.alerts, exportPayload);
+
+    expect(bodies).toEqual([
+      {
+        chat_id: "ops",
+        disable_web_page_preview: true,
+        text: "[SearchOps 운영] 2026-05-26T00:00:12.000Z\n[critical] api: API returned 1 5xx responses during this process lifetime",
+      },
+    ]);
+    expect(memory.listAlertDeliveries()).toHaveLength(1);
+    await telegram.routeAlerts([], exportPayload);
+    expect(bodies).toHaveLength(1);
   });
 });

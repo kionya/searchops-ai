@@ -15,7 +15,10 @@ import {
   extractGscQueriesFromHistory,
   mergeGeoQueryDefaults,
   defaultGeoAnswerMonitorProviders,
+  buildSparklinePoints,
   formatGeoDate,
+  loadGeoVisibilityTrend,
+  formatGeoSov,
   formatGeoLiveShare,
   formatGeoProvider,
   formatGeoStatus,
@@ -57,6 +60,8 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
   const createSearchParams = await searchParams;
   const site = await loadDashboardSite(siteId);
   const dashboard = await loadGeoVisibilityDashboard(site);
+  const trend = await loadGeoVisibilityTrend(site);
+  const latestTrend = trend.at(-1);
   const connectorHistory = await loadConnectorSyncHistory(site);
   const gscSuggestion = extractGscQueriesFromHistory(connectorHistory);
   const useGscQueries = gscSuggestion.hasGscData && !gscSuggestion.fixture;
@@ -102,6 +107,26 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
         <MetricCard label="인용률" value={summary.averageCitationRate} />
         <MetricCard label="약함/미노출" value={String(summary.weakOrMissing)} />
       </div>
+      {trend.length > 0 ? (
+        <section aria-label="GEO 주간 추세" style={{ margin: "12px 0 20px" }}>
+          <p style={{ ...mutedTextStyle, fontSize: 14, margin: "0 0 6px" }}>
+            주간 run {trend.length}회 · 언급률 최근 {latestTrend?.mentionRate}%
+            {latestTrend?.delta.mentionRate === null || latestTrend?.delta.mentionRate === undefined
+              ? ""
+              : ` (직전 대비 ${latestTrend.delta.mentionRate > 0 ? "+" : ""}${latestTrend.delta.mentionRate}p)`}
+            {latestTrend?.sov === null || latestTrend?.sov === undefined ? "" : ` · SOV ${latestTrend.sov}%`}
+            {latestTrend && latestTrend.liveShare !== null && latestTrend.liveShare < 1 ? " · ⚠ 실측 아님 포함" : ""}
+          </p>
+          <svg aria-label="언급률 스파크라인" height={28} width={120} role="img">
+            <polyline
+              fill="none"
+              points={buildSparklinePoints(trend.map((point) => point.mentionRate))}
+              stroke="#047857"
+              strokeWidth={2}
+            />
+          </svg>
+        </section>
+      ) : null}
       <GeoCreatePanel
         siteId={siteId}
         defaultQueries={defaultQueries}
@@ -147,6 +172,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                 <th>질의</th>
                 <th>Provider</th>
                 <th>경쟁사 리스크</th>
+                <th>SOV</th>
                 <th>실측 비율</th>
                 <th>작업 지시서</th>
               </tr>
@@ -154,7 +180,7 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
             <tbody>
               {dashboard.reports.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="searchops-muted">
+                  <td colSpan={10} className="searchops-muted">
                     아직 GEO 노출 리포트가 없습니다.
                   </td>
                 </tr>
@@ -181,6 +207,17 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
                       <td>{report.queryCount}</td>
                       <td>{report.providerCount}</td>
                       <td>{report.competitorCitationRate}%</td>
+                      <td title="자사 언급 / (자사 + 경쟁사 언급). 경쟁사 실명은 내부용">
+                        <div
+                          aria-hidden
+                          style={{ background: "#e5e7eb", height: 6, width: 72, borderRadius: 3 }}
+                        >
+                          <div
+                            style={{ background: "#047857", height: 6, width: `${report.sov ?? 0}%`, borderRadius: 3 }}
+                          />
+                        </div>
+                        {formatGeoSov(report.sov)}
+                      </td>
                       <td className={report.liveShare === 1 ? undefined : "searchops-muted"}>
                         {formatGeoLiveShare(report.liveShare)}
                       </td>

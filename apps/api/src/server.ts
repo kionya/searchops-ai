@@ -13,7 +13,8 @@ import {
   discoverKeywordTargetsFromConnectorResults,
   normalizeCmsWebhookPayload,
 } from "@searchops/connectors";
-import { evaluateGeoVisibility } from "@searchops/geo-core";
+import { evaluateGeoVisibility, computeGeoTrend } from "@searchops/geo-core";
+import { renderDiagnosisHtml, renderProposalHtml, ReportAudienceSchema } from "@searchops/reports";
 import {
   extractJsonLdTypes,
   hasSchemaType,
@@ -108,6 +109,8 @@ import {
   UpdateComplianceFlagRequestSchema,
   UpdateProviderAccountMetadataRequestSchema,
   UpdateSiteRequestSchema,
+  GeoVisibilityTrendQuerySchema,
+  GeoVisibilityTrendResponseSchema,
   UpdateWorkOrderRequestSchema,
   UpsertSiteConnectorRequestSchema,
   ReplaceProviderCredentialRequestSchema,
@@ -118,6 +121,7 @@ import {
   type ComplianceFlag,
   type KeywordTarget,
   type RecheckComplianceFlagResponse,
+  type GeoTarget,
   type Site,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
@@ -1756,6 +1760,48 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     reply.send(GeoVisibilityReportListResponseSchema.parse({ reports }));
   });
 
+  // T6: 진단서·제안서 HTML. 목표 수치(target*)가 없으면 Zod 가 400 으로 끊는다 — 공란 리포트 금지.
+  server.get("/sites/:id/reports/:kind", async (request, reply) => {
+    const { id, kind } = ReportParamsSchema.parse(request.params);
+    const query = ReportQuerySchema.parse(request.query ?? {});
+    const site = await repository.getSite(id);
+    const reports = site ? await repository.listGeoVisibilityReports(id) : null;
+    if (!site || !reports) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+    const geo = query.run === undefined ? reports[0] : reports.find((report) => report.runSeq === query.run);
+    if (geo === undefined) {
+      reply.status(404).send(notFound("GEO report not found"));
+      return;
+    }
+    const input = {
+      audience: query.audience,
+      complianceFlags: (await repository.listComplianceFlags(id)) ?? [],
+      generatedAt: currentTime().toISOString(),
+      geo,
+      site: { brandName: site.name ?? site.domain, domain: site.domain },
+      targets: { citationRate: query.targetCitationRate, mentionRate: query.targetMentionRate, sov: query.targetSov },
+      trend: computeGeoTrend(reports, 12)
+    };
+    reply
+      .type("text/html; charset=utf-8")
+      .send(kind === "diagnosis" ? renderDiagnosisHtml(input) : renderProposalHtml(input));
+  });
+
+  // T3: 주간 배치 run(runSeq) 간 delta. 수동 리포트는 추세에 넣지 않는다.
+  server.get("/sites/:id/geo-visibility-trend", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const { runs } = GeoVisibilityTrendQuerySchema.parse(request.query ?? {});
+    const reports = await repository.listGeoVisibilityReports(id);
+    if (!reports) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.send(GeoVisibilityTrendResponseSchema.parse({ points: computeGeoTrend(reports, runs) }));
+  });
+
   server.get("/sites/:id/compliance-flags", async (request, reply) => {
     const { id } = IdParamsSchema.parse(request.params);
     const complianceFlags = await repository.listComplianceFlags(id);
@@ -1961,9 +2007,10 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     let visibilityReport;
     try {
-      visibilityReport = evaluateGeoVisibility(input, {
-        evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
-      });
+      visibilityReport = evaluateGeoVisibility(
+        { ...input, target: withSiteCompetitors(input.target, site) },
+        { evaluatedAt: input.evaluatedAt ?? new Date().toISOString() },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid GEO visibility input";
       reply.status(400).send({ error: "validation_error", message });
@@ -2013,7 +2060,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       siteId: site.id,
       siteDomain: site.domain,
       requestedByUserId: userContext.userId,
-      target: input.target,
+      target: withSiteCompetitors(input.target, site),
       queries: input.queries,
       observedAt,
       providers: input.providers,
@@ -3116,3 +3163,17 @@ function classifyDatabaseFailure(text: string): string {
   }
   return "unknown";
 }
+
+/** T2: 경쟁사 목록의 정본은 Site.competitors. 요청이 비워 보내면 사이트 설정으로 채운다. */
+function withSiteCompetitors(target: GeoTarget, site: Site): GeoTarget {
+  return { ...target, competitors: target.competitors ?? site.competitors ?? [] };
+}
+
+const ReportParamsSchema = IdParamsSchema.extend({ kind: z.enum(["diagnosis", "proposal"]) });
+const ReportQuerySchema = z.object({
+  audience: ReportAudienceSchema.default("internal"),
+  run: z.coerce.number().int().positive().optional(),
+  targetCitationRate: z.coerce.number().int().min(0).max(100),
+  targetMentionRate: z.coerce.number().int().min(0).max(100),
+  targetSov: z.coerce.number().int().min(0).max(100)
+});

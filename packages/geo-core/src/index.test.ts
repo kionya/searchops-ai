@@ -11,7 +11,12 @@ import {
   extractGeoCitations,
   geoCoreGenerationMode,
   geoCorePackage,
+  calculateShareOfVoice,
+  computeGeoTrend,
+  countCompetitorMentions,
   isOwnedUrl,
+  normalizeBrandName,
+  summarizeGeoCitationsByKind,
   summarizeGeoObservationSources
 } from "./index.js";
 
@@ -29,6 +34,19 @@ describe("geo-core", () => {
   it("identifies the package and deterministic generation mode", () => {
     expect(geoCorePackage).toBe("geo-core");
     expect(geoCoreGenerationMode).toBe("deterministic");
+  });
+
+  it("re-classifies citations without kind when summarizing (T1 back-compat)", () => {
+    expect(
+      summarizeGeoCitationsByKind(
+        [
+          { domain: "blog.naver.com", owned: false, url: "https://blog.naver.com/x" },
+          { domain: "example.com", owned: true, url: "https://example.com/" },
+          { domain: "goodoc.co.kr", kind: "platform", owned: false, url: "https://goodoc.co.kr/c" }
+        ],
+        "example.com"
+      )
+    ).toEqual({ owned: 1, platform: 1, competitor: 0, community: 1, other: 0 });
   });
 
   it("summarizes live share and flags partial fixture (T0)", () => {
@@ -78,11 +96,13 @@ describe("geo-core", () => {
     expect(citations).toEqual([
       {
         domain: "competitor.com",
+        kind: "other",
         owned: false,
         url: "https://competitor.com/seo"
       },
       {
         domain: "example.com",
+        kind: "owned",
         owned: true,
         url: "https://example.com/service/seo"
       }
@@ -152,6 +172,7 @@ describe("geo-core", () => {
 
     expect(report).toMatchObject({
       citationRate: 100,
+      citationsByKind: { owned: 3, platform: 0, competitor: 0, community: 0, other: 0 },
       competitorCitationRate: 0,
       generatedBy: "deterministic",
       liveShare: 0,
@@ -204,6 +225,55 @@ describe("geo-core", () => {
       "warning",
       "fail"
     ]);
+  });
+
+  it("counts competitor mentions with suffix normalization and computes SOV (T2)", () => {
+    const observation = (query: string, answerText: string): GeoAnswerObservation => ({
+      provider: "chatgpt", query, locale: target.locale, answerText, citedUrls: [], observedAt, source: "fixture"
+    });
+    const withCompetitors = { ...target, brandAliases: ["예시클리닉"], competitors: ["고운몸의원", "rival-clinic.com"] };
+    const observations = [
+      observation("q1", "고운몸 이 추천됩니다."),
+      observation("q2", "고운몸의원과 Example Clinic 둘 다 언급."),
+      observation("q3", "예시 클리닉 이 좋습니다."),
+      observation("q4", "무관한 답변.")
+    ];
+    const mentions = countCompetitorMentions(withCompetitors, observations);
+    expect(mentions).toEqual([
+      { count: 2, name: "고운몸의원", questions: ["q1", "q2"] },
+      { count: 0, name: "rival-clinic.com", questions: [] }
+    ]);
+    // 자사 2(q2 브랜드명, q3 별칭) / (2 + 2)
+    expect(calculateShareOfVoice(withCompetitors, observations, mentions)).toBe(50);
+    expect(calculateShareOfVoice(target, [])).toBe(0);
+    expect(normalizeBrandName("고운몸 의원")).toBe("고운몸");
+    expect(normalizeBrandName("Rival Clinic")).toBe("rival");
+    const report = evaluateGeoVisibility({ target: withCompetitors, observations });
+    expect(report).toMatchObject({ sov: 50, competitorMentions: mentions });
+  });
+
+  it("classifies competitor domains from target.competitors (T2)", () => {
+    const citations = extractGeoCitations(
+      { ...target, competitors: ["고운몸의원", "rival-clinic.com"] },
+      [{ provider: "chatgpt", query: "q", locale: target.locale, answerText: "", citedUrls: ["https://www.rival-clinic.com/a"], observedAt, source: "fixture" }]
+    );
+    expect(citations[0]).toMatchObject({ kind: "competitor", owned: false });
+  });
+
+  it("computes weekly trend deltas over batch runs and exposes missing runs (T3)", () => {
+    const base = { citationRate: 10, evaluatedAt: observedAt, liveShare: 1 };
+    const points = computeGeoTrend([
+      { ...base, id: "manual", mentionRate: 99 },
+      { ...base, id: "r4", mentionRate: 30, runSeq: 4, sov: 20 },
+      { ...base, id: "r1", mentionRate: 50, runSeq: 1, sov: 60 },
+      { ...base, id: "r2", mentionRate: 40, runSeq: 2 }
+    ]);
+    expect(points.map((point) => point.reportId)).toEqual(["r1", "r2", "r4"]);
+    expect(points[0]).toMatchObject({ delta: { citationRate: null, mentionRate: null, sov: null }, gapFromPrevious: null });
+    expect(points[1]).toMatchObject({ delta: { mentionRate: -10, sov: null }, gapFromPrevious: 1, sov: null });
+    expect(points[2]).toMatchObject({ delta: { citationRate: 0, mentionRate: -10, sov: null }, gapFromPrevious: 2 });
+    expect(computeGeoTrend([{ ...base, id: "r1", mentionRate: 1, runSeq: 1 }, { ...base, id: "r2", mentionRate: 2, runSeq: 2 }], 1))
+      .toHaveLength(1);
   });
 
   it("classifies score thresholds", () => {

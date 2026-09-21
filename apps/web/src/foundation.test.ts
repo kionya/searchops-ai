@@ -156,6 +156,8 @@ import {
   queueGeoAnswerMonitorJob,
   summarizeGeoWorkOrderBatchPreview,
   summarizeGeoVisibilityDashboard,
+  formatGeoSov,
+  buildSparklinePoints,
   formatGeoLiveShare
 } from "./geo-visibility-dashboard";
 import {
@@ -1037,6 +1039,11 @@ describe("web foundation", () => {
     expect(formatGeoStatus("not_visible")).toBe("미노출");
     expect(formatGeoProvider("chatgpt")).toBe("ChatGPT");
     expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 00:00");
+    expect(buildSparklinePoints([])).toBe("");
+    expect(buildSparklinePoints([50])).toBe("0,14");
+    expect(buildSparklinePoints([0, 100, 50], 100, 20)).toBe("0,20 50,0 100,10");
+    expect(formatGeoSov(undefined)).toBe("unknown");
+    expect(formatGeoSov(42)).toBe("42%");
     const preview = summarizeGeoWorkOrderBatchPreview(dashboard.reports);
     expect(preview).toMatchObject({
       candidateCount: 1,

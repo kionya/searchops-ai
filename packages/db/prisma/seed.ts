@@ -19,7 +19,8 @@ export const seedFixture = {
     name: "예시 클리닉",
     industry: "medical",
     language: "ko",
-    country: "KR"
+    country: "KR",
+    competitors: ["경쟁 클리닉", "rival-clinic.com"]
   },
   crawlRun: {
     id: "crawl_demo_initial",
@@ -269,7 +270,8 @@ async function main() {
         name: seedFixture.site.name,
         industry: seedFixture.site.industry,
         language: seedFixture.site.language,
-        country: seedFixture.site.country
+        country: seedFixture.site.country,
+        competitors: seedFixture.site.competitors
       },
       create: seedFixture.site
     });
