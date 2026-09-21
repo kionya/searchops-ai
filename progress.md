@@ -571,6 +571,7 @@ Implemented:
 - GEO answer monitor fixture adapters.
 - Live GEO answer monitor adapter port in `packages/connectors`, using explicit injected clients only.
 - `geo-answer-monitor` API enqueue, worker processor, deterministic `geo-core` evaluation, and DB persistence boundary are wired in CDX-125.
+- T1 (2026-09-21): `GeoCitation.kind`(owned|platform|competitor|community|other) + 리포트 `citationsByKind`. 사전은 `packages/geo-core/src/domain-taxonomy.ts`. kind 없는 과거 인용은 읽을 때 재분류. 계획: `docs/plans/2026-09-21-geo-diagnosis-gaps.md`.
 
 Remaining:
 

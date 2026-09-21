@@ -11,7 +11,8 @@ import {
   extractGeoCitations,
   geoCoreGenerationMode,
   geoCorePackage,
-  isOwnedUrl
+  isOwnedUrl,
+  summarizeGeoCitationsByKind
 } from "./index.js";
 
 const target = {
@@ -28,6 +29,19 @@ describe("geo-core", () => {
   it("identifies the package and deterministic generation mode", () => {
     expect(geoCorePackage).toBe("geo-core");
     expect(geoCoreGenerationMode).toBe("deterministic");
+  });
+
+  it("re-classifies citations without kind when summarizing (T1 back-compat)", () => {
+    expect(
+      summarizeGeoCitationsByKind(
+        [
+          { domain: "blog.naver.com", owned: false, url: "https://blog.naver.com/x" },
+          { domain: "example.com", owned: true, url: "https://example.com/" },
+          { domain: "goodoc.co.kr", kind: "platform", owned: false, url: "https://goodoc.co.kr/c" }
+        ],
+        "example.com"
+      )
+    ).toEqual({ owned: 1, platform: 1, competitor: 0, community: 1, other: 0 });
   });
 
   it("detects brand mentions by brand name or domain", () => {
@@ -67,11 +81,13 @@ describe("geo-core", () => {
     expect(citations).toEqual([
       {
         domain: "competitor.com",
+        kind: "other",
         owned: false,
         url: "https://competitor.com/seo"
       },
       {
         domain: "example.com",
+        kind: "owned",
         owned: true,
         url: "https://example.com/service/seo"
       }
@@ -141,6 +157,7 @@ describe("geo-core", () => {
 
     expect(report).toMatchObject({
       citationRate: 100,
+      citationsByKind: { owned: 3, platform: 0, competitor: 0, community: 0, other: 0 },
       competitorCitationRate: 0,
       generatedBy: "deterministic",
       mentionRate: 100,

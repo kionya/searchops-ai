@@ -2,10 +2,13 @@ import {
   CreateGeoVisibilityReportRequestSchema,
   GeoVisibilityReportSchema
 } from "@searchops/types";
+import { classifyGeoCitationDomain, isDomainInScope } from "./domain-taxonomy.js";
+
 import type {
   CreateGeoVisibilityReportRequest,
   GeoAnswerObservation,
   GeoCitation,
+  GeoCitationsByKind,
   GeoProvider,
   GeoTarget,
   GeoVisibilityCheck,
@@ -14,6 +17,13 @@ import type {
   GeoVisibilityReport,
   GeoVisibilityStatus
 } from "@searchops/types";
+
+export {
+  classifyGeoCitationDomain,
+  geoCommunityDomains,
+  geoPlatformDomains,
+  isDomainInScope
+} from "./domain-taxonomy.js";
 
 export const geoCorePackage = "geo-core" as const;
 export const geoCoreGenerationMode = "deterministic" as const;
@@ -65,8 +75,21 @@ export function evaluateGeoVisibility(
     citations,
     checks,
     generatedBy: geoCoreGenerationMode,
-    evaluatedAt
+    evaluatedAt,
+    citationsByKind: summarizeGeoCitationsByKind(citations, parsedInput.target.domain)
   });
+}
+
+/** kind 가 없는(T1 이전) 인용은 도메인 사전으로 재분류해 집계한다. */
+export function summarizeGeoCitationsByKind(
+  citations: readonly GeoCitation[],
+  targetDomain: string
+): GeoCitationsByKind {
+  const counts: GeoCitationsByKind = { owned: 0, platform: 0, competitor: 0, community: 0, other: 0 };
+  for (const citation of citations) {
+    counts[citation.kind ?? classifyGeoCitationDomain(citation.domain, { targetDomain })] += 1;
+  }
+  return counts;
 }
 
 export function calculateBrandMentionRate(
@@ -112,9 +135,11 @@ export function extractGeoCitations(
         continue;
       }
 
+      const kind = classifyGeoCitationDomain(domain, { targetDomain: target.domain });
       byUrl.set(url, {
         domain,
-        owned: isDomainInScope(domain, target.domain),
+        kind,
+        owned: kind === "owned",
         url
       });
     }
@@ -295,11 +320,4 @@ function extractHostname(url: string) {
   } catch {
     return null;
   }
-}
-
-function isDomainInScope(hostname: string, targetDomain: string) {
-  const normalizedHostname = hostname.toLowerCase().replace(/^www\./u, "");
-  const normalizedTarget = targetDomain.toLowerCase().replace(/^www\./u, "");
-
-  return normalizedHostname === normalizedTarget || normalizedHostname.endsWith(`.${normalizedTarget}`);
 }

@@ -1246,11 +1246,29 @@ export const GeoTargetSchema = z.object({
 
 export type GeoTarget = z.infer<typeof GeoTargetSchema>;
 
+export const GeoCitationKindSchema = z.enum(["owned", "platform", "competitor", "community", "other"]);
+
+export type GeoCitationKind = z.infer<typeof GeoCitationKindSchema>;
+
 export const GeoCitationSchema = z.object({
   url: NormalizedUrlSchema,
   domain: DomainSchema,
   owned: z.boolean(),
+  /** T1 출처 분류. 없으면 T1 이전 리포트 — 읽을 때 도메인 사전으로 재분류. */
+  kind: GeoCitationKindSchema.optional(),
 });
+
+const GeoCitationCountSchema = z.number().int().nonnegative();
+
+export const GeoCitationsByKindSchema = z.object({
+  owned: GeoCitationCountSchema,
+  platform: GeoCitationCountSchema,
+  competitor: GeoCitationCountSchema,
+  community: GeoCitationCountSchema,
+  other: GeoCitationCountSchema,
+});
+
+export type GeoCitationsByKind = z.infer<typeof GeoCitationsByKindSchema>;
 
 export type GeoCitation = z.infer<typeof GeoCitationSchema>;
 
@@ -1443,6 +1461,7 @@ export const GeoVisibilityReportSchema = z.object({
   checks: z.array(GeoVisibilityCheckSchema).min(1),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
+  citationsByKind: GeoCitationsByKindSchema.optional(),
 });
 
 export type GeoVisibilityReport = z.infer<typeof GeoVisibilityReportSchema>;
@@ -1468,6 +1487,7 @@ export const GeoVisibilityReportRecordSchema = z
     checks: z.array(GeoVisibilityCheckSchema).min(1),
     generatedBy: z.literal("deterministic"),
     evaluatedAt: IsoDateTimeSchema,
+    citationsByKind: GeoCitationsByKindSchema.optional(),
     createdAt: IsoDateTimeSchema,
   })
   .strict();
