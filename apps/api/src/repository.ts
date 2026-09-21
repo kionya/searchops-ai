@@ -1,6 +1,8 @@
 import { summarizeGeoCitationsByKind, summarizeGeoObservationSources } from "@searchops/geo-core";
 import type {
   AcceptInvitationResponse,
+  Keyword,
+  UpsertKeywordsRequest,
   AeoReadinessReport,
   AeoReadinessReportRecord,
   ClosedLoopAuditEvent,
@@ -226,6 +228,8 @@ export interface SearchOpsRepository {
     siteId: string,
     input: CreateKeywordDiscoveryCandidatesInput,
   ): Promise<KeywordDiscoveryCandidateRecord[] | null>;
+  upsertKeywords(siteId: string, input: UpsertKeywordsRequest): Promise<Keyword[] | null>;
+  listKeywords(siteId: string): Promise<Keyword[] | null>;
   listKeywordDiscoveryCandidates(siteId: string): Promise<
     KeywordDiscoveryCandidateRecord[] | null
   >;
@@ -358,6 +362,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   let schemaRecommendationCounter = 1;
   let workOrderCounter = 1;
   let keywordCounter = 1;
+  const keywords = new Map<string, Keyword>();
 
   for (const organization of seed.organizations ?? []) {
     organizations.set(organization.id, organization);
@@ -884,6 +889,31 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
             b.createdAt.localeCompare(a.createdAt) ||
             a.phrase.localeCompare(b.phrase),
         );
+    },
+
+    async upsertKeywords(siteId, input) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+      const saved: Keyword[] = [];
+      for (const entry of input.keywords) {
+        const key = `${siteId}|${entry.phrase}|${entry.locale}`;
+        const existing = keywords.get(key);
+        const keyword: Keyword = existing
+          ? { ...existing, intent: entry.intent ?? existing.intent }
+          : { id: createId("keyword", keywordCounter++), siteId, phrase: entry.phrase, locale: entry.locale, intent: entry.intent, createdAt: nowIso() };
+        keywords.set(key, keyword);
+        saved.push(keyword);
+      }
+      return saved;
+    },
+
+    async listKeywords(siteId) {
+      if (!sites.has(siteId)) {
+        return null;
+      }
+      // Map 은 삽입 순서를 지킨다 = 등록 순서. 배치가 앞에서 10개를 가져가므로 순서가 곧 우선순위다.
+      return [...keywords.values()].filter((keyword) => keyword.siteId === siteId);
     },
 
     async createKeywordDiscoveryCandidates(siteId, input) {
