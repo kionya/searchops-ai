@@ -55,8 +55,10 @@ describe("reports (T6)", () => {
     expect(html).toContain('data-source="geo:geo_1;run:3;liveShare:0.5"');
     expect(html).toContain('role="alert"');
     expect(html).toContain("실측 비율 50%");
-    expect(html).toContain('id="sec-E" data-source="geo:geo_1;run:3;liveShare:0.5" data-audience="internal"');
+    expect(html).toContain('<div data-audience="internal"><h3>경쟁사 SOV 표 (내부용)</h3>');
     expect(html).toContain("고운몸의원");
+    expect(html).toContain("A. 실측 개요");
+    expect(html).toContain("J. 답변 원문");
     expect(html).toContain("<td>-20p</td>"); // 언급률 50 vs 목표 70
     expect(html).toContain("⚠️ 검증필요(사전심의)");
     expect(html).toContain("의료법 §56② 4호·5호");
@@ -64,9 +66,9 @@ describe("reports (T6)", () => {
 
   it("omits internal sections for the external audience", () => {
     const html = renderDiagnosisHtml({ ...input, audience: "external" });
-    expect(html).not.toContain('id="sec-E"');
+    expect(html).not.toContain('<div data-audience="internal">');
     expect(html).not.toContain("고운몸의원");
-    expect(renderProposalHtml({ ...input, audience: "external" })).not.toContain('id="sec-9"');
+    expect(renderProposalHtml({ ...input, audience: "external" })).not.toContain("경쟁 구도 (내부용)");
   });
 
   it("fails the build when target figures are blank", () => {
@@ -80,5 +82,7 @@ describe("reports (T6)", () => {
     for (const key of ["1", "2", "5", "11"]) expect(html).toContain(`id="sec-${key}"`);
     expect(html).not.toContain('role="alert"');
     expect(html).toContain("BRAND_MENTIONED");
+    expect(html).toContain("1. 배경·권위");
+    expect(html).toContain("11. 결론·다음 단계");
   });
 });

@@ -2066,7 +2066,7 @@ describe("api foundation", () => {
     });
     expect(proposal.statusCode).toBe(200);
     expect(proposal.body).toContain('id="sec-11"');
-    expect(proposal.body).not.toContain('id="sec-9"'); // 외부용은 경쟁 구도 절 제거
+    expect(proposal.body).not.toContain("경쟁 구도 (내부용)"); // 외부용은 경쟁 구도 제거
     const blank = await server.inject({
       method: "GET",
       url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis`,
