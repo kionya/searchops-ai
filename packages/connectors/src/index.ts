@@ -341,6 +341,8 @@ export interface LiveGeoAnswerMonitorAdapterConfig {
   readonly client: LiveGeoAnswerProviderClient;
   /** 질의 동시 호출 상한. 없으면 전부 병렬(기존 동작). 무료 티어 분당 한도 회피용. */
   readonly concurrency?: number;
+  /** 일시 오류 재시도. 없으면 재시도하지 않는다(기존 동작). */
+  readonly retry?: GeoAnswerRetryOptions;
   readonly observedAt?: () => string;
   readonly provider?: GeoAnswerMonitorProvider;
 }
@@ -1021,6 +1023,51 @@ export function createFixtureGeoAnswerMonitorAdapter({
   };
 }
 
+/** 일시 오류로 보고 다시 걸어볼 HTTP 상태. 429 는 상한을 둬도 순간적으로 스칠 수 있다. */
+const transientGeoStatuses = new Set([429, 500, 502, 503, 504]);
+
+export interface GeoAnswerRetryOptions {
+  /** 추가 시도 횟수. 0 이면 재시도 없음(기본). */
+  readonly retries?: number;
+  /** 첫 대기(ms). 시도마다 2배. */
+  readonly backoffMs?: number;
+  /** 테스트 주입용. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * 일시 오류(429·5xx)에만 다시 건다. 잘못된 모델명·인증 실패 같은 영구 오류는 즉시 던진다 —
+ * 그걸 재시도하면 실패를 늦게 알게 될 뿐이다.
+ * 2026-09-21 실측: Gemini 가 "This model is currently experiencing high demand" 로 503 을 낸다.
+ */
+export async function withGeoAnswerRetry<T>(
+  run: () => Promise<T>,
+  options: GeoAnswerRetryOptions = {},
+): Promise<T> {
+  const retries = options.retries ?? 0;
+  const backoffMs = options.backoffMs ?? 1000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const status = geoAnswerErrorStatus(error);
+      if (attempt >= retries || status === null || !transientGeoStatuses.has(status)) {
+        throw error;
+      }
+      await sleep(backoffMs * 2 ** attempt);
+    }
+  }
+}
+
+/** 클라이언트가 던지는 메시지에서 HTTP 상태를 읽는다(`... responded with HTTP 503: ...`). */
+function geoAnswerErrorStatus(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const matched = /responded with HTTP (\d{3})/u.exec(message);
+  return matched ? Number(matched[1]) : null;
+}
+
 /**
  * 순서를 지키면서 동시 실행 수를 제한한다. limit 이 없거나 항목 수 이상이면 전부 병렬.
  * 무료 티어 답변엔진은 분당 요청 한도가 빡빡해 질의 10개를 한꺼번에 던지면 429 가 난다.
@@ -1048,6 +1095,7 @@ async function mapWithConcurrency<T, R>(
 export function createLiveGeoAnswerMonitorAdapter({
   client,
   concurrency,
+  retry,
   observedAt: getObservedAt,
   provider = client.provider
 }: LiveGeoAnswerMonitorAdapterConfig): GeoAnswerMonitorAdapter {
@@ -1066,12 +1114,16 @@ export function createLiveGeoAnswerMonitorAdapter({
         concurrency,
         async (query) => {
           const queryLocale = query.locale ?? parsedRequest.target.locale;
-          const response = await client.ask({
-            observedAt,
-            query: query.query,
-            queryLocale,
-            target: parsedRequest.target
-          });
+          const response = await withGeoAnswerRetry(
+            () =>
+              client.ask({
+                observedAt,
+                query: query.query,
+                queryLocale,
+                target: parsedRequest.target
+              }),
+            retry ?? {},
+          );
 
           return GeoAnswerObservationSchema.parse({
             answerText: response.answerText,
@@ -1529,6 +1581,9 @@ export const defaultGeoAnswerProviderConcurrency: Partial<Record<GeoAnswerMonito
   gemini: 1
 };
 
+/** 일시 오류 재시도 기본값. 모든 엔진에 같게 건다 — 5xx 는 어느 벤더에서나 난다. */
+export const defaultGeoAnswerRetry: GeoAnswerRetryOptions = { backoffMs: 1500, retries: 2 };
+
 export interface LiveGeoAnswerClientKeys {
   readonly chatgptApiKey?: string | undefined;
   readonly chatgptModel?: string | undefined;
@@ -1553,6 +1608,7 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   const fetchImpl = keys.fetchImpl;
   if (keys.chatgptApiKey) {
     adapters.chatgpt = createLiveGeoAnswerMonitorAdapter({
+      retry: defaultGeoAnswerRetry,
       ...(defaultGeoAnswerProviderConcurrency.chatgpt === undefined
         ? {}
         : { concurrency: defaultGeoAnswerProviderConcurrency.chatgpt }),
@@ -1567,6 +1623,7 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.perplexityApiKey) {
     adapters.perplexity = createLiveGeoAnswerMonitorAdapter({
+      retry: defaultGeoAnswerRetry,
       ...(defaultGeoAnswerProviderConcurrency.perplexity === undefined
         ? {}
         : { concurrency: defaultGeoAnswerProviderConcurrency.perplexity }),
@@ -1581,6 +1638,7 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.geminiApiKey) {
     adapters.gemini = createLiveGeoAnswerMonitorAdapter({
+      retry: defaultGeoAnswerRetry,
       ...(defaultGeoAnswerProviderConcurrency.gemini === undefined
         ? {}
         : { concurrency: defaultGeoAnswerProviderConcurrency.gemini }),
@@ -1593,6 +1651,7 @@ export function createLiveGeoAnswerMonitorAdaptersFromKeys(
   }
   if (keys.claudeApiKey) {
     adapters.claude = createLiveGeoAnswerMonitorAdapter({
+      retry: defaultGeoAnswerRetry,
       ...(defaultGeoAnswerProviderConcurrency.claude === undefined
         ? {}
         : { concurrency: defaultGeoAnswerProviderConcurrency.claude }),
