@@ -295,6 +295,7 @@ export interface MemoryRepositorySeed {
   readonly geoVisibilityReports?: readonly GeoVisibilityReportRecord[];
   readonly complianceFlags?: readonly ComplianceFlag[];
   readonly schemaRecommendations?: readonly SchemaRecommendationRecord[];
+  readonly keywords?: readonly Keyword[];
   readonly seoIssues?: readonly SeoIssue[];
   readonly urlRecords?: readonly UrlRecord[];
   readonly workOrders?: readonly WorkOrder[];
@@ -434,6 +435,12 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
   for (const schemaRecommendation of seed.schemaRecommendations ?? []) {
     schemaRecommendations.set(schemaRecommendation.id, schemaRecommendation);
     schemaRecommendationCounter += 1;
+  }
+
+  for (const keyword of seed.keywords ?? []) {
+    // upsertKeywords 와 같은 키로 넣는다 — id 로 넣으면 같은 phrase 가 중복 upsert 된다.
+    keywords.set(`${keyword.siteId}|${keyword.phrase}|${keyword.locale}`, keyword);
+    keywordCounter += 1;
   }
 
   for (const seoIssue of seed.seoIssues ?? []) {
