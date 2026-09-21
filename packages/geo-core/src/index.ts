@@ -1,5 +1,6 @@
 import {
   CreateGeoVisibilityReportRequestSchema,
+  DomainSchema,
   GeoVisibilityReportSchema
 } from "@searchops/types";
 import { classifyGeoCitationDomain, isDomainInScope } from "./domain-taxonomy.js";
@@ -52,6 +53,9 @@ export function evaluateGeoVisibility(
   const queryCount = countDistinct(observations.map((observation) => normalizeText(observation.query)));
   const providerCount = countDistinct(observations.map((observation) => observation.provider));
   const citations = extractGeoCitations(parsedInput.target, observations);
+  // 계약을 통과하지 못해 제외된 고유 인용 URL 수. 조용히 빠지면 "왜 인용이 적지" 를 아무도 못 찾는다.
+  const droppedCitations =
+    countDistinct(observations.flatMap((observation) => [...observation.citedUrls])) - citations.length;
   const mentionRate = calculateBrandMentionRate(parsedInput.target, observations);
   const competitorMentions = countCompetitorMentions(parsedInput.target, observations);
   const sov = calculateShareOfVoice(parsedInput.target, observations, competitorMentions);
@@ -83,8 +87,19 @@ export function evaluateGeoVisibility(
     citationsByKind: summarizeGeoCitationsByKind(citations, parsedInput.target.domain),
     sov,
     competitorMentions,
-    ...summarizeGeoObservationSources(observations)
+    ...withDroppedCitationWarning(summarizeGeoObservationSources(observations), droppedCitations)
   });
+}
+
+export const GEO_CITATIONS_DROPPED_WARNING = "citations-dropped";
+
+function withDroppedCitationWarning(
+  sources: { liveShare: number; warnings: string[] },
+  dropped: number
+) {
+  return dropped > 0
+    ? { ...sources, warnings: [...sources.warnings, `${GEO_CITATIONS_DROPPED_WARNING}:${dropped}`] }
+    : sources;
 }
 
 /**
@@ -394,12 +409,31 @@ function countDistinct(values: readonly (GeoProvider | string)[]) {
   return new Set(values.filter(Boolean)).size;
 }
 
+/**
+ * URL → bare domain. `GeoCitation.domain` 계약(DomainSchema)을 통과하는 값만 돌려준다.
+ *
+ * ⚠️ 2026-09-21 운영 배치 실패의 원인: 답변에서 뽑은 인용 URL 하나의 호스트명이
+ * bare domain 이 아니면(IP·localhost·트레일링 점·밑줄) evaluateGeoVisibility 가
+ * ZodError 로 통째로 던져 관측 40건이 전부 버려졌다. 여기서 걸러 인용 1건만 빠지게 한다.
+ * 버린 건수는 리포트 warnings 의 citations-dropped 로 드러난다 — 조용히 사라지지 않는다.
+ */
 function extractHostname(url: string) {
+  let hostname: string;
   try {
-    return new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
+    hostname = new URL(url).hostname.toLowerCase();
   } catch {
     return null;
   }
+
+  // FQDN 루트 표기(example.com.)는 같은 도메인이다. 버리지 말고 정규화한다.
+  const withoutRootDot = hostname.replace(/\.+$/u, "");
+  // "www." 는 떼고도 점이 남을 때만 뗀다. www.kr 에서 떼면 단일 레이블이 돼 도메인이 아니게 된다.
+  const bare =
+    withoutRootDot.startsWith("www.") && withoutRootDot.slice(4).includes(".")
+      ? withoutRootDot.slice(4)
+      : withoutRootDot;
+
+  return DomainSchema.safeParse(bare).success ? bare : null;
 }
 
 /** T3 추세 입력: 리포트 레코드에서 필요한 필드만. */

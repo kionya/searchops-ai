@@ -276,6 +276,64 @@ describe("geo-core", () => {
       .toHaveLength(1);
   });
 
+  describe("인용 도메인 정규화 (2026-09-21 운영 배치 실패 회귀)", () => {
+    const observe = (citedUrls: readonly string[]): GeoAnswerObservation => ({
+      provider: "chatgpt",
+      query: "서초 바디필러 잘하는 곳",
+      locale: target.locale,
+      answerText: "Example Clinic 을 포함한 여러 곳이 있습니다.",
+      citedUrls: [...citedUrls],
+      observedAt,
+      source: "connector"
+    });
+
+    it("계약을 통과 못 하는 호스트는 그 인용만 버리고 리포트는 살린다", () => {
+      const observations = [
+        observe([
+          "https://example.com/service",
+          "https://192.168.0.1/admin",
+          "https://localhost/x",
+          "https://my_host.com/y"
+        ])
+      ];
+
+      // 고치기 전에는 여기서 ZodError 가 나 관측 전체가 버려졌다.
+      const report = evaluateGeoVisibility({ target, observations });
+
+      expect(report.citations.map((citation) => citation.domain)).toEqual(["example.com"]);
+      expect(report.warnings).toContain("citations-dropped:3");
+      expect(report.mentionRate).toBe(100);
+    });
+
+    it("FQDN 루트 표기는 정규화해 살리고, 버린 게 없으면 경고도 없다", () => {
+      const report = evaluateGeoVisibility({
+        target,
+        observations: [observe(["https://example.com./service"])]
+      });
+
+      expect(report.citations).toHaveLength(1);
+      expect(report.citations[0]).toMatchObject({ domain: "example.com", owned: true });
+      expect(report.warnings ?? []).not.toContain("citations-dropped:1");
+    });
+
+    it("www. 는 떼고도 점이 남을 때만 뗀다", () => {
+      expect(
+        evaluateGeoVisibility({ target, observations: [observe(["https://www.example.com/a"])] }).citations[0]
+      ).toMatchObject({ domain: "example.com", owned: true });
+
+      // www.kr 에서 www. 를 떼면 단일 레이블 "kr" 이 돼 도메인이 아니게 된다.
+      expect(
+        evaluateGeoVisibility({ target, observations: [observe(["https://www.kr/a"])] }).citations[0]
+      ).toMatchObject({ domain: "www.kr", owned: false });
+    });
+
+    it("소유 URL 판정도 같은 정규화를 쓴다", () => {
+      expect(isOwnedUrl("https://www.example.com/a", "example.com")).toBe(true);
+      expect(isOwnedUrl("https://example.com./a", "example.com")).toBe(true);
+      expect(isOwnedUrl("https://192.168.0.1/a", "example.com")).toBe(false);
+    });
+  });
+
   it("classifies score thresholds", () => {
     expect(classifyGeoVisibilityStatus(75)).toBe("strong");
     expect(classifyGeoVisibilityStatus(50)).toBe("visible");
