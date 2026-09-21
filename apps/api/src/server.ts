@@ -3168,7 +3168,7 @@ function withSiteCompetitors(target: GeoTarget, site: Site): GeoTarget {
   return { ...target, competitors: target.competitors ?? site.competitors ?? [] };
 }
 
-const ReportParamsSchema = z.object({ id: IdSchema, kind: z.enum(["diagnosis", "proposal"]) });
+const ReportParamsSchema = IdParamsSchema.extend({ kind: z.enum(["diagnosis", "proposal"]) });
 const ReportQuerySchema = z.object({
   audience: ReportAudienceSchema.default("internal"),
   run: z.coerce.number().int().positive().optional(),

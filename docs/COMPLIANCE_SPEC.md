@@ -63,6 +63,29 @@ Each flag includes:
 - `PRICE_DISCOUNT_PROMOTION`: discount, limited-time, event-price, or free-consultation promotions.
 - `UNREVIEWED_MEDICAL_PUBLISH`: medical content outside draft state before compliance approval.
 
+## medical-ad-guard 9항목 대응표 (T4)
+
+정본은 `~/.claude/skills/medical-ad-guard/SKILL.md` 의 "검수 필수 체크리스트 — 9항목 전수" 다.
+코드 정본은 `packages/compliance/src/index.ts` 의 `complianceChecklistCanon`. 두 곳이 어긋나면 이 표가 아니라 SKILL.md 를 따른다.
+
+| # | 항목 | 조항 | 룰 | 비고 |
+|---|---|---|---|---|
+| 1 | 보장성·최상급 표현 | §56② 3·4·7·8호 | GUARANTEED_RESULT_CLAIM · ABSOLUTE_SAFETY_CLAIM · SUPERLATIVE_CLAIM | |
+| 2 | 치료 경험담(후기) | §56② 2호 | PATIENT_TESTIMONIAL_REFERENCE | |
+| 3 | 전후 사진 | §56② 2호 | BEFORE_AFTER_REFERENCE | 부작용 고지 동반 시 `low` 로 완화 |
+| 4 | 비교·비방광고 | §56② 4·5호 | COMPARATIVE_OR_DEFAMATORY_CLAIM | 우위 주장 없는 단순 비교도 해당 |
+| 5 | 환자 유인·알선 | §27③ | PRICE_DISCOUNT_PROMOTION | 조항 정정(§56② → §27③) |
+| 6 | 객관적 근거·신의료기술 | §56② 3호 · §53 | UNSUBSTANTIATED_OR_NEW_TECH_CLAIM | |
+| 7 | 부작용 등 중요정보 누락 | §56② 7호 | SIDE_EFFECT_DISCLOSURE_MISSING | 페이지 단위: 시술 키워드 있음 ∧ 면책 문구 없음. "부작용 없는" 은 고지가 아니다 |
+| 8 | 사전심의 | §57 | UNREVIEWED_MEDICAL_PUBLISH (`priorReviewRequired: true`) | 기계가 확정 불가. `input.priorReviewStatus` 가 `confirmed`/`not_required` 일 때만 pass, 그 외 `needs_verification` |
+| 9 | 기사형 광고 | §56② | ADVERTORIAL_FORMAT | |
+
+리포트 레벨: `checklist[9]` + `verdict`. `verdict: "safe"` 는 9항목 전부 `pass` 일 때만.
+`blocked` → `danger`, 그 외 flagged/needs_verification 이 하나라도 있으면 `needs_review`.
+판정은 `flag` 까지다 — **승인/반려는 사람**(draft-only). 정규식 오탐은 자동 차단 없이 recommendation 의 "검토 필요" 톤으로 남긴다.
+
+각 플래그는 `legalClause`·`checklistItem`·`priorReviewRequired` 를 갖는다(DB 컬럼, 마이그레이션 `20260921020000_compliance_checklist_clause`).
+
 ## Rule Packs
 
 - `global`: deterministic English/global baseline medical advertising checks.

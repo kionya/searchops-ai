@@ -2066,7 +2066,7 @@ describe("api foundation", () => {
     });
     expect(proposal.statusCode).toBe(200);
     expect(proposal.body).toContain('id="sec-11"');
-    expect(proposal.body).not.toContain('data-audience="internal"');
+    expect(proposal.body).not.toContain('id="sec-9"'); // 외부용은 경쟁 구도 절 제거
     const blank = await server.inject({
       method: "GET",
       url: `/sites/${seededGeoVisibilityReport.siteId}/reports/diagnosis`,
@@ -4088,6 +4088,8 @@ describe("api foundation", () => {
     expect(response.json().complianceFlags.map((flag: { ruleId: string }) => flag.ruleId)).toEqual([
       "ABSOLUTE_SAFETY_CLAIM",
       "PRICE_DISCOUNT_PROMOTION",
+      // T4 항목 7: 레이저 치료 문구에 부작용 고지가 없다
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
     ]);
   });
 

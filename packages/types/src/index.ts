@@ -1732,7 +1732,33 @@ export const ComplianceRuleIdSchema = z.enum([
   "PATIENT_TESTIMONIAL_REFERENCE",
   "PRICE_DISCOUNT_PROMOTION",
   "UNREVIEWED_MEDICAL_PUBLISH",
+  "COMPARATIVE_OR_DEFAMATORY_CLAIM",
+  "UNSUBSTANTIATED_OR_NEW_TECH_CLAIM",
+  "SIDE_EFFECT_DISCLOSURE_MISSING",
+  "ADVERTORIAL_FORMAT",
 ]);
+
+/** medical-ad-guard 9항목 체크리스트 번호(정본: ~/.claude/skills/medical-ad-guard/SKILL.md). */
+export const ComplianceChecklistItemSchema = z.number().int().min(1).max(9);
+
+export type ComplianceChecklistItem = z.infer<typeof ComplianceChecklistItemSchema>;
+
+export const ComplianceChecklistStatusSchema = z.enum(["pass", "flagged", "needs_verification"]);
+
+export const ComplianceChecklistResultSchema = z.object({
+  item: ComplianceChecklistItemSchema,
+  label: z.string().min(1),
+  legalClause: z.string().min(1),
+  status: ComplianceChecklistStatusSchema,
+  ruleIds: z.array(ComplianceRuleIdSchema),
+});
+
+export type ComplianceChecklistResult = z.infer<typeof ComplianceChecklistResultSchema>;
+
+/** 9항목 전수 기준 판정. 하나라도 needs_verification 이면 safe 불가(정본 판정 원칙). */
+export const ComplianceVerdictSchema = z.enum(["safe", "needs_review", "danger"]);
+
+export const CompliancePriorReviewStatusSchema = z.enum(["unknown", "confirmed", "not_required"]);
 
 export type ComplianceRuleId = z.infer<typeof ComplianceRuleIdSchema>;
 
@@ -1786,6 +1812,8 @@ export const ComplianceReviewInputSchema = z.object({
   text: NonEmptyStringSchema,
   publishState: CompliancePublishStateSchema.default("draft"),
   source: ComplianceReviewSourceSchema.default("manual"),
+  /** T4 항목 8(사전심의)은 외부 사실이라 기계가 확정할 수 없다. 사람이 확인해 넘긴다. */
+  priorReviewStatus: CompliancePriorReviewStatusSchema.optional(),
 });
 
 export type ComplianceReviewInput = z.infer<typeof ComplianceReviewInputSchema>;
@@ -1802,6 +1830,9 @@ export const ComplianceFlagDraftSchema = z.object({
   ownerType: z.literal("legal").default("legal"),
   publishPolicy: z.literal("draft_only"),
   generatedBy: z.literal("deterministic"),
+  legalClause: z.string().min(1).optional(),
+  checklistItem: ComplianceChecklistItemSchema.optional(),
+  priorReviewRequired: z.boolean().default(false),
 });
 
 export type ComplianceFlagDraft = z.infer<typeof ComplianceFlagDraftSchema>;
@@ -1815,6 +1846,8 @@ export const ComplianceReviewReportSchema = z.object({
   publishPolicy: z.literal("draft_only"),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
+  checklist: z.array(ComplianceChecklistResultSchema).length(9),
+  verdict: ComplianceVerdictSchema,
 });
 
 export type ComplianceReviewReport = z.infer<typeof ComplianceReviewReportSchema>;
@@ -1842,6 +1875,9 @@ export const ComplianceFlagSchema = z.object({
   recommendation: z.string().min(1).nullable().optional(),
   replacementSuggestion: z.string().min(1).nullable().optional(),
   generatedBy: z.literal("deterministic").optional(),
+  legalClause: z.string().min(1).nullable().optional(),
+  checklistItem: ComplianceChecklistItemSchema.nullable().optional(),
+  priorReviewRequired: z.boolean().optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema.optional(),
 });

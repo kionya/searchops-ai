@@ -1392,6 +1392,9 @@ function buildComplianceFlagCreateArgs(
     ruleId: flag.ruleId,
     siteId,
     status: flag.status,
+    legalClause: flag.legalClause ?? null,
+    checklistItem: flag.checklistItem ?? null,
+    priorReviewRequired: flag.priorReviewRequired,
     subjectId: report.input.subjectId,
     subjectType: report.input.subjectType,
     title: flag.title,
@@ -1457,7 +1460,10 @@ function buildComplianceFlagRecheckUpdateArgs(
     riskLevel: matchingFlag.riskLevel,
     ruleId: matchingFlag.ruleId,
     status,
-    title: matchingFlag.title
+    title: matchingFlag.title,
+    legalClause: matchingFlag.legalClause ?? null,
+    checklistItem: matchingFlag.checklistItem ?? null,
+    priorReviewRequired: matchingFlag.priorReviewRequired
   };
 }
 
@@ -1921,6 +1927,9 @@ function toComplianceFlag(record: NonNullable<ComplianceFlagRecord>): Compliance
     recommendation: record.recommendation,
     replacementSuggestion: record.replacementSuggestion,
     generatedBy: record.generatedBy,
+    legalClause: record.legalClause,
+    checklistItem: record.checklistItem,
+    priorReviewRequired: record.priorReviewRequired,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()
   });

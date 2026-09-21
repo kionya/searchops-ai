@@ -539,6 +539,10 @@ model ComplianceFlag {
   recommendation String?
   replacementSuggestion String?
   generatedBy    String   @default("deterministic")
+  /// T4: 위반 조항(예: "의료법 §56② 2호"), medical-ad-guard 9항목 번호, 사전심의 필요 여부.
+  legalClause    String?
+  checklistItem  Int?
+  priorReviewRequired Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
 
