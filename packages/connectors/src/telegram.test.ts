@@ -13,7 +13,7 @@ describe("telegram notifier (T7)", () => {
     let status = 200;
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
-      return new Response("{}", { status });
+      return new Response(status === 200 ? "{}" : '{"description":"Bad Request: chat not found"}', { status });
     }) as typeof fetch;
     const notifier = createTelegramNotifier({ botToken: "tok", chatId: "-100", fetchImpl });
     await notifier?.sendMessage("hello");
@@ -24,6 +24,6 @@ describe("telegram notifier (T7)", () => {
       }
     ]);
     status = 500;
-    await expect(notifier?.sendMessage("x")).rejects.toThrow("HTTP 500");
+    await expect(notifier?.sendMessage("x")).rejects.toThrow("HTTP 500: {\"description\":\"Bad Request: chat not found\"}");
   });
 });
