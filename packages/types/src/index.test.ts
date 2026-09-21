@@ -3071,6 +3071,7 @@ describe("types foundation", () => {
       "compliance_recheck",
       "compliance_flag_resolved",
       "work_order_done",
+      "work_order_recheck",
     ]);
     expect(ClosedLoopAuditEventStatusSchema.options).toEqual([
       "received",

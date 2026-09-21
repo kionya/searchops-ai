@@ -526,6 +526,7 @@ Remaining:
 Status: Deterministic MVP completed.
 
 Implemented:
+- T5 (2026-09-21): 네이버 검색광고 키워드 도구 클라이언트 `packages/connectors/src/naver-searchad.ts`(HMAC-SHA256 서명, "< 10" 파싱, 5개 청크, fixture 클라이언트, `classifyKeywordVolumeTier` 100회 하한). `Keyword.monthlyVolumePc/Mobile/volumeFetchedAt`(마이그레이션 `20260921030000_keyword_search_volume`). `apps/worker/src/batch-keyword-volume.ts` 를 batch-crawl 워크플로 스텝으로 — 키 없으면 아무것도 쓰지 않는다. env `SEARCHOPS_NAVER_SEARCHAD_CUSTOMER_ID/_ACCESS_LICENSE/_SECRET_KEY`(사용자 발급).
 
 - Keyword/AEO contracts in `packages/types`.
 - Deterministic intent/readiness rules in `packages/aeo-core`.
@@ -638,6 +639,11 @@ Remaining:
 - Deployment-specific Redis client wiring or edge-backed rate limiting.
 - Provider account provisioning for observability, restore scheduler, secret manager, and IdP remains deployment work.
 - RS256/JWKS IdP verification can be added as a provider-specific hardening follow-up.
+
+### T8 (2026-09-21): 워크오더 재검수 큐 경유 후처리
+
+- `POST /work-orders/:id/recheck` 는 이미 crawl 큐를 탄다. 새 큐 대신 크롤 페이로드에 `recheckWorkOrderId` 를 실어, 크롤 워커가 룰 재평가 후 `applyWorkOrderRecheck`(packages/db)로 워크오더 `done`/`open` 전이·SeoIssue `resolved`·`ClosedLoopAuditEvent`(`work_order_done`/`work_order_recheck`, source `worker:recheck`)를 남긴다. 멱등(이미 done 이면 skip).
+- `analyze`·`generate` 잡은 jobs.ts 에 이름만 있고 의미 정의가 없어 **배선하지 않았다**. 정의(입력·출력·상태 전이)가 정해지면 같은 패턴으로 붙인다.
 
 ## Next Implementation Plan
 

@@ -153,6 +153,15 @@ export {
 } from "./schema-rich-result-validation.js";
 
 export {
+  applyWorkOrderRecheck,
+  createPrismaWorkOrderRecheckPersistenceClient,
+  type ApplyWorkOrderRecheckInput,
+  type ApplyWorkOrderRecheckOutput,
+  type WorkOrderRecheckOutcome,
+  type WorkOrderRecheckPersistenceClient
+} from "./work-order-recheck.js";
+
+export {
   buildGeoVisibilityReportCreateArgs,
   createPrismaGeoVisibilityPersistenceClient,
   persistGeoAnswerMonitorJobResult,

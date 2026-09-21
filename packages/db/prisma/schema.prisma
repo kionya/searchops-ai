@@ -342,6 +342,10 @@ model Keyword {
   phrase    String
   locale    String   @default("ko-KR")
   intent    String?
+  /// T5 네이버 검색광고 월간 검색량. null = 미조회. 진단서 근거는 PC+모바일 ≥ 100 만.
+  monthlyVolumePc     Int?
+  monthlyVolumeMobile Int?
+  volumeFetchedAt     DateTime?
   createdAt DateTime @default(now())
 
   site          Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)

@@ -314,6 +314,10 @@ export const SearchOpsEnvSchema = z.object({
   SEARCHOPS_GSC_SERVICE_ACCOUNT_JSON: JsonObjectStringSchema.optional(),
   SEARCHOPS_PAGESPEED_API_KEY: z.string().min(1).optional(),
   SEARCHOPS_BING_API_KEY: z.string().min(1).optional(),
+  // T5 네이버 검색광고(키워드 도구). 셋 다 있어야 라이브. 키는 사용자가 발급·주입한다.
+  SEARCHOPS_NAVER_SEARCHAD_CUSTOMER_ID: z.string().min(1).optional(),
+  SEARCHOPS_NAVER_SEARCHAD_ACCESS_LICENSE: z.string().min(1).optional(),
+  SEARCHOPS_NAVER_SEARCHAD_SECRET_KEY: z.string().min(1).optional(),
   SEARCHOPS_CMS_API_TOKEN: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWT_HS256_SECRET: z.string().min(1).optional(),
   SEARCHOPS_IDP_JWKS_JSON: JsonObjectStringSchema.optional(),
@@ -908,9 +912,17 @@ export const KeywordSchema = z.object({
   locale: z.string().min(2).default("ko-KR"),
   intent: KeywordIntentSchema.nullable(),
   createdAt: IsoDateTimeSchema,
+  /** T5 월간 검색량(네이버 검색광고). 없으면 미조회. */
+  monthlyVolumePc: z.number().int().nonnegative().nullable().optional(),
+  monthlyVolumeMobile: z.number().int().nonnegative().nullable().optional(),
+  volumeFetchedAt: IsoDateTimeSchema.nullable().optional(),
 });
 
 export type Keyword = z.infer<typeof KeywordSchema>;
+
+export const KeywordVolumeTierSchema = z.enum(["evidence", "exploratory"]);
+
+export type KeywordVolumeTier = z.infer<typeof KeywordVolumeTierSchema>;
 
 export const AeoAnswerBlockSchema = z.object({
   question: NonEmptyStringSchema,
@@ -1970,6 +1982,7 @@ export const ClosedLoopAuditEventTypeSchema = z.enum([
   "compliance_recheck",
   "compliance_flag_resolved",
   "work_order_done",
+  "work_order_recheck",
 ]);
 
 export type ClosedLoopAuditEventType = z.infer<typeof ClosedLoopAuditEventTypeSchema>;
@@ -2436,6 +2449,8 @@ export type CrawlAnalysisOptions = z.infer<typeof CrawlAnalysisOptionsSchema>;
 
 export const CrawlJobPayloadSchema = z.object({
   analysis: CrawlAnalysisOptionsSchema.optional(),
+  /** T8: 워크오더 재검수 크롤. 크롤·룰 재평가 후 이 워크오더의 상태를 옮기고 감사 이벤트를 남긴다. */
+  recheckWorkOrderId: IdSchema.nullable().optional(),
   crawlRunId: IdSchema,
   siteId: IdSchema,
   siteDomain: DomainSchema,

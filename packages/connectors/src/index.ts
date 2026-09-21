@@ -40,6 +40,7 @@ import {
 
 export * from "./cms-webhooks.js";
 export * from "./telegram.js";
+export * from "./naver-searchad.js";
 
 export const connectorsPackage = "connectors" as const;
 export const liveExternalApisDefault = "disabled" as const;
