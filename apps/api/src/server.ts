@@ -9,6 +9,7 @@ import {
 } from "@searchops/aeo-core";
 import { evaluateCompliance } from "@searchops/compliance";
 import {
+  classifyKeywordVolumeTier,
   CmsWebhookProviderSchema,
   discoverKeywordTargetsFromConnectorResults,
   normalizeCmsWebhookPayload,
@@ -121,6 +122,7 @@ import {
   WorkOrderSchema,
   type CmsContentUpdatedEventRequest,
   type ComplianceFlag,
+  type Keyword,
   type KeywordTarget,
   type RecheckComplianceFlagResponse,
   type GeoTarget,
@@ -1799,14 +1801,30 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       reply.status(404).send(notFound("GEO report not found"));
       return;
     }
+    // D·E·F 절 데이터. 빈 배열은 정상 상태다 — 0건이라고 404 를 내지 않는다(실제 사이트가 리포트를 못 받는다).
+    // E 절은 "최신 크롤런에서 아직 열려 있는 이슈"다. SeoIssue.crawlRunId 는 마지막 관측 런이라
+    // 이슈 배열만으로는 최신 런을 알 수 없다 — 최신 CrawlRun.id 를 여기서 구해 넘긴다(listCrawlRuns 는 startedAt 오름차순).
+    const [aeoReports, complianceFlags, crawlRuns, keywords, seoIssues, workOrders] = await Promise.all([
+      repository.listAeoReadinessReports(id),
+      repository.listComplianceFlags(id),
+      repository.listCrawlRuns(id),
+      repository.listKeywords(id),
+      repository.listSeoIssues(id),
+      repository.listWorkOrders(id)
+    ]);
     const input = {
+      aeoReports: aeoReports ?? [],
       audience: query.audience,
-      complianceFlags: (await repository.listComplianceFlags(id)) ?? [],
+      complianceFlags: complianceFlags ?? [],
       generatedAt: currentTime().toISOString(),
       geo,
+      keywords: (keywords ?? []).map(toReportKeyword),
+      latestCrawlRunId: crawlRuns.at(-1)?.id ?? null,
+      seoIssues: seoIssues ?? [],
       site: { brandName: site.name ?? site.domain, domain: site.domain },
       targets: { citationRate: query.targetCitationRate, mentionRate: query.targetMentionRate, sov: query.targetSov },
-      trend: computeGeoTrend(reports, 12)
+      trend: computeGeoTrend(reports, 12),
+      workOrders: workOrders ?? []
     };
     reply
       .type("text/html; charset=utf-8")
@@ -3191,6 +3209,23 @@ function classifyDatabaseFailure(text: string): string {
 /** T2: 경쟁사 목록의 정본은 Site.competitors. 요청이 비워 보내면 사이트 설정으로 채운다. */
 function withSiteCompetitors(target: GeoTarget, site: Site): GeoTarget {
   return { ...target, competitors: target.competitors ?? site.competitors ?? [] };
+}
+
+/**
+ * T6 진단서 D 절: 검색량 등급은 여기서 결정한다 — 하한 100 의 정본은 @searchops/connectors 한 곳이고,
+ * 순수 렌더러(@searchops/reports)에 라이브 커넥터 의존을 붙이지 않기 위해 결과만 JSON 으로 넘긴다.
+ * PC·모바일 둘 다 있어야 등급을 매긴다. 하나라도 없으면 null = 미조회(0 으로 캐스팅해 탐색으로 떨어뜨리지 않는다).
+ */
+function toReportKeyword(keyword: Keyword) {
+  const monthlyMobile = keyword.monthlyVolumeMobile;
+  const monthlyPc = keyword.monthlyVolumePc;
+  return {
+    ...keyword,
+    tier:
+      typeof monthlyMobile === "number" && typeof monthlyPc === "number"
+        ? classifyKeywordVolumeTier({ monthlyMobile, monthlyPc })
+        : null
+  };
 }
 
 const ReportParamsSchema = IdParamsSchema.extend({ kind: z.enum(["diagnosis", "proposal"]) });

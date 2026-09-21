@@ -12,6 +12,7 @@ import type {
   CrawlerPageSnapshot,
   DeadLetterJobRecord,
   GeoVisibilityReportRecord,
+  Keyword,
   KeywordDiscoveryCandidateRecord,
   Organization,
   ProviderAccountMetadata,
@@ -2062,6 +2063,21 @@ describe("api foundation", () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it("dedupes an upsert against a seeded keyword of the same phrase", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        keywords: [{ id: "kw_seed", siteId: "site_seed", phrase: "다이어트", locale: "ko-KR", intent: null, createdAt, monthlyVolumePc: 400, monthlyVolumeMobile: 600, volumeFetchedAt: createdAt }],
+        organizations: [seededOrganization],
+        sites: [seededSite],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "editor" };
+    await server.inject({ method: "POST", url: "/sites/site_seed/keywords", headers, payload: { keywords: [{ phrase: "다이어트" }] } });
+    const listed = await server.inject({ method: "GET", url: "/sites/site_seed/keywords", headers });
+    expect(listed.json().keywords).toHaveLength(1);
+    expect(listed.json().keywords[0].id).toBe("kw_seed");
+  });
+
   it("renders diagnosis/proposal HTML and refuses blank targets (T6)", async () => {
     const server = buildApiServer({
       repository: createMemoryRepository({
@@ -2100,6 +2116,84 @@ describe("api foundation", () => {
       headers,
     });
     expect(missingRun.statusCode).toBe(404);
+  });
+
+  it("wires keyword demand, SEO/work orders and AEO readiness into the diagnosis (T6 D·E·F)", async () => {
+    const seedKeyword = (id: string, phrase: string, monthlyVolumePc: number | null, monthlyVolumeMobile: number | null): Keyword => ({
+      id,
+      siteId: "site_seed",
+      phrase,
+      locale: "ko-KR",
+      intent: null,
+      createdAt,
+      monthlyVolumePc,
+      monthlyVolumeMobile,
+      volumeFetchedAt: monthlyVolumePc === null ? null : createdAt,
+    });
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        aeoReadinessReports: [seededAeoReadinessReport],
+        crawlRuns: [seededCrawlRun],
+        geoVisibilityReports: [{ ...seededGeoVisibilityReport, runSeq: 1 }],
+        keywords: [
+          seedKeyword("kw_evidence", "서초 골반필러", 40, 60),
+          seedKeyword("kw_exploratory", "서초 골반필러 비용", 39, 60),
+          seedKeyword("kw_unknown", "서초 골반필러 후기", null, null),
+        ],
+        organizations: [seededOrganization],
+        seoIssues: [seededSeoIssue],
+        sites: [seededSite],
+        workOrders: [seededWorkOrder],
+      }),
+    });
+    const headers = { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" };
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/reports/diagnosis?targetMentionRate=70&targetCitationRate=50&targetSov=60",
+      headers,
+    });
+    expect(response.statusCode).toBe(200);
+    // D: PC+모바일 100 이 경계다 — 100 은 근거, 99 는 탐색, 미조회는 근거로 쓰지 않는다.
+    expect(response.body).toContain("<td>서초 골반필러</td><td>40</td><td>60</td><td>100</td><td>근거</td>");
+    expect(response.body).toContain("<td>서초 골반필러 비용</td><td>39</td><td>60</td><td>99</td><td>탐색</td>");
+    expect(response.body).toContain("<td>서초 골반필러 후기</td><td>미조회</td><td>미조회</td><td>-</td><td>미조회</td>");
+    expect(response.body).toContain("근거 1건 · 탐색 1건 · 미조회 1건");
+    // E: seo-core 이슈 집계 + 열린 워크오더.
+    expect(response.body).toContain("<td>H1_MISSING</td><td>high</td><td>1</td>");
+    expect(response.body).toContain("/services missing H1 fix");
+    // F: aeo-core 페이지별 점수.
+    expect(response.body).toContain("<td>seo clinic</td>");
+    expect(response.body).toContain("<td>68</td>");
+    // H·I 는 여전히 데이터 소스가 없다.
+    expect(response.body).toContain("리뷰·평판 수집 커넥터가 이 저장소에 없어 채울 수 없습니다");
+  });
+
+  it("scopes the diagnosis E section to the newest crawl run and drops resolved issues (T6 E)", async () => {
+    const newerCrawlRun: CrawlRun = { ...seededCrawlRun, id: "crawl_new", startedAt: "2026-09-22T00:00:00.000Z", endedAt: "2026-09-22T00:00:00.000Z" };
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        crawlRuns: [seededCrawlRun, newerCrawlRun],
+        geoVisibilityReports: [{ ...seededGeoVisibilityReport, runSeq: 1 }],
+        organizations: [seededOrganization],
+        // seededSeoIssue 는 과거 런(crawl_seed)에서 마지막으로 관측됐다 = 최신 런에는 없다.
+        seoIssues: [
+          seededSeoIssue,
+          { ...seededSeoIssue, id: "issue_resolved", crawlRunId: "crawl_new", ruleId: "SCHEMA_MISSING", severity: "low", status: "resolved" },
+          { ...seededSeoIssue, id: "issue_open", crawlRunId: "crawl_new", ruleId: "TITLE_MISSING", severity: "critical" },
+        ],
+        sites: [seededSite],
+      }),
+    });
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/reports/diagnosis?targetMentionRate=70&targetCitationRate=50&targetSov=60",
+      headers: { "x-mock-organization-id": "org_demo", "x-mock-user-role": "viewer" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("<td>TITLE_MISSING</td><td>critical</td><td>1</td>");
+    expect(response.body).not.toContain("H1_MISSING"); // 과거 런의 이슈
+    expect(response.body).not.toContain("SCHEMA_MISSING"); // 해결된 이슈
+    expect(response.body).toContain("최신 크롤런 crawl_new 기준 열린 이슈 1건");
   });
 
   it("returns weekly GEO trend from batch runs only (T3)", async () => {
