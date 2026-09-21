@@ -1367,7 +1367,7 @@ export function createOpenAiCompatibleGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`${options.provider} GEO answer API responded with HTTP ${response.status}`);
+        throw new Error(`${options.provider} GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
       }
       const json = (await response.json()) as OpenAiChatCompletionResponse;
       const answerText = json.choices?.[0]?.message?.content ?? "";
@@ -1414,7 +1414,7 @@ export function createGeminiGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`gemini GEO answer API responded with HTTP ${response.status}`);
+        throw new Error(`gemini GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
       }
       const json = (await response.json()) as GeminiGenerateContentResponse;
       const answerText = (json.candidates?.[0]?.content?.parts ?? [])
@@ -1468,7 +1468,7 @@ export function createAnthropicGeoAnswerClient(
         })
       });
       if (!response.ok) {
-        throw new Error(`claude GEO answer API responded with HTTP ${response.status}`);
+        throw new Error(`claude GEO answer API responded with HTTP ${response.status}: ${(await response.text().catch(() => "")).slice(0, 300)}`);
       }
       const json = (await response.json()) as AnthropicMessagesResponse;
       const answerText = (json.content ?? [])
@@ -1483,8 +1483,9 @@ export function createAnthropicGeoAnswerClient(
 /** Default model ids per provider; override via the SEARCHOPS_GEO_*_MODEL env keys. */
 export const defaultGeoAnswerProviderModels = {
   chatgpt: "gpt-4o",
-  claude: "claude-opus-4-8",
-  gemini: "gemini-2.0-flash",
+  // 2026-09-21 운영 실측: claude-opus-4-8 → 400, gemini-2.0-flash → 404(공식 문서 Shut down). 현행 ID 로 교체.
+  claude: "claude-sonnet-5",
+  gemini: "gemini-2.5-flash",
   perplexity: "sonar"
 } as const;
 
