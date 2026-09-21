@@ -198,13 +198,27 @@ function volumeCell(volume: number | null | undefined) {
   return volume === null || volume === undefined ? "미조회" : String(volume);
 }
 
+/**
+ * 검색 수요 절이 볼 키워드. AI 질문 세트(purpose="geo_query")는 제외한다 —
+ * "힙딥 시술 어디서 받아요" 는 AI 에게 묻는 말이라 네이버 월 검색량이 10회 미만이고,
+ * 그걸 검색 수요 근거로 세면 진단서가 거짓을 말한다(2026-09-21 실측: 질문 10개 전부 18회).
+ */
+function searchDemandKeywords(input: ReportInput) {
+  return input.keywords.filter((keyword) => keyword.purpose !== "geo_query");
+}
+
 /** D 절. 등급 판정은 API 층(결정적)이 끝내 놓고, 여기서는 옮겨 적기만 한다. */
 function keywordDemandBody(input: ReportInput, mask: MaskFn) {
-  if (input.keywords.length === 0) {
-    return `<p class="muted">질문 세트 미등록 — 등록된 키워드가 0건입니다(데이터 소스는 배선돼 있습니다).${internalOnly(input, " POST /sites/:id/keywords 로 질문 세트를 넣으면 채워집니다.")}</p>`;
+  const demandKeywords = searchDemandKeywords(input);
+  const geoOnly = input.keywords.length - demandKeywords.length;
+  const geoNote = geoOnly > 0
+    ? ` AI 질문 세트 ${geoOnly}건은 검색 수요가 아니라 답변 노출 측정용이므로 이 표에서 제외했습니다(A 절 참조).`
+    : "";
+  if (demandKeywords.length === 0) {
+    return `<p class="muted">검색 수요 키워드 미등록 — 등록된 검색 수요 키워드가 0건입니다(데이터 소스는 배선돼 있습니다).${geoNote}${internalOnly(input, " POST /sites/:id/keywords 에 purpose=search_demand 로 넣으면 채워집니다.")}</p>`;
   }
-  const counts = keywordTierCounts(input.keywords);
-  const rows = input.keywords.map((keyword) => [
+  const counts = keywordTierCounts(demandKeywords);
+  const rows = demandKeywords.map((keyword) => [
     esc(mask(keyword.phrase)),
     volumeCell(keyword.monthlyVolumePc),
     volumeCell(keyword.monthlyVolumeMobile),
@@ -213,13 +227,14 @@ function keywordDemandBody(input: ReportInput, mask: MaskFn) {
     esc(keyword.volumeFetchedAt ?? "-")
   ]);
   return table(["키워드", "월 PC", "월 모바일", "합계", "등급", "검색량 조회"], rows)
-    + `<p class="muted">근거 ${counts.evidence}건 · 탐색 ${counts.exploratory}건 · 미조회 ${counts.unknown}건. 등급은 월간 PC+모바일 하한으로 결정적으로 나뉩니다(하한 상수 정본 @searchops/connectors, 판정은 API 층). 탐색·미조회 키워드는 근거로 쓰지 않으며 순위 약속의 대상이 아닙니다.</p>`;
+    + `<p class="muted">근거 ${counts.evidence}건 · 탐색 ${counts.exploratory}건 · 미조회 ${counts.unknown}건.${geoNote} 등급은 월간 PC+모바일 하한으로 결정적으로 나뉩니다(하한 상수 정본 @searchops/connectors, 판정은 API 층). 탐색·미조회 키워드는 근거로 쓰지 않으며 순위 약속의 대상이 아닙니다.</p>`;
 }
 
 /** 제안서 2절. 브랜드 판별은 브랜드명·도메인 라벨 포함 여부(결정적). */
 function brandSplitBody(input: ReportInput) {
-  if (input.keywords.length === 0) {
-    return `<p class="muted">질문 세트 미등록 — 브랜드/비브랜드 검색량 비교는 키워드 등록 후 산출됩니다(데이터 소스는 배선돼 있습니다).</p>`;
+  const demandKeywords = searchDemandKeywords(input);
+  if (demandKeywords.length === 0) {
+    return `<p class="muted">검색 수요 키워드 미등록 — 브랜드/비브랜드 검색량 비교는 purpose=search_demand 키워드 등록 후 산출됩니다(데이터 소스는 배선돼 있습니다).</p>`;
   }
   const needles = [input.site.brandName, input.site.domain.split(".")[0] ?? "", ...input.site.brandAliases]
     .filter((needle) => needle.length > 0)
@@ -230,8 +245,8 @@ function brandSplitBody(input: ReportInput) {
     return [label, String(group.length), String(counts.evidence), String(counts.exploratory), String(counts.unknown)];
   };
   return table(["구분", "키워드", "근거", "탐색", "미조회"], [
-    row("브랜드", input.keywords.filter((keyword) => isBrand(keyword.phrase))),
-    row("비브랜드", input.keywords.filter((keyword) => !isBrand(keyword.phrase)))
+    row("브랜드", demandKeywords.filter((keyword) => isBrand(keyword.phrase))),
+    row("비브랜드", demandKeywords.filter((keyword) => !isBrand(keyword.phrase)))
   ]) + `<p class="muted">브랜드 판별: 상호·도메인 라벨·별칭(${input.site.brandAliases.length}건) 문자열 포함 여부입니다 — 별칭을 등록하지 않으면 상호 일부만 쓰는 질의가 비브랜드로 집계됩니다(⚠️ 검증필요). 근거 키워드(하한 이상)만 수치 근거로 씁니다. 탐색·미조회 키워드에는 순위를 약속하지 않습니다.</p>`;
 }
 

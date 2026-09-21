@@ -179,11 +179,11 @@ describe("reports (T6)", () => {
 
   it("separates 'pipeline has not run' (D/E/F) from 'no data source' (H/I)", () => {
     const html = renderDiagnosisHtml(input);
-    expect(html).toContain("질문 세트 미등록");
+    expect(html).toContain("검색 수요 키워드 미등록");
     expect(html).toContain("AEO 진단 미실행");
     expect(html).toContain("열린 SEO 이슈가 0건입니다");
     expect(html).toContain("열린 워크오더가 0건입니다");
-    expect(renderProposalHtml(input)).toContain("브랜드/비브랜드 검색량 비교는 키워드 등록 후 산출됩니다");
+    expect(renderProposalHtml(input)).toContain("브랜드/비브랜드 검색량 비교는 purpose=search_demand 키워드 등록 후 산출됩니다");
   });
 
   it("classifies keyword volume at the 100 boundary and keeps null volume as 미조회 (D)", () => {
@@ -199,7 +199,7 @@ describe("reports (T6)", () => {
     expect(html).toContain("<td>골반 필러 후기</td><td>40</td><td>59</td><td>99</td><td>탐색</td>");
     expect(html).toContain("<td>골반 필러 가격</td><td>미조회</td><td>미조회</td><td>-</td><td>미조회</td>");
     expect(html).toContain("근거 1건 · 탐색 1건 · 미조회 1건");
-    expect(html).not.toContain("질문 세트 미등록");
+    expect(html).not.toContain("검색 수요 키워드 미등록");
   });
 
   it("splits brand and non-brand keywords in the proposal (2절)", () => {
@@ -294,7 +294,7 @@ describe("reports (T6)", () => {
   it("keeps internal API routes out of external D/F empty states", () => {
     const external = { ...input, audience: "external" as const };
     const diagnosis = renderDiagnosisHtml(external);
-    expect(diagnosis).toContain("질문 세트 미등록");
+    expect(diagnosis).toContain("검색 수요 키워드 미등록");
     expect(diagnosis).toContain("AEO 진단 미실행");
     expect(diagnosis).not.toContain("POST /sites/:id/keywords");
     expect(diagnosis).not.toContain("POST /sites/:id/aeo-readiness-reports");
@@ -351,5 +351,53 @@ describe("reports (T6)", () => {
     expect(html).toContain("BRAND_MENTIONED");
     expect(html).toContain("1. 배경·권위");
     expect(html).toContain("11. 결론·다음 단계");
+  });
+});
+
+describe("검색 수요 절은 AI 질문 세트를 근거로 세지 않는다 (2026-09-21 실측 회귀)", () => {
+  const keyword = (
+    phrase: string,
+    purpose: "geo_query" | "search_demand" | "both",
+    pc: number,
+    mo: number,
+    tier: "evidence" | "exploratory"
+  ) => ({
+    id: `kw_${phrase}`, siteId: "site_1", phrase, locale: "ko-KR", intent: null, purpose,
+    createdAt: "2026-09-21T00:00:00.000Z", monthlyVolumePc: pc, monthlyVolumeMobile: mo,
+    volumeFetchedAt: "2026-09-21T00:00:00.000Z", tier
+  });
+  const withKeywords = {
+    ...input,
+    site: { ...input.site, brandAliases: [] },
+    keywords: [
+      keyword("힙딥 시술 어디서 받아요", "geo_query", 9, 9, "exploratory"),
+      keyword("골반필러 가격 서초 강남 비교", "geo_query", 9, 9, "exploratory"),
+      keyword("골반필러", "search_demand", 1480, 3410, "evidence"),
+      keyword("힙딥", "both", 580, 4100, "evidence")
+    ]
+  };
+
+  it("D 절은 geo_query 를 표에서 빼고 제외 사실을 밝힌다", () => {
+    const html = renderDiagnosisHtml(withKeywords);
+    expect(html).toContain("골반필러");
+    expect(html).not.toContain("힙딥 시술 어디서 받아요");
+    expect(html).toContain("AI 질문 세트 2건은 검색 수요가 아니라");
+    // geo_query 2건이 탐색으로 세어지면 "탐색 2건" 이 된다
+    expect(html).toContain("근거 2건 · 탐색 0건 · 미조회 0건");
+  });
+
+  it("제안서 브랜드/비브랜드 분할도 검색 수요 키워드만 센다", () => {
+    const html = renderProposalHtml(withKeywords);
+    expect(html).not.toContain("힙딥 시술 어디서 받아요");
+    expect(html).toContain("비브랜드");
+  });
+
+  it("검색 수요 키워드가 하나도 없으면 질문 세트가 있어도 미등록으로 적는다", () => {
+    const html = renderDiagnosisHtml({
+      ...withKeywords,
+      keywords: withKeywords.keywords.filter((k) => k.purpose === "geo_query")
+    });
+    expect(html).toContain("검색 수요 키워드 미등록");
+    expect(html).toContain("AI 질문 세트 2건은");
   });
 });
