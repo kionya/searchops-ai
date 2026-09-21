@@ -76,6 +76,33 @@ jobs:
           docker push "$IMAGE:$GITHUB_SHA"
           docker push "$IMAGE:latest"
 
+      # 운영 DB 마이그레이션. 2026-06-23 PR #80 머지 뒤 Invitation 테이블이 없어 라우트가 500 났던 갭을
+      # 여기서 닫는다 — 코드가 뜨기 전에 스키마를 먼저 맞춘다. 마이그레이션은 nullable 컬럼 추가만
+      # 두는 규칙이라 새 이미지가 뜨기 전 잠깐의 구버전 코드도 안전하다.
+      # DIRECT_DATABASE_URL 은 Supabase session pooler(:5432). transaction pooler(:6543)는 migrate 가 안 된다.
+      - name: Setup Node for migrations
+        if: github.ref == 'refs/heads/main'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply production migrations
+        if: github.ref == 'refs/heads/main'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          if [ -z "${DIRECT_DATABASE_URL:-}" ]; then
+            echo "::error::DIRECT_DATABASE_URL secret 이 없어 운영 마이그레이션을 적용할 수 없다."
+            exit 1
+          fi
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm --filter @searchops/db db:generate
+          pnpm db:migrate:deploy
+          pnpm db:migrate:status
+
       - name: Trigger Render deploy
         if: github.ref == 'refs/heads/main'
         env:
