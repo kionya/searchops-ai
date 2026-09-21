@@ -71,14 +71,18 @@ async function main(): Promise<void> {
 
     const persistenceClient = createPrismaGeoVisibilityPersistenceClient(prisma);
     // 모델 오버라이드(SEARCHOPS_GEO_*_MODEL). 벤더가 모델을 폐기하면 코드 배포 없이 secret 만 바꿔 복구한다.
+    // ⚠️ undefined 를 넘기면 리졸버가 기본 모델 대신 undefined 를 그대로 쓴다(2026-09-21 run 35603753397:
+    // "you must provide a model parameter", models/undefined 404). 값이 있는 키만 넘긴다.
     const resolver = createPlatformGeoProviderResolver({
       geoPlatformApiKeys,
-      geoProviderModels: {
-        chatgpt: process.env.SEARCHOPS_GEO_CHATGPT_MODEL,
-        claude: process.env.SEARCHOPS_GEO_CLAUDE_MODEL,
-        gemini: process.env.SEARCHOPS_GEO_GEMINI_MODEL,
-        perplexity: process.env.SEARCHOPS_GEO_PERPLEXITY_MODEL
-      }
+      geoProviderModels: Object.fromEntries(
+        Object.entries({
+          chatgpt: process.env.SEARCHOPS_GEO_CHATGPT_MODEL,
+          claude: process.env.SEARCHOPS_GEO_CLAUDE_MODEL,
+          gemini: process.env.SEARCHOPS_GEO_GEMINI_MODEL,
+          perplexity: process.env.SEARCHOPS_GEO_PERPLEXITY_MODEL
+        }).filter(([, model]) => model)
+      )
     });
     const observedAt = new Date();
     const weekStart = startOfIsoWeek(observedAt);
