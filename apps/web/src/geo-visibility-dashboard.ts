@@ -741,6 +741,11 @@ export function formatGeoProvider(provider: GeoProvider) {
   return labels[provider];
 }
 
+/** T0: 리포트 루트 liveShare. 없으면 T0 이전 리포트 — unknown 으로 표기. */
+export function formatGeoLiveShare(liveShare: number | undefined) {
+  return liveShare === undefined ? "unknown" : `실측 ${Math.round(liveShare * 100)}%`;
+}
+
 export function formatGeoDate(isoDate: string) {
   return isoDate.replace("T", " ").slice(0, 16);
 }

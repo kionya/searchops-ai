@@ -15,7 +15,7 @@ import {
   recommendJsonLdForSnapshots,
   validateJsonLdDraft
 } from "@searchops/schema-core";
-import { evaluateGeoVisibility } from "@searchops/geo-core";
+import { GEO_NO_OBSERVATIONS_WARNING, evaluateGeoVisibility } from "@searchops/geo-core";
 import { analyzeUrlSeoSnapshots } from "@searchops/seo-core";
 import {
   createWorkOrdersFromSeoIssues,
@@ -416,6 +416,8 @@ function createEmptyGeoVisibilityReport(
     ],
     generatedBy: "deterministic",
     evaluatedAt,
+    liveShare: 0,
+    warnings: [GEO_NO_OBSERVATIONS_WARNING],
   };
 }
 
