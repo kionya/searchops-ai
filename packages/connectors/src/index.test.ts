@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   defaultGeoAnswerProviderConcurrency,
+  defaultGeoAnswerRetry,
+  withGeoAnswerRetry,
   connectorAuthModes,
   connectorProviders,
   connectorsPackage,
@@ -1690,5 +1692,55 @@ describe("질의 동시 호출 상한 (Gemini 429 대응)", () => {
   it("키 기반 팩토리는 gemini 에만 상한을 건다", () => {
     expect(defaultGeoAnswerProviderConcurrency.gemini).toBe(1);
     expect(defaultGeoAnswerProviderConcurrency.chatgpt).toBeUndefined();
+  });
+});
+
+describe("일시 오류 재시도 (Gemini 503)", () => {
+  const sleeps: number[] = [];
+  const sleep = async (ms: number) => { sleeps.push(ms); };
+  const httpError = (status: number) =>
+    new Error(`gemini GEO answer API responded with HTTP ${status}: {"error":{"code":${status}}}`);
+
+  it("503 은 다시 걸고 지수 백오프로 기다린다", async () => {
+    sleeps.length = 0;
+    let calls = 0;
+    const result = await withGeoAnswerRetry(
+      async () => {
+        calls += 1;
+        if (calls < 3) throw httpError(503);
+        return "ok";
+      },
+      { backoffMs: 100, retries: 2, sleep },
+    );
+
+    expect(result).toBe("ok");
+    expect(calls).toBe(3);
+    expect(sleeps).toEqual([100, 200]);
+  });
+
+  it("영구 오류(400·404)는 즉시 던진다 — 잘못된 모델명을 재시도하면 실패를 늦게 안다", async () => {
+    sleeps.length = 0;
+    let calls = 0;
+    await expect(
+      withGeoAnswerRetry(async () => { calls += 1; throw httpError(404); }, { backoffMs: 100, retries: 2, sleep }),
+    ).rejects.toThrow("HTTP 404");
+    expect(calls).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it("재시도를 다 쓰면 마지막 오류를 그대로 던진다", async () => {
+    sleeps.length = 0;
+    let calls = 0;
+    await expect(
+      withGeoAnswerRetry(async () => { calls += 1; throw httpError(503); }, { backoffMs: 10, retries: 1, sleep }),
+    ).rejects.toThrow("HTTP 503");
+    expect(calls).toBe(2);
+  });
+
+  it("기본값은 재시도 없음 — 호출자가 명시해야 한다", async () => {
+    let calls = 0;
+    await expect(withGeoAnswerRetry(async () => { calls += 1; throw httpError(503); })).rejects.toThrow();
+    expect(calls).toBe(1);
+    expect(defaultGeoAnswerRetry).toEqual({ backoffMs: 1500, retries: 2 });
   });
 });
