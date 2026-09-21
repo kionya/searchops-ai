@@ -30,7 +30,9 @@ export function createTelegramNotifier(
         method: "POST"
       });
       if (!response.ok) {
-        throw new Error(`Telegram sendMessage failed with HTTP ${response.status}`);
+        // 400 은 대개 chat_id 오류(채널은 -100 접두, 봇이 채팅에 없음). 본문의 description 을 남긴다.
+        const body = await response.text().catch(() => "");
+        throw new Error(`Telegram sendMessage failed with HTTP ${response.status}: ${body.slice(0, 200)}`);
       }
     }
   };

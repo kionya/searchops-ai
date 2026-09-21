@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   createPrismaGeoVisibilityPersistenceClient: vi.fn(() => ({})),
   createSearchOpsPrismaClient: vi.fn(),
   keywordFindMany: vi.fn(async () => [{ phrase: "강남 피부과" }]),
-  processAndPersistGeoAnswerMonitorJob: vi.fn(async () => ({})),
+  processAndPersistGeoAnswerMonitorJob: vi.fn(async () => ({
+    monitorResults: [{ provider: "chatgpt", status: "ok", observations: [{}] }],
+    visibilityReport: { observations: [{}] },
+  })),
   reportFindFirst: vi.fn(),
   reportUpdate: vi.fn(async () => ({})),
   siteFindMany: vi.fn(async () => [
@@ -45,6 +48,7 @@ describe("batch geo (T3)", () => {
     vi.clearAllMocks();
     delete process.env.SEARCHOPS_GEO_CHATGPT_API_KEY;
     delete process.env.SEARCHOPS_GEO_BATCH_ALLOW_FIXTURE;
+    delete process.env.SEARCHOPS_GEO_BATCH_FORCE;
     process.exitCode = 0;
   });
 
@@ -72,6 +76,34 @@ describe("batch geo (T3)", () => {
       data: { previousReportId: "r3", runSeq: 4 },
       where: { id: "r4" },
     });
+  });
+
+  it("does not assign runSeq when every provider failed (0 observations)", async () => {
+    mocks.reportFindFirst.mockResolvedValueOnce(null);
+    mocks.createTelegramNotifier.mockReturnValueOnce(null);
+    mocks.processAndPersistGeoAnswerMonitorJob.mockResolvedValueOnce({
+      monitorResults: [{ provider: "chatgpt", status: "failed", observations: [], error: { code: "provider_request_failed" } }],
+      visibilityReport: { observations: [] },
+    } as never);
+
+    await import("./batch-geo.js");
+
+    expect(mocks.reportUpdate).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("re-runs this week when SEARCHOPS_GEO_BATCH_FORCE=1", async () => {
+    process.env.SEARCHOPS_GEO_BATCH_FORCE = "1";
+    mocks.reportFindFirst
+      .mockResolvedValueOnce({ evaluatedAt: new Date(), id: "r1", mentionRate: 1, runSeq: 1, sov: null })
+      .mockResolvedValueOnce({ id: "r2", mentionRate: 5, observations: [{ source: "connector" }], sov: null });
+    mocks.createTelegramNotifier.mockReturnValueOnce(null);
+
+    await import("./batch-geo.js");
+
+    expect(mocks.processAndPersistGeoAnswerMonitorJob).toHaveBeenCalledTimes(1);
+    expect(mocks.reportUpdate).toHaveBeenCalledWith({ data: { previousReportId: "r1", runSeq: 2 }, where: { id: "r2" } });
+    delete process.env.SEARCHOPS_GEO_BATCH_FORCE;
   });
 
   it("skips a site that already has a run this week (idempotent)", async () => {

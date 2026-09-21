@@ -87,7 +87,8 @@ async function main(): Promise<void> {
           select: { evaluatedAt: true, id: true, mentionRate: true, runSeq: true, sov: true },
           where: { runSeq: { not: null }, siteId: site.id }
         });
-        if (previous && previous.evaluatedAt >= weekStart) {
+        const force = process.env.SEARCHOPS_GEO_BATCH_FORCE === "1";
+        if (!force && previous && previous.evaluatedAt >= weekStart) {
           console.log(`[batch-geo] ${site.domain} 이번 주 run 이 이미 있다(runSeq=${previous.runSeq}). 건너뜀.`);
           continue;
         }
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
           keywords.length > 0 ? keywords.map((keyword) => keyword.phrase) : [`${brandName} 추천`, `${brandName} 후기`]
         ).map((query) => ({ query }));
 
-        await processAndPersistGeoAnswerMonitorJob(
+        const result = await processAndPersistGeoAnswerMonitorJob(
           {
             observedAt: observedAt.toISOString(),
             organizationId: site.organizationId,
@@ -127,6 +128,17 @@ async function main(): Promise<void> {
             resolveGeoProviderAdapters: resolver.resolveGeoProviderAdapters.bind(resolver)
           }
         );
+
+        // provider 별 결과를 남긴다. 키가 있어도 모델명·쿼터·권한 문제로 실패하면 여기서만 보인다.
+        console.log(
+          `[batch-geo] ${site.domain} providers: ${result.monitorResults
+            .map((entry) => `${entry.provider}=${entry.status}${entry.status === "ok" ? `(${entry.observations.length})` : `:${entry.error.code}`}`)
+            .join(" ")}`
+        );
+        if (result.visibilityReport.observations.length === 0) {
+          // 관측 0건은 측정이 아니다. runSeq 를 붙이지 않아 이번 주를 소비하지 않게 둔다.
+          throw new Error("모든 엔진이 실패해 관측이 0건이다. 위 providers 로그의 오류 코드를 확인하라.");
+        }
 
         // persist 는 id 를 돌려주지 않는다. 방금 만든 최신 행에 run 번호를 붙인다.
         const created = await prisma.geoVisibilityReport.findFirst({
