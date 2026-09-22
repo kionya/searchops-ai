@@ -310,7 +310,14 @@ function workOrderBody(input: ReportInput, mask: MaskFn) {
     : "");
 }
 
-/** F 절. 질문(phrase)별 최신 측정 1건만 — 같은 질문의 이력이 중복 렌더되지 않게. */
+/**
+ * F 절. 질문(phrase)별 최신 측정 1건을 고른 뒤 **페이지 단위로 묶어** 렌더한다.
+ *
+ * 질문마다 줄을 나누지 않는 이유: AEO 점수는 페이지의 순수 함수다(aeo-core 7룰 중 6룰이
+ * candidatePage 만 보고, 유일한 키워드 의존 룰은 항상 pass·100). 같은 페이지에 매칭된 질문은
+ * 반드시 같은 점수라서, 질문별로 줄을 나누면 없는 차이를 있는 것처럼 보인다 —
+ * 실측에서 질문 8건이 모두 46점으로 8줄 찍혔다.
+ */
 function aeoBody(input: ReportInput, mask: MaskFn) {
   if (input.aeoReports.length === 0) {
     return `<p class="muted">AEO 진단 미실행 — aeo-core 준비도 리포트가 0건입니다(데이터 소스는 배선돼 있습니다).${internalOnly(input, " POST /sites/:id/aeo-readiness-reports 실행 후 채워집니다.")}</p>`;
@@ -322,17 +329,40 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
       latest.set(report.phrase, report);
     }
   }
-  const rows = [...latest.values()]
-    .sort((a, b) => a.score - b.score || a.phrase.localeCompare(b.phrase))
-    .map((report) => [
-      esc(mask(report.phrase)),
-      esc(mask(report.pageUrl ?? "-")),
-      String(report.score),
-      esc(report.status),
-      esc(report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
+
+  const byPage = new Map<string, { phrases: string[]; report: ReportInput["aeoReports"][number] }>();
+  for (const report of latest.values()) {
+    const key = report.pageUrl ?? "";
+    const group = byPage.get(key);
+    if (group === undefined) {
+      byPage.set(key, { phrases: [report.phrase], report });
+      continue;
+    }
+    group.phrases.push(report.phrase);
+    // 같은 페이지의 질문끼리 점수가 갈리면 룰이 바뀐 이력이 섞인 것이다. 최신 측정을 남긴다.
+    if (report.evaluatedAt > group.report.evaluatedAt) {
+      group.report = report;
+    }
+  }
+
+  const rows = [...byPage.values()]
+    .sort((a, b) => a.report.score - b.report.score || (a.report.pageUrl ?? "").localeCompare(b.report.pageUrl ?? ""))
+    .map((group) => [
+      esc(mask(group.report.pageUrl ?? "-")),
+      esc(mask([...group.phrases].sort((a, b) => a.localeCompare(b)).join(", "))),
+      String(group.report.score),
+      esc(group.report.status),
+      esc(group.report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
     ]);
-  return table(["질문", "페이지", "점수", "상태", "미통과 체크"], rows)
-    + `<p class="muted">질문별 최신 측정 1건. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
+
+  const questionCount = latest.size;
+  const pageCount = byPage.size;
+  const unit = pageCount === 1 && questionCount > 1
+    ? `질문 ${questionCount}건이 모두 페이지 1장으로 평가됐습니다 — 질문별 차이가 아니라 그 페이지 1장의 점수입니다.`
+    : `질문 ${questionCount}건이 페이지 ${pageCount}장에 매칭돼 평가됐습니다.`;
+
+  return table(["페이지", "질문", "점수", "상태", "미통과 체크"], rows)
+    + `<p class="muted">${unit} 점수는 페이지 속성(요약·질문형 헤딩·FAQ 스키마·헤딩 구조·인용 가능성·분량)만 봅니다 — 같은 페이지에 매칭된 질문은 반드시 같은 점수입니다. <strong>"이 페이지가 이 질문에 답하는가"는 아직 측정하지 않습니다</strong>(⚠️ 검증필요). 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
 }
 
 function sourceAttr(input: z.output<typeof DiagnosisReportInputSchema>) {

@@ -5,6 +5,7 @@ import {
   isMedicalIndustry,
   isQuestionHeading,
   processAndPersistCrawlJob,
+  selectAeoCandidateSnapshot,
   toAeoPageSignal
 } from "./processor.js";
 
@@ -136,6 +137,48 @@ const payload = {
   startUrl: "https://example.com/"
 };
 
+/** 질문마다 다른 페이지가 뽑히는지 보려면 페이지가 여러 장이어야 한다. */
+function subPage(path: string, heading: string) {
+  return {
+    url: `https://example.com${path}`,
+    html: `<!doctype html><html lang="ko"><head><title>${heading}</title></head><body>
+<h1>${heading}</h1>
+<h2>안내</h2>
+<p>이 페이지는 ${heading} 를 다룹니다. 충분한 길이를 확보하기 위한 본문입니다.</p>
+</body></html>`,
+    statusCode: 200
+  };
+}
+
+const multiPagePayload = {
+  ...payload,
+  maxPages: 3,
+  pages: [
+    { url: "https://example.com/", html, statusCode: 200 },
+    subPage("/botox", "보톡스 가격 안내"),
+    subPage("/parking", "주차 안내")
+  ]
+};
+
+function snapshotFixture(url: string, title: string, h2: readonly string[] = []) {
+  return {
+    url,
+    finalUrl: null,
+    title,
+    metaDescription: null,
+    robotsMeta: null,
+    canonicalUrl: null,
+    h1Count: 1,
+    h2Count: h2.length,
+    headings: { h1: [title], h2: [...h2] },
+    links: { internal: [], external: [] },
+    images: [],
+    jsonLd: [],
+    indexability: { noindex: false, nofollow: false, canonicalMismatch: false, robotsBlocked: null },
+    content: { textLength: 10, wordCount: 3, duplicateHash: "a".repeat(64) }
+  };
+}
+
 describe("질문형 헤딩 파생 규칙", () => {
   it("물음표를 포함하면 질문형이다", () => {
     expect(isQuestionHeading("리프팅은 아픈가 ?")).toBe(true);
@@ -239,6 +282,69 @@ describe("크롤 후처리 AEO 준비도", () => {
     );
 
     expect(aeo.created).toHaveLength(0);
+  });
+
+  /**
+   * AEO 7룰 중 6룰이 페이지만 보는 순수 함수라, 페이지 1장을 전 키워드에 재사용하면
+   * 점수가 수학적으로 전부 같아진다(실측: 질문 8건 전부 46점). 질문마다 페이지를 고른다.
+   */
+  it("질문마다 그 질문을 다루는 페이지를 골라 평가한다", async () => {
+    const aeo = createAeoClient([
+      { id: "kw_botox", phrase: "보톡스 가격", locale: "ko-KR", intent: null, purpose: "both" },
+      { id: "kw_parking", phrase: "주차", locale: "ko-KR", intent: null, purpose: "both" },
+      { id: "kw_lifting", phrase: "리프팅 시술", locale: "ko-KR", intent: null, purpose: "both" }
+    ]);
+
+    await processAndPersistCrawlJob(multiPagePayload, createCrawlClient(), {
+      aeoReadinessClient: aeo.client
+    });
+
+    expect(aeo.created.map((row) => row.pageUrl)).toEqual([
+      "https://example.com/botox",
+      "https://example.com/parking",
+      "https://example.com/"
+    ]);
+  });
+
+  it("겹치는 토큰이 없으면 대표 페이지로 폴백하고 matched 로 알린다", () => {
+    const snapshots = [
+      snapshotFixture("https://example.com/", "리프팅 안내"),
+      snapshotFixture("https://example.com/botox", "보톡스 가격 안내")
+    ];
+
+    expect(selectAeoCandidateSnapshot("보톡스 가격", snapshots, snapshots[0]!)).toEqual({
+      matched: true,
+      snapshot: snapshots[1]
+    });
+    // 억지로 아무 페이지나 붙이면 F 절이 "질문별로 다른 페이지를 쟀다"고 거짓말한다.
+    expect(selectAeoCandidateSnapshot("치아교정", snapshots, snapshots[0]!)).toEqual({
+      matched: false,
+      snapshot: snapshots[0]
+    });
+  });
+
+  it("동점이면 먼저 온 스냅샷이 이긴다 — 재실행이 같은 값을 내야 한다", () => {
+    const snapshots = [
+      snapshotFixture("https://example.com/a", "리프팅 안내"),
+      snapshotFixture("https://example.com/b", "리프팅 안내")
+    ];
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(selectAeoCandidateSnapshot("리프팅", snapshots, snapshots[0]!).snapshot.url).toBe(
+        "https://example.com/a",
+      );
+    }
+  });
+
+  it("URL 경로의 한글도 대조한다 — 퍼센트 인코딩을 풀지 않으면 경로가 매칭에 못 쓰인다", () => {
+    const snapshots = [
+      snapshotFixture("https://example.com/", "홈"),
+      snapshotFixture(`https://example.com/${encodeURIComponent("리프팅")}`, "안내")
+    ];
+
+    expect(selectAeoCandidateSnapshot("리프팅", snapshots, snapshots[0]!).snapshot.url).toBe(
+      snapshots[1]!.url,
+    );
   });
 
   it("스냅샷의 h2 에서 질문형 헤딩을 뽑아 AeoPageSignal 로 넘긴다", () => {

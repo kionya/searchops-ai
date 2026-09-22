@@ -116,7 +116,8 @@ const aeoReport = (
   id: string,
   phrase: string,
   score: number,
-  evaluatedAt: string
+  evaluatedAt: string,
+  pageUrl = "https://example-clinic.com/faq"
 ): NonNullable<DiagnosisReportInput["aeoReports"]>[number] => ({
   id,
   siteId: "site_1",
@@ -124,7 +125,7 @@ const aeoReport = (
   phrase,
   locale: "ko-KR",
   intent: null,
-  pageUrl: "https://example-clinic.com/faq",
+  pageUrl,
   status: "needs_work",
   score,
   checks: [{
@@ -317,7 +318,7 @@ describe("reports (T6)", () => {
     expect(withAliases).toContain("별칭(1건)");
   });
 
-  it("renders one AEO row per phrase, newest first (F)", () => {
+  it("keeps only the newest measurement per phrase (F)", () => {
     const html = renderDiagnosisHtml({
       ...input,
       aeoReports: [
@@ -329,6 +330,46 @@ describe("reports (T6)", () => {
     expect(html).toContain("<td>72</td>");
     expect(html).not.toContain("<td>30</td>");
     expect(html).not.toContain("AEO 진단 미실행");
+  });
+
+  /**
+   * 실측 회귀: 대표 페이지 1장으로 질문 8건을 평가해 8줄이 전부 46점으로 찍혔다.
+   * 점수는 페이지의 순수 함수라 그 8줄은 차이가 아니라 같은 값의 복사다.
+   */
+  it("collapses same-page questions into one row and says so (F)", () => {
+    const phrases = ["보톡스 가격", "리프팅 효과", "주차 안내", "상담 예약"];
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: phrases.map((phrase, index) =>
+        aeoReport(`aeo_${index}`, phrase, 46, "2026-09-20T00:00:00.000Z"),
+      )
+    });
+
+    // 페이지가 1장이면 행도 1줄이다 — 46 이 네 번 찍히면 없는 차이를 있는 것처럼 보인다.
+    expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
+    expect(html).toContain("질문 4건이 모두 페이지 1장으로 평가됐습니다");
+    expect(html).toContain("질문별 차이가 아니라 그 페이지 1장의 점수입니다");
+    expect(html).toContain("이 페이지가 이 질문에 답하는가");
+    expect(html).toContain("는 아직 측정하지 않습니다");
+    // 질문은 버리지 않는다. 어느 질문이 그 페이지로 평가됐는지 남는다.
+    for (const phrase of phrases) expect(html).toContain(phrase);
+  });
+
+  it("renders one row per matched page when questions map to different pages (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_1", "보톡스 가격", 46, "2026-09-20T00:00:00.000Z", "https://example-clinic.com/botox"),
+        aeoReport("aeo_2", "보톡스 부작용", 46, "2026-09-20T00:00:00.000Z", "https://example-clinic.com/botox"),
+        aeoReport("aeo_3", "주차 안내", 72, "2026-09-20T00:00:00.000Z", "https://example-clinic.com/parking")
+      ]
+    });
+
+    expect(html).toContain("질문 3건이 페이지 2장에 매칭돼 평가됐습니다");
+    expect(html).toContain("<td>보톡스 가격, 보톡스 부작용</td>");
+    expect(html).toContain("<td>주차 안내</td>");
+    expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
+    expect(html.match(/<td>72<\/td>/gu)).toHaveLength(1);
   });
 
   it("masks competitor names leaking through the newly wired sections (external)", () => {

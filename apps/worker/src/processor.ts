@@ -915,6 +915,62 @@ export function deriveQuestionHeadings(headings: readonly string[]): string[] {
   return questions;
 }
 
+/**
+ * 질문(키워드)과 대조할 페이지 텍스트. 제목·헤딩·URL 경로만 본다 — 본문 전체를 넣으면
+ * 푸터·내비에 든 흔한 단어가 전 페이지에 걸려 매칭이 무의미해진다.
+ */
+function aeoMatchHaystack(snapshot: CrawlerPageSnapshot): string {
+  let path = "";
+  try {
+    // 한글 URL 은 퍼센트 인코딩돼 들어온다. 디코드하지 않으면 경로가 매칭에 기여하지 못한다.
+    path = decodeURIComponent(new URL(snapshot.url).pathname);
+  } catch {
+    path = snapshot.url;
+  }
+
+  return [snapshot.title ?? "", snapshot.headings.h1.join(" "), snapshot.headings.h2.join(" "), path]
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * 질문 1건을 평가할 페이지를 고른다. 결정적이어야 하고 LLM 을 끼우지 않는다(AGENTS.md).
+ *
+ * 왜 필요한가: AEO 준비도 7룰 중 6룰이 페이지만 보는 순수 함수고(packages/aeo-core),
+ * 유일한 키워드 의존 룰 KEYWORD_INTENT_DEFINED 는 항상 pass·100 이다. 그래서 페이지 1장을
+ * 전 키워드에 재사용하면 점수가 수학적으로 전부 같아진다 — 실측에서 질문 8건이 모두 46점이었다.
+ *
+ * 매칭 실패(겹치는 토큰 0개)는 대표 페이지로 폴백하고 matched:false 로 알린다. 억지로
+ * 아무 페이지나 붙이면 F 절이 '질문별로 다른 페이지를 쟀다'고 거짓말한다.
+ *
+ * ponytail: 공백 토큰 부분일치 개수라는 얕은 휴리스틱이다. 한국어는 어절 경계가 없어
+ * 형태소 분석 없이는 이 이상 정확해지지 않는다 — 오매칭이 실측으로 보이면 그때 올린다.
+ */
+export function selectAeoCandidateSnapshot(
+  phrase: string,
+  snapshots: readonly CrawlerPageSnapshot[],
+  fallback: CrawlerPageSnapshot,
+): { snapshot: CrawlerPageSnapshot; matched: boolean } {
+  const tokens = [...new Set(phrase.toLowerCase().split(/\s+/u).filter((token) => token.length > 0))];
+  if (tokens.length === 0) {
+    return { snapshot: fallback, matched: false };
+  }
+
+  let best: CrawlerPageSnapshot | null = null;
+  let bestScore = 0;
+  for (const snapshot of snapshots) {
+    const haystack = aeoMatchHaystack(snapshot);
+    const score = tokens.filter((token) => haystack.includes(token)).length;
+    // 동점은 먼저 온 스냅샷이 이긴다 — 입력 순서만으로 결과가 정해져야 재실행이 같은 값을 낸다.
+    if (score > bestScore) {
+      bestScore = score;
+      best = snapshot;
+    }
+  }
+
+  return best === null ? { snapshot: fallback, matched: false } : { snapshot: best, matched: true };
+}
+
 export function toAeoPageSignal(snapshot: CrawlerPageSnapshot): AeoPageSignal {
   return AeoPageSignalSchema.parse({
     url: snapshot.url,
@@ -968,17 +1024,21 @@ async function persistAeoReadinessFromCrawlResult(
     return null;
   }
 
-  const candidatePage = toAeoPageSignal(snapshot);
   const evaluatedAt = new Date().toISOString();
   const reports: { keywordId: string; report: AeoReadinessReport }[] = [];
+  let matchedCount = 0;
   for (const keyword of keywords) {
     // 키워드 1건의 파싱 실패가 크롤 잡을 깨면 안 된다(라우트엔 400 이 있지만 워커엔 없다).
     try {
+      const selection = selectAeoCandidateSnapshot(keyword.phrase, result.snapshots, snapshot);
+      if (selection.matched) {
+        matchedCount += 1;
+      }
       reports.push({
         keywordId: keyword.id,
         report: evaluateAeoReadiness(
           {
-            candidatePage,
+            candidatePage: toAeoPageSignal(selection.snapshot),
             keyword: KeywordTargetSchema.parse({
               siteId: result.siteId,
               phrase: keyword.phrase,
@@ -993,6 +1053,11 @@ async function persistAeoReadinessFromCrawlResult(
       console.error(`[crawl-postprocess] AEO 키워드 건너뜀: ${keyword.phrase}`, error);
     }
   }
+
+  // 매칭 0건이면 전 질문이 대표 페이지 1장으로 평가된 것이다 — 그때 점수는 수학적으로 전부 같다.
+  console.log(
+    `[crawl-postprocess] AEO 페이지 매칭 ${matchedCount}/${keywords.length}건 (${result.siteId})`,
+  );
 
   if (reports.length === 0) {
     return null;
