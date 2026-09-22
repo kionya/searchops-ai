@@ -14,6 +14,7 @@ import {
   krMedicalComplianceRules,
   medicalContentPublishPolicy,
   priceDiscountPromotionRule,
+  isMedicalIndustry,
   selectComplianceRulePackId,
   supportedComplianceRuleIds,
   unreviewedMedicalPublishRule
@@ -30,6 +31,7 @@ const baseInput = {
   industry: "medical",
   title: "Botox clinic service page",
   text: "Our clinic provides botox treatment after consultation. Side effects may occur; consult our medical staff.",
+  contextText: null,
   publishState: "draft",
   source: "fixture"
 } satisfies ComplianceReviewInput;
@@ -387,5 +389,107 @@ describe("compliance report evaluation", () => {
     expect(evaluateCompliance(input, { evaluatedAt })).toEqual(
       evaluateCompliance(input, { evaluatedAt }),
     );
+  });
+});
+
+/**
+ * 크롤 검수는 사이트 공통 내비·푸터를 본문에서 빼고 넘긴다(메뉴 "시술후기" 한 줄로 25페이지가
+ * 전부 위반이 된 2026-09 실측 오탐). 빠진 블록은 contextText 로 따라오고,
+ * '있는가'를 묻는 판정만 그것을 본다.
+ */
+describe("contextText — 본문 밖 맥락", () => {
+  const koInput = (overrides: Partial<ComplianceReviewInput> = {}) =>
+    createInput({
+      industry: "피부과",
+      title: "리프팅 안내",
+      text: "리프팅 시술은 피부 탄력 개선을 목적으로 진행합니다.",
+      url: "https://example-clinic.kr/lifting",
+      ...overrides
+    });
+
+  it("전 페이지 공통 푸터의 부작용 고지를 고지로 인정한다", () => {
+    const withFooter = evaluateCompliance(
+      koInput({
+        contextText: "시술 및 수술 후 부작용이 발생할 수 있으므로 의료진과 충분히 상담하시기 바랍니다."
+      }),
+      { evaluatedAt },
+    );
+    const withoutFooter = evaluateCompliance(koInput(), { evaluatedAt });
+
+    expect(withFooter.flags.map((flag) => flag.ruleId)).not.toContain(
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
+    );
+    expect(withoutFooter.flags.map((flag) => flag.ruleId)).toContain(
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
+    );
+  });
+
+  it("공통 블록의 금지표현은 페이지 플래그가 되지 않는다(탐지는 text 만 본다)", () => {
+    const report = evaluateCompliance(
+      koInput({
+        contextText: "시술후기 전후사진 100% 효과 보장 이벤트 부작용이 발생할 수 있습니다"
+      }),
+      { evaluatedAt },
+    );
+
+    expect(report.flags).toHaveLength(0);
+  });
+
+  it("공통 블록에만 있던 의료 키워드로도 kr-medical 룰팩을 유지한다", () => {
+    const stripped = koInput({ industry: null, contextText: null });
+    const withContext = koInput({ industry: null, contextText: "CLINIC Login Join 시술후기" });
+
+    expect(selectComplianceRulePackId(stripped)).toBe("global");
+    expect(selectComplianceRulePackId(withContext)).toBe("kr-medical");
+  });
+
+  it("전후사진 완화도 공통 푸터 고지를 인정한다", () => {
+    const flag = evaluateCompliance(
+      koInput({
+        text: "시술 전후 사진을 참고하세요.",
+        contextText: "시술 후 부작용이 발생할 수 있으므로 의료진과 상담하시기 바랍니다."
+      }),
+      { evaluatedAt, rulePackId: "kr-medical" },
+    ).flags.find((item) => item.ruleId === "BEFORE_AFTER_REFERENCE");
+
+    expect(flag?.riskLevel).toBe("low");
+  });
+});
+
+describe("의료 계열 판정(isMedicalIndustry)", () => {
+  it("한글 진료과명을 인식한다", () => {
+    for (const industry of ["피부과", "성형외과", "의원", "medical", "Dermatology Clinic"]) {
+      expect(isMedicalIndustry(industry), industry).toBe(true);
+    }
+    for (const industry of [null, "cosmetics", "화장품 쇼핑몰", "SaaS"]) {
+      expect(isMedicalIndustry(industry), String(industry)).toBe(false);
+    }
+  });
+
+  it("사이트 레코드의 한글 진료과명만으로 kr-medical 이 선택된다", () => {
+    expect(
+      selectComplianceRulePackId(
+        createInput({
+          industry: "피부과",
+          title: "진료 안내",
+          text: "평일 진료 시간과 예약 방법을 안내합니다.",
+          url: "https://example-clinic.kr/info"
+        }),
+      ),
+    ).toBe("kr-medical");
+  });
+
+  it("진료과명 목록을 본문에 부분일치시키지 않는다", () => {
+    // "설치과정" 에 "치과", "사업계획안과" 에 "안과" 가 들어 있다. 한글은 \\b 가 성립하지 않는다.
+    expect(
+      selectComplianceRulePackId(
+        createInput({
+          industry: null,
+          title: "설치 안내",
+          text: "설치과정과 사업계획안과 관련한 안내 문서입니다.",
+          url: "https://example.kr/docs"
+        }),
+      ),
+    ).toBe("global");
   });
 });
