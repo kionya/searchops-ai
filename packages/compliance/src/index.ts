@@ -453,7 +453,15 @@ export const unreviewedMedicalPublishRule = {
   evaluate(input) {
     const parsedInput = ComplianceReviewInputSchema.parse(input);
 
-    if (parsedInput.publishState === "draft" || !isMedicalContext(parsedInput)) {
+    // 이 룰은 우리가 발행하는 의료 콘텐츠의 draft-only 게이트다. 크롤로 읽은 남의 공개
+    // 페이지는 "draft 로 되돌려라" 는 권고를 실행할 수 없어, 위반 문구가 0개인 페이지까지
+    // URL 마다 critical 이 쌓이고 진짜 위반(GUARANTEED_RESULT_CLAIM 등)을 덮는다.
+    // §57 사전심의 미확인은 체크리스트 항목 8(needs_verification)로 남는다.
+    if (
+      parsedInput.source === "crawl" ||
+      parsedInput.publishState === "draft" ||
+      !isMedicalContext(parsedInput)
+    ) {
       return [];
     }
 

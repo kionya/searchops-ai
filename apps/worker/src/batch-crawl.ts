@@ -12,6 +12,8 @@
 // 않는 사고가 났다. 자세한 경위는 main() 안 findMany 위 주석.
 
 import {
+  createPrismaAeoReadinessPersistenceClient,
+  createPrismaComplianceFlagPersistenceClient,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
@@ -95,6 +97,8 @@ async function main(): Promise<void> {
 
     const persistenceClient = createPrismaCrawlPersistenceClient(prisma);
     const crawlAnalysisClient = createPrismaCrawlAnalysisPersistenceClient(prisma);
+    const aeoReadinessClient = createPrismaAeoReadinessPersistenceClient(prisma);
+    const complianceFlagClient = createPrismaComplianceFlagPersistenceClient(prisma);
     const schemaRecommendationRecheckClient =
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
     const richdocBridge = createRichdocContractBridge({ prisma, ...contract });
@@ -124,7 +128,16 @@ async function main(): Promise<void> {
           },
           persistenceClient,
           {
+            aeoReadinessClient,
+            complianceFlagClient,
             crawlAnalysisClient,
+            // AEO·컴플라이언스는 크롤 결과를 지키려고 예외를 삼킨다. 그 실패를 여기서
+            // 세지 않으면 매일 밤 전패해도 워크플로가 초록불이라 0건 상태를 아무도 모른다.
+            // 크롤 잡 자체는 성공으로 끝내고, 배치 실행만 실패로 표시한다.
+            onPostprocessFailure: (label, error) => {
+              failures += 1;
+              console.error(`[batch-crawl] ${site.domain} 후처리 실패(${label})`, error);
+            },
             richdocBridge,
             schemaRecommendationRecheckClient
           }
