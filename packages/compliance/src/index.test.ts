@@ -141,6 +141,48 @@ describe("medical advertising risk rules", () => {
     expect(flags).toHaveLength(0);
   });
 
+  it("does not flag crawled public pages — draft 로 되돌릴 수 없는 남의 페이지다", () => {
+    const flags = unreviewedMedicalPublishRule.evaluate(
+      createInput({
+        publishState: "published",
+        source: "crawl",
+        text: "저희는 강남에 위치한 의원입니다. 진료 시간은 평일 오전 9시부터 오후 6시까지입니다."
+      }),
+    );
+
+    expect(flags).toHaveLength(0);
+  });
+
+  it("keeps the whole crawl report clear when the page has no violation", () => {
+    const report = evaluateCompliance(
+      createInput({
+        publishState: "published",
+        source: "crawl",
+        title: "병원 소개",
+        text: "저희는 강남에 위치한 의원입니다. 예약은 전화로 가능합니다. clinic 안내 페이지입니다."
+      }),
+      { evaluatedAt },
+    );
+
+    expect(report.flags).toHaveLength(0);
+    expect(report.status).toBe("clear");
+    // §57 사전심의는 룰이 아니라 체크리스트 항목 8 로만 남는다.
+    expect(report.checklist.find((entry) => entry.item === 8)?.status).toBe("needs_verification");
+  });
+
+  it("still flags real violations on crawled pages", () => {
+    const report = evaluateCompliance(
+      createInput({
+        publishState: "published",
+        source: "crawl",
+        text: "이 의원의 시술은 100% 효과 보장 합니다."
+      }),
+      { evaluatedAt },
+    );
+
+    expect(report.flags.map((flag) => flag.ruleId)).toContain("GUARANTEED_RESULT_CLAIM");
+  });
+
   it("blocks scheduled or published medical content until compliance review", () => {
     const [flag] = unreviewedMedicalPublishRule.evaluate(
       createInput({

@@ -11,7 +11,15 @@ import {
   type GeoAnswerMonitorBatchResult,
   type SchemaRichResultValidatorAdapterInput
 } from "@searchops/connectors";
-import { crawlSite, extractSeoSignals, type CrawlSiteInput } from "@searchops/crawler-core";
+import { evaluateAeoReadiness } from "@searchops/aeo-core";
+import { evaluateCompliance } from "@searchops/compliance";
+import {
+  crawlSite,
+  extractSeoSignals,
+  extractVisibleText,
+  parseHtml,
+  type CrawlSiteInput
+} from "@searchops/crawler-core";
 import {
   extractJsonLdTypes,
   recommendJsonLdForSnapshots,
@@ -32,7 +40,10 @@ import {
   persistGeoAnswerMonitorJobResult,
   persistSchemaRichResultValidationJobResult,
   markConnectorSyncRunFailed,
+  filterAeoReadinessKeywords,
   markCrawlRunFailed,
+  persistAeoReadinessReports,
+  persistComplianceFlags,
   persistCrawlAnalysisResult,
   persistConnectorSyncJobResult,
   persistCrawlJobResult,
@@ -40,6 +51,8 @@ import {
   verifyConnectorSyncRunOwnership,
   verifyGeoVisibilitySiteOwnership,
   type CredentialKeyring,
+  type AeoReadinessPersistenceClient,
+  type ComplianceFlagPersistenceClient,
   type CrawlAnalysisPersistenceClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
@@ -50,6 +63,8 @@ import {
   type SchemaRecommendationRecheckPersistenceClient
 } from "@searchops/db";
 import {
+  AeoPageSignalSchema,
+  KeywordTargetSchema,
   LiveExternalApiModeSchema,
   ConnectorSyncJobPayloadSchema,
   ConnectorSyncJobResultSchema,
@@ -60,8 +75,12 @@ import {
   GeoAnswerMonitorResultSchema,
   SchemaRichResultValidationJobPayloadSchema,
   SchemaRichResultValidationJobResultSchema,
+  type AeoPageSignal,
+  type AeoReadinessReport,
+  type ComplianceReviewReport,
   type ConnectorSyncJobPayload,
   type ConnectorSyncJobResult,
+  type CrawlerPageSnapshot,
   type ConnectorRunResult,
   type CredentialStorageMode,
   type CrawlJobPageInput,
@@ -88,11 +107,20 @@ import {
 
 export interface ProcessAndPersistCrawlJobOptions {
   readonly crawlAnalysisClient?: CrawlAnalysisPersistenceClient;
+  /** T9: 크롤 후처리 AEO 준비도. 없으면 조용히 건너뛴다(기존 호출부 호환). */
+  readonly aeoReadinessClient?: AeoReadinessPersistenceClient;
+  /** T9: 크롤 후처리 의료광고법 검수. 플래그만 만들고 게재 판정은 하지 않는다. */
+  readonly complianceFlagClient?: ComplianceFlagPersistenceClient;
   /** T8: recheckWorkOrderId 가 있는 크롤 뒤 워크오더 상태 전이·감사 이벤트. */
   readonly workOrderRecheckClient?: WorkOrderRecheckPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
   readonly richdocBridge?: RichdocContractBridge;
   readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
+  /**
+   * 크롤 잡을 깨지 않고 삼킨 후처리(AEO·컴플라이언스) 실패를 배치 실행으로 올린다.
+   * 없으면 전패해도 워크플로가 초록불이라 0건 상태를 아무도 모른다(richdocBridge.failureCount 와 같은 취지).
+   */
+  readonly onPostprocessFailure?: (label: string, error: unknown) => void;
 }
 
 export interface ProcessConnectorSyncJobOptions {
@@ -692,6 +720,18 @@ export async function processAndPersistCrawlJob(
     const result = processCrawlJob(payload);
     await persistCrawlJobResult(persistenceClient, result, payload.pages);
     await persistCrawlAnalysisFromCrawlResult(payload, result, options.crawlAnalysisClient);
+    // AEO·컴플라이언스는 서로, 그리고 크롤 잡과 독립적으로 보호한다. 여기서 던지면
+    // markCrawlRunFailed 가 돌면서 정상 저장된 크롤·SEO 결과까지 실패로 뒤집힌다.
+    await runGuarded(
+      "aeo-readiness",
+      () => persistAeoReadinessFromCrawlResult(payload, result, options.aeoReadinessClient),
+      options.onPostprocessFailure,
+    );
+    await runGuarded(
+      "compliance",
+      () => persistComplianceFromCrawlResult(payload, result, options.complianceFlagClient),
+      options.onPostprocessFailure,
+    );
     await persistSchemaRecommendationRecheckFromCrawlResult(
       payload,
       result,
@@ -817,4 +857,253 @@ function findSchemaRecommendationRecheckSnapshot(payload: CrawlJobPayload, resul
     result.snapshots[0] ??
     null
   );
+}
+
+// ── 크롤 후처리 T9: AEO 준비도 · 의료광고법 검수 ────────────────────────────
+// SeoIssue·SchemaRecommendation 과 같은 자리에서 돈다. 새 큐·크론·배치 없음.
+
+/**
+ * 질문형 헤딩 판정. 결정적이어야 하고 LLM 을 끼우지 않는다.
+ * 물음표를 포함하거나, 아래 '의문형이 확실한' 어미로 끝나면 질문형으로 본다.
+ *
+ * 단독 의문사(왜·어디·언제·무엇·얼마)와 평서형과 겹치는 어미(니까·가요·인가)는 넣지 않는다.
+ * 넣으면 "전문의가 직접 하니까"·"보건복지부 인가"·"함께 가요" 같은 평서형 마케팅 헤딩이
+ * 질문으로 잡혀 QUESTION_COVERAGE 가 fail→pass 로 뒤집히고, FAQ 가 0건인 페이지가
+ * AeoReadinessReport 에 "ready" 로 저장된다. 의문형 -ㅂ니까 는 종성 ㅂ 이 붙은
+ * 합니까·입니까·습니까 만 받아 원인 어미 -니까(하니까·이니까)와 갈라둔다.
+ */
+const QUESTION_HEADING_SUFFIXES = [
+  "무엇인가",
+  "어떻게",
+  "인가요",
+  "나요",
+  "되나",
+  "까요",
+  "할까",
+  "일까",
+  "을까",
+  "습니까",
+  "합니까",
+  "입니까"
+] as const;
+
+export function isQuestionHeading(heading: string): boolean {
+  const normalized = heading.trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+  if (normalized.includes("?") || normalized.includes("？")) {
+    return true;
+  }
+
+  // 끝의 문장부호·공백만 털어낸다. 어미 판정이 마침표 하나로 어긋나면 안 된다.
+  const trimmed = normalized.replace(/[\s.!·…"'”’)\]]+$/u, "");
+  return QUESTION_HEADING_SUFFIXES.some((suffix) => trimmed.endsWith(suffix));
+}
+
+export function deriveQuestionHeadings(headings: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const questions: string[] = [];
+  for (const heading of headings) {
+    const normalized = heading.trim();
+    if (normalized.length === 0 || seen.has(normalized) || !isQuestionHeading(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    questions.push(normalized);
+  }
+  return questions;
+}
+
+export function toAeoPageSignal(snapshot: CrawlerPageSnapshot): AeoPageSignal {
+  return AeoPageSignalSchema.parse({
+    url: snapshot.url,
+    title: snapshot.title,
+    metaDescription: snapshot.metaDescription,
+    h1: snapshot.headings.h1[0] ?? null,
+    h2: snapshot.headings.h2,
+    wordCount: snapshot.content.wordCount,
+    schemaTypes: extractJsonLdTypes(snapshot),
+    questionHeadings: deriveQuestionHeadings(snapshot.headings.h2),
+    answerBlocks: []
+  });
+}
+
+/** 한 블록의 실패가 크롤 잡 전체를 깨지 않게 감싼다. 대신 실패 사실은 호출부로 올린다. */
+async function runGuarded<T>(
+  label: string,
+  run: () => Promise<T>,
+  onFailure?: (label: string, error: unknown) => void,
+): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    console.error(`[crawl-postprocess] ${label} 실패 — 크롤 결과는 유지한다`, error);
+    onFailure?.(label, error);
+    return null;
+  }
+}
+
+async function persistAeoReadinessFromCrawlResult(
+  payload: CrawlJobPayload,
+  result: CrawlJobResult,
+  aeoReadinessClient: AeoReadinessPersistenceClient | undefined,
+) {
+  if (aeoReadinessClient === undefined || result.snapshots.length === 0) {
+    return null;
+  }
+  if ((payload.analysis?.generateAeoReadiness ?? true) === false) {
+    return null;
+  }
+
+  const snapshot = findSchemaRecommendationRecheckSnapshot(payload, result);
+  if (snapshot === null) {
+    return null;
+  }
+
+  const keywords = filterAeoReadinessKeywords(
+    await aeoReadinessClient.keyword.findMany({ where: { siteId: result.siteId } }),
+  );
+  if (keywords.length === 0) {
+    return null;
+  }
+
+  const candidatePage = toAeoPageSignal(snapshot);
+  const evaluatedAt = new Date().toISOString();
+  const reports: { keywordId: string; report: AeoReadinessReport }[] = [];
+  for (const keyword of keywords) {
+    // 키워드 1건의 파싱 실패가 크롤 잡을 깨면 안 된다(라우트엔 400 이 있지만 워커엔 없다).
+    try {
+      reports.push({
+        keywordId: keyword.id,
+        report: evaluateAeoReadiness(
+          {
+            candidatePage,
+            keyword: KeywordTargetSchema.parse({
+              siteId: result.siteId,
+              phrase: keyword.phrase,
+              locale: keyword.locale,
+              intent: keyword.intent
+            })
+          },
+          { evaluatedAt },
+        )
+      });
+    } catch (error) {
+      console.error(`[crawl-postprocess] AEO 키워드 건너뜀: ${keyword.phrase}`, error);
+    }
+  }
+
+  if (reports.length === 0) {
+    return null;
+  }
+
+  return persistAeoReadinessReports(aeoReadinessClient, {
+    reports,
+    siteId: result.siteId
+  });
+}
+
+/** 이보다 짧은 본문은 검수 근거가 되지 못한다(빈 페이지·리다이렉트 껍데기). */
+const MIN_COMPLIANCE_TEXT_LENGTH = 40;
+
+/**
+ * 의료 계열 사이트에서만 의료광고법 룰을 돌린다. batch-crawl 은 DB 의 모든 Site 를 긁으므로
+ * 게이트가 없으면 토너 판매·영어 SaaS 사이트가 본문 속 "laser"·"treatment" 한 단어로
+ * kr-medical 룰팩에 걸려 매일 밤 의료법 플래그를 받는다.
+ * Site.industry 는 자유 문자열이라(스키마상 nullable) 한글 진료과명도 그대로 들어온다.
+ */
+const MEDICAL_INDUSTRY_PATTERN =
+  /(clinic|dental|dermatolog|hospital|medical|medicine|surgery|의료|의원|병원|클리닉|피부과|성형|치과|한의원|안과|이비인후과|정형외과|산부인과)/iu;
+
+export function isMedicalIndustry(industry: string | null): boolean {
+  return industry !== null && MEDICAL_INDUSTRY_PATTERN.test(industry);
+}
+
+async function persistComplianceFromCrawlResult(
+  payload: CrawlJobPayload,
+  result: CrawlJobResult,
+  complianceFlagClient: ComplianceFlagPersistenceClient | undefined,
+) {
+  if (complianceFlagClient === undefined || result.snapshots.length === 0) {
+    return null;
+  }
+  if ((payload.analysis?.generateComplianceFlags ?? true) === false) {
+    return null;
+  }
+
+  const site = await complianceFlagClient.site.findUnique({ where: { id: result.siteId } });
+  if (site === null) {
+    return null;
+  }
+  // 게이트는 사이트 단위로 먼저 친다. 페이지 본문의 영어 단어 하나로 룰팩이 뒤집히면 안 된다.
+  if (!isMedicalIndustry(site.industry)) {
+    console.log(
+      `[crawl-postprocess] 컴플라이언스 건너뜀 — 비의료 industry(${site.industry ?? "null"}): ${result.siteId}`,
+    );
+    return null;
+  }
+
+  // 사이트가 정본이다. ko-KR 하드코딩은 영어권 사이트에 한국 의료광고법을 억지로 붙인다.
+  const locale = `${site.language}-${site.country}`;
+  const reports: ComplianceReviewReport[] = [];
+  // processCrawlJob 이 pages.slice(0, maxPages) 를 그대로 map 하므로 색인이 1:1 이다.
+  for (const [index, snapshot] of result.snapshots.entries()) {
+    const page = payload.pages[index];
+    if (page === undefined) {
+      continue;
+    }
+
+    try {
+      const text = extractVisibleText(parseHtml(page.html)).trim();
+      if (text.length < MIN_COMPLIANCE_TEXT_LENGTH) {
+        continue;
+      }
+
+      reports.push(
+        // 룰팩은 자동 선택(selectComplianceRulePackId)에 맡긴다. industry 가 정본이다.
+        evaluateCompliance({
+          siteId: result.siteId,
+          subjectType: "page_copy",
+          subjectId: null,
+          url: snapshot.url,
+          title: snapshot.title,
+          text,
+          locale,
+          industry: site.industry,
+          // 크롤한 페이지는 이미 공개돼 있다. draft 로 속이지 않는다.
+          publishState: "published",
+          source: "crawl"
+        }),
+      );
+    } catch (error) {
+      console.error(`[crawl-postprocess] 컴플라이언스 페이지 건너뜀: ${snapshot.url}`, error);
+    }
+  }
+
+  if (reports.length === 0) {
+    return null;
+  }
+
+  // "검수했는데 깨끗함"과 "룰이 아예 안 돌았음"은 둘 다 플래그 0건이라 로그로만 갈린다.
+  // isMedicalContext 가 영어 단어 정규식이라 순 한글 본문 + 한글 industry 는 global 로 떨어진다.
+  const rulePackCounts = new Map<string, number>();
+  for (const report of reports) {
+    rulePackCounts.set(report.rulePackId, (rulePackCounts.get(report.rulePackId) ?? 0) + 1);
+  }
+  const rulePackSummary = [...rulePackCounts]
+    .map(([rulePackId, count]) => `${rulePackId}=${count}`)
+    .join(" ");
+  console.log(`[crawl-postprocess] 컴플라이언스 룰팩 ${rulePackSummary} (${result.siteId})`);
+  if ((rulePackCounts.get("kr-medical") ?? 0) === 0) {
+    console.warn(
+      `[crawl-postprocess] 의료 사이트인데 kr-medical 로 평가된 페이지가 0건이다 — 룰이 돌지 않았다: ${result.siteId}`,
+    );
+  }
+
+  // 플래그를 만들 뿐이다. 승인·반려·게재 차단은 사람이 한다(draft-only).
+  return persistComplianceFlags(complianceFlagClient, {
+    reports,
+    siteId: result.siteId
+  });
 }

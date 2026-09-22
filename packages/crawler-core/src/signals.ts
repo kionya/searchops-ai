@@ -175,7 +175,7 @@ function extractJsonLd($: CheerioAPI): JsonLdBlock[] {
     .filter((block): block is JsonLdBlock => block !== null);
 }
 
-function extractVisibleText($: CheerioAPI): string {
+export function extractVisibleText($: CheerioAPI): string {
   if ($("body").length > 0) {
     const root = $("body").first().clone();
     root.find("script, style, noscript, template").remove();

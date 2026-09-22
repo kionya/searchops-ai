@@ -1739,7 +1739,21 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
       return;
     }
 
-    reply.send(AeoReadinessReportListResponseSchema.parse({ reports }));
+    // 키워드별 최신 1건만 내보낸다. 크롤 후처리가 매일 밤 키워드 수만큼 행을 더하는데,
+    // 이력을 그대로 내보내면 웹 대시보드(summarizeKeywordAeoDashboard)가 전부 집계해
+    // "키워드 12개" 가 30일 뒤 "키워드 360" 이 된다. HTML 진단서는 이미 같은 규칙으로 접는다.
+    // 리포지토리가 evaluatedAt desc 로 정렬해 주므로 먼저 나온 행이 최신이다.
+    const seen = new Set<string>();
+    const latestReports = reports.filter((report) => {
+      const key = report.keywordId ?? `phrase:${report.locale}:${report.phrase}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+
+    reply.send(AeoReadinessReportListResponseSchema.parse({ reports: latestReports }));
   });
 
   server.get("/sites/:id/keyword-discoveries", async (request, reply) => {

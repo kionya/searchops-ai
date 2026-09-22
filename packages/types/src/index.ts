@@ -1756,6 +1756,8 @@ export type ComplianceSubjectType = z.infer<typeof ComplianceSubjectTypeSchema>;
 export const ComplianceReviewSourceSchema = z.enum([
   "content_brief",
   "cms",
+  /** 크롤 후처리가 공개 페이지 본문을 검수한 경우. 기존 값을 재해석하면 출처가 뭉개진다. */
+  "crawl",
   "fixture",
   "manual",
   "schema_recommendation",
@@ -2476,6 +2478,10 @@ export const CrawlJobPageInputSchema = z.object({
 export type CrawlJobPageInput = z.infer<typeof CrawlJobPageInputSchema>;
 
 export const CrawlAnalysisOptionsSchema = z.object({
+  /** 크롤 후처리의 AEO 준비도 평가. 생략 = 켜짐(기존 호출부 호환을 위해 optional). */
+  generateAeoReadiness: z.boolean().optional(),
+  /** 크롤 후처리의 의료광고법 검수. 플래그만 만든다 — 승인·게재 차단은 사람이 한다. */
+  generateComplianceFlags: z.boolean().optional(),
   generateSchemaRecommendations: z.boolean().default(true),
   generateSeoIssues: z.boolean().default(true),
   generateWorkOrders: z.boolean().default(true),

@@ -3670,6 +3670,44 @@ describe("api foundation", () => {
     });
   });
 
+  // 크롤 후처리가 매일 밤 키워드 수만큼 행을 더한다. 이력을 그대로 내보내면 웹 대시보드가
+  // 전부 집계해 "키워드 12개" 가 30일 뒤 "키워드 360" 이 된다(총계·평균·미통과 체크 전부).
+  it("lists only the latest AEO readiness report per keyword", async () => {
+    const history = ["2026-05-23", "2026-05-24", "2026-05-25"].map((day, index) => ({
+      ...seededAeoReadinessReport,
+      id: `aeo_report_day_${index}`,
+      evaluatedAt: `${day}T00:00:00.000Z`,
+    }));
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        aeoReadinessReports: [
+          ...history,
+          { ...seededAeoReadinessReport, id: "aeo_report_other", keywordId: "keyword_other", phrase: "seo clinic price" },
+        ],
+      }),
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/sites/site_seed/aeo-readiness-reports",
+    });
+    const { reports } = response.json();
+
+    // 같은 키워드의 이력 3건은 최신 1건으로 접고, 다른 키워드는 그대로 남긴다.
+    expect(reports).toHaveLength(2);
+    expect(reports[0]).toMatchObject({
+      id: "aeo_report_day_2",
+      keywordId: "keyword_seed",
+      evaluatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    expect(reports.map((report: { keywordId: string }) => report.keywordId)).toEqual([
+      "keyword_seed",
+      "keyword_other",
+    ]);
+  });
+
   it("lists persisted AEO readiness report history", async () => {
     const server = buildAeoReadinessTestServer();
     const response = await server.inject({

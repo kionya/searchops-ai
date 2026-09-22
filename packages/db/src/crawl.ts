@@ -1,8 +1,12 @@
 import {
+  AeoReadinessReportSchema,
+  ComplianceReviewReportSchema,
   CrawlJobResultSchema,
   JsonLdRecommendationSetSchema,
   SeoIssueDraftSchema,
   WorkOrderDraftSchema,
+  type AeoReadinessReport,
+  type ComplianceReviewReport,
   type CrawlJobPageInput,
   type CrawlJobResult,
   type CrawlerPageSnapshot,
@@ -592,4 +596,326 @@ function createStatusCodeLookup(sourcePages: readonly CrawlJobPageInput[]) {
   }
 
   return statusCodes;
+}
+
+// ── 크롤 후처리 형제 함수: AEO 준비도 · 의료광고법 플래그 ────────────────────
+// SeoIssue·SchemaRecommendation 과 같은 자리에서 같은 패턴으로 쓴다. 새 큐·크론 없음.
+
+/** geo_query 는 AI 질문 세트라 페이지 AEO 평가 대상이 아니다. */
+export const AEO_EXCLUDED_KEYWORD_PURPOSE = "geo_query" as const;
+
+export interface AeoReadinessKeywordRecord {
+  readonly id: string;
+  readonly phrase: string;
+  readonly locale: string;
+  readonly intent: string | null;
+  readonly purpose: string;
+}
+
+export interface AeoReadinessKeywordFindManyArgs {
+  readonly where: {
+    readonly siteId: string;
+  };
+}
+
+export interface AeoReadinessReportCreateArgs {
+  readonly data: {
+    readonly checks: Prisma.InputJsonValue;
+    readonly evaluatedAt: Date;
+    readonly generatedBy: string;
+    readonly intent: string | null;
+    readonly keywordId: string;
+    readonly locale: string;
+    readonly pageUrl: string | null;
+    readonly phrase: string;
+    readonly score: number;
+    readonly siteId: string;
+    readonly status: string;
+  };
+}
+
+export interface AeoReadinessPersistenceClient {
+  keyword: {
+    findMany(args: AeoReadinessKeywordFindManyArgs): Promise<AeoReadinessKeywordRecord[]>;
+  };
+  aeoReadinessReport: {
+    create(args: AeoReadinessReportCreateArgs): Promise<{ id: string }>;
+  };
+}
+
+export interface PersistAeoReadinessReportsInput {
+  siteId: string;
+  reports: readonly {
+    keywordId: string;
+    report: AeoReadinessReport;
+  }[];
+}
+
+export interface PersistAeoReadinessReportsOutput {
+  aeoReadinessReportsCreated: number;
+}
+
+export function createPrismaAeoReadinessPersistenceClient(
+  prisma: Pick<SearchOpsPrismaClient, "aeoReadinessReport" | "keyword">,
+): AeoReadinessPersistenceClient {
+  return {
+    aeoReadinessReport: {
+      async create(args) {
+        return prisma.aeoReadinessReport.create(args);
+      }
+    },
+    keyword: {
+      async findMany(args) {
+        return prisma.keyword.findMany({
+          orderBy: { phrase: "asc" },
+          select: {
+            id: true,
+            intent: true,
+            locale: true,
+            phrase: true,
+            purpose: true
+          },
+          where: args.where
+        });
+      }
+    }
+  };
+}
+
+/** geo_query 만 빼고 남긴다. 나머지(search_demand·both)는 페이지 AEO 평가 대상이다. */
+export function filterAeoReadinessKeywords(
+  keywords: readonly AeoReadinessKeywordRecord[],
+): AeoReadinessKeywordRecord[] {
+  return keywords.filter((keyword) => keyword.purpose !== AEO_EXCLUDED_KEYWORD_PURPOSE);
+}
+
+export async function persistAeoReadinessReports(
+  client: AeoReadinessPersistenceClient,
+  input: PersistAeoReadinessReportsInput,
+): Promise<PersistAeoReadinessReportsOutput> {
+  let aeoReadinessReportsCreated = 0;
+  for (const entry of input.reports) {
+    const report = AeoReadinessReportSchema.parse(entry.report);
+    if (report.keyword.siteId !== input.siteId) {
+      throw new Error(`AEO readiness report site mismatch: ${report.keyword.siteId}`);
+    }
+
+    await client.aeoReadinessReport.create({
+      data: {
+        checks: report.checks,
+        evaluatedAt: new Date(report.evaluatedAt),
+        generatedBy: report.generatedBy,
+        intent: report.keyword.intent,
+        keywordId: entry.keywordId,
+        locale: report.keyword.locale,
+        pageUrl: report.pageUrl,
+        phrase: report.keyword.phrase,
+        score: report.score,
+        siteId: input.siteId,
+        status: report.status
+      }
+    });
+    aeoReadinessReportsCreated += 1;
+  }
+
+  return { aeoReadinessReportsCreated };
+}
+
+export interface ComplianceFlagExistingRecord {
+  readonly id: string;
+  readonly ruleId: string | null;
+  /** open·in_review·resolved·dismissed. 대조는 전 상태로 한다(아래 findMany 주석). */
+  readonly status: string;
+  readonly url: string | null;
+}
+
+export interface ComplianceFlagFindManyArgs {
+  readonly where: {
+    readonly siteId: string;
+  };
+}
+
+export interface ComplianceFlagCreateArgs {
+  readonly data: Prisma.ComplianceFlagUncheckedCreateInput;
+}
+
+export interface ComplianceFlagUpdateArgs {
+  readonly where: {
+    readonly id: string;
+  };
+  readonly data: {
+    readonly evidence: Prisma.InputJsonValue;
+    readonly message: string;
+  };
+}
+
+export interface ComplianceSiteRecord {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly industry: string | null;
+  readonly language: string;
+  readonly country: string;
+}
+
+export interface ComplianceFlagPersistenceClient {
+  site: {
+    findUnique(args: SiteFindUniqueArgs): Promise<ComplianceSiteRecord | null>;
+  };
+  complianceFlag: {
+    findMany(args: ComplianceFlagFindManyArgs): Promise<ComplianceFlagExistingRecord[]>;
+    create(args: ComplianceFlagCreateArgs): Promise<{ id: string }>;
+    update(args: ComplianceFlagUpdateArgs): Promise<{ id: string }>;
+  };
+}
+
+export interface PersistComplianceFlagsInput {
+  siteId: string;
+  reports: readonly ComplianceReviewReport[];
+}
+
+export interface PersistComplianceFlagsOutput {
+  complianceFlagsCreated: number;
+  complianceFlagsSkipped: number;
+  /** 이미 열려 있던 플래그의 근거 문장을 최신 본문으로 덮어쓴 횟수. */
+  complianceFlagsRefreshed: number;
+}
+
+export function createPrismaComplianceFlagPersistenceClient(
+  prisma: Pick<SearchOpsPrismaClient, "complianceFlag" | "site">,
+): ComplianceFlagPersistenceClient {
+  return {
+    complianceFlag: {
+      async create(args) {
+        return prisma.complianceFlag.create(args);
+      },
+      async findMany(args) {
+        return prisma.complianceFlag.findMany({
+          select: {
+            id: true,
+            ruleId: true,
+            status: true,
+            url: true
+          },
+          where: args.where
+        });
+      },
+      async update(args) {
+        return prisma.complianceFlag.update({
+          data: args.data,
+          select: { id: true },
+          where: args.where
+        });
+      }
+    },
+    site: {
+      async findUnique(args) {
+        return prisma.site.findUnique({
+          select: {
+            country: true,
+            id: true,
+            industry: true,
+            language: true,
+            organizationId: true
+          },
+          where: args.where
+        });
+      }
+    }
+  };
+}
+
+/** 중복 방지 키. 크롤마다 같은 (siteId, url, ruleId) 플래그가 순증하면 안 된다. */
+function complianceFlagDedupeKey(url: string | null, ruleId: string | null): string {
+  return `${url ?? ""}\u0000${ruleId ?? ""}`;
+}
+
+export async function persistComplianceFlags(
+  client: ComplianceFlagPersistenceClient,
+  input: PersistComplianceFlagsInput,
+): Promise<PersistComplianceFlagsOutput> {
+  const site = await client.site.findUnique({
+    where: {
+      id: input.siteId
+    }
+  });
+  if (site === null) {
+    throw new Error(`Site not found for compliance review: ${input.siteId}`);
+  }
+
+  // status 로 좁히지 않는다. open 만 대조하면 운영자가 워크오더로 전환(in_review)하거나
+  // 오탐으로 기각(dismissed)한 순간 같은 (url, ruleId) 플래그가 다음 크롤마다 되살아나
+  // 트리아지 사이클당 1행씩 순증한다. 재검·해소 전이는 recheckComplianceFlag 가 맡고,
+  // 크롤 후처리는 '없으면 만들고, 있으면 근거만 갱신한다'.
+  const existing = await client.complianceFlag.findMany({
+    where: {
+      siteId: input.siteId
+    }
+  });
+  const seen = new Map(
+    existing.map((flag) => [complianceFlagDedupeKey(flag.url, flag.ruleId), flag] as const),
+  );
+
+  let complianceFlagsCreated = 0;
+  let complianceFlagsSkipped = 0;
+  let complianceFlagsRefreshed = 0;
+  for (const raw of input.reports) {
+    const report = ComplianceReviewReportSchema.parse(raw);
+    if (report.input.siteId !== input.siteId) {
+      throw new Error(`Compliance review site mismatch: ${report.input.siteId}`);
+    }
+
+    for (const flag of report.flags) {
+      const key = complianceFlagDedupeKey(report.input.url, flag.ruleId);
+      const previous = seen.get(key);
+      if (previous !== undefined) {
+        complianceFlagsSkipped += 1;
+        // 같은 룰이라도 위반 문구는 바뀐다. 열린 플래그가 페이지에 더 이상 없는 문장을
+        // 근거로 계속 보여주면 운영자가 확인하러 갔을 때 아무것도 찾지 못한다.
+        // 기각·해소된 플래그는 건드리지 않는다 — 판정이 되살아나면 안 된다.
+        if (previous.status === "open") {
+          await client.complianceFlag.update({
+            data: {
+              evidence: flag.evidence as unknown as Prisma.InputJsonValue,
+              message: flag.message
+            },
+            where: { id: previous.id }
+          });
+          complianceFlagsRefreshed += 1;
+        }
+        continue;
+      }
+
+      const created = await client.complianceFlag.create({
+        data: {
+          checklistItem: flag.checklistItem ?? null,
+          evidence: flag.evidence as unknown as Prisma.InputJsonValue,
+          generatedBy: flag.generatedBy,
+          legalClause: flag.legalClause ?? null,
+          message: flag.message,
+          organizationId: site.organizationId,
+          priorReviewRequired: flag.priorReviewRequired,
+          recommendation: flag.recommendation,
+          replacementSuggestion: flag.replacementSuggestion,
+          riskLevel: flag.riskLevel,
+          ruleId: flag.ruleId,
+          siteId: input.siteId,
+          status: flag.status,
+          subjectId: report.input.subjectId,
+          subjectType: report.input.subjectType,
+          title: flag.title,
+          url: report.input.url,
+          workOrderId: null
+        }
+      });
+      seen.set(key, {
+        id: created.id,
+        ruleId: flag.ruleId,
+        status: flag.status,
+        url: report.input.url
+      });
+      complianceFlagsCreated += 1;
+    }
+  }
+
+  return { complianceFlagsCreated, complianceFlagsRefreshed, complianceFlagsSkipped };
 }
