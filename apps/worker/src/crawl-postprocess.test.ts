@@ -487,3 +487,183 @@ describe("후처리 실패 격리", () => {
     expect(failures).toEqual(["aeo-readiness", "compliance"]);
   });
 });
+
+/**
+ * 운영 실측(2026-09, gowoonmom.co.kr 25페이지 79플래그 중 73건 오탐)의 원인 문자열.
+ * ComplianceFlag.evidence.excerpt 원문 그대로 — 25개 페이지 HTML 에 전부 반복됐다.
+ */
+const NAV_BOILERPLATE =
+  "스킨부스터 실리프팅 커뮤니티 시술후기 숏츠영상 공지사항 전후사진 리얼스토리 Login Join Keep your beauty for a long time";
+
+const PLAIN_FOOTER = "리쥬엘의원 서울특별시 강남구 대표번호 02-000-0000";
+
+/** 사이트 공통 블록 검수는 크롤런당 1회, 이 URL 로만 올라간다. */
+const SITE_URL = payload.startUrl;
+
+function navPage(
+  path: string,
+  body: string,
+  options: { footer?: string; nav?: string; banner?: string } = {},
+) {
+  const banner = options.banner === undefined ? "" : `<div class="promo">${options.banner}</div>`;
+  return {
+    url: `https://example.com${path}`,
+    html: `<!doctype html><html lang="ko"><head><title>리쥬엘의원 ${path}</title></head><body>
+<div class="gnb">${(options.nav ?? NAV_BOILERPLATE).replace("{{path}}", path)}</div>
+<p>${body}</p>
+${banner}
+<div class="footer">${options.footer ?? PLAIN_FOOTER}</div>
+</body></html>`,
+    statusCode: 200
+  };
+}
+
+const cleanBodies = [
+  "주차 공간은 건물 지하 2층에 마련되어 있으며 두 시간까지 무료로 이용하실 수 있습니다.",
+  "평일 진료 시간은 오전 열 시부터 오후 일곱 시까지이며 점심시간은 한 시부터 두 시까지입니다.",
+  "지하철 2호선 강남역 3번 출구에서 도보로 오 분 거리에 위치한 건물 사 층입니다.",
+  "예약은 전화 또는 홈페이지 예약 게시판을 통해 접수하시면 담당자가 순서대로 확인합니다."
+];
+
+function navPayload(
+  bodies: readonly string[],
+  options: { footer?: string; nav?: string; banner?: string } = {},
+) {
+  return {
+    ...payload,
+    maxPages: bodies.length,
+    pages: bodies.map((body, index) => navPage(`/p${index + 1}`, body, options))
+  };
+}
+
+async function runCompliance(
+  bodies: readonly string[],
+  options: { footer?: string; nav?: string; banner?: string; industry?: string } = {},
+) {
+  const compliance = createComplianceClient(options.industry ?? "medical");
+  await processAndPersistCrawlJob(navPayload(bodies, options), createCrawlClient(), {
+    complianceFlagClient: compliance.client
+  });
+  const created = compliance.created;
+  return {
+    created,
+    pageFlags: created.filter((flag) => flag.url !== SITE_URL),
+    siteFlags: created.filter((flag) => flag.url === SITE_URL),
+    ruleIds: (rows: readonly FakeComplianceFlag[]) => rows.map((flag) => flag.ruleId)
+  };
+}
+
+describe("크롤 후처리 의료광고법 검수 — 공통 내비게이션 오탐", () => {
+  it("메뉴에만 있는 '시술후기'·'전후사진'은 페이지가 아니라 사이트 1건으로만 남는다", async () => {
+    const run = await runCompliance(cleanBodies);
+
+    // 실측 오탐 25건 → 사이트 대표 URL 1건. 페이지에는 한 건도 생기지 않는다.
+    expect(run.pageFlags).toHaveLength(0);
+    expect(run.ruleIds(run.siteFlags)).toContain("PATIENT_TESTIMONIAL_REFERENCE");
+    expect(
+      run.siteFlags.filter((flag) => flag.ruleId === "PATIENT_TESTIMONIAL_REFERENCE"),
+    ).toHaveLength(1);
+  });
+
+  it("본문의 진짜 위반은 여전히 잡힌다", async () => {
+    const bodies = [...cleanBodies];
+    bodies[2] = "저희 병원은 100% 효과 보장을 약속드리며 모든 분께 동일한 결과를 드립니다.";
+    const run = await runCompliance(bodies);
+
+    const flagged = run.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM");
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({ url: "https://example.com/p3" });
+    expect(run.ruleIds(run.pageFlags)).not.toContain("PATIENT_TESTIMONIAL_REFERENCE");
+  });
+
+  it("페이지가 1장이면 반복의 근거가 없으므로 아무것도 제거하지 않는다", async () => {
+    const run = await runCompliance([cleanBodies[0] as string]);
+
+    expect(run.ruleIds(run.pageFlags)).toContain("PATIENT_TESTIMONIAL_REFERENCE");
+  });
+
+  it("브레드크럼이 앞에 붙은 메뉴도 공통 블록으로 걷어낸다", async () => {
+    // 블록 경계를 뒤에만 심으면 'HOME > 서브페이지 N' + 첫 메뉴가 한 덩어리가 되어
+    // 페이지마다 달라지고, 메뉴 첫 항목만 오탐으로 되살아난다.
+    const nav = "HOME &gt; 서브페이지 {{path}}<ul><li>시술후기</li><li>전후사진</li><li>공지사항</li></ul>";
+    const run = await runCompliance(cleanBodies, { nav });
+
+    expect(run.pageFlags).toHaveLength(0);
+  });
+});
+
+describe("크롤 후처리 의료광고법 검수 — 공통 블록의 진짜 위반", () => {
+  const BANNER = "100% 효과 보장 — 부작용 없는 무통 시술, 지금 상담하세요";
+
+  it("전 페이지에 반복되는 배너의 위반이 사라지지 않는다", async () => {
+    const run = await runCompliance(cleanBodies, { banner: BANNER });
+
+    const guaranteed = run.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM");
+    expect(guaranteed).toHaveLength(1);
+    expect(guaranteed[0]).toMatchObject({ riskLevel: "critical", url: SITE_URL });
+    expect(run.ruleIds(run.siteFlags)).toContain("ABSOLUTE_SAFETY_CLAIM");
+  });
+
+  it("페이지 수가 늘어도 같은 위반이 뒤집히지 않는다", async () => {
+    // 임계값이 '페이지 수' 함수라 3페이지·6페이지에서 판정이 갈리던 비단조성.
+    const three = await runCompliance(cleanBodies.slice(0, 3), { banner: BANNER });
+    const six = await runCompliance([...cleanBodies, ...cleanBodies.slice(0, 2)], {
+      banner: BANNER
+    });
+
+    expect(three.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM")).toHaveLength(1);
+    expect(six.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM")).toHaveLength(1);
+  });
+
+  it("페이지들이 서로 동일해도 위반이 조용히 사라지지 않는다", async () => {
+    const same = "저희 병원은 100% 효과 보장을 약속드리며 모든 분께 동일한 결과를 드립니다.";
+    const run = await runCompliance([same, same, same]);
+
+    expect(run.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM")).toHaveLength(1);
+  });
+});
+
+describe("크롤 후처리 의료광고법 검수 — 깎인 텍스트가 판정을 깎지 않는다", () => {
+  it("고유 본문이 40자 미만인 이벤트 페이지도 건너뛰지 않는다", async () => {
+    const bodies = [...cleanBodies];
+    // 37자. 내비를 걷어내면 길이 게이트(40자)에 걸려 페이지 전체가 검수에서 빠졌다.
+    bodies[3] = "9월 한정 이벤트 실리프팅 100% 효과 보장 지금 바로 예약하세요";
+    const run = await runCompliance(bodies);
+
+    const flagged = run.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM");
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({ url: "https://example.com/p4" });
+  });
+
+  it("전 페이지 공통 푸터의 부작용 고지를 고지로 인정한다", async () => {
+    const footer = `${PLAIN_FOOTER} 시술 및 수술 후 부작용이 발생할 수 있으므로 의료진과 충분히 상담하시기 바랍니다.`;
+    const bodies = [
+      "고주파 리프팅 시술은 피부 탄력 개선을 목적으로 진행하며 시술 시간은 약 삼십 분입니다.",
+      "스킨부스터 주사 시술은 피부 수분 개선을 위해 시행하며 주기는 상담 후 결정합니다.",
+      "레이저 시술은 색소와 흉터 개선 목적으로 시행하며 장비는 피부 상태에 따라 선택합니다.",
+      "보톡스 시술은 상담 후 진행하며 시술 부위와 용량은 의료진이 판단합니다."
+    ];
+
+    const withFooter = await runCompliance(bodies, { footer });
+    const withoutFooter = await runCompliance(bodies);
+
+    expect(withFooter.ruleIds(withFooter.created)).not.toContain("SIDE_EFFECT_DISCLOSURE_MISSING");
+    expect(withoutFooter.ruleIds(withoutFooter.pageFlags)).toContain(
+      "SIDE_EFFECT_DISCLOSURE_MISSING",
+    );
+  });
+
+  it("한글 industry 사이트는 내비를 걷어내도 kr-medical 로 남는다", async () => {
+    const bodies = [...cleanBodies];
+    bodies[0] = "저희는 100% 효과 보장을 약속드리며 모든 분께 같은 결과를 드립니다.";
+    // 영문 의료 키워드가 내비에만 있는 사이트. 걷어내면 룰팩이 global 로 떨어졌다.
+    const run = await runCompliance(bodies, {
+      industry: "피부과",
+      nav: "CLINIC 스킨부스터 실리프팅 커뮤니티 시술후기 전후사진 Login Join"
+    });
+
+    const flagged = run.created.filter((flag) => flag.ruleId === "GUARANTEED_RESULT_CLAIM");
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({ url: "https://example.com/p1" });
+  });
+});
