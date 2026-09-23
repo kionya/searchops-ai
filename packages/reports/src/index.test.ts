@@ -365,11 +365,38 @@ describe("reports (T6)", () => {
       ]
     });
 
-    expect(html).toContain("질문 3건이 페이지 2장에 매칭돼 평가됐습니다");
+    expect(html).toContain("질문 3건이 페이지 2장으로 평가됐습니다");
+    // 폴백은 리포트에 저장되지 않는다 — "매칭됐다"고 단정하면 없는 커버리지를 있다고 말한다.
+    expect(html).not.toContain("매칭돼 평가됐습니다");
+    expect(html).toContain("대표 페이지로 평가되며, 이 표만으로는 그 폴백을 구분할 수 없습니다");
     expect(html).toContain("<td>보톡스 가격, 보톡스 부작용</td>");
     expect(html).toContain("<td>주차 안내</td>");
     expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
     expect(html.match(/<td>72<\/td>/gu)).toHaveLength(1);
+  });
+
+  /**
+   * 회귀: 페이지로만 묶고 대표 1건의 숫자를 쓰면 46 으로 측정된 질문 줄에 88 이 붙는다.
+   * 워크오더로 페이지를 고치면 같은 URL 의 점수가 갈리는 것이 정상이라 실제로 일어난다.
+   */
+  it("does not borrow another question's score when the same page was measured differently (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_old", "보톡스 가격", 46, "2026-09-18T00:00:00.000Z"),
+        aeoReport("aeo_new", "주차 안내", 88, "2026-09-20T00:00:00.000Z")
+      ]
+    });
+
+    // 두 질문의 저장값이 각각 살아 있어야 한다. 한 줄로 합치면 46 이 사라진다.
+    expect(html).toContain("<td>보톡스 가격</td>");
+    expect(html).toContain("<td>주차 안내</td>");
+    expect(html).toContain("<td>46</td>");
+    expect(html).toContain("<td>88</td>");
+    expect(html).not.toContain("<td>보톡스 가격, 주차 안내</td>");
+    expect(html).toContain("측정 시점이 달라 점수가 갈린 행이 있습니다");
+    // 페이지는 1장이므로 "1장으로 평가됐다"는 사실은 그대로 유지한다.
+    expect(html).toContain("질문 2건이 모두 페이지 1장으로 평가됐습니다");
   });
 
   it("masks competitor names leaking through the newly wired sections (external)", () => {

@@ -943,8 +943,10 @@ function aeoMatchHaystack(snapshot: CrawlerPageSnapshot): string {
  * 매칭 실패(겹치는 토큰 0개)는 대표 페이지로 폴백하고 matched:false 로 알린다. 억지로
  * 아무 페이지나 붙이면 F 절이 '질문별로 다른 페이지를 쟀다'고 거짓말한다.
  *
- * ponytail: 공백 토큰 부분일치 개수라는 얕은 휴리스틱이다. 한국어는 어절 경계가 없어
- * 형태소 분석 없이는 이 이상 정확해지지 않는다 — 오매칭이 실측으로 보이면 그때 올린다.
+ * ponytail: 공백 토큰 부분일치 개수라는 얕은 휴리스틱이고, 키워드마다 전 스냅샷의 haystack 을
+ * 다시 만든다(O(키워드 × 페이지)). 실측 규모(페이지·키워드 수십)에서는 무시할 만하다 —
+ * 한국어는 어절 경계가 없어 형태소 분석 없이는 이 이상 정확해지지도 않는다.
+ * 오매칭이나 지연이 실측으로 보이면 그때 haystack 을 크롤런 단위로 한 번만 만들고 룰을 올린다.
  */
 export function selectAeoCandidateSnapshot(
   phrase: string,
