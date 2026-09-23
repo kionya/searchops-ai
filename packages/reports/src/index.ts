@@ -310,7 +310,19 @@ function workOrderBody(input: ReportInput, mask: MaskFn) {
     : "");
 }
 
-/** F 절. 질문(phrase)별 최신 측정 1건만 — 같은 질문의 이력이 중복 렌더되지 않게. */
+/**
+ * F 절. 질문(phrase)별 최신 측정 1건을 고른 뒤 **같은 측정값끼리 묶어** 렌더한다.
+ *
+ * 묶는 이유: AEO 점수는 페이지의 순수 함수다(aeo-core 7룰 중 6룰이 candidatePage 만 보고,
+ * 유일한 키워드 의존 룰은 항상 pass·100). 한 번의 측정에서 같은 페이지로 평가된 질문은 점수가
+ * 같으므로, 질문마다 줄을 나누면 없는 차이를 있는 것처럼 보인다 —
+ * 실측에서 질문 8건이 모두 46점으로 8줄 찍혔다.
+ *
+ * 묶는 키에 점수·상태까지 넣는 이유: 같은 페이지라도 측정 시점이 다르면 점수가 갈린다
+ * (워크오더로 페이지를 고치면 46 → 88 이 되는 것이 정상이다). 페이지만으로 묶고 대표 1건의
+ * 숫자를 쓰면, 46 으로 측정된 질문 줄에 88 이 붙는다 — 저장된 값이 아닌 남의 값이다.
+ * 갈리면 묶지 않는다.
+ */
 function aeoBody(input: ReportInput, mask: MaskFn) {
   if (input.aeoReports.length === 0) {
     return `<p class="muted">AEO 진단 미실행 — aeo-core 준비도 리포트가 0건입니다(데이터 소스는 배선돼 있습니다).${internalOnly(input, " POST /sites/:id/aeo-readiness-reports 실행 후 채워집니다.")}</p>`;
@@ -322,17 +334,42 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
       latest.set(report.phrase, report);
     }
   }
-  const rows = [...latest.values()]
-    .sort((a, b) => a.score - b.score || a.phrase.localeCompare(b.phrase))
-    .map((report) => [
-      esc(mask(report.phrase)),
-      esc(mask(report.pageUrl ?? "-")),
-      String(report.score),
-      esc(report.status),
-      esc(report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
+
+  const groups = new Map<string, { phrases: string[]; report: ReportInput["aeoReports"][number] }>();
+  for (const report of latest.values()) {
+    const failed = report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ");
+    const key = `${report.pageUrl ?? ""}\t${report.score}\t${report.status}\t${failed}`;
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, { phrases: [report.phrase], report });
+      continue;
+    }
+    group.phrases.push(report.phrase);
+  }
+
+  const rows = [...groups.values()]
+    .sort((a, b) => a.report.score - b.report.score || (a.report.pageUrl ?? "").localeCompare(b.report.pageUrl ?? ""))
+    .map((group) => [
+      esc(mask(group.report.pageUrl ?? "-")),
+      esc(mask([...group.phrases].sort((a, b) => a.localeCompare(b)).join(", "))),
+      String(group.report.score),
+      esc(group.report.status),
+      esc(group.report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
     ]);
-  return table(["질문", "페이지", "점수", "상태", "미통과 체크"], rows)
-    + `<p class="muted">질문별 최신 측정 1건. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
+
+  const questionCount = latest.size;
+  const pageCount = new Set([...latest.values()].map((report) => report.pageUrl ?? "")).size;
+  // "매칭돼"라고 쓰지 않는다. 질문에 대응하는 페이지를 못 찾으면 워커가 대표 페이지로 폴백하는데,
+  // 그 사실은 리포트에 저장되지 않아(AeoReadinessReportRecord 에 필드가 없다) 여기서 구분할 수 없다.
+  const unit = pageCount === 1 && questionCount > 1
+    ? `질문 ${questionCount}건이 모두 페이지 1장으로 평가됐습니다 — 질문별 차이가 아니라 그 페이지 1장의 점수입니다.`
+    : `질문 ${questionCount}건이 페이지 ${pageCount}장으로 평가됐습니다.`;
+  const splitNote = rows.length > pageCount
+    ? ` 같은 페이지인데 측정 시점이 달라 점수가 갈린 행이 있습니다(행 ${rows.length} > 페이지 ${pageCount}) — 한 줄로 합치지 않았습니다.`
+    : "";
+
+  return table(["페이지", "질문", "점수", "상태", "미통과 체크"], rows)
+    + `<p class="muted">${unit}${splitNote} 점수는 페이지 속성(요약·질문형 헤딩·FAQ 스키마·헤딩 구조·인용 가능성·분량)만 봅니다 — 한 번의 측정에서 같은 페이지로 평가된 질문은 점수가 같습니다. <strong>"이 페이지가 이 질문에 답하는가"는 아직 측정하지 않습니다</strong>(⚠️ 검증필요). 질문에 대응하는 페이지를 찾지 못하면 대표 페이지로 평가되며, 이 표만으로는 그 폴백을 구분할 수 없습니다(⚠️ 검증필요). 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
 }
 
 function sourceAttr(input: z.output<typeof DiagnosisReportInputSchema>) {
