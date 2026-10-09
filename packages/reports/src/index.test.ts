@@ -117,7 +117,8 @@ const aeoReport = (
   phrase: string,
   score: number,
   evaluatedAt: string,
-  pageUrl = "https://example-clinic.com/faq"
+  pageUrl = "https://example-clinic.com/faq",
+  rulesVersion: string | null = "2"
 ): NonNullable<DiagnosisReportInput["aeoReports"]>[number] => ({
   id,
   siteId: "site_1",
@@ -135,6 +136,7 @@ const aeoReport = (
     evidence: { url: "https://example-clinic.com/faq", observedValue: false, expectedValue: true, sourceField: "answerBlocks" }
   }],
   generatedBy: "deterministic",
+  rulesVersion,
   evaluatedAt,
   createdAt: "2026-09-21T00:00:00.000Z"
 });
@@ -349,8 +351,6 @@ describe("reports (T6)", () => {
     expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
     expect(html).toContain("질문 4건이 모두 페이지 1장으로 평가됐습니다");
     expect(html).toContain("질문별 차이가 아니라 그 페이지 1장의 점수입니다");
-    expect(html).toContain("이 페이지가 이 질문에 답하는가");
-    expect(html).toContain("는 아직 측정하지 않습니다");
     // 질문은 버리지 않는다. 어느 질문이 그 페이지로 평가됐는지 남는다.
     for (const phrase of phrases) expect(html).toContain(phrase);
   });
@@ -366,9 +366,8 @@ describe("reports (T6)", () => {
     });
 
     expect(html).toContain("질문 3건이 페이지 2장으로 평가됐습니다");
-    // 폴백은 리포트에 저장되지 않는다 — "매칭됐다"고 단정하면 없는 커버리지를 있다고 말한다.
+    // 폴백 구분 불가 문구는 적합성 룰 도입으로 폐기됐다 — 이제 fail 이 공백을 말한다.
     expect(html).not.toContain("매칭돼 평가됐습니다");
-    expect(html).toContain("대표 페이지로 평가되며, 이 표만으로는 그 폴백을 구분할 수 없습니다");
     expect(html).toContain("<td>보톡스 가격, 보톡스 부작용</td>");
     expect(html).toContain("<td>주차 안내</td>");
     expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
@@ -397,6 +396,57 @@ describe("reports (T6)", () => {
     expect(html).toContain("측정 시점이 달라 점수가 갈린 행이 있습니다");
     // 페이지는 1장이므로 "1장으로 평가됐다"는 사실은 그대로 유지한다.
     expect(html).toContain("질문 2건이 모두 페이지 1장으로 평가됐습니다");
+  });
+
+  it("룰 버전이 섞이면 점수를 비교하지 않는다 (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_old", "보톡스 가격", 46, "2026-09-20T00:00:00.000Z", undefined, null),
+        aeoReport("aeo_new", "주차 안내", 31, "2026-10-09T00:00:00.000Z", undefined, "2")
+      ]
+    });
+
+    expect(html).toContain("룰 버전이 섞여");
+    expect(html).toContain("점수를 서로 비교할 수 없습니다");
+  });
+
+  // Review Focus 1: 혼재가 아니라 전부 구버전인 사이트. 경고 없이 구 점수를 새 기준처럼 보이면 안 된다.
+  it("전부 구버전이면 구버전임을 알린다 (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_old", "보톡스 가격", 46, "2026-09-20T00:00:00.000Z", undefined, null)
+      ]
+    });
+
+    expect(html).toContain("구버전");
+    expect(html).not.toContain("룰 버전이 섞여");
+  });
+
+  it("적합성 fail 행을 콘텐츠 공백으로 표기한다 (F)", () => {
+    const gap = {
+      ...aeoReport("aeo_gap", "임플란트 비용", 31, "2026-10-09T00:00:00.000Z"),
+      checks: [
+        {
+          checkId: "PAGE_ANSWERS_QUESTION" as const,
+          status: "fail" as const,
+          score: 0,
+          evidence: {
+            url: "https://example-clinic.com/faq",
+            observedValue: [],
+            expectedValue: "Question-form heading or answer block covering the keyword",
+            sourceField: "questionHeadings"
+          }
+        }
+      ]
+    };
+    const html = renderDiagnosisHtml({ ...input, aeoReports: [gap] });
+
+    expect(html).toContain("콘텐츠 공백");
+    // PR #134 가 넣은 폐기 문구는 사라져야 한다 — 이제 측정한다.
+    expect(html).not.toContain("아직 측정하지 않습니다");
+    expect(html).not.toContain("이 표만으로는 그 폴백을 구분할 수 없습니다");
   });
 
   it("masks competitor names leaking through the newly wired sections (external)", () => {

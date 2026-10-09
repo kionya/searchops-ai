@@ -310,6 +310,13 @@ function workOrderBody(input: ReportInput, mask: MaskFn) {
     : "");
 }
 
+/** 적합성 판정이 fail = 그 질문에 답하는 페이지가 없다. 워크오더가 나가는 조건과 같다. */
+function isContentGap(report: ReportInput["aeoReports"][number]) {
+  return report.checks.some(
+    (check) => check.checkId === "PAGE_ANSWERS_QUESTION" && check.status === "fail",
+  );
+}
+
 /**
  * F 절. 질문(phrase)별 최신 측정 1건을 고른 뒤 **같은 측정값끼리 묶어** 렌더한다.
  *
@@ -335,6 +342,13 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
     }
   }
 
+  const versions = new Set([...latest.values()].map((report) => report.rulesVersion ?? null));
+  const versionNote = versions.size > 1
+    ? ` <strong>룰 버전이 섞여 있어 점수를 서로 비교할 수 없습니다</strong>(⚠️ 검증필요) — 적합성 룰 도입 전후의 점수는 분자가 다른 분수입니다.`
+    : versions.has(null)
+      ? ` 이 점수는 <strong>구버전 룰</strong>(적합성 판정 전)로 계산됐습니다 — 질문↔페이지 적합성이 반영되지 않았습니다(⚠️ 검증필요).`
+      : "";
+
   const groups = new Map<string, { phrases: string[]; report: ReportInput["aeoReports"][number] }>();
   for (const report of latest.values()) {
     const failed = report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ");
@@ -353,7 +367,7 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
       esc(mask(group.report.pageUrl ?? "-")),
       esc(mask([...group.phrases].sort((a, b) => a.localeCompare(b)).join(", "))),
       String(group.report.score),
-      esc(group.report.status),
+      esc(group.report.status) + (isContentGap(group.report) ? " · 콘텐츠 공백" : ""),
       esc(group.report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
     ]);
 
@@ -369,7 +383,7 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
     : "";
 
   return table(["페이지", "질문", "점수", "상태", "미통과 체크"], rows)
-    + `<p class="muted">${unit}${splitNote} 점수는 페이지 속성(요약·질문형 헤딩·FAQ 스키마·헤딩 구조·인용 가능성·분량)만 봅니다 — 한 번의 측정에서 같은 페이지로 평가된 질문은 점수가 같습니다. <strong>"이 페이지가 이 질문에 답하는가"는 아직 측정하지 않습니다</strong>(⚠️ 검증필요). 질문에 대응하는 페이지를 찾지 못하면 대표 페이지로 평가되며, 이 표만으로는 그 폴백을 구분할 수 없습니다(⚠️ 검증필요). 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
+    + `<p class="muted">${unit}${splitNote}${versionNote} 적합성 판정(PAGE_ANSWERS_QUESTION)이 fail 인 행은 <strong>콘텐츠 공백</strong>이며 워크오더로 올라갑니다. 점수는 한 번의 측정에서 같은 페이지로 평가된 질문끼리 같습니다. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
 }
 
 function sourceAttr(input: z.output<typeof DiagnosisReportInputSchema>) {
