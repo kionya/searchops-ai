@@ -1018,6 +1018,8 @@ const acceptanceCriterionByCheckId = {
   CONTENT_DEPTH: "Plan enough supporting sections to reach at least 600 words.",
   FAQ_SCHEMA_PRESENT: "Structure FAQ candidates so they can later support FAQPage schema.",
   KEYWORD_INTENT_DEFINED: "State the deterministic keyword intent in the brief.",
+  PAGE_ANSWERS_QUESTION:
+    "Answer the keyword's question directly in a question-form heading or answer block.",
   QUESTION_COVERAGE: "Include at least two question-led subsections.",
   STRUCTURED_HEADINGS: "Use one H1 plan and at least two supporting H2 sections."
 } as const satisfies Record<AeoReadinessCheckId, string>;

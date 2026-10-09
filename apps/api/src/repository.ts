@@ -874,6 +874,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         status: input.readinessReport.status,
         score: input.readinessReport.score,
         checks: input.readinessReport.checks,
+        rulesVersion: input.readinessReport.rulesVersion,
         generatedBy: input.readinessReport.generatedBy,
         evaluatedAt: input.readinessReport.evaluatedAt,
         createdAt: nowIso()
