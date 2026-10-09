@@ -425,6 +425,7 @@ model AeoReadinessReport {
   status      String
   score       Int
   checks      Json     @default("[]")
+  rulesVersion String?
   generatedBy String   @default("deterministic")
   evaluatedAt DateTime
   createdAt   DateTime @default(now())

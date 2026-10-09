@@ -61,6 +61,7 @@ const expectedEvidenceByCheck = {
   CONTENT_DEPTH: "검색 의도에 맞는 충분한 보조 본문",
   FAQ_SCHEMA_PRESENT: "FAQ형 질문이 있을 때 FAQ 스키마",
   KEYWORD_INTENT_DEFINED: "비어 있지 않은 결정론적 키워드 의도",
+  PAGE_ANSWERS_QUESTION: "이 질문에 답하는 질문형 헤딩 또는 답변 블록",
   QUESTION_COVERAGE: "검색 의도와 맞는 질문을 다룸",
   STRUCTURED_HEADINGS: "구조화된 H1/H2 계층"
 } as const satisfies Record<AeoReadinessCheck["checkId"], string>;
@@ -71,6 +72,7 @@ const sourceFieldByCheck = {
   CONTENT_DEPTH: "wordCount",
   FAQ_SCHEMA_PRESENT: "schemaTypes",
   KEYWORD_INTENT_DEFINED: "keyword.intent",
+  PAGE_ANSWERS_QUESTION: "questionHeadings,answerBlocks",
   QUESTION_COVERAGE: "questionHeadings",
   STRUCTURED_HEADINGS: "headings"
 } as const satisfies Record<AeoReadinessCheck["checkId"], string>;
@@ -97,6 +99,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       siteId: demoSite.id,
       source: "fixture"
     },
+    rulesVersion: "2",
     pageUrl: "https://example-clinic.com/service/aeo",
     score: 86,
     status: "ready"
@@ -122,6 +125,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       siteId: demoSite.id,
       source: "fixture"
     },
+    rulesVersion: "2",
     pageUrl: "https://example-clinic.com/blog/medical-seo-checklist",
     score: 63,
     status: "needs_work"
@@ -147,6 +151,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
       siteId: demoSite.id,
       source: "fixture"
     },
+    rulesVersion: "2",
     pageUrl: null,
     score: 34,
     status: "not_ready"
@@ -433,6 +438,7 @@ export function formatAeoCheckId(checkId: AeoReadinessCheck["checkId"]) {
     CONTENT_DEPTH: "콘텐츠 깊이",
     FAQ_SCHEMA_PRESENT: "FAQ 스키마",
     KEYWORD_INTENT_DEFINED: "키워드 의도",
+    PAGE_ANSWERS_QUESTION: "질문 적합성",
     QUESTION_COVERAGE: "질문 커버리지",
     STRUCTURED_HEADINGS: "헤딩 구조"
   } as const satisfies Record<AeoReadinessCheck["checkId"], string>;

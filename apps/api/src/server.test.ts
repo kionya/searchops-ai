@@ -282,6 +282,8 @@ const seededContentBrief: ContentBrief = {
   createdAt,
 };
 const seededAeoReadinessReport: AeoReadinessReportRecord = {
+  // 시드는 적합성 룰 도입 전에 저장된 행을 흉내낸다 — rulesVersion 이 null 인 과거 행이다.
+  rulesVersion: null,
   id: "aeo_report_seed",
   siteId: "site_seed",
   keywordId: "keyword_seed",

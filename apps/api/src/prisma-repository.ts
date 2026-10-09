@@ -1832,6 +1832,7 @@ function toAeoReadinessReportRecord(
     status: record.status,
     score: record.score,
     checks: record.checks,
+    rulesVersion: record.rulesVersion,
     generatedBy: record.generatedBy,
     evaluatedAt: record.evaluatedAt.toISOString(),
     createdAt: record.createdAt.toISOString()
