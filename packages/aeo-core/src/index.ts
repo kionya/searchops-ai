@@ -204,19 +204,79 @@ export function classifyKeywordTargetIntent(keyword: KeywordTarget): KeywordTarg
   });
 }
 
-export const keywordIntentDefinedRule: AeoReadinessRule = {
-  id: "KEYWORD_INTENT_DEFINED",
+/**
+ * 이 페이지가 이 질문에 답하는가. F 절이 커버리지를 말할 수 있게 하는 유일한 룰이다.
+ *
+ * 앞선 KEYWORD_INTENT_DEFINED 는 intent 를 스스로 계산한 뒤 non-null 이라 단정해 항상
+ * pass·100 이었다 — 7룰 단순평균에 약 14점을 공짜로 얹고, 질문과 페이지의 관계는 한 번도
+ * 보지 않았다. 그래서 콘텐츠가 아예 없는 질문과 있는 질문이 같은 점수를 받았다.
+ *
+ * 등식으로 비교하지 않는다 — normalizeKeywordPhrase 는 구두점을 떼지 않아
+ * "보톡스 가격" 과 "보톡스 가격은 얼마인가요?" 가 다른 문자열이다. 토큰 포함으로 본다.
+ *
+ * 알려진 한계(⚠️ 검증필요): 워커의 toAeoPageSignal 은 answerBlocks 를 [] 로 고정하므로
+ * 크롤 경로에서 pass 는 질문형 헤딩이 있을 때만 난다. answerBlocks 추출기가 생기면 올라간다.
+ */
+export const pageAnswersQuestionRule: AeoReadinessRule = {
+  id: "PAGE_ANSWERS_QUESTION",
   evaluate(context) {
-    const keyword = classifyKeywordTargetIntent(context.keyword);
+    const page = context.candidatePage;
+    const tokens = tokenizeKeywordPhrase(context.keyword.phrase);
+    const expectedValue = "Question-form heading or answer block covering the keyword";
+
+    // 토큰이 비는 경우: 키워드가 1글자 토큰뿐이다. 판정할 근거가 없으므로 fail 로 둔다 —
+    // 억지로 pass 를 주면 F 절이 없는 커버리지를 있다고 말한다.
+    if (page === null || tokens.length === 0) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: page === null ? null : [],
+        score: 0,
+        sourceField: "questionHeadings",
+        status: "fail",
+        url: page?.url ?? null
+      });
+    }
+
+    const questions = uniqueNonBlankStrings([
+      ...page.questionHeadings,
+      ...page.answerBlocks.map((block) => block.question)
+    ]).filter((question) => tokenizeKeywordPhrase(question).length > 0);
+
+    const covering = questions.find((question) => haystackCoversAllTokens(question, tokens));
+    if (covering !== undefined) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: covering,
+        score: 100,
+        sourceField: "questionHeadings,answerBlocks",
+        status: "pass",
+        url: page.url
+      });
+    }
+
+    const topical = [page.title ?? "", page.h1 ?? "", page.h2.join(" ")].join(" ");
+    if (haystackCoversAllTokens(topical, tokens)) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: normalizeKeywordPhrase(topical),
+        score: 60,
+        sourceField: "title,h1,h2",
+        status: "warning",
+        url: page.url
+      });
+    }
 
     return createAeoReadinessCheck({
-      checkId: "KEYWORD_INTENT_DEFINED",
-      expectedValue: "Non-null deterministic keyword intent",
-      observedValue: keyword.intent,
-      score: 100,
-      sourceField: "keyword.intent",
-      status: "pass",
-      url: context.candidatePage?.url ?? null
+      checkId: "PAGE_ANSWERS_QUESTION",
+      expectedValue,
+      observedValue: questions,
+      score: 0,
+      sourceField: "questionHeadings",
+      status: "fail",
+      url: page.url
     });
   }
 };
@@ -547,7 +607,7 @@ export const contentDepthRule: AeoReadinessRule = {
 };
 
 export const defaultAeoReadinessRules = [
-  keywordIntentDefinedRule,
+  pageAnswersQuestionRule,
   answerSummaryPresentRule,
   questionCoverageRule,
   faqSchemaPresentRule,
@@ -586,6 +646,7 @@ export function evaluateAeoReadiness(
     generatedBy: aeoCoreGenerationMode,
     keyword,
     pageUrl: parsedInput.candidatePage?.url ?? null,
+    rulesVersion: aeoReadinessRulesVersion,
     score,
     status: getAeoReadinessStatus(score)
   });
