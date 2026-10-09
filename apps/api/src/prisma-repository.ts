@@ -723,6 +723,7 @@ export function createPrismaRepository(
             locale: input.readinessReport.keyword.locale,
             pageUrl: input.readinessReport.pageUrl,
             phrase: input.readinessReport.keyword.phrase,
+            rulesVersion: input.readinessReport.rulesVersion,
             score: input.readinessReport.score,
             siteId,
             status: input.readinessReport.status

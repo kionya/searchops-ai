@@ -644,8 +644,25 @@ describe("PAGE_ANSWERS_QUESTION — 질문↔페이지 적합성", () => {
     });
   });
 
-  it("토큰이 전부 1글자면 판정 불가 — fail 로 떨어뜨린다", () => {
-    expect(runRule("코 턱", readyPage)).toMatchObject({ score: 0, status: "fail" });
+  /**
+   * 판정 불가(대조할 토큰이 없다)와 콘텐츠 공백(페이지가 답하지 않는다)은 둘 다 fail 이다.
+   * 구별되지 않으면 리포트는 "콘텐츠 공백" 으로 찍고 워크오더는 제외해 서로 어긋난다 —
+   * 고객은 고칠 방법이 없는 항목을 영구히 보게 된다.
+   */
+  it("대조할 토큰이 없으면 판정 불가로 구별되게 낸다", () => {
+    expect(runRule("???", readyPage)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { sourceField: "keyword.phrase" }
+    });
+  });
+
+  it("1글자 조합 키워드는 판정 불가가 아니라 그냥 공백이다", () => {
+    expect(runRule("코 턱", readyPage)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { sourceField: "questionHeadings" }
+    });
   });
 
   // Review Focus 5: 기호·1글자만인 헤딩이 observedValue 에 쓰레기로 찍히지 않아야 한다.
@@ -655,6 +672,23 @@ describe("PAGE_ANSWERS_QUESTION — 질문↔페이지 적합성", () => {
       questionHeadings: ["???", "보톡스 가격은 얼마인가요?"]
     };
     expect(runRule("보톡스 가격", page).evidence.observedValue).toBe("보톡스 가격은 얼마인가요?");
+  });
+
+  /**
+   * 성형외과·피부과 키워드의 식별자는 거의 항상 1글자다(코·턱·눈·입·볼·목·귀).
+   * 그 토큰을 버리면 "모든 토큰 요구" 가 성립하지 않아 다른 부위 헤딩에 pass 가 난다 —
+   * 없는 커버리지를 있다고 말하는 바로 그 거짓이다.
+   */
+  it("1글자 식별 토큰을 무시하지 않는다 — 다른 부위 헤딩에 pass 를 주면 안 된다", () => {
+    const page: AeoPageSignal = {
+      ...topicalOnlyPage,
+      title: "보톡스 가격 안내",
+      h1: "보톡스 가격",
+      questionHeadings: ["눈 보톡스 가격은 얼마인가요?"]
+    };
+
+    expect(runRule("턱 보톡스 가격", page)).toMatchObject({ status: "fail", score: 0 });
+    expect(runRule("눈 보톡스 가격", page)).toMatchObject({ status: "pass", score: 100 });
   });
 
   it("룰 배열에서 동어반복 룰이 빠지고 7개를 유지한다", () => {

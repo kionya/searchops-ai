@@ -467,6 +467,8 @@ function createCheck(
 
 function mapRecordToReadinessReport(record: AeoReadinessReportRecord): AeoReadinessReport {
   return AeoReadinessReportSchema.parse({
+    // 떨어뜨리면 저장된 v2 리포트가 전부 v1 로 보인다(.default(null) 때문에 타입체크가 못 잡는다).
+    rulesVersion: record.rulesVersion,
     checks: record.checks,
     evaluatedAt: record.evaluatedAt,
     generatedBy: record.generatedBy,

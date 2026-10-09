@@ -1,4 +1,4 @@
-import { aeoCorePackage, tokenizeKeywordPhrase } from "@searchops/aeo-core";
+import { aeoCorePackage } from "@searchops/aeo-core";
 import { compliancePackage } from "@searchops/compliance";
 import { geoCorePackage } from "@searchops/geo-core";
 import { schemaCorePackage } from "@searchops/schema-core";
@@ -784,12 +784,27 @@ export function createWorkOrdersFromAeoReadinessReports(
   reports: readonly AeoReadinessReportRecord[],
   siteUrl: string,
 ): readonly WorkOrderDraft[] {
-  const gaps = reports.filter(
-    (report) =>
-      tokenizeKeywordPhrase(report.phrase).length > 0 &&
-      report.checks.some(
-        (check) => check.checkId === "PAGE_ANSWERS_QUESTION" && check.status === "fail",
-      ),
+  // phrase 별 최신 1건으로 먼저 축약한다. 호출부가 사이트의 전 이력을 넘기는 것이 정상이라
+  // (listAeoReadinessReports 는 제한이 없다) 축약하지 않으면 같은 공백이 크롤런 수만큼
+  // 중복돼 "답변 없는 질문 9개" 가 되고, 이미 고친 질문도 과거 fail 로 되살아난다.
+  // 진단서 F 절의 latest 맵과 같은 기준이다 — 호출부 계약으로 미루면 사본처럼 어긋난다.
+  const latest = new Map<string, AeoReadinessReportRecord>();
+  for (const report of reports) {
+    const previous = latest.get(report.phrase);
+    if (previous === undefined || report.evaluatedAt > previous.evaluatedAt) {
+      latest.set(report.phrase, report);
+    }
+  }
+
+  const gaps = [...latest.values()].filter((report) =>
+    report.checks.some(
+      (check) =>
+        check.checkId === "PAGE_ANSWERS_QUESTION" &&
+        check.status === "fail" &&
+        // 판정 불가(대조할 토큰 없음)는 고칠 방법이 없어 영구 노이즈다. 룰이 sourceField 로
+        // 구별해 주므로 재토큰화하지 않는다 — 술어 사본을 두면 리포트와 반드시 어긋난다.
+        check.evidence.sourceField !== "keyword.phrase",
+    ),
   );
   if (gaps.length === 0) {
     return [];

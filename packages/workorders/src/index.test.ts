@@ -715,11 +715,21 @@ describe("AEO 콘텐츠 공백 워크오더", () => {
     expect(order?.problem).toContain("나머지 15개");
   });
 
-  // Review Focus 4: 1글자 토큰뿐인 키워드는 영구 fail 이라 고칠 방법이 없다 — 노이즈다.
-  it("판정 불가 키워드(1글자 토큰뿐)는 공백에서 제외한다", () => {
+  // Review Focus 4: 판정 불가는 영구 fail 이라 고칠 방법이 없다 — 노이즈다.
+  // 술어는 룰의 출력(sourceField)을 그대로 쓴다. 재토큰화 사본을 두면 리포트와 어긋난다.
+  it("판정 불가 행은 공백에서 제외한다", () => {
+    const undecidable = gapReport("???", "fail");
+    const marked = {
+      ...undecidable,
+      checks: [{ ...undecidable.checks[0]!, evidence: { ...undecidable.checks[0]!.evidence, sourceField: "keyword.phrase" } }]
+    };
+    expect(createWorkOrdersFromAeoReadinessReports([marked], SITE_URL)).toHaveLength(0);
+  });
+
+  it("1글자 조합 키워드는 공백으로 올린다 — 판정 불가가 아니다", () => {
     expect(
       createWorkOrdersFromAeoReadinessReports([gapReport("코 턱", "fail")], SITE_URL),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
 
   // Review Focus 3: 같은 입력이면 같은 출력이어야 호출부가 중복을 걸러낼 수 있다.
@@ -728,6 +738,39 @@ describe("AEO 콘텐츠 공백 워크오더", () => {
     expect(createWorkOrdersFromAeoReadinessReports(reports, SITE_URL)).toEqual(
       createWorkOrdersFromAeoReadinessReports(reports, SITE_URL),
     );
+  });
+
+  /**
+   * 자연스러운 호출부는 listAeoReadinessReports — 사이트의 전 행(제한 없음, evaluatedAt desc)이다.
+   * 축약하지 않으면 공백 3건 × 크롤런 3회가 "답변 없는 질문 9개" 가 되고 우선순위까지 뒤집힌다.
+   */
+  it("phrase 별 최신 1건으로 축약한다 — 크롤런이 쌓여도 수가 부풀지 않는다", () => {
+    const history = ["2026-10-07", "2026-10-08", "2026-10-09"].flatMap((day) =>
+      ["보톡스 가격", "임플란트 비용", "레이저 부작용"].map((phrase) => ({
+        ...gapReport(phrase, "fail"),
+        id: `aeo_${phrase}_${day}`,
+        evaluatedAt: `${day}T00:00:00.000Z`
+      })),
+    );
+
+    const order = createWorkOrdersFromAeoReadinessReports(history, SITE_URL)[0];
+
+    expect(order?.title).toContain("3개");
+    expect(order?.priority).toBe("p2");
+    expect(order?.estimatedEffort).toBe("m");
+    expect(order?.evidence.observedValue).toEqual([
+      "보톡스 가격",
+      "임플란트 비용",
+      "레이저 부작용"
+    ]);
+  });
+
+  // 이미 고친 질문에 콘텐츠를 또 만들라고 지시하면 안 된다.
+  it("최신 측정이 pass 면 과거 fail 은 공백이 아니다", () => {
+    const old = { ...gapReport("보톡스 가격", "fail"), id: "old", evaluatedAt: "2026-10-01T00:00:00.000Z" };
+    const fresh = { ...gapReport("보톡스 가격", "pass"), id: "new", evaluatedAt: "2026-10-09T00:00:00.000Z" };
+
+    expect(createWorkOrdersFromAeoReadinessReports([old, fresh], SITE_URL)).toHaveLength(0);
   });
 
   it("aeo-core 를 워크오더 입력 소스로 선언한다", () => {

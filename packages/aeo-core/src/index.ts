@@ -133,16 +133,28 @@ export const aeoReadinessRulesVersion = "2" as const;
  * "선택은 했는데 판정은 못 하는" 구간이 생기지 않는다(CLAUDE.md: 사본은 반드시 어긋난다).
  *
  * 글자·숫자가 아닌 것을 경계로 쪼갠다. 구두점을 떼지 않으면 "보톡스 가격?" 의 토큰이
- * "가격?" 이 되어 "가격은 얼마인가요" 를 못 덮는다. 1글자 토큰은 버린다 —
- * 부분일치라 "시" 가 "시술"·"시간"에 전부 걸려 판정이 무의미해진다.
+ * "가격?" 이 되어 "가격은 얼마인가요" 를 못 덮는다.
+ *
+ * minLength 가 두 소비자의 요구 차이를 가른다:
+ * - 기본 2(워커의 페이지 **랭킹**): 겹침 개수로 순위를 매기므로 1글자는 노이즈다 —
+ *   "시" 가 "시술"·"시간"에 전부 걸려 아무 페이지나 점수를 받는다.
+ * - 1(룰의 포함 **판정**): 모든 토큰을 요구하는 불리언이라 1글자를 넣으면 엄격해지기만 한다.
+ *   버리면 반대로 느슨해진다 — 성형외과·피부과 식별자는 거의 항상 1글자(코·턱·눈·입·볼)여서
+ *   "턱 보톡스 가격" 이 "눈 보톡스 가격은?" 헤딩에 pass 가 나고 공백이 덮인다.
+ *
  * 결과가 비면 호출자가 "판정 불가"로 다룬다(룰은 fail, 워커는 대표 페이지 폴백).
  */
-export function tokenizeKeywordPhrase(phrase: string): readonly string[] {
+export function tokenizeKeywordPhrase(
+  phrase: string,
+  options: { readonly minLength?: number } = {},
+): readonly string[] {
+  const minLength = options.minLength ?? 2;
+
   return [
     ...new Set(
       normalizeKeywordPhrase(phrase)
         .split(/[^\p{L}\p{N}]+/u)
-        .filter((token) => token.length > 1)
+        .filter((token) => token.length >= minLength)
     )
   ];
 }
@@ -221,27 +233,42 @@ export const pageAnswersQuestionRule: AeoReadinessRule = {
   id: "PAGE_ANSWERS_QUESTION",
   evaluate(context) {
     const page = context.candidatePage;
-    const tokens = tokenizeKeywordPhrase(context.keyword.phrase);
+    // 판정은 모든 토큰을 요구하는 불리언이라 1글자를 포함해야 엄격해진다(위 주석 참조).
+    const tokens = tokenizeKeywordPhrase(context.keyword.phrase, { minLength: 1 });
     const expectedValue = "Question-form heading or answer block covering the keyword";
 
-    // 토큰이 비는 경우: 키워드가 1글자 토큰뿐이다. 판정할 근거가 없으므로 fail 로 둔다 —
-    // 억지로 pass 를 주면 F 절이 없는 커버리지를 있다고 말한다.
-    if (page === null || tokens.length === 0) {
+    // 대조할 토큰이 없다(글자·숫자가 한 자도 없는 키워드). 판정 불가다 — fail 로 두되
+    // sourceField 로 **구별 가능하게** 낸다. 콘텐츠 공백과 섞이면 고칠 방법이 없는 항목을
+    // 리포트는 "공백" 으로 찍고 워크오더는 제외해 두 소비자가 어긋난다.
+    if (tokens.length === 0) {
       return createAeoReadinessCheck({
         checkId: "PAGE_ANSWERS_QUESTION",
         expectedValue,
-        observedValue: page === null ? null : [],
+        observedValue: "판정 불가(키워드 토큰 없음)",
+        score: 0,
+        sourceField: "keyword.phrase",
+        status: "fail",
+        url: page?.url ?? null
+      });
+    }
+
+    // 후보 페이지가 없으면 기존 6룰과 같은 처리다.
+    if (page === null) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: null,
         score: 0,
         sourceField: "questionHeadings",
         status: "fail",
-        url: page?.url ?? null
+        url: null
       });
     }
 
     const questions = uniqueNonBlankStrings([
       ...page.questionHeadings,
       ...page.answerBlocks.map((block) => block.question)
-    ]).filter((question) => tokenizeKeywordPhrase(question).length > 0);
+    ]).filter((question) => tokenizeKeywordPhrase(question, { minLength: 1 }).length > 0);
 
     const covering = questions.find((question) => haystackCoversAllTokens(question, tokens));
     if (covering !== undefined) {

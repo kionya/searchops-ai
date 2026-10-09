@@ -350,7 +350,6 @@ describe("reports (T6)", () => {
     // 페이지가 1장이면 행도 1줄이다 — 46 이 네 번 찍히면 없는 차이를 있는 것처럼 보인다.
     expect(html.match(/<td>46<\/td>/gu)).toHaveLength(1);
     expect(html).toContain("질문 4건이 모두 페이지 1장으로 평가됐습니다");
-    expect(html).toContain("질문별 차이가 아니라 그 페이지 1장의 점수입니다");
     // 질문은 버리지 않는다. 어느 질문이 그 페이지로 평가됐는지 남는다.
     for (const phrase of phrases) expect(html).toContain(phrase);
   });
@@ -393,7 +392,8 @@ describe("reports (T6)", () => {
     expect(html).toContain("<td>46</td>");
     expect(html).toContain("<td>88</td>");
     expect(html).not.toContain("<td>보톡스 가격, 주차 안내</td>");
-    expect(html).toContain("측정 시점이 달라 점수가 갈린 행이 있습니다");
+    // 갈린 원인을 하나로 단정하지 않는다 — 적합성 판정 차이일 수도, 측정 시점 차이일 수도 있다.
+    expect(html).toContain("같은 페이지인데 측정값이 갈린 행이 있습니다");
     // 페이지는 1장이므로 "1장으로 평가됐다"는 사실은 그대로 유지한다.
     expect(html).toContain("질문 2건이 모두 페이지 1장으로 평가됐습니다");
   });
@@ -444,9 +444,61 @@ describe("reports (T6)", () => {
     const html = renderDiagnosisHtml({ ...input, aeoReports: [gap] });
 
     expect(html).toContain("콘텐츠 공백");
+    // 워크오더 생성기는 있지만 호출부가 아직 없다(다음 PR). 리포트가 코드보다 앞서 약속하면
+    // 병원이 워크오더 목록을 열었을 때 아무것도 없다 — 측정한 사실만 말한다.
+    expect(html).not.toContain("워크오더로 올라갑니다");
     // PR #134 가 넣은 폐기 문구는 사라져야 한다 — 이제 측정한다.
     expect(html).not.toContain("아직 측정하지 않습니다");
     expect(html).not.toContain("이 표만으로는 그 폴백을 구분할 수 없습니다");
+  });
+
+  it("판정 불가 행은 콘텐츠 공백으로 찍지 않는다 (F)", () => {
+    const undecidable = {
+      ...aeoReport("aeo_x", "???", 31, "2026-10-09T00:00:00.000Z"),
+      checks: [
+        {
+          checkId: "PAGE_ANSWERS_QUESTION" as const,
+          status: "fail" as const,
+          score: 0,
+          evidence: {
+            url: "https://example-clinic.com/faq",
+            observedValue: "판정 불가(키워드 토큰 없음)",
+            expectedValue: "Question-form heading or answer block covering the keyword",
+            sourceField: "keyword.phrase"
+          }
+        }
+      ]
+    };
+
+    // 고칠 방법이 없는 항목을 공백이라 부르면 워크오더가 안 나가는데 리포트만 약속한다.
+    // 각주는 개념 설명으로 그 단어를 쓰므로 표의 상태 칸만 본다.
+    expect(renderDiagnosisHtml({ ...input, aeoReports: [undecidable] })).not.toContain(
+      "· 콘텐츠 공백</td>",
+    );
+  });
+
+  /**
+   * 적합성 룰 도입으로 점수가 키워드 의존이 됐다. 같은 페이지·같은 시각이어도 질문마다
+   * 점수가 갈린다 — 그런데 각주는 구 룰(페이지의 순수함수) 전제의 문장을 그대로 들고 있었다.
+   * 표가 31/40/46 을 보여주면서 "질문별 차이가 아니다" 라고 말하는 것은 측정한 차이의 부정이다.
+   */
+  it("같은 페이지에서 점수가 갈리면 차이를 부정하지 않는다 (F)", () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_a", "보톡스 가격", 46, at),
+        aeoReport("aeo_b", "주차 안내", 40, at),
+        aeoReport("aeo_c", "임플란트 비용", 31, at)
+      ]
+    });
+
+    expect(html).toContain("<td>46</td>");
+    expect(html).toContain("<td>31</td>");
+    expect(html).not.toContain("질문별 차이가 아니라");
+    expect(html).not.toContain("질문끼리 같습니다");
+    // 갈린 원인을 "측정 시점" 하나로 오귀속하면 안 된다 — 세 건 모두 같은 시각이다.
+    expect(html).not.toContain("측정 시점이 달라 점수가 갈린");
   });
 
   it("masks competitor names leaking through the newly wired sections (external)", () => {
