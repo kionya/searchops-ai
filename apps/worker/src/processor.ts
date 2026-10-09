@@ -12,12 +12,13 @@ import {
   type SchemaRichResultValidatorAdapterInput
 } from "@searchops/connectors";
 import { evaluateAeoReadiness } from "@searchops/aeo-core";
-import { evaluateCompliance } from "@searchops/compliance";
+import { evaluateCompliance, isMedicalIndustry } from "@searchops/compliance";
 import {
   crawlSite,
   extractSeoSignals,
-  extractVisibleText,
+  extractTextBlocks,
   parseHtml,
+  stripBoilerplateBlocks,
   type CrawlSiteInput
 } from "@searchops/crawler-core";
 import {
@@ -1011,14 +1012,10 @@ const MIN_COMPLIANCE_TEXT_LENGTH = 40;
  * 의료 계열 사이트에서만 의료광고법 룰을 돌린다. batch-crawl 은 DB 의 모든 Site 를 긁으므로
  * 게이트가 없으면 토너 판매·영어 SaaS 사이트가 본문 속 "laser"·"treatment" 한 단어로
  * kr-medical 룰팩에 걸려 매일 밤 의료법 플래그를 받는다.
- * Site.industry 는 자유 문자열이라(스키마상 nullable) 한글 진료과명도 그대로 들어온다.
+ * 진료과명 목록의 정본은 compliance 패키지다 — 룰 내부의 의료 맥락 판정과 같은 목록을 써야
+ * "게이트는 통과했는데 룰은 안 도는" 구간이 생기지 않는다.
  */
-const MEDICAL_INDUSTRY_PATTERN =
-  /(clinic|dental|dermatolog|hospital|medical|medicine|surgery|의료|의원|병원|클리닉|피부과|성형|치과|한의원|안과|이비인후과|정형외과|산부인과)/iu;
-
-export function isMedicalIndustry(industry: string | null): boolean {
-  return industry !== null && MEDICAL_INDUSTRY_PATTERN.test(industry);
-}
+export { isMedicalIndustry };
 
 async function persistComplianceFromCrawlResult(
   payload: CrawlJobPayload,
@@ -1047,7 +1044,55 @@ async function persistComplianceFromCrawlResult(
   // 사이트가 정본이다. ko-KR 하드코딩은 영어권 사이트에 한국 의료광고법을 억지로 붙인다.
   const locale = `${site.language}-${site.country}`;
   const reports: ComplianceReviewReport[] = [];
+
+  // 검수 입력에서만 사이트 공통 요소(내비·푸터)를 뺀다. SEO·스키마·AEO 는 전체 페이지를 봐야 하므로
+  // 이 경로 밖에서는 아무것도 바뀌지 않는다. 내비 메뉴 "시술후기"·"전후사진" 한 줄로 25페이지가
+  // 전부 위반으로 잡힌 실측 오탐(2026-09, 73/79건)이 이유다.
   // processCrawlJob 이 pages.slice(0, maxPages) 를 그대로 map 하므로 색인이 1:1 이다.
+  const pageBlocks = result.snapshots.map((_snapshot, index) => {
+    const page = payload.pages[index];
+    if (page === undefined) {
+      return [];
+    }
+
+    try {
+      return extractTextBlocks(parseHtml(page.html));
+    } catch (error) {
+      console.error(`[crawl-postprocess] 컴플라이언스 본문 추출 실패: ${page.url}`, error);
+      return [];
+    }
+  });
+  const { texts, removedBlockCount, removedBlocks } = stripBoilerplateBlocks(pageBlocks);
+  console.log(
+    `[crawl-postprocess] 컴플라이언스 보일러플레이트 제외 ${removedBlockCount}블록 / ${pageBlocks.length}페이지 (${result.siteId})`,
+  );
+
+  // 공통 블록은 버리지 않고 검수 단위만 옮긴다 — 크롤런당 1회, 사이트 대표 URL 로.
+  // 버리면 전 페이지 푸터·이벤트 배너의 진짜 위반이 "반복될수록 사라지는" 역전이 생긴다.
+  const boilerplateText = removedBlocks.join(" ").trim();
+  if (boilerplateText.length > 0) {
+    try {
+      reports.push(
+        evaluateCompliance({
+          siteId: result.siteId,
+          subjectType: "page_copy",
+          subjectId: null,
+          url: payload.startUrl,
+          title: null,
+          text: boilerplateText,
+          contextText: null,
+          locale,
+          industry: site.industry,
+          publishState: "published",
+          source: "crawl"
+        }),
+      );
+    } catch (error) {
+      console.error(`[crawl-postprocess] 컴플라이언스 공통 블록 건너뜀: ${payload.startUrl}`, error);
+    }
+  }
+
+  let evaluatedPageCount = 0;
   for (const [index, snapshot] of result.snapshots.entries()) {
     const page = payload.pages[index];
     if (page === undefined) {
@@ -1055,11 +1100,22 @@ async function persistComplianceFromCrawlResult(
     }
 
     try {
-      const text = extractVisibleText(parseHtml(page.html)).trim();
-      if (text.length < MIN_COMPLIANCE_TEXT_LENGTH) {
+      // 길이 게이트는 '깎기 전' 페이지 텍스트에 건다. 깎인 길이로 재면 이미지 위주 이벤트
+      // 페이지처럼 고유 본문이 짧은 페이지가 통째로 검수에서 빠진다.
+      const fullText = (pageBlocks[index] ?? []).join(" ").trim();
+      if (fullText.length < MIN_COMPLIANCE_TEXT_LENGTH) {
+        console.log(`[crawl-postprocess] 컴플라이언스 건너뜀 — 본문 ${fullText.length}자: ${snapshot.url}`);
         continue;
       }
 
+      const text = (texts[index] ?? "").trim();
+      if (text.length === 0) {
+        // 고유 본문이 없는 페이지. 공통 블록은 위에서 1회 검수했으므로 놓치는 위반은 없다.
+        console.log(`[crawl-postprocess] 컴플라이언스 건너뜀 — 고유 본문 없음(공통 블록뿐): ${snapshot.url}`);
+        continue;
+      }
+
+      evaluatedPageCount += 1;
       reports.push(
         // 룰팩은 자동 선택(selectComplianceRulePackId)에 맡긴다. industry 가 정본이다.
         evaluateCompliance({
@@ -1069,6 +1125,9 @@ async function persistComplianceFromCrawlResult(
           url: snapshot.url,
           title: snapshot.title,
           text,
+          // 금지표현은 text 에서만 찾는다. 공통 내비·푸터는 '있는가'를 묻는 판정에만 쓴다
+          // (의료 맥락 유지, 푸터의 부작용 고지 인정).
+          contextText: boilerplateText.length > 0 ? boilerplateText : null,
           locale,
           industry: site.industry,
           // 크롤한 페이지는 이미 공개돼 있다. draft 로 속이지 않는다.
@@ -1081,12 +1140,18 @@ async function persistComplianceFromCrawlResult(
     }
   }
 
+  // "검수했는데 깨끗함"과 "한 페이지도 평가되지 않음"은 둘 다 플래그 0건이라 로그로만 갈린다.
+  if (evaluatedPageCount === 0) {
+    console.warn(
+      `[crawl-postprocess] 컴플라이언스 평가된 페이지 0건 — 고유 본문이 남은 페이지가 없다(공통 블록만 검수됨): ${result.siteId}`,
+    );
+  }
+
   if (reports.length === 0) {
     return null;
   }
 
-  // "검수했는데 깨끗함"과 "룰이 아예 안 돌았음"은 둘 다 플래그 0건이라 로그로만 갈린다.
-  // isMedicalContext 가 영어 단어 정규식이라 순 한글 본문 + 한글 industry 는 global 로 떨어진다.
+  // 룰팩이 global 로 떨어지면 한국 의료광고법 룰이 한 줄도 돌지 않는다. 플래그 0건과 구분되게 남긴다.
   const rulePackCounts = new Map<string, number>();
   for (const report of reports) {
     rulePackCounts.set(report.rulePackId, (rulePackCounts.get(report.rulePackId) ?? 0) + 1);

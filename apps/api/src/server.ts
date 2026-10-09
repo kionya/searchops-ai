@@ -914,6 +914,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
       const report = evaluateCompliance(
         {
+          // 크롤런이 아니라 CMS 이벤트 1건이다 — 사이트 공통 내비·푸터를 볼 근거가 없다.
+          contextText: null,
           industry: event.industry === undefined ? site.industry : event.industry,
           locale: event.locale ?? `${site.language}-${site.country}`,
           publishState: mapCmsContentStatusToPublishState(event.status),
@@ -2814,6 +2816,8 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
 
     const report = evaluateCompliance(
       {
+        // 재검수는 요청 본문 1건만 본다. 공통 블록 맥락은 크롤 후처리 경로에만 있다.
+        contextText: null,
         industry: input.industry === undefined ? site.industry : input.industry,
         locale: input.locale ?? `${site.language}-${site.country}`,
         publishState: input.publishState ?? "draft",

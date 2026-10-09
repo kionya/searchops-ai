@@ -1860,6 +1860,11 @@ export const ComplianceReviewInputSchema = z.object({
   industry: z.string().min(1).nullable().default(null),
   title: z.string().min(1).nullable().default(null),
   text: NonEmptyStringSchema,
+  /**
+   * 본문 밖 맥락(사이트 공통 내비·푸터). '있는가'를 묻는 판정(의료 맥락·부작용 고지)만 여기를 본다.
+   * 금지표현 탐지는 text 만 본다 — 메뉴 이름 하나로 전 페이지가 위반이 되는 오탐의 원인이었다.
+   */
+  contextText: z.string().nullable().default(null),
   publishState: CompliancePublishStateSchema.default("draft"),
   source: ComplianceReviewSourceSchema.default("manual"),
   /** T4 항목 8(사전심의)은 외부 사실이라 기계가 확정할 수 없다. 사람이 확인해 넘긴다. */

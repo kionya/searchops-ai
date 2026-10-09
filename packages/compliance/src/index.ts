@@ -14,6 +14,22 @@ import type {
   ComplianceRulePackId
 } from "@searchops/types";
 
+/**
+ * 의료 계열 판정의 정본. Site.industry 는 자유 문자열이라(스키마상 nullable) 한글 진료과명이
+ * 그대로 들어온다. 한글은 \b 가 성립하지 않아 영어 단어처럼 경계를 못 준다 — 그래서 이 패턴은
+ * 짧은 industry 필드 전용이다. 본문 전체에 쓰면 "설치과정"이 치과가 된다.
+ */
+const MEDICAL_INDUSTRY_PATTERN =
+  /(clinic|dental|dermatolog|hospital|medical|medicine|surgery|의료|의원|병원|클리닉|피부과|성형|치과|한의원|안과|이비인후과|정형외과|산부인과)/iu;
+
+/**
+ * 의료 계열 사이트인가. 크롤 후처리는 이 게이트로 비의료 사이트를 먼저 거른다 —
+ * 게이트가 없으면 토너 판매·영어 SaaS 사이트가 본문 속 "laser" 한 단어로 의료법 플래그를 받는다.
+ */
+export function isMedicalIndustry(industry: string | null): boolean {
+  return industry !== null && MEDICAL_INDUSTRY_PATTERN.test(industry);
+}
+
 export const compliancePackage = "compliance" as const;
 export const complianceGenerationMode = "deterministic" as const;
 export const medicalContentPublishPolicy = "draft-with-compliance-flags-only" as const;
@@ -337,6 +353,14 @@ const procedureKeywordPattern =
 const sideEffectDisclosurePattern =
   /(부작용|주의사항)[^.。\n]{0,20}(있|발생|생길|나타날|안내|상담)|side[\s-]*effects?\s+(may|can|could|might)|risks?\s+(may|can|include)/iu;
 
+/**
+ * '고지가 없다'를 묻는 판정. 한국 병원 사이트의 법정 고지문은 보통 전 페이지 공통 푸터에 있어서
+ * 본문(text)만 보면 고지를 제대로 단 사이트가 통째로 새 플래그를 받는다. 존재 여부는 contextText 까지 본다.
+ */
+function hasSideEffectDisclosure(input: ComplianceReviewInput) {
+  return sideEffectDisclosurePattern.test(`${input.text} ${input.contextText ?? ""}`);
+}
+
 export const sideEffectDisclosureMissingRule = {
   id: "SIDE_EFFECT_DISCLOSURE_MISSING",
   evaluate(input) {
@@ -345,7 +369,7 @@ export const sideEffectDisclosureMissingRule = {
       return [];
     }
     const procedure = procedureKeywordPattern.exec(parsedInput.text);
-    if (!procedure || sideEffectDisclosurePattern.test(parsedInput.text)) {
+    if (!procedure || hasSideEffectDisclosure(parsedInput)) {
       return [];
     }
     return [
@@ -689,7 +713,8 @@ function createPatternRule(config: CompliancePatternRuleConfig): ComplianceRule 
         return [];
       }
 
-      const disclosed = config.riskLevelWithDisclosure !== undefined && sideEffectDisclosurePattern.test(parsedInput.text);
+      const disclosed =
+        config.riskLevelWithDisclosure !== undefined && hasSideEffectDisclosure(parsedInput);
       return [
         createComplianceFlagDraft({
           input: parsedInput,
@@ -793,8 +818,20 @@ function createExcerpt(text: string, index: number, match: string) {
   return excerpt.length > 0 ? excerpt : text.trim().slice(0, 96);
 }
 
+/**
+ * 의료 맥락 판정. 두 입력을 나눠 본다.
+ * - industry: 사이트 레코드의 진료과명이 정본이다(한글 그대로 들어온다). 텍스트가 어떻게 깎이든 안 흔들린다.
+ * - title·text·contextText: 영어 단어 경계로만 본다. 한글 진료과명을 본문 전체에 대고 부분일치시키면
+ *   "설치과정"·"사업계획안과" 같은 말이 의료 맥락이 된다.
+ * contextText(공통 내비·푸터)를 포함하는 이유: 검수 본문에서 보일러플레이트를 빼도
+ *   그 안에만 있던 의료 키워드 때문에 룰팩이 kr-medical → global 로 떨어지면 안 된다.
+ */
 function isMedicalContext(input: ComplianceReviewInput) {
-  const haystack = [input.industry ?? "", input.title ?? "", input.text].join(" ").toLowerCase();
+  if (isMedicalIndustry(input.industry)) {
+    return true;
+  }
+
+  const haystack = [input.title ?? "", input.text, input.contextText ?? ""].join(" ").toLowerCase();
 
   return /\b(clinic|dermatology|hospital|medical|medicine|patient|surgery|treatment|botox|filler|laser|injection|therapy)\b/iu.test(
     haystack,
