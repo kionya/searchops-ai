@@ -125,6 +125,39 @@ export function normalizeKeywordPhrase(phrase: string) {
   return phrase.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** 룰 세트 버전. 점수의 의미가 바뀔 때만 올린다. null 로 저장된 과거 행은 버전 1 이다. */
+export const aeoReadinessRulesVersion = "2" as const;
+
+/**
+ * 키워드 대조 토큰. 정본은 여기 하나다 — 워커의 페이지 선택과 룰 판정이 같은 토큰을 써야
+ * "선택은 했는데 판정은 못 하는" 구간이 생기지 않는다(CLAUDE.md: 사본은 반드시 어긋난다).
+ *
+ * 글자·숫자가 아닌 것을 경계로 쪼갠다. 구두점을 떼지 않으면 "보톡스 가격?" 의 토큰이
+ * "가격?" 이 되어 "가격은 얼마인가요" 를 못 덮는다. 1글자 토큰은 버린다 —
+ * 부분일치라 "시" 가 "시술"·"시간"에 전부 걸려 판정이 무의미해진다.
+ * 결과가 비면 호출자가 "판정 불가"로 다룬다(룰은 fail, 워커는 대표 페이지 폴백).
+ */
+export function tokenizeKeywordPhrase(phrase: string): readonly string[] {
+  return [
+    ...new Set(
+      normalizeKeywordPhrase(phrase)
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((token) => token.length > 1)
+    )
+  ];
+}
+
+/** 모든 토큰이 haystack 에 있어야 덮은 것이다. 토큰 순서는 보지 않는다. */
+export function haystackCoversAllTokens(haystack: string, tokens: readonly string[]): boolean {
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  const normalized = normalizeKeywordPhrase(haystack);
+
+  return tokens.every((token) => normalized.includes(token));
+}
+
 export function scoreKeywordIntent(input: KeywordTarget | string): readonly KeywordIntentScore[] {
   const phrase = typeof input === "string" ? input : input.phrase;
   const normalizedPhrase = normalizeKeywordPhrase(phrase);

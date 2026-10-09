@@ -3,6 +3,7 @@
 import {
   aeoCoreGenerationMode,
   aeoCorePackage,
+  aeoReadinessRulesVersion,
   answerSummaryPresentRule,
   calculateAeoReadinessScore,
   classifyKeywordTargetIntent,
@@ -13,11 +14,13 @@ import {
   evaluateAeoReadinessRule,
   faqSchemaPresentRule,
   generateAeoFaqGapSet,
+  haystackCoversAllTokens,
   inferKeywordIntent,
   keywordIntentDefinedRule,
   normalizeKeywordPhrase,
   questionCoverageRule,
-  scoreKeywordIntent
+  scoreKeywordIntent,
+  tokenizeKeywordPhrase
 } from "./index.js";
 import type {
   AeoFaqGapSet,
@@ -540,5 +543,35 @@ describe("ContentBrief draft mapper", () => {
         readinessReport: evaluateAeoReadiness(createInput(), { evaluatedAt })
       }),
     ).toThrow(/faqGapSet/);
+  });
+});
+
+describe("키워드 토큰화 정본", () => {
+  it("공백·기호 경계로 쪼개고 소문자화한다", () => {
+    expect(tokenizeKeywordPhrase("보톡스 가격?")).toEqual(["보톡스", "가격"]);
+    expect(tokenizeKeywordPhrase("리프팅·보톡스")).toEqual(["리프팅", "보톡스"]);
+    expect(tokenizeKeywordPhrase("Botox  PRICE")).toEqual(["botox", "price"]);
+  });
+
+  // 1글자 토큰은 부분일치 오탐이 심하다 — "시" 가 "시술"·"시간"에 전부 걸린다.
+  it("1글자 토큰을 버리고 중복을 지운다", () => {
+    expect(tokenizeKeywordPhrase("코 보톡스 보톡스")).toEqual(["보톡스"]);
+    expect(tokenizeKeywordPhrase("코 턱")).toEqual([]);
+    expect(tokenizeKeywordPhrase("   ")).toEqual([]);
+  });
+
+  it("모든 토큰이 있어야 덮은 것이다 — 토큰 순서는 보지 않는다", () => {
+    const tokens = tokenizeKeywordPhrase("보톡스 가격");
+    expect(haystackCoversAllTokens("보톡스 가격은 얼마인가요?", tokens)).toBe(true);
+    expect(haystackCoversAllTokens("가격 안내 — 보톡스 포함", tokens)).toBe(true);
+    expect(haystackCoversAllTokens("보톡스 시술 안내", tokens)).toBe(false);
+  });
+
+  it("토큰이 없으면 아무것도 덮지 못한다", () => {
+    expect(haystackCoversAllTokens("보톡스 가격", [])).toBe(false);
+  });
+
+  it("룰 버전 상수를 노출한다", () => {
+    expect(aeoReadinessRulesVersion).toBe("2");
   });
 });
