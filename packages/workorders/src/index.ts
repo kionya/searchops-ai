@@ -1,3 +1,4 @@
+import { aeoCorePackage, tokenizeKeywordPhrase } from "@searchops/aeo-core";
 import { compliancePackage } from "@searchops/compliance";
 import { geoCorePackage } from "@searchops/geo-core";
 import { schemaCorePackage } from "@searchops/schema-core";
@@ -9,6 +10,7 @@ import {
   WorkOrderDraftSchema
 } from "@searchops/types";
 import type {
+  AeoReadinessReportRecord,
   ComplianceFlag,
   ComplianceRiskLevel,
   ComplianceRuleId,
@@ -28,6 +30,7 @@ import type {
 export const workordersPackage = "workorders" as const;
 
 export const workOrderInputSources = [
+  aeoCorePackage,
   seoCorePackage,
   compliancePackage,
   schemaCorePackage,
@@ -755,4 +758,80 @@ function formatEvidenceValue(value: SeoIssueDraft["evidence"]["observedValue"]) 
   }
 
   return String(value);
+}
+
+/** 한 워크오더 본문에 적는 질문 수 상한. 넘으면 나머지 수만 적는다 — 수십 줄은 사람이 안 읽는다. */
+export const aeoContentGapQuestionLimit = 10;
+
+/** 답변 각도 한 줄. aeo-core 의 createSuggestedAnswerAngle 은 비공개라 공백 전용 문구를 둔다. */
+function createAeoContentGapAngle(question: string) {
+  return question.includes("가격") || question.includes("비용")
+    ? "가격 결정 요인과 상담 절차를 적고, 할인·이벤트 유인 문구는 쓰지 않습니다."
+    : "질문을 그대로 헤딩으로 쓰고 두세 문장으로 먼저 답한 뒤 근거를 덧붙입니다.";
+}
+
+/**
+ * 콘텐츠 공백 = PAGE_ANSWERS_QUESTION 이 fail 인 질문. warning(주제는 다루나 질문 형태가
+ * 없음)은 공백이 아니라 기존 FAQ 스키마·헤딩 구조 워크오더의 영역이라 제외한다.
+ *
+ * 질문마다 워크오더를 만들지 않는다 — 콘텐츠 1건이 여러 질문을 동시에 답하는 것이
+ * 실제 작업 단위다. 그래서 0건 또는 1건을 돌려준다.
+ *
+ * 판정 불가 키워드(토큰화 결과가 빈 것 — 1글자 토큰뿐)는 제외한다. 영구 fail 이라
+ * 고칠 방법이 없고, 매 크롤런마다 같은 노이즈가 올라온다.
+ */
+export function createWorkOrdersFromAeoReadinessReports(
+  reports: readonly AeoReadinessReportRecord[],
+  siteUrl: string,
+): readonly WorkOrderDraft[] {
+  const gaps = reports.filter(
+    (report) =>
+      tokenizeKeywordPhrase(report.phrase).length > 0 &&
+      report.checks.some(
+        (check) => check.checkId === "PAGE_ANSWERS_QUESTION" && check.status === "fail",
+      ),
+  );
+  if (gaps.length === 0) {
+    return [];
+  }
+
+  const questions = gaps.map((report) => report.phrase);
+  const shown = questions.slice(0, aeoContentGapQuestionLimit);
+  const remaining = questions.length - shown.length;
+  const url = gaps.find((report) => report.pageUrl !== null)?.pageUrl ?? siteUrl;
+  const evaluatedPages = [...new Set(gaps.map((report) => report.pageUrl ?? siteUrl))];
+
+  return [
+    WorkOrderDraftSchema.parse({
+      title: `콘텐츠 공백: 답변 없는 질문 ${questions.length}개`,
+      problem:
+        `다음 질문에 답하는 페이지가 없습니다(AEO 적합성 판정 fail): ${shown.join(", ")}` +
+        (remaining > 0 ? ` 외 나머지 ${remaining}개.` : ".") +
+        ` 평가 대상 페이지: ${evaluatedPages.join(", ")}.`,
+      evidence: {
+        url,
+        observedValue: questions,
+        expectedValue: "질문형 헤딩 또는 답변 블록으로 각 질문에 답하는 페이지",
+        sourceField: "aeoReadinessReport.checks.PAGE_ANSWERS_QUESTION"
+      },
+      impact:
+        "AI 답변엔진이 인용할 근거가 없어 해당 질문에서 노출되지 않습니다. 검색 수요가 있는 질문일수록 손실이 큽니다.",
+      instructions: [
+        ...shown.map((question) => `"${question}" — ${createAeoContentGapAngle(question)}`),
+        "각 질문을 질문형 헤딩(또는 FAQPage 답변 블록)으로 쓰고 바로 아래에 답을 둡니다.",
+        "의료 콘텐츠는 초안까지만 만듭니다 — 게재 전 의료광고법 검수와 사람 승인을 거칩니다(draft-only)."
+      ],
+      ownerType: "content",
+      priority: questions.length >= 5 ? "p1" : "p2",
+      acceptanceCriteria: [
+        "각 질문이 질문형 헤딩 또는 답변 블록으로 페이지에 존재합니다.",
+        "재크롤 후 해당 질문들의 AEO 리포트에서 PAGE_ANSWERS_QUESTION 이 fail 을 벗어납니다.",
+        "의료 표현은 의료광고법 검수를 통과했습니다(승인·반려는 사람이 합니다)."
+      ],
+      verificationMethod:
+        "재크롤 후 해당 질문들의 AeoReadinessReport 에서 PAGE_ANSWERS_QUESTION 상태를 확인합니다.",
+      estimatedEffort: questions.length >= 5 ? "l" : questions.length >= 3 ? "m" : "s",
+      relatedIssues: []
+    })
+  ];
 }

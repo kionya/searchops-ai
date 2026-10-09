@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@searchops/aeo-core": "workspace:*",
     "@searchops/compliance": "workspace:*",
     "@searchops/geo-core": "workspace:*",
     "@searchops/schema-core": "workspace:*",
