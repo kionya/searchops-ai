@@ -994,6 +994,12 @@ export const AeoReadinessStatusSchema = z.enum(["ready", "needs_work", "not_read
 export type AeoReadinessStatus = z.infer<typeof AeoReadinessStatusSchema>;
 
 export const AeoReadinessCheckIdSchema = z.enum([
+  "PAGE_ANSWERS_QUESTION",
+  /**
+   * 폐기(룰 버전 1). 룰 배열에서 제거됐지만 열거형에는 남는다 —
+   * 저장된 과거 행의 checks JSON 이 이 값을 담고 있어, 지우면 모든 과거 행의 조회가 던진다.
+   * 새로 생성되지 않는다. 읽기 전용이다.
+   */
   "KEYWORD_INTENT_DEFINED",
   "ANSWER_SUMMARY_PRESENT",
   "QUESTION_COVERAGE",
@@ -1043,6 +1049,11 @@ export const AeoReadinessReportSchema = z.object({
   status: AeoReadinessStatusSchema,
   score: PercentageScoreSchema,
   checks: z.array(AeoReadinessCheckSchema).min(1),
+  /**
+   * 점수를 만든 룰 세트의 버전. null 은 버전 1(PAGE_ANSWERS_QUESTION 도입 전)이다.
+   * 버전이 다른 리포트의 점수는 서로 비교하지 않는다 — 분자가 다른 분수다.
+   */
+  rulesVersion: z.string().min(1).nullable().default(null),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
 });
@@ -1060,6 +1071,11 @@ export const AeoReadinessReportRecordSchema = z.object({
   status: AeoReadinessStatusSchema,
   score: PercentageScoreSchema,
   checks: z.array(AeoReadinessCheckSchema).min(1),
+  /**
+   * 점수를 만든 룰 세트의 버전. null 은 버전 1(PAGE_ANSWERS_QUESTION 도입 전)이다.
+   * 버전이 다른 리포트의 점수는 서로 비교하지 않는다 — 분자가 다른 분수다.
+   */
+  rulesVersion: z.string().min(1).nullable().default(null),
   generatedBy: z.literal("deterministic"),
   evaluatedAt: IsoDateTimeSchema,
   createdAt: IsoDateTimeSchema,
@@ -1628,6 +1644,19 @@ export const GeoVisibilityReportListResponseSchema = z.object({
 });
 
 export type GeoVisibilityReportListResponse = z.infer<typeof GeoVisibilityReportListResponseSchema>;
+
+/**
+ * AEO 콘텐츠 공백 → 워크오더. 공백 질문들을 묶어 사이트당 1건이므로 리포트 id 가 아니라
+ * 사이트 단위다. 공백이 0건이면 workOrder 는 null 이다(만들 것이 없다).
+ */
+export const CreateAeoContentGapWorkOrderResponseSchema = z.object({
+  gapQuestions: z.array(NonEmptyStringSchema),
+  workOrder: WorkOrderSchema.nullable(),
+});
+
+export type CreateAeoContentGapWorkOrderResponse = z.infer<
+  typeof CreateAeoContentGapWorkOrderResponseSchema
+>;
 
 export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,

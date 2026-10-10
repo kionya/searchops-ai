@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aeoContentGapQuestionLimit,
   createWorkOrderFromComplianceFlag,
   createWorkOrderFromGeoVisibilityReport,
   createWorkOrderFromSchemaRecommendation,
   createWorkOrderFromSeoIssue,
+  createWorkOrdersFromAeoReadinessReports,
   createWorkOrdersFromComplianceFlags,
   createWorkOrdersFromGeoVisibilityReports,
   createWorkOrdersFromSchemaRecommendations,
@@ -17,6 +19,7 @@ import {
   workordersPackage
 } from "./index.js";
 import type {
+  AeoReadinessReportRecord,
   ComplianceFlag,
   GeoVisibilityReportRecord,
   SchemaJsonLdType,
@@ -284,6 +287,7 @@ function createComplianceFlag(overrides: Partial<ComplianceFlag> = {}): Complian
 describe("workorders foundation", () => {
   it("declares deterministic input sources", () => {
     expect(workOrderInputSources).toEqual([
+      "aeo-core",
       "seo-core",
       "compliance",
       "schema-core",
@@ -605,5 +609,171 @@ describe("SEO issue to work order mapper", () => {
     expect(() => createWorkOrderFromSeoIssue(createIssueForRule("TITLE_DUPLICATE"))).toThrow(
       /No work order template/
     );
+  });
+});
+
+const SITE_URL = "https://example-clinic.com/";
+
+function gapReport(
+  phrase: string,
+  status: "pass" | "warning" | "fail",
+  pageUrl: string | null = "https://example-clinic.com/botox",
+): AeoReadinessReportRecord {
+  const score = status === "pass" ? 100 : status === "warning" ? 60 : 0;
+  return {
+    id: `aeo_${phrase}`,
+    siteId: "site_1",
+    keywordId: null,
+    phrase,
+    locale: "ko-KR",
+    intent: null,
+    pageUrl,
+    status: "needs_work",
+    score: 46,
+    checks: [
+      {
+        checkId: "PAGE_ANSWERS_QUESTION",
+        status,
+        score,
+        evidence: {
+          url: pageUrl,
+          observedValue: [],
+          expectedValue: "Question-form heading or answer block covering the keyword",
+          sourceField: "questionHeadings"
+        }
+      }
+    ],
+    generatedBy: "deterministic",
+    rulesVersion: "2",
+    evaluatedAt: "2026-10-09T00:00:00.000Z",
+    createdAt: "2026-10-09T00:00:00.000Z"
+  };
+}
+
+describe("AEO 콘텐츠 공백 워크오더", () => {
+  it("공백 질문들을 묶어 정확히 1건을 만든다", () => {
+    const orders = createWorkOrdersFromAeoReadinessReports(
+      [gapReport("보톡스 가격", "fail"), gapReport("보톡스 부작용", "fail")],
+      SITE_URL,
+    );
+
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({
+      ownerType: "content",
+      priority: "p2",
+      estimatedEffort: "s",
+      evidence: {
+        url: "https://example-clinic.com/botox",
+        observedValue: ["보톡스 가격", "보톡스 부작용"]
+      }
+    });
+    expect(orders[0]?.title).toContain("2개");
+  });
+
+  it("주제는 다루는 warning 은 공백이 아니다 — 제외한다", () => {
+    expect(
+      createWorkOrdersFromAeoReadinessReports(
+        [gapReport("보톡스 가격", "warning"), gapReport("주차 안내", "pass")],
+        SITE_URL,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("공백이 0건이면 워크오더를 만들지 않는다", () => {
+    expect(createWorkOrdersFromAeoReadinessReports([], SITE_URL)).toHaveLength(0);
+  });
+
+  // SeoIssueEvidenceSchema.url 은 non-null 이다. 전부 null 이면 사이트 URL 로 올린다.
+  it("실패 리포트의 pageUrl 이 전부 null 이면 사이트 URL 을 쓴다", () => {
+    const orders = createWorkOrdersFromAeoReadinessReports(
+      [gapReport("보톡스 가격", "fail", null)],
+      SITE_URL,
+    );
+    expect(orders[0]?.evidence.url).toBe(SITE_URL);
+  });
+
+  it("공백 수로 우선순위·공수를 결정적으로 나눈다", () => {
+    const many = Array.from({ length: 5 }, (_, index) => gapReport(`질문 ${index} 보톡스`, "fail"));
+    expect(createWorkOrdersFromAeoReadinessReports(many, SITE_URL)[0]).toMatchObject({
+      priority: "p1",
+      estimatedEffort: "l"
+    });
+
+    const three = Array.from({ length: 3 }, (_, index) => gapReport(`질문 ${index} 보톡스`, "fail"));
+    expect(createWorkOrdersFromAeoReadinessReports(three, SITE_URL)[0]).toMatchObject({
+      priority: "p2",
+      estimatedEffort: "m"
+    });
+  });
+
+  // Review Focus 2: 공백이 수십 건이면 본문이 사람이 못 읽는 길이가 된다.
+  it("질문이 상한을 넘으면 상위 N개만 적고 나머지 수를 남긴다", () => {
+    const many = Array.from({ length: 25 }, (_, index) => gapReport(`질문 ${index} 보톡스`, "fail"));
+    const order = createWorkOrdersFromAeoReadinessReports(many, SITE_URL)[0];
+
+    expect(order?.instructions.length).toBeLessThanOrEqual(aeoContentGapQuestionLimit + 2);
+    expect(order?.problem).toContain("나머지 15개");
+  });
+
+  // Review Focus 4: 판정 불가는 영구 fail 이라 고칠 방법이 없다 — 노이즈다.
+  // 술어는 룰의 출력(sourceField)을 그대로 쓴다. 재토큰화 사본을 두면 리포트와 어긋난다.
+  it("판정 불가 행은 공백에서 제외한다", () => {
+    const undecidable = gapReport("???", "fail");
+    const marked = {
+      ...undecidable,
+      checks: [{ ...undecidable.checks[0]!, evidence: { ...undecidable.checks[0]!.evidence, sourceField: "keyword.phrase" } }]
+    };
+    expect(createWorkOrdersFromAeoReadinessReports([marked], SITE_URL)).toHaveLength(0);
+  });
+
+  it("1글자 조합 키워드는 공백으로 올린다 — 판정 불가가 아니다", () => {
+    expect(
+      createWorkOrdersFromAeoReadinessReports([gapReport("코 턱", "fail")], SITE_URL),
+    ).toHaveLength(1);
+  });
+
+  // Review Focus 3: 같은 입력이면 같은 출력이어야 호출부가 중복을 걸러낼 수 있다.
+  it("같은 입력에 같은 출력을 낸다 — 중복 판정의 전제", () => {
+    const reports = [gapReport("보톡스 가격", "fail"), gapReport("보톡스 부작용", "fail")];
+    expect(createWorkOrdersFromAeoReadinessReports(reports, SITE_URL)).toEqual(
+      createWorkOrdersFromAeoReadinessReports(reports, SITE_URL),
+    );
+  });
+
+  /**
+   * 자연스러운 호출부는 listAeoReadinessReports — 사이트의 전 행(제한 없음, evaluatedAt desc)이다.
+   * 축약하지 않으면 공백 3건 × 크롤런 3회가 "답변 없는 질문 9개" 가 되고 우선순위까지 뒤집힌다.
+   */
+  it("phrase 별 최신 1건으로 축약한다 — 크롤런이 쌓여도 수가 부풀지 않는다", () => {
+    const history = ["2026-10-07", "2026-10-08", "2026-10-09"].flatMap((day) =>
+      ["보톡스 가격", "임플란트 비용", "레이저 부작용"].map((phrase) => ({
+        ...gapReport(phrase, "fail"),
+        id: `aeo_${phrase}_${day}`,
+        evaluatedAt: `${day}T00:00:00.000Z`
+      })),
+    );
+
+    const order = createWorkOrdersFromAeoReadinessReports(history, SITE_URL)[0];
+
+    expect(order?.title).toContain("3개");
+    expect(order?.priority).toBe("p2");
+    expect(order?.estimatedEffort).toBe("m");
+    expect(order?.evidence.observedValue).toEqual([
+      "보톡스 가격",
+      "임플란트 비용",
+      "레이저 부작용"
+    ]);
+  });
+
+  // 이미 고친 질문에 콘텐츠를 또 만들라고 지시하면 안 된다.
+  it("최신 측정이 pass 면 과거 fail 은 공백이 아니다", () => {
+    const old = { ...gapReport("보톡스 가격", "fail"), id: "old", evaluatedAt: "2026-10-01T00:00:00.000Z" };
+    const fresh = { ...gapReport("보톡스 가격", "pass"), id: "new", evaluatedAt: "2026-10-09T00:00:00.000Z" };
+
+    expect(createWorkOrdersFromAeoReadinessReports([old, fresh], SITE_URL)).toHaveLength(0);
+  });
+
+  it("aeo-core 를 워크오더 입력 소스로 선언한다", () => {
+    expect(workOrderInputSources).toContain("aeo-core");
   });
 });

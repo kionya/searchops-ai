@@ -3,6 +3,7 @@
 import {
   aeoCoreGenerationMode,
   aeoCorePackage,
+  aeoReadinessRulesVersion,
   answerSummaryPresentRule,
   calculateAeoReadinessScore,
   classifyKeywordTargetIntent,
@@ -13,11 +14,13 @@ import {
   evaluateAeoReadinessRule,
   faqSchemaPresentRule,
   generateAeoFaqGapSet,
+  haystackCoversAllTokens,
   inferKeywordIntent,
-  keywordIntentDefinedRule,
   normalizeKeywordPhrase,
+  pageAnswersQuestionRule,
   questionCoverageRule,
-  scoreKeywordIntent
+  scoreKeywordIntent,
+  tokenizeKeywordPhrase
 } from "./index.js";
 import type {
   AeoFaqGapSet,
@@ -134,7 +137,7 @@ describe("keyword intent rules", () => {
 describe("AEO readiness rules", () => {
   it("exports readiness rules in deterministic order", () => {
     expect(defaultAeoReadinessRules.map((rule) => rule.id)).toEqual([
-      "KEYWORD_INTENT_DEFINED",
+      "PAGE_ANSWERS_QUESTION",
       "ANSWER_SUMMARY_PRESENT",
       "QUESTION_COVERAGE",
       "FAQ_SCHEMA_PRESENT",
@@ -142,23 +145,6 @@ describe("AEO readiness rules", () => {
       "CITABLE_SOURCE_PRESENT",
       "CONTENT_DEPTH"
     ]);
-  });
-
-  it("evaluates keyword intent as an independent readiness rule", () => {
-    expect(
-      evaluateAeoReadinessRule(keywordIntentDefinedRule, {
-        candidatePage: readyPage,
-        keyword: createInput().keyword
-      }),
-    ).toMatchObject({
-      checkId: "KEYWORD_INTENT_DEFINED",
-      score: 100,
-      status: "pass",
-      evidence: {
-        observedValue: "commercial",
-        sourceField: "keyword.intent"
-      }
-    });
   });
 
   it("evaluates answer summary presence independently", () => {
@@ -233,8 +219,10 @@ describe("AEO readiness rules", () => {
 });
 
 describe("AEO readiness engine", () => {
+  // "완전히 준비된" 은 적합성까지 포함한다 — readyPage 의 질문형 헤딩이 이 키워드를 덮는다.
+  // baseKeyword("seo clinic price comparison")는 이 페이지가 답하지 않는 질문이라 100 이 아니다.
   it("returns a ready report for a fully prepared page", () => {
-    const report = evaluateAeoReadiness(createInput(), { evaluatedAt });
+    const report = evaluateAeoReadiness(createInput({ phrase: "seo clinic cost" }), { evaluatedAt });
 
     expect(report).toMatchObject({
       evaluatedAt,
@@ -243,7 +231,8 @@ describe("AEO readiness engine", () => {
       score: 100,
       status: "ready",
       keyword: {
-        intent: "commercial"
+        // "seo clinic cost" 의 결정적 추론 결과다. intent 분류 자체는 위 classifyKeywordTargetIntent 테스트가 덮는다.
+        intent: "mixed"
       }
     });
     expect(report.checks).toHaveLength(7);
@@ -263,11 +252,12 @@ describe("AEO readiness engine", () => {
     );
 
     expect(report).toMatchObject({
-      score: 71,
+      score: 56,
       status: "needs_work"
     });
+    // 첫 체크가 pass(동어반복 100) → fail(이 페이지는 이 질문에 답하지 않는다)로 바뀌었다.
     expect(report.checks.map((check) => check.status)).toEqual([
-      "pass",
+      "fail",
       "warning",
       "warning",
       "warning",
@@ -280,12 +270,13 @@ describe("AEO readiness engine", () => {
   it("returns not_ready when no candidate page is available", () => {
     const report = evaluateAeoReadiness(createInput({}, null), { evaluatedAt });
 
+    // 공짜 100점이 사라져 7룰 전부 fail 이다(이전엔 KEYWORD_INTENT_DEFINED 만 pass 라 14점).
     expect(report).toMatchObject({
       pageUrl: null,
-      score: 14,
+      score: 0,
       status: "not_ready"
     });
-    expect(report.checks.filter((check) => check.status === "fail")).toHaveLength(6);
+    expect(report.checks.filter((check) => check.status === "fail")).toHaveLength(7);
   });
 
   it("is deterministic for the same input and evaluatedAt", () => {
@@ -509,7 +500,7 @@ describe("ContentBrief draft mapper", () => {
         "Plan enough supporting sections to reach at least 600 words."
       ]),
     );
-    expect(draft.summary).toContain("needs_work AEO readiness with score 71");
+    expect(draft.summary).toContain("needs_work AEO readiness with score 56");
   });
 
   it("is deterministic for the same mapper input", () => {
@@ -540,5 +531,192 @@ describe("ContentBrief draft mapper", () => {
         readinessReport: evaluateAeoReadiness(createInput(), { evaluatedAt })
       }),
     ).toThrow(/faqGapSet/);
+  });
+});
+
+describe("키워드 토큰화 정본", () => {
+  it("공백·기호 경계로 쪼개고 소문자화한다", () => {
+    expect(tokenizeKeywordPhrase("보톡스 가격?")).toEqual(["보톡스", "가격"]);
+    expect(tokenizeKeywordPhrase("리프팅·보톡스")).toEqual(["리프팅", "보톡스"]);
+    expect(tokenizeKeywordPhrase("Botox  PRICE")).toEqual(["botox", "price"]);
+  });
+
+  // 1글자 토큰은 부분일치 오탐이 심하다 — "시" 가 "시술"·"시간"에 전부 걸린다.
+  it("1글자 토큰을 버리고 중복을 지운다", () => {
+    expect(tokenizeKeywordPhrase("코 보톡스 보톡스")).toEqual(["보톡스"]);
+    expect(tokenizeKeywordPhrase("코 턱")).toEqual([]);
+    expect(tokenizeKeywordPhrase("   ")).toEqual([]);
+  });
+
+  it("모든 토큰이 있어야 덮은 것이다 — 토큰 순서는 보지 않는다", () => {
+    const tokens = tokenizeKeywordPhrase("보톡스 가격");
+    expect(haystackCoversAllTokens("보톡스 가격은 얼마인가요?", tokens)).toBe(true);
+    expect(haystackCoversAllTokens("가격 안내 — 보톡스 포함", tokens)).toBe(true);
+    expect(haystackCoversAllTokens("보톡스 시술 안내", tokens)).toBe(false);
+  });
+
+  it("토큰이 없으면 아무것도 덮지 못한다", () => {
+    expect(haystackCoversAllTokens("보톡스 가격", [])).toBe(false);
+  });
+
+  it("룰 버전 상수를 노출한다", () => {
+    expect(aeoReadinessRulesVersion).toBe("2");
+  });
+});
+
+const topicalOnlyPage: AeoPageSignal = {
+  url: "https://example-clinic.com/botox",
+  title: "보톡스 가격 안내",
+  metaDescription: null,
+  h1: "보톡스 가격",
+  h2: ["진료 시간", "오시는 길"],
+  wordCount: 400,
+  schemaTypes: [],
+  questionHeadings: [],
+  answerBlocks: []
+};
+
+const unrelatedPage: AeoPageSignal = {
+  ...topicalOnlyPage,
+  title: "주차 안내",
+  h1: "주차 안내",
+  h2: ["지하 2층"]
+};
+
+function runRule(phrase: string, candidatePage: AeoPageSignal | null) {
+  return evaluateAeoReadinessRule(pageAnswersQuestionRule, {
+    candidatePage,
+    keyword: { ...baseKeyword, phrase }
+  });
+}
+
+describe("PAGE_ANSWERS_QUESTION — 질문↔페이지 적합성", () => {
+  it("질문형 헤딩이 키워드를 덮으면 pass 100", () => {
+    const page: AeoPageSignal = {
+      ...topicalOnlyPage,
+      questionHeadings: ["보톡스 가격은 얼마인가요?"]
+    };
+    expect(runRule("보톡스 가격", page)).toMatchObject({
+      checkId: "PAGE_ANSWERS_QUESTION",
+      score: 100,
+      status: "pass",
+      evidence: {
+        observedValue: "보톡스 가격은 얼마인가요?",
+        sourceField: "questionHeadings,answerBlocks"
+      }
+    });
+  });
+
+  it("답변 블록이 덮어도 pass 100", () => {
+    const page: AeoPageSignal = {
+      ...topicalOnlyPage,
+      answerBlocks: [
+        { question: "보톡스 가격이 궁금합니다", answer: "상담 후 안내합니다.", sourceField: "body" }
+      ]
+    };
+    expect(runRule("보톡스 가격", page)).toMatchObject({ score: 100, status: "pass" });
+  });
+
+  it("주제만 다루면 warning 60", () => {
+    expect(runRule("보톡스 가격", topicalOnlyPage)).toMatchObject({
+      score: 60,
+      status: "warning",
+      evidence: { sourceField: "title,h1,h2" }
+    });
+    // 제목이 아니라 h2 에만 있어도 주제는 다룬 것이다.
+    expect(runRule("진료 시간", topicalOnlyPage)).toMatchObject({ score: 60, status: "warning" });
+  });
+
+  it("무관한 페이지는 fail 0", () => {
+    expect(runRule("보톡스 가격", unrelatedPage)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { observedValue: [], sourceField: "questionHeadings" }
+    });
+    expect(runRule("임플란트 비용", unrelatedPage)).toMatchObject({ score: 0, status: "fail" });
+  });
+
+  it("후보 페이지가 없으면 fail — 기존 6룰과 같은 처리", () => {
+    expect(runRule("보톡스 가격", null)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { observedValue: null, url: null }
+    });
+  });
+
+  /**
+   * 판정 불가(대조할 토큰이 없다)와 콘텐츠 공백(페이지가 답하지 않는다)은 둘 다 fail 이다.
+   * 구별되지 않으면 리포트는 "콘텐츠 공백" 으로 찍고 워크오더는 제외해 서로 어긋난다 —
+   * 고객은 고칠 방법이 없는 항목을 영구히 보게 된다.
+   */
+  it("대조할 토큰이 없으면 판정 불가로 구별되게 낸다", () => {
+    expect(runRule("???", readyPage)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { sourceField: "keyword.phrase" }
+    });
+  });
+
+  it("1글자 조합 키워드는 판정 불가가 아니라 그냥 공백이다", () => {
+    expect(runRule("코 턱", readyPage)).toMatchObject({
+      score: 0,
+      status: "fail",
+      evidence: { sourceField: "questionHeadings" }
+    });
+  });
+
+  // Review Focus 5: 기호·1글자만인 헤딩이 observedValue 에 쓰레기로 찍히지 않아야 한다.
+  it("기호만인 질문형 헤딩은 매칭 후보에서 빠진다", () => {
+    const page: AeoPageSignal = {
+      ...topicalOnlyPage,
+      questionHeadings: ["???", "보톡스 가격은 얼마인가요?"]
+    };
+    expect(runRule("보톡스 가격", page).evidence.observedValue).toBe("보톡스 가격은 얼마인가요?");
+  });
+
+  /**
+   * 성형외과·피부과 키워드의 식별자는 거의 항상 1글자다(코·턱·눈·입·볼·목·귀).
+   * 그 토큰을 버리면 "모든 토큰 요구" 가 성립하지 않아 다른 부위 헤딩에 pass 가 난다 —
+   * 없는 커버리지를 있다고 말하는 바로 그 거짓이다.
+   */
+  it("1글자 식별 토큰을 무시하지 않는다 — 다른 부위 헤딩에 pass 를 주면 안 된다", () => {
+    const page: AeoPageSignal = {
+      ...topicalOnlyPage,
+      title: "보톡스 가격 안내",
+      h1: "보톡스 가격",
+      questionHeadings: ["눈 보톡스 가격은 얼마인가요?"]
+    };
+
+    expect(runRule("턱 보톡스 가격", page)).toMatchObject({ status: "fail", score: 0 });
+    expect(runRule("눈 보톡스 가격", page)).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("룰 배열에서 동어반복 룰이 빠지고 7개를 유지한다", () => {
+    expect(defaultAeoReadinessRules).toHaveLength(7);
+    expect(defaultAeoReadinessRules.map((rule) => rule.id)).not.toContain(
+      "KEYWORD_INTENT_DEFINED",
+    );
+  });
+
+  it("리포트에 룰 버전을 담는다", () => {
+    expect(evaluateAeoReadiness(createInput(), { evaluatedAt }).rulesVersion).toBe("2");
+  });
+
+  // 공짜 100점이 사라져 점수가 내려간다. 숫자를 고정해 두면 조용한 회귀를 막는다.
+  it("적합성 단계에 따라 점수가 갈린다", () => {
+    const covered: AeoPageSignal = {
+      ...topicalOnlyPage,
+      questionHeadings: ["보톡스 가격은 얼마인가요?"]
+    };
+    const score = (page: AeoPageSignal) =>
+      evaluateAeoReadiness(
+        { candidatePage: page, keyword: { ...baseKeyword, phrase: "보톡스 가격" } },
+        { evaluatedAt },
+      );
+
+    expect(score(covered).score).toBeGreaterThan(score(topicalOnlyPage).score);
+    expect(score(topicalOnlyPage).score).toBeGreaterThan(score(unrelatedPage).score);
+    // 50점 경계를 넘어 not_ready 로 떨어지는 것이 의도된 결과다(임계값은 바꾸지 않는다).
+    expect(score(unrelatedPage).status).toBe("not_ready");
   });
 });

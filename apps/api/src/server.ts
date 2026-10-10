@@ -23,6 +23,7 @@ import {
 } from "@searchops/schema-core";
 import {
   createWorkOrderFromComplianceFlag,
+  createWorkOrdersFromAeoReadinessReports,
   createWorkOrderFromGeoVisibilityReport,
   createWorkOrderFromSchemaRecommendation,
 } from "@searchops/workorders";
@@ -44,6 +45,7 @@ import {
   ConnectorSyncEnqueueFailureResponseSchema,
   ContentBriefDetailResponseSchema,
   ContentBriefListResponseSchema,
+  CreateAeoContentGapWorkOrderResponseSchema,
   CreateAeoReadinessReportRequestSchema,
   CreateComplianceFlagWorkOrderResponseSchema,
   CreateComplianceReviewRequestSchema,
@@ -2719,6 +2721,42 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     }
 
     reply.send(response);
+  });
+
+  /**
+   * AEO 콘텐츠 공백 → 워크오더 1건. 질문마다 만들지 않는다 — 콘텐츠 1건이 여러 질문을
+   * 동시에 답하는 것이 실제 작업 단위다. 공백이 0건이면 200 + workOrder: null 이다.
+   * 멱등: 같은 사이트에 두 번 호출해도 같은 워크오더를 갱신한다.
+   */
+  server.post("/sites/:id/aeo-content-gap-work-order", async (request, reply) => {
+    const { id } = IdParamsSchema.parse(request.params);
+    const reports = await repository.listAeoReadinessReports(id);
+    if (reports === null) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    const drafts = createWorkOrdersFromAeoReadinessReports(reports, `https://${id}`);
+    const draft = drafts[0];
+    if (draft === undefined) {
+      reply.status(200).send(
+        CreateAeoContentGapWorkOrderResponseSchema.parse({ gapQuestions: [], workOrder: null }),
+      );
+      return;
+    }
+
+    const result = await repository.createAeoContentGapWorkOrder(id, { draft });
+    if (!result) {
+      reply.status(404).send(notFound("Site not found"));
+      return;
+    }
+
+    reply.status(201).send(
+      CreateAeoContentGapWorkOrderResponseSchema.parse({
+        gapQuestions: draft.evidence.observedValue,
+        workOrder: result.workOrder
+      }),
+    );
   });
 
   server.post("/geo-visibility-reports/:id/work-order", async (request, reply) => {

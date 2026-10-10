@@ -125,6 +125,51 @@ export function normalizeKeywordPhrase(phrase: string) {
   return phrase.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** 룰 세트 버전. 점수의 의미가 바뀔 때만 올린다. null 로 저장된 과거 행은 버전 1 이다. */
+export const aeoReadinessRulesVersion = "2" as const;
+
+/**
+ * 키워드 대조 토큰. 정본은 여기 하나다 — 워커의 페이지 선택과 룰 판정이 같은 토큰을 써야
+ * "선택은 했는데 판정은 못 하는" 구간이 생기지 않는다(CLAUDE.md: 사본은 반드시 어긋난다).
+ *
+ * 글자·숫자가 아닌 것을 경계로 쪼갠다. 구두점을 떼지 않으면 "보톡스 가격?" 의 토큰이
+ * "가격?" 이 되어 "가격은 얼마인가요" 를 못 덮는다.
+ *
+ * minLength 가 두 소비자의 요구 차이를 가른다:
+ * - 기본 2(워커의 페이지 **랭킹**): 겹침 개수로 순위를 매기므로 1글자는 노이즈다 —
+ *   "시" 가 "시술"·"시간"에 전부 걸려 아무 페이지나 점수를 받는다.
+ * - 1(룰의 포함 **판정**): 모든 토큰을 요구하는 불리언이라 1글자를 넣으면 엄격해지기만 한다.
+ *   버리면 반대로 느슨해진다 — 성형외과·피부과 식별자는 거의 항상 1글자(코·턱·눈·입·볼)여서
+ *   "턱 보톡스 가격" 이 "눈 보톡스 가격은?" 헤딩에 pass 가 나고 공백이 덮인다.
+ *
+ * 결과가 비면 호출자가 "판정 불가"로 다룬다(룰은 fail, 워커는 대표 페이지 폴백).
+ */
+export function tokenizeKeywordPhrase(
+  phrase: string,
+  options: { readonly minLength?: number } = {},
+): readonly string[] {
+  const minLength = options.minLength ?? 2;
+
+  return [
+    ...new Set(
+      normalizeKeywordPhrase(phrase)
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((token) => token.length >= minLength)
+    )
+  ];
+}
+
+/** 모든 토큰이 haystack 에 있어야 덮은 것이다. 토큰 순서는 보지 않는다. */
+export function haystackCoversAllTokens(haystack: string, tokens: readonly string[]): boolean {
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  const normalized = normalizeKeywordPhrase(haystack);
+
+  return tokens.every((token) => normalized.includes(token));
+}
+
 export function scoreKeywordIntent(input: KeywordTarget | string): readonly KeywordIntentScore[] {
   const phrase = typeof input === "string" ? input : input.phrase;
   const normalizedPhrase = normalizeKeywordPhrase(phrase);
@@ -171,19 +216,94 @@ export function classifyKeywordTargetIntent(keyword: KeywordTarget): KeywordTarg
   });
 }
 
-export const keywordIntentDefinedRule: AeoReadinessRule = {
-  id: "KEYWORD_INTENT_DEFINED",
+/**
+ * 이 페이지가 이 질문에 답하는가. F 절이 커버리지를 말할 수 있게 하는 유일한 룰이다.
+ *
+ * 앞선 KEYWORD_INTENT_DEFINED 는 intent 를 스스로 계산한 뒤 non-null 이라 단정해 항상
+ * pass·100 이었다 — 7룰 단순평균에 약 14점을 공짜로 얹고, 질문과 페이지의 관계는 한 번도
+ * 보지 않았다. 그래서 콘텐츠가 아예 없는 질문과 있는 질문이 같은 점수를 받았다.
+ *
+ * 등식으로 비교하지 않는다 — normalizeKeywordPhrase 는 구두점을 떼지 않아
+ * "보톡스 가격" 과 "보톡스 가격은 얼마인가요?" 가 다른 문자열이다. 토큰 포함으로 본다.
+ *
+ * 알려진 한계(⚠️ 검증필요): 워커의 toAeoPageSignal 은 answerBlocks 를 [] 로 고정하므로
+ * 크롤 경로에서 pass 는 질문형 헤딩이 있을 때만 난다. answerBlocks 추출기가 생기면 올라간다.
+ */
+export const pageAnswersQuestionRule: AeoReadinessRule = {
+  id: "PAGE_ANSWERS_QUESTION",
   evaluate(context) {
-    const keyword = classifyKeywordTargetIntent(context.keyword);
+    const page = context.candidatePage;
+    // 판정은 모든 토큰을 요구하는 불리언이라 1글자를 포함해야 엄격해진다(위 주석 참조).
+    const tokens = tokenizeKeywordPhrase(context.keyword.phrase, { minLength: 1 });
+    const expectedValue = "Question-form heading or answer block covering the keyword";
+
+    // 대조할 토큰이 없다(글자·숫자가 한 자도 없는 키워드). 판정 불가다 — fail 로 두되
+    // sourceField 로 **구별 가능하게** 낸다. 콘텐츠 공백과 섞이면 고칠 방법이 없는 항목을
+    // 리포트는 "공백" 으로 찍고 워크오더는 제외해 두 소비자가 어긋난다.
+    if (tokens.length === 0) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: "판정 불가(키워드 토큰 없음)",
+        score: 0,
+        sourceField: "keyword.phrase",
+        status: "fail",
+        url: page?.url ?? null
+      });
+    }
+
+    // 후보 페이지가 없으면 기존 6룰과 같은 처리다.
+    if (page === null) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: null,
+        score: 0,
+        sourceField: "questionHeadings",
+        status: "fail",
+        url: null
+      });
+    }
+
+    const questions = uniqueNonBlankStrings([
+      ...page.questionHeadings,
+      ...page.answerBlocks.map((block) => block.question)
+    ]).filter((question) => tokenizeKeywordPhrase(question, { minLength: 1 }).length > 0);
+
+    const covering = questions.find((question) => haystackCoversAllTokens(question, tokens));
+    if (covering !== undefined) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: covering,
+        score: 100,
+        sourceField: "questionHeadings,answerBlocks",
+        status: "pass",
+        url: page.url
+      });
+    }
+
+    const topical = [page.title ?? "", page.h1 ?? "", page.h2.join(" ")].join(" ");
+    if (haystackCoversAllTokens(topical, tokens)) {
+      return createAeoReadinessCheck({
+        checkId: "PAGE_ANSWERS_QUESTION",
+        expectedValue,
+        observedValue: normalizeKeywordPhrase(topical),
+        score: 60,
+        sourceField: "title,h1,h2",
+        status: "warning",
+        url: page.url
+      });
+    }
 
     return createAeoReadinessCheck({
-      checkId: "KEYWORD_INTENT_DEFINED",
-      expectedValue: "Non-null deterministic keyword intent",
-      observedValue: keyword.intent,
-      score: 100,
-      sourceField: "keyword.intent",
-      status: "pass",
-      url: context.candidatePage?.url ?? null
+      checkId: "PAGE_ANSWERS_QUESTION",
+      expectedValue,
+      observedValue: questions,
+      score: 0,
+      sourceField: "questionHeadings",
+      status: "fail",
+      url: page.url
     });
   }
 };
@@ -514,7 +634,7 @@ export const contentDepthRule: AeoReadinessRule = {
 };
 
 export const defaultAeoReadinessRules = [
-  keywordIntentDefinedRule,
+  pageAnswersQuestionRule,
   answerSummaryPresentRule,
   questionCoverageRule,
   faqSchemaPresentRule,
@@ -553,6 +673,7 @@ export function evaluateAeoReadiness(
     generatedBy: aeoCoreGenerationMode,
     keyword,
     pageUrl: parsedInput.candidatePage?.url ?? null,
+    rulesVersion: aeoReadinessRulesVersion,
     score,
     status: getAeoReadinessStatus(score)
   });
@@ -1018,6 +1139,8 @@ const acceptanceCriterionByCheckId = {
   CONTENT_DEPTH: "Plan enough supporting sections to reach at least 600 words.",
   FAQ_SCHEMA_PRESENT: "Structure FAQ candidates so they can later support FAQPage schema.",
   KEYWORD_INTENT_DEFINED: "State the deterministic keyword intent in the brief.",
+  PAGE_ANSWERS_QUESTION:
+    "Answer the keyword's question directly in a question-form heading or answer block.",
   QUESTION_COVERAGE: "Include at least two question-led subsections.",
   STRUCTURED_HEADINGS: "Use one H1 plan and at least two supporting H2 sections."
 } as const satisfies Record<AeoReadinessCheckId, string>;

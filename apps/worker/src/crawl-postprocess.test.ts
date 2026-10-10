@@ -252,8 +252,22 @@ describe("크롤 후처리 AEO 준비도", () => {
       generatedBy: "deterministic",
       pageUrl: "https://example.com/",
       phrase: "리프팅 가격",
+      rulesVersion: "2",
       siteId: "site_1"
     });
+  });
+
+  it("룰 버전을 저장한다 — 과거 행과 섞인 비교를 리포트가 막을 수 있게", async () => {
+    const aeo = createAeoClient([
+      { id: "kw_1", phrase: "리프팅 효과", locale: "ko-KR", intent: null, purpose: "both" }
+    ]);
+
+    await processAndPersistCrawlJob(payload, createCrawlClient(), {
+      aeoReadinessClient: aeo.client
+    });
+
+    // 과거 행은 이 컬럼이 NULL 이고 백필하지 않는다 — 새로 쓰는 행만 "2" 다.
+    expect(aeo.created[0]).toMatchObject({ rulesVersion: "2" });
   });
 
   it("키워드 1건이 파싱에 실패해도 나머지는 저장된다", async () => {
@@ -345,6 +359,33 @@ describe("크롤 후처리 AEO 준비도", () => {
     expect(selectAeoCandidateSnapshot("리프팅", snapshots, snapshots[0]!).snapshot.url).toBe(
       snapshots[1]!.url,
     );
+  });
+
+  it("1글자 토큰뿐인 키워드는 대표 페이지로 폴백한다 — 정본 토큰화를 쓴다", () => {
+    const snapshots = [
+      snapshotFixture("https://example.com/", "홈"),
+      snapshotFixture("https://example.com/nose", "코 성형")
+    ];
+
+    // "코" 는 1글자라 정본 토큰화가 버린다. 토큰이 비면 매칭 근거가 없다.
+    expect(selectAeoCandidateSnapshot("코", snapshots, snapshots[0]!)).toEqual({
+      matched: false,
+      snapshot: snapshots[0]
+    });
+  });
+
+  // 구두점이 붙은 토큰이 유일한 단서일 때만 이 동작이 드러난다 — 다른 토큰이 하나라도
+  // 겹치면 부분일치로 이겨버려 테스트가 통과하면서 아무것도 증명하지 못한다.
+  it("구두점이 붙은 토큰도 매칭된다 — 정본 토큰화가 기호를 경계로 쓴다", () => {
+    const snapshots = [
+      snapshotFixture("https://example.com/", "홈"),
+      snapshotFixture("https://example.com/price", "가격 안내")
+    ];
+
+    expect(selectAeoCandidateSnapshot("가격?", snapshots, snapshots[0]!)).toEqual({
+      matched: true,
+      snapshot: snapshots[1]
+    });
   });
 
   it("스냅샷의 h2 에서 질문형 헤딩을 뽑아 AeoPageSignal 로 넘긴다", () => {

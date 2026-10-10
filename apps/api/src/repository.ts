@@ -128,6 +128,14 @@ export interface CreateSchemaRecommendationWorkOrderResult {
   workOrder: WorkOrder;
 }
 
+export interface CreateAeoContentGapWorkOrderInput {
+  draft: WorkOrderDraft;
+}
+
+export interface CreateAeoContentGapWorkOrderResult {
+  workOrder: WorkOrder;
+}
+
 export interface CreateGeoVisibilityReportWorkOrderInput {
   draft: WorkOrderDraft;
 }
@@ -239,6 +247,11 @@ export interface SearchOpsRepository {
   ): Promise<GeoVisibilityReportRecord | null>;
   listGeoVisibilityReports(siteId: string): Promise<GeoVisibilityReportRecord[] | null>;
   getGeoVisibilityReport(id: string): Promise<GeoVisibilityReportRecord | null>;
+  /** AEO 콘텐츠 공백 워크오더. 사이트당 1건이라 멱등 키는 evidence.sourceField 다. */
+  createAeoContentGapWorkOrder(
+    siteId: string,
+    input: CreateAeoContentGapWorkOrderInput,
+  ): Promise<CreateAeoContentGapWorkOrderResult | null>;
   createGeoVisibilityReportWorkOrder(
     reportId: string,
     input: CreateGeoVisibilityReportWorkOrderInput,
@@ -874,6 +887,7 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         status: input.readinessReport.status,
         score: input.readinessReport.score,
         checks: input.readinessReport.checks,
+        rulesVersion: input.readinessReport.rulesVersion,
         generatedBy: input.readinessReport.generatedBy,
         evaluatedAt: input.readinessReport.evaluatedAt,
         createdAt: nowIso()
@@ -1048,6 +1062,54 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
 
     async getGeoVisibilityReport(id) {
       return geoVisibilityReports.get(id) ?? null;
+    },
+
+    async createAeoContentGapWorkOrder(siteId, input) {
+      const site = sites.get(siteId);
+      if (!site) {
+        return null;
+      }
+
+      // 사이트당 1건. 리포트 id 가 아니라 근거 출처로 찾는다 — 공백은 여러 리포트에 걸쳐 있다.
+      const existingWorkOrder = [...workOrders.values()].find(
+        (workOrder) =>
+          workOrder.siteId === siteId &&
+          workOrder.evidence?.sourceField === input.draft.evidence.sourceField,
+      );
+      const timestamp = nowIso();
+      const workOrder: WorkOrder = {
+        id: existingWorkOrder?.id ?? createId("wo", workOrderCounter),
+        organizationId: site.organizationId,
+        siteId,
+        seoIssueId: null,
+        schemaRecommendationId: null,
+        geoVisibilityReportId: null,
+        status: existingWorkOrder?.status ?? "open",
+        priority: input.draft.priority,
+        title: input.draft.title,
+        description: null,
+        problem: input.draft.problem,
+        evidence: input.draft.evidence,
+        impact: input.draft.impact,
+        instructions: input.draft.instructions,
+        ownerType: input.draft.ownerType,
+        acceptanceCriteria: input.draft.acceptanceCriteria,
+        verificationMethod: input.draft.verificationMethod,
+        estimatedEffort: input.draft.estimatedEffort,
+        relatedIssues: input.draft.relatedIssues,
+        assignedTo: existingWorkOrder?.assignedTo ?? null,
+        dueDate: existingWorkOrder?.dueDate ?? null,
+        createdAt: existingWorkOrder?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+
+      if (!existingWorkOrder) {
+        workOrderCounter += 1;
+      }
+
+      workOrders.set(workOrder.id, workOrder);
+
+      return { workOrder };
     },
 
     async createGeoVisibilityReportWorkOrder(reportId, input) {

@@ -628,6 +628,7 @@ export interface AeoReadinessReportCreateArgs {
     readonly locale: string;
     readonly pageUrl: string | null;
     readonly phrase: string;
+    readonly rulesVersion: string | null;
     readonly score: number;
     readonly siteId: string;
     readonly status: string;
@@ -710,6 +711,7 @@ export async function persistAeoReadinessReports(
         locale: report.keyword.locale,
         pageUrl: report.pageUrl,
         phrase: report.keyword.phrase,
+        rulesVersion: report.rulesVersion,
         score: report.score,
         siteId: input.siteId,
         status: report.status
