@@ -444,9 +444,9 @@ describe("reports (T6)", () => {
     const html = renderDiagnosisHtml({ ...input, aeoReports: [gap] });
 
     expect(html).toContain("콘텐츠 공백");
-    // 워크오더 생성기는 있지만 호출부가 아직 없다(다음 PR). 리포트가 코드보다 앞서 약속하면
-    // 병원이 워크오더 목록을 열었을 때 아무것도 없다 — 측정한 사실만 말한다.
+    // 전환은 운영자가 라우트를 호출해 일어난다 — 자동이 아니므로 "올라갑니다" 라고 쓰지 않는다.
     expect(html).not.toContain("워크오더로 올라갑니다");
+    expect(html).toContain("워크오더로 전환할 수 있습니다");
     // PR #134 가 넣은 폐기 문구는 사라져야 한다 — 이제 측정한다.
     expect(html).not.toContain("아직 측정하지 않습니다");
     expect(html).not.toContain("이 표만으로는 그 폴백을 구분할 수 없습니다");

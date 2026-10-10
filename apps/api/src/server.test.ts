@@ -3672,6 +3672,78 @@ describe("api foundation", () => {
     });
   });
 
+  /**
+   * 생성기(createWorkOrdersFromAeoReadinessReports)는 있었지만 프로덕션 호출부가 0개였다 —
+   * 진단서가 "워크오더로 올라갑니다" 를 약속하면 병원이 목록을 열었을 때 아무것도 없다.
+   * 선례는 POST /geo-visibility-reports/:id/work-order 이고 멱등해야 한다.
+   */
+  it("converts AEO content gaps into one idempotent work order", async () => {
+    const gapCheck = {
+      checkId: "PAGE_ANSWERS_QUESTION" as const,
+      status: "fail" as const,
+      score: 0,
+      evidence: {
+        url: "https://exampleclinic.com/service/seo",
+        observedValue: [],
+        expectedValue: "Question-form heading or answer block covering the keyword",
+        sourceField: "questionHeadings",
+      },
+    };
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        aeoReadinessReports: [
+          { ...seededAeoReadinessReport, checks: [gapCheck] },
+          {
+            ...seededAeoReadinessReport,
+            id: "aeo_report_gap2",
+            keywordId: "keyword_other",
+            phrase: "임플란트 비용",
+            checks: [gapCheck],
+          },
+        ],
+      }),
+    });
+
+    const first = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-content-gap-work-order",
+    });
+    const second = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-content-gap-work-order",
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({
+      gapQuestions: ["seo clinic", "임플란트 비용"],
+      workOrder: { ownerType: "content", priority: "p2", siteId: "site_seed", status: "open" },
+    });
+    expect(first.json().workOrder.title).toContain("2개");
+    // 멱등: 두 번째 호출이 같은 워크오더를 갱신한다(새로 만들지 않는다).
+    expect(second.statusCode).toBe(201);
+    expect(second.json().workOrder.id).toBe(first.json().workOrder.id);
+  });
+
+  it("returns no work order when there is no AEO content gap", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        aeoReadinessReports: [seededAeoReadinessReport],
+      }),
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-content-gap-work-order",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ gapQuestions: [], workOrder: null });
+  });
+
   // 크롤 후처리가 매일 밤 키워드 수만큼 행을 더한다. 이력을 그대로 내보내면 웹 대시보드가
   // 전부 집계해 "키워드 12개" 가 30일 뒤 "키워드 360" 이 된다(총계·평균·미통과 체크 전부).
   it("lists only the latest AEO readiness report per keyword", async () => {

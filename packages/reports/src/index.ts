@@ -389,7 +389,7 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
     : "";
 
   return table(["페이지", "질문", "점수", "상태", "미통과 체크"], rows)
-    + `<p class="muted">${unit}${splitNote}${versionNote} 적합성 판정(PAGE_ANSWERS_QUESTION)이 fail 인 행은 <strong>콘텐츠 공백</strong>입니다 — 그 질문에 답하는 페이지가 없다는 뜻입니다. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
+    + `<p class="muted">${unit}${splitNote}${versionNote} 적합성 판정(PAGE_ANSWERS_QUESTION)이 fail 인 행은 <strong>콘텐츠 공백</strong>입니다 — 그 질문에 답하는 페이지가 없다는 뜻이며, 워크오더로 전환할 수 있습니다. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
 }
 
 function sourceAttr(input: z.output<typeof DiagnosisReportInputSchema>) {

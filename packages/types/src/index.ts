@@ -1645,6 +1645,19 @@ export const GeoVisibilityReportListResponseSchema = z.object({
 
 export type GeoVisibilityReportListResponse = z.infer<typeof GeoVisibilityReportListResponseSchema>;
 
+/**
+ * AEO 콘텐츠 공백 → 워크오더. 공백 질문들을 묶어 사이트당 1건이므로 리포트 id 가 아니라
+ * 사이트 단위다. 공백이 0건이면 workOrder 는 null 이다(만들 것이 없다).
+ */
+export const CreateAeoContentGapWorkOrderResponseSchema = z.object({
+  gapQuestions: z.array(NonEmptyStringSchema),
+  workOrder: WorkOrderSchema.nullable(),
+});
+
+export type CreateAeoContentGapWorkOrderResponse = z.infer<
+  typeof CreateAeoContentGapWorkOrderResponseSchema
+>;
+
 export const CreateGeoVisibilityReportWorkOrderResponseSchema = z.object({
   report: GeoVisibilityReportRecordSchema,
   workOrder: WorkOrderSchema,
