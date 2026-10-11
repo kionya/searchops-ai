@@ -822,7 +822,11 @@ export function createWorkOrdersFromAeoReadinessReports(
       problem:
         `다음 질문에 답하는 페이지가 없습니다(AEO 적합성 판정 fail): ${shown.join(", ")}` +
         (remaining > 0 ? ` 외 나머지 ${remaining}개.` : ".") +
-        ` 평가 대상 페이지: ${evaluatedPages.join(", ")}.`,
+        // 질문 목록과 같은 상한 — 공백 50건이 50개 URL 로 흩어지면 한 문장에 50개가 찍힌다.
+        ` 평가 대상 페이지: ${evaluatedPages.slice(0, aeoContentGapQuestionLimit).join(", ")}` +
+        (evaluatedPages.length > aeoContentGapQuestionLimit
+          ? ` 외 나머지 ${evaluatedPages.length - aeoContentGapQuestionLimit}개.`
+          : "."),
       evidence: {
         url,
         observedValue: questions,

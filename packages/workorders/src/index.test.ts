@@ -715,6 +715,17 @@ describe("AEO 콘텐츠 공백 워크오더", () => {
     expect(order?.problem).toContain("나머지 15개");
   });
 
+  it("평가 대상 페이지도 같은 상한으로 자른다", () => {
+    const scattered = Array.from({ length: 25 }, (_, index) =>
+      gapReport(`질문 ${index} 보톡스`, "fail", `https://example-clinic.com/p${index}`),
+    );
+    const problem = createWorkOrdersFromAeoReadinessReports(scattered, SITE_URL)[0]?.problem ?? "";
+
+    expect(problem).toContain("https://example-clinic.com/p9");
+    expect(problem).not.toContain("https://example-clinic.com/p10");
+    expect(problem.match(/나머지 15개/g)).toHaveLength(2); // 질문 · 페이지
+  });
+
   // Review Focus 4: 판정 불가는 영구 fail 이라 고칠 방법이 없다 — 노이즈다.
   // 술어는 룰의 출력(sourceField)을 그대로 쓴다. 재토큰화 사본을 두면 리포트와 어긋난다.
   it("판정 불가 행은 공백에서 제외한다", () => {

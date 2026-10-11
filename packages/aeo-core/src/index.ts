@@ -281,7 +281,8 @@ export const pageAnswersQuestionRule: AeoReadinessRule = {
       return createAeoReadinessCheck({
         checkId: "PAGE_ANSWERS_QUESTION",
         expectedValue,
-        observedValue: normalizeKeywordPhrase(topical),
+        // title+h1+h2 합본 전체는 실측 280자 — 증거로는 앞부분이면 충분하다.
+        observedValue: normalizeKeywordPhrase(topical).slice(0, 120),
         score: 60,
         sourceField: "title,h1,h2",
         status: "warning",
@@ -292,7 +293,8 @@ export const pageAnswersQuestionRule: AeoReadinessRule = {
     return createAeoReadinessCheck({
       checkId: "PAGE_ANSWERS_QUESTION",
       expectedValue,
-      observedValue: questions,
+      // 질문형 헤딩은 상한이 없다 — 증거로는 앞 10건이면 충분하다.
+      observedValue: questions.slice(0, 10),
       score: 0,
       sourceField: "questionHeadings",
       status: "fail",
