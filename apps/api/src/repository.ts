@@ -871,6 +871,13 @@ export function createMemoryRepository(seed: MemoryRepositorySeed = {}): SearchO
         return null;
       }
 
+      // Prisma 구현과 같은 규칙: keywordId 를 주면 그 키워드의 phrase·locale 과 같아야 한다.
+      if (input.keywordId != null) {
+        const { locale, phrase } = input.readinessReport.keyword;
+        if (keywords.get(`${siteId}|${phrase}|${locale}`)?.id !== input.keywordId) {
+          return null;
+        }
+      }
       const keywordId = input.keywordId ?? createId("keyword", keywordCounter);
       if (input.keywordId == null) {
         keywordCounter += 1;

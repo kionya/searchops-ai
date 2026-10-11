@@ -1681,10 +1681,14 @@ async function resolveAeoReadinessKeyword(
   report: AeoReadinessReport,
 ) {
   if (keywordId !== null) {
+    // phrase·locale 도 맞아야 한다 — 이력은 locale+phrase 로 접히므로(aeoReportKeywordKey)
+    // 키워드와 다른 철자로 저장된 리포트는 같은 키워드의 이력에서 떨어져 나와 남는다.
     return prisma.keyword.findFirst({
       select: { id: true },
       where: {
         id: keywordId,
+        locale: report.keyword.locale,
+        phrase: report.keyword.phrase,
         siteId
       }
     });
