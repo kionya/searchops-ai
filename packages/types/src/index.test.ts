@@ -3376,3 +3376,77 @@ describe("types foundation", () => {
     });
   });
 });
+
+describe("AEO 룰 버전·열거형 하위호환", () => {
+  const legacyChecks = [
+    {
+      checkId: "KEYWORD_INTENT_DEFINED",
+      status: "pass",
+      score: 100,
+      evidence: {
+        url: "https://example-clinic.com/faq",
+        observedValue: "commercial",
+        expectedValue: "Non-null deterministic keyword intent",
+        sourceField: "keyword.intent"
+      }
+    }
+  ];
+
+  // 저장된 과거 행은 이 checkId 를 담고 있다. 열거형에서 지우면 모든 과거 행의 조회가 던진다.
+  it("과거 checks JSON(KEYWORD_INTENT_DEFINED)이 계속 파싱된다", () => {
+    const record = AeoReadinessReportRecordSchema.parse({
+      id: "aeo_1",
+      siteId: "site_1",
+      keywordId: null,
+      phrase: "보톡스 가격",
+      locale: "ko-KR",
+      intent: null,
+      pageUrl: "https://example-clinic.com/faq",
+      status: "needs_work",
+      score: 46,
+      checks: legacyChecks,
+      generatedBy: "deterministic",
+      evaluatedAt: "2026-09-20T00:00:00.000Z",
+      createdAt: "2026-09-20T00:00:00.000Z"
+    });
+
+    // rulesVersion 을 안 넘기면 null = 버전 1 이다. 백필하지 않는다.
+    expect(record.rulesVersion).toBeNull();
+    expect(record.checks[0]?.checkId).toBe("KEYWORD_INTENT_DEFINED");
+  });
+
+  it("새 체크 아이디와 룰 버전을 받는다", () => {
+    const report = AeoReadinessReportSchema.parse({
+      keyword: {
+        siteId: "site_1",
+        phrase: "보톡스 가격",
+        locale: "ko-KR",
+        language: "ko",
+        country: "KR",
+        intent: null,
+        source: "manual"
+      },
+      pageUrl: "https://example-clinic.com/botox",
+      status: "not_ready",
+      score: 31,
+      checks: [
+        {
+          checkId: "PAGE_ANSWERS_QUESTION",
+          status: "fail",
+          score: 0,
+          evidence: {
+            url: "https://example-clinic.com/botox",
+            observedValue: [],
+            expectedValue: "Question-form heading or answer block covering the keyword",
+            sourceField: "questionHeadings"
+          }
+        }
+      ],
+      generatedBy: "deterministic",
+      rulesVersion: "2",
+      evaluatedAt: "2026-10-09T00:00:00.000Z"
+    });
+
+    expect(report.rulesVersion).toBe("2");
+  });
+});

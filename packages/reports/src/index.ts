@@ -311,17 +311,28 @@ function workOrderBody(input: ReportInput, mask: MaskFn) {
 }
 
 /**
+ * 적합성 판정이 fail = 그 질문에 답하는 페이지가 없다. 워크오더가 나가는 조건과 **같아야 한다**.
+ * sourceField "keyword.phrase" 는 판정 불가(대조할 토큰이 없는 키워드)라 제외한다 —
+ * 콘텐츠를 어떻게 만들어도 fail 이고, 워크오더도 같은 기준으로 제외한다.
+ */
+function isContentGap(report: ReportInput["aeoReports"][number]) {
+  return report.checks.some(
+    (check) =>
+      check.checkId === "PAGE_ANSWERS_QUESTION" &&
+      check.status === "fail" &&
+      check.evidence.sourceField !== "keyword.phrase",
+  );
+}
+
+/**
  * F 절. 질문(phrase)별 최신 측정 1건을 고른 뒤 **같은 측정값끼리 묶어** 렌더한다.
  *
- * 묶는 이유: AEO 점수는 페이지의 순수 함수다(aeo-core 7룰 중 6룰이 candidatePage 만 보고,
- * 유일한 키워드 의존 룰은 항상 pass·100). 한 번의 측정에서 같은 페이지로 평가된 질문은 점수가
- * 같으므로, 질문마다 줄을 나누면 없는 차이를 있는 것처럼 보인다 —
- * 실측에서 질문 8건이 모두 46점으로 8줄 찍혔다.
+ * 묶는 키는 `pageUrl + 점수 + 상태 + 미통과 체크` 다. **측정값이 같을 때만** 한 줄로 접는다.
+ * 같은 값이 여러 줄로 찍히면 없는 차이를 있는 것처럼 보이고(실측에서 질문 8건이 모두 46점으로
+ * 8줄 찍혔다), 반대로 갈린 값을 한 줄로 합치면 남의 값이 다른 질문 줄에 실린다.
  *
- * 묶는 키에 점수·상태까지 넣는 이유: 같은 페이지라도 측정 시점이 다르면 점수가 갈린다
- * (워크오더로 페이지를 고치면 46 → 88 이 되는 것이 정상이다). 페이지만으로 묶고 대표 1건의
- * 숫자를 쓰면, 46 으로 측정된 질문 줄에 88 이 붙는다 — 저장된 값이 아닌 남의 값이다.
- * 갈리면 묶지 않는다.
+ * 점수가 갈리는 원인은 둘이다 — 적합성 룰(PAGE_ANSWERS_QUESTION)이 질문마다 다르게 판정하거나,
+ * 측정 시점이 달라 그 사이 페이지가 바뀌었거나. 어느 쪽이든 **갈리면 묶지 않는다**.
  */
 function aeoBody(input: ReportInput, mask: MaskFn) {
   if (input.aeoReports.length === 0) {
@@ -334,6 +345,13 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
       latest.set(report.phrase, report);
     }
   }
+
+  const versions = new Set([...latest.values()].map((report) => report.rulesVersion ?? null));
+  const versionNote = versions.size > 1
+    ? ` <strong>룰 버전이 섞여 있어 점수를 서로 비교할 수 없습니다</strong>(⚠️ 검증필요) — 적합성 룰 도입 전후의 점수는 분자가 다른 분수입니다.`
+    : versions.has(null)
+      ? ` 이 점수는 <strong>구버전 룰</strong>(적합성 판정 전)로 계산됐습니다 — 질문↔페이지 적합성이 반영되지 않았습니다(⚠️ 검증필요).`
+      : "";
 
   const groups = new Map<string, { phrases: string[]; report: ReportInput["aeoReports"][number] }>();
   for (const report of latest.values()) {
@@ -353,7 +371,7 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
       esc(mask(group.report.pageUrl ?? "-")),
       esc(mask([...group.phrases].sort((a, b) => a.localeCompare(b)).join(", "))),
       String(group.report.score),
-      esc(group.report.status),
+      esc(group.report.status) + (isContentGap(group.report) ? " · 콘텐츠 공백" : ""),
       esc(group.report.checks.filter((check) => check.status !== "pass").map((check) => check.checkId).join(", ") || "없음")
     ]);
 
@@ -362,14 +380,16 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
   // "매칭돼"라고 쓰지 않는다. 질문에 대응하는 페이지를 못 찾으면 워커가 대표 페이지로 폴백하는데,
   // 그 사실은 리포트에 저장되지 않아(AeoReadinessReportRecord 에 필드가 없다) 여기서 구분할 수 없다.
   const unit = pageCount === 1 && questionCount > 1
-    ? `질문 ${questionCount}건이 모두 페이지 1장으로 평가됐습니다 — 질문별 차이가 아니라 그 페이지 1장의 점수입니다.`
+    ? `질문 ${questionCount}건이 모두 페이지 1장으로 평가됐습니다.`
     : `질문 ${questionCount}건이 페이지 ${pageCount}장으로 평가됐습니다.`;
+  // 같은 페이지에서 줄이 갈린 원인을 하나로 단정하지 않는다 — 질문별 적합성 판정이 다를 수도,
+  // 측정 시점이 달라 그 사이 페이지가 바뀐 것일 수도 있다.
   const splitNote = rows.length > pageCount
-    ? ` 같은 페이지인데 측정 시점이 달라 점수가 갈린 행이 있습니다(행 ${rows.length} > 페이지 ${pageCount}) — 한 줄로 합치지 않았습니다.`
+    ? ` 같은 페이지인데 측정값이 갈린 행이 있습니다(행 ${rows.length} > 페이지 ${pageCount}) — 질문별 적합성 판정이 다르거나 측정 시점이 다른 경우이며, 한 줄로 합치지 않았습니다.`
     : "";
 
   return table(["페이지", "질문", "점수", "상태", "미통과 체크"], rows)
-    + `<p class="muted">${unit}${splitNote} 점수는 페이지 속성(요약·질문형 헤딩·FAQ 스키마·헤딩 구조·인용 가능성·분량)만 봅니다 — 한 번의 측정에서 같은 페이지로 평가된 질문은 점수가 같습니다. <strong>"이 페이지가 이 질문에 답하는가"는 아직 측정하지 않습니다</strong>(⚠️ 검증필요). 질문에 대응하는 페이지를 찾지 못하면 대표 페이지로 평가되며, 이 표만으로는 그 폴백을 구분할 수 없습니다(⚠️ 검증필요). 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
+    + `<p class="muted">${unit}${splitNote}${versionNote} 적합성 판정(PAGE_ANSWERS_QUESTION)이 fail 인 행은 <strong>콘텐츠 공백</strong>입니다 — 그 질문에 답하는 페이지가 없다는 뜻이며, 워크오더로 전환할 수 있습니다. 점수는 aeo-core 결정적 룰이며 LLM 판정이 아닙니다. 체크 통과 자체를 성과로 읽지 마십시오.</p>`;
 }
 
 function sourceAttr(input: z.output<typeof DiagnosisReportInputSchema>) {

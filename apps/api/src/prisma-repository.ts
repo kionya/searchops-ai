@@ -723,6 +723,7 @@ export function createPrismaRepository(
             locale: input.readinessReport.keyword.locale,
             pageUrl: input.readinessReport.pageUrl,
             phrase: input.readinessReport.keyword.phrase,
+            rulesVersion: input.readinessReport.rulesVersion,
             score: input.readinessReport.score,
             siteId,
             status: input.readinessReport.status
@@ -907,6 +908,62 @@ export function createPrismaRepository(
           where: { id }
         }),
       );
+    },
+
+    async createAeoContentGapWorkOrder(siteId, input) {
+      const result = await prisma.$transaction(async (transaction) => {
+        const site = await transaction.site.findUnique({
+          select: { id: true, organizationId: true },
+          where: { id: siteId }
+        });
+        if (site === null) {
+          return null;
+        }
+
+        // 공백은 여러 리포트에 걸쳐 있어 1:1 unique 컬럼이 없다 — upsert 를 못 쓴다.
+        // 사이트의 워크오더 중 근거 출처가 같은 1건을 찾아 갱신하거나 만든다.
+        const candidates = await transaction.workOrder.findMany({ where: { siteId } });
+        const existing = candidates.find(
+          (workOrder) =>
+            (workOrder.evidence as { sourceField?: unknown } | null)?.sourceField ===
+            input.draft.evidence.sourceField,
+        );
+
+        const data = {
+          acceptanceCriteria: toJson(input.draft.acceptanceCriteria),
+          estimatedEffort: input.draft.estimatedEffort,
+          evidence: toJson(input.draft.evidence),
+          impact: input.draft.impact,
+          instructions: toJson(input.draft.instructions),
+          ownerType: input.draft.ownerType,
+          priority: input.draft.priority,
+          problem: input.draft.problem,
+          relatedIssues: toJson(input.draft.relatedIssues),
+          title: input.draft.title,
+          verificationMethod: input.draft.verificationMethod
+        };
+
+        const workOrder = existing
+          ? await transaction.workOrder.update({ data, where: { id: existing.id } })
+          : await transaction.workOrder.create({
+              data: {
+                ...data,
+                description: null,
+                geoVisibilityReportId: null,
+                organizationId: site.organizationId,
+                schemaRecommendationId: null,
+                seoIssueId: null,
+                siteId,
+                status: "open"
+              }
+            });
+
+        return { workOrder: toWorkOrder(workOrder) };
+      });
+      if (result !== null) {
+        queueRichdocWorkOrderSync(siteId);
+      }
+      return result;
     },
 
     async createGeoVisibilityReportWorkOrder(reportId, input) {
@@ -1832,6 +1889,7 @@ function toAeoReadinessReportRecord(
     status: record.status,
     score: record.score,
     checks: record.checks,
+    rulesVersion: record.rulesVersion,
     generatedBy: record.generatedBy,
     evaluatedAt: record.evaluatedAt.toISOString(),
     createdAt: record.createdAt.toISOString()
