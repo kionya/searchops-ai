@@ -135,26 +135,20 @@ export const aeoReadinessRulesVersion = "2" as const;
  * 글자·숫자가 아닌 것을 경계로 쪼갠다. 구두점을 떼지 않으면 "보톡스 가격?" 의 토큰이
  * "가격?" 이 되어 "가격은 얼마인가요" 를 못 덮는다.
  *
- * minLength 가 두 소비자의 요구 차이를 가른다:
- * - 기본 2(워커의 페이지 **랭킹**): 겹침 개수로 순위를 매기므로 1글자는 노이즈다 —
- *   "시" 가 "시술"·"시간"에 전부 걸려 아무 페이지나 점수를 받는다.
- * - 1(룰의 포함 **판정**): 모든 토큰을 요구하는 불리언이라 1글자를 넣으면 엄격해지기만 한다.
- *   버리면 반대로 느슨해진다 — 성형외과·피부과 식별자는 거의 항상 1글자(코·턱·눈·입·볼)여서
- *   "턱 보톡스 가격" 이 "눈 보톡스 가격은?" 헤딩에 pass 가 나고 공백이 덮인다.
+ * 1글자 토큰도 남긴다. 한때 랭킹에서만 버렸는데(노이즈라고 봤다) 그게 결함이었다 —
+ * 성형외과·피부과 식별자는 거의 항상 1글자(코·턱·눈·입·볼)여서 "턱 보톡스 가격" 의 후보
+ * "눈 …"·"턱 …" 이 동점이 되고 **크롤 순서**가 답을 정했다. 그 뒤 룰은 "턱" 을 요구하니
+ * 정답 페이지가 크롤됐는데도 fail 이 저장됐다(Codex 적대 리뷰 2026-10-11, 실측).
+ * 선택과 판정이 같은 토큰을 써야 서로 어긋나지 않는다 — 그래서 옵션을 두지 않는다.
  *
- * 결과가 비면 호출자가 "판정 불가"로 다룬다(룰은 fail, 워커는 대표 페이지 폴백).
+ * 결과가 비면(글자·숫자가 한 자도 없는 키워드) 호출자가 "판정 불가"로 다룬다.
  */
-export function tokenizeKeywordPhrase(
-  phrase: string,
-  options: { readonly minLength?: number } = {},
-): readonly string[] {
-  const minLength = options.minLength ?? 2;
-
+export function tokenizeKeywordPhrase(phrase: string): readonly string[] {
   return [
     ...new Set(
       normalizeKeywordPhrase(phrase)
         .split(/[^\p{L}\p{N}]+/u)
-        .filter((token) => token.length >= minLength)
+        .filter((token) => token.length > 0)
     )
   ];
 }
@@ -233,8 +227,7 @@ export const pageAnswersQuestionRule: AeoReadinessRule = {
   id: "PAGE_ANSWERS_QUESTION",
   evaluate(context) {
     const page = context.candidatePage;
-    // 판정은 모든 토큰을 요구하는 불리언이라 1글자를 포함해야 엄격해진다(위 주석 참조).
-    const tokens = tokenizeKeywordPhrase(context.keyword.phrase, { minLength: 1 });
+    const tokens = tokenizeKeywordPhrase(context.keyword.phrase);
     const expectedValue = "Question-form heading or answer block covering the keyword";
 
     // 대조할 토큰이 없다(글자·숫자가 한 자도 없는 키워드). 판정 불가다 — fail 로 두되
@@ -268,7 +261,7 @@ export const pageAnswersQuestionRule: AeoReadinessRule = {
     const questions = uniqueNonBlankStrings([
       ...page.questionHeadings,
       ...page.answerBlocks.map((block) => block.question)
-    ]).filter((question) => tokenizeKeywordPhrase(question, { minLength: 1 }).length > 0);
+    ]).filter((question) => tokenizeKeywordPhrase(question).length > 0);
 
     const covering = questions.find((question) => haystackCoversAllTokens(question, tokens));
     if (covering !== undefined) {

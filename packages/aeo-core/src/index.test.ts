@@ -541,11 +541,16 @@ describe("키워드 토큰화 정본", () => {
     expect(tokenizeKeywordPhrase("Botox  PRICE")).toEqual(["botox", "price"]);
   });
 
-  // 1글자 토큰은 부분일치 오탐이 심하다 — "시" 가 "시술"·"시간"에 전부 걸린다.
-  it("1글자 토큰을 버리고 중복을 지운다", () => {
-    expect(tokenizeKeywordPhrase("코 보톡스 보톡스")).toEqual(["보톡스"]);
-    expect(tokenizeKeywordPhrase("코 턱")).toEqual([]);
+  /**
+   * 1글자 토큰을 남긴다. 버리면 "턱 보톡스 가격" 의 후보 "눈 …"·"턱 …" 이 동점이 되어
+   * 크롤 순서가 답을 정하고, 룰은 그 구분어를 요구해 정답 페이지가 fail 로 저장된다.
+   */
+  it("1글자 토큰도 남기고 중복만 지운다", () => {
+    expect(tokenizeKeywordPhrase("코 보톡스 보톡스")).toEqual(["코", "보톡스"]);
+    expect(tokenizeKeywordPhrase("코 턱")).toEqual(["코", "턱"]);
+    // 글자·숫자가 한 자도 없으면 대조할 것이 없다 = 판정 불가.
     expect(tokenizeKeywordPhrase("   ")).toEqual([]);
+    expect(tokenizeKeywordPhrase("???")).toEqual([]);
   });
 
   it("모든 토큰이 있어야 덮은 것이다 — 토큰 순서는 보지 않는다", () => {

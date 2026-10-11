@@ -361,14 +361,18 @@ describe("크롤 후처리 AEO 준비도", () => {
     );
   });
 
-  it("1글자 토큰뿐인 키워드는 대표 페이지로 폴백한다 — 정본 토큰화를 쓴다", () => {
+  it("대조할 토큰이 없는 키워드는 대표 페이지로 폴백한다", () => {
     const snapshots = [
       snapshotFixture("https://example.com/", "홈"),
       snapshotFixture("https://example.com/nose", "코 성형")
     ];
 
-    // "코" 는 1글자라 정본 토큰화가 버린다. 토큰이 비면 매칭 근거가 없다.
-    expect(selectAeoCandidateSnapshot("코", snapshots, snapshots[0]!)).toEqual({
+    // 1글자는 남기므로 "코" 는 /nose 를 찾는다.
+    expect(selectAeoCandidateSnapshot("코", snapshots, snapshots[0]!).snapshot.url).toBe(
+      "https://example.com/nose",
+    );
+    // 글자·숫자가 한 자도 없으면 매칭 근거가 없다.
+    expect(selectAeoCandidateSnapshot("???", snapshots, snapshots[0]!)).toEqual({
       matched: false,
       snapshot: snapshots[0]
     });
@@ -376,6 +380,27 @@ describe("크롤 후처리 AEO 준비도", () => {
 
   // 구두점이 붙은 토큰이 유일한 단서일 때만 이 동작이 드러난다 — 다른 토큰이 하나라도
   // 겹치면 부분일치로 이겨버려 테스트가 통과하면서 아무것도 증명하지 못한다.
+  /**
+   * Codex 적대적 리뷰(2026-10-11)가 잡은 결함. 랭킹이 1글자 구분어를 버리면 "눈 …"·"턱 …"
+   * 두 페이지가 동점이 되어 **크롤 순서**가 답을 정한다. 그 뒤 룰은 그 구분어를 요구하므로
+   * 정답 페이지가 크롤됐는데도 fail 이 저장되고 진단서가 "답하는 페이지가 없다" 고 말한다.
+   * 선택과 판정이 같은 토큰을 써야 서로 어긋나지 않는다.
+   */
+  it("1글자 구분어로 후보를 가린다 — 크롤 순서가 답을 바꾸면 안 된다", () => {
+    const eye = snapshotFixture("https://example.com/eye", "눈 보톡스 가격", [
+      "눈 보톡스 가격은 얼마인가요?"
+    ]);
+    const jaw = snapshotFixture("https://example.com/jaw", "턱 보톡스 가격", [
+      "턱 보톡스 가격은 얼마인가요?"
+    ]);
+
+    for (const snapshots of [[eye, jaw], [jaw, eye]]) {
+      expect(
+        selectAeoCandidateSnapshot("턱 보톡스 가격", snapshots, snapshots[0]!).snapshot.url,
+      ).toBe("https://example.com/jaw");
+    }
+  });
+
   it("구두점이 붙은 토큰도 매칭된다 — 정본 토큰화가 기호를 경계로 쓴다", () => {
     const snapshots = [
       snapshotFixture("https://example.com/", "홈"),
