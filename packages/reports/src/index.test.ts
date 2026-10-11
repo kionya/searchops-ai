@@ -348,6 +348,20 @@ describe("reports (T6)", () => {
     expect(html).toContain("룰 버전이 섞여 있어");
   });
 
+  // 수동 POST 는 keywordId 없이, 워커는 keywordId 와 함께 저장한다 — 같은 질문이므로 최신 1건만 남아야 한다.
+  it("folds a keyword's null-ID and ID-backed history into one question (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        aeoReport("aeo_manual", "보톡스 가격", 30, "2026-08-01T00:00:00.000Z", undefined, null),
+        { ...aeoReport("aeo_worker", "보톡스 가격", 72, "2026-09-20T00:00:00.000Z"), keywordId: "kw_1" }
+      ]
+    });
+    expect(html).toContain("<td>72</td>");
+    expect(html).not.toContain("<td>30</td>");
+    expect(html).not.toContain("룰 버전이 섞여 있어");
+  });
+
   /**
    * 실측 회귀: 대표 페이지 1장으로 질문 8건을 평가해 8줄이 전부 46점으로 찍혔다.
    * 점수는 페이지의 순수 함수라 그 8줄은 차이가 아니라 같은 값의 복사다.

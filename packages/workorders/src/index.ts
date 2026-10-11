@@ -7,7 +7,8 @@ import {
   GeoVisibilityReportRecordSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueDraftSchema,
-  WorkOrderDraftSchema
+  WorkOrderDraftSchema,
+  aeoReportKeywordKey
 } from "@searchops/types";
 import type {
   AeoReadinessReportRecord,
@@ -784,15 +785,16 @@ export function createWorkOrdersFromAeoReadinessReports(
   reports: readonly AeoReadinessReportRecord[],
   siteUrl: string,
 ): readonly WorkOrderDraft[] {
-  // phrase 별 최신 1건으로 먼저 축약한다. 호출부가 사이트의 전 이력을 넘기는 것이 정상이라
+  // 키워드(locale+phrase)별 최신 1건으로 먼저 축약한다. 호출부가 사이트의 전 이력을 넘기는 것이 정상이라
   // (listAeoReadinessReports 는 제한이 없다) 축약하지 않으면 같은 공백이 크롤런 수만큼
   // 중복돼 "답변 없는 질문 9개" 가 되고, 이미 고친 질문도 과거 fail 로 되살아난다.
   // 진단서 F 절의 latest 맵과 같은 기준이다 — 호출부 계약으로 미루면 사본처럼 어긋난다.
   const latest = new Map<string, AeoReadinessReportRecord>();
   for (const report of reports) {
-    const previous = latest.get(report.phrase);
+    const key = aeoReportKeywordKey(report);
+    const previous = latest.get(key);
     if (previous === undefined || report.evaluatedAt > previous.evaluatedAt) {
-      latest.set(report.phrase, report);
+      latest.set(key, report);
     }
   }
 

@@ -1084,11 +1084,13 @@ export const AeoReadinessReportRecordSchema = z.object({
 export type AeoReadinessReportRecord = z.infer<typeof AeoReadinessReportRecordSchema>;
 
 /**
- * 리포트 이력을 "키워드별 최신 1건" 으로 접을 때 쓰는 키. API 목록과 HTML 진단서가 **같은 키**를 써야 한다 —
+ * 리포트 이력을 "키워드별 최신 1건" 으로 접을 때 쓰는 키. API 목록·HTML 진단서·워크오더가 **같은 키**를 써야 한다 —
  * phrase 만으로 접으면 같은 질문의 다른 locale 이 하나로 합쳐져 한쪽이 사라진다.
+ * keywordId 는 넣지 않는다: Keyword 는 (siteId, phrase, locale) 유일이고 phrase 를 바꾸는 경로가 없어
+ * locale+phrase 가 곧 키워드다. keywordId 를 앞세우면 수동 POST(keywordId null) 이력과 워커 이력이 두 줄로 갈린다.
  */
-export function aeoReportKeywordKey(report: Pick<AeoReadinessReportRecord, "keywordId" | "locale" | "phrase">) {
-  return report.keywordId ?? `phrase:${report.locale}:${report.phrase}`;
+export function aeoReportKeywordKey(report: Pick<AeoReadinessReportRecord, "locale" | "phrase">) {
+  return `${report.locale}:${report.phrase}`;
 }
 
 export const AeoQuestionIntentSchema = z.enum([

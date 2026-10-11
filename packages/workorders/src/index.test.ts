@@ -651,6 +651,12 @@ function gapReport(
 }
 
 describe("AEO 콘텐츠 공백 워크오더", () => {
+  it("같은 phrase 라도 locale 이 다르면 따로 접는다 — 새 ko-KR pass 가 en-US fail 을 덮지 않는다", () => {
+    const enFail = { ...gapReport("botox", "fail"), locale: "en-US", evaluatedAt: "2026-10-01T00:00:00.000Z" };
+    const koPass = gapReport("botox", "pass");
+    expect(createWorkOrdersFromAeoReadinessReports([enFail, koPass], SITE_URL)).toHaveLength(1);
+  });
+
   it("공백 질문들을 묶어 정확히 1건을 만든다", () => {
     const orders = createWorkOrdersFromAeoReadinessReports(
       [gapReport("보톡스 가격", "fail"), gapReport("보톡스 부작용", "fail")],
