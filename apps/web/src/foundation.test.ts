@@ -1602,6 +1602,15 @@ describe("web foundation", () => {
       throw new Error("Keyword AEO dashboard fixture is missing");
     }
 
+    // 적합성 룰 도입 전(NULL) 점수와 v2 점수는 분자가 다른 분수다 — 섞어서 평균내지 않는다.
+    const mixed = {
+      ...dashboard,
+      reports: dashboard.reports.map((report, index) =>
+        index === 0 ? { ...report, rulesVersion: null } : report,
+      )
+    };
+    expect(summarizeKeywordAeoDashboard(mixed).averageScore).toBe("버전 혼재");
+
     expect(getWeakAeoChecks(readyReport)).toHaveLength(1);
     expect(getAeoReadinessTone("not_ready")).toBe("risk");
     expect(formatAeoCheckId("FAQ_SCHEMA_PRESENT")).toBe("FAQ 스키마");

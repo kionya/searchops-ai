@@ -274,10 +274,16 @@ export function summarizeKeywordAeoDashboard(
     0,
   );
 
+  // 진단서 F절과 같은 정책 — 룰 버전이 섞이면 점수끼리 비교할 수 없으므로 단일 평균을 내지 않는다.
+  const mixedRulesVersions =
+    new Set(dashboard.reports.map((report) => report.rulesVersion ?? null)).size > 1;
+
   return {
     averageScore: dashboard.reports.length === 0
       ? "0"
-      : String(Math.round(totalScore / dashboard.reports.length)),
+      : mixedRulesVersions
+        ? "버전 혼재"
+        : String(Math.round(totalScore / dashboard.reports.length)),
     needsWork: dashboard.reports.filter((report) => report.status === "needs_work").length,
     notReady: dashboard.reports.filter((report) => report.status === "not_ready").length,
     ready: dashboard.reports.filter((report) => report.status === "ready").length,
