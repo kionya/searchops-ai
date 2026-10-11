@@ -334,6 +334,20 @@ describe("reports (T6)", () => {
     expect(html).not.toContain("AEO 진단 미실행");
   });
 
+  // phrase 만으로 접으면 같은 질문의 en-US 가 ko-KR 최신값에 덮여 사라지고, 버전 혼재 경고도 같이 사라진다.
+  it("keeps the same phrase in different locales apart, like the API list (F)", () => {
+    const html = renderDiagnosisHtml({
+      ...input,
+      aeoReports: [
+        { ...aeoReport("aeo_en", "botox", 30, "2026-08-01T00:00:00.000Z", undefined, null), locale: "en-US" },
+        aeoReport("aeo_ko", "botox", 72, "2026-09-20T00:00:00.000Z")
+      ]
+    });
+    expect(html).toContain("botox (en-US)");
+    expect(html).toContain("botox (ko-KR)");
+    expect(html).toContain("룰 버전이 섞여 있어");
+  });
+
   /**
    * 실측 회귀: 대표 페이지 1장으로 질문 8건을 평가해 8줄이 전부 46점으로 찍혔다.
    * 점수는 페이지의 순수 함수라 그 8줄은 차이가 아니라 같은 값의 복사다.

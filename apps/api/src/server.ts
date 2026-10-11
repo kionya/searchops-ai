@@ -129,6 +129,7 @@ import {
   type RecheckComplianceFlagResponse,
   type GeoTarget,
   type Site,
+  aeoReportKeywordKey,
 } from "@searchops/types";
 import { isUrlAllowedForCrawl } from "@searchops/crawler-core";
 import type {
@@ -1749,7 +1750,7 @@ export function buildApiServer(options: BuildApiServerOptions = {}) {
     // 리포지토리가 evaluatedAt desc 로 정렬해 주므로 먼저 나온 행이 최신이다.
     const seen = new Set<string>();
     const latestReports = reports.filter((report) => {
-      const key = report.keywordId ?? `phrase:${report.locale}:${report.phrase}`;
+      const key = aeoReportKeywordKey(report);
       if (seen.has(key)) {
         return false;
       }
