@@ -1,12 +1,12 @@
 # AEO 적합성 — 후속 작업 인계 (PR #135 이후)
 
-> 작성 2026-10-11 · 선행: PR #135 (`feat/aeo-page-relevance`, 머지 대기)
-> 이 문서는 **다음 세션용 인계서**다. PR #135 가 머지된 뒤 시작한다.
+> 작성 2026-10-11 · 선행: PR #135 (`feat/aeo-page-relevance`)
+> **✅ 종결 2026-10-12** — F1·F2·minor 7건·F3(신규) 전부 **PR #136**(`4a4389a`)으로 머지. 아래 「완료 기록」 참고.
 
 ## 지금 상태
 
-- **PR #135**: https://github.com/kionya/searchops-ai/pull/135 — `MERGEABLE`, 4게이트 통과. 머지 대기.
-- 브랜치 `feat/aeo-page-relevance`, 최신 커밋 `d4804cc`.
+- **PR #135**: https://github.com/kionya/searchops-ai/pull/135 — 머지 완료(`eebc4d1`).
+- **PR #136**: https://github.com/kionya/searchops-ai/pull/136 — 이 인계서의 후속 작업 전부. 머지 완료(`4a4389a`, 2026-10-11T23:02Z).
 - 앞선 머지 완료: **PR #133**(컴플라이언스 보일러플레이트, `097c58e`) · **PR #134**(F절 페이지 매칭, `8618ade`).
 
 ### PR #135 가 담은 것
@@ -26,7 +26,41 @@
 
 ---
 
-## 남은 작업 2건 (Codex 적대 리뷰 2026-10-11)
+## 완료 기록 (PR #136)
+
+| 항목 | 커밋 | 실제 수정 | 검증 |
+|---|---|---|---|
+| F1 레이스 | `d216054` | 아래 제안(부분 unique 인덱스) 대신 **사이트 단위 `pg_advisory_xact_lock`** — 마이그레이션 없음 | `pnpm smoke:aeo-gap-race`(실제 PG, 30라운드×동시 5건 → 매번 1행). 수정 전 29/30 라운드 실패. CI `credential-smoke` 잡에 편입 |
+| F2 평균 혼재 | `1996c72` | 버전이 섞이면 평균 대신 `"버전 혼재"` | `foundation.test.ts` 혼재 케이스 |
+| minor 7건 | `4b7bc8e` | 7건 전부 반영 | 7번은 회귀 테스트(25개 URL → 10개 + "나머지 15개") |
+| **F3** (신규) | `333e8a5` `ba3d4e2` `536256f` | 아래 F3 절 | 회귀 테스트 4건(전부 수정 전 실패 확인) |
+
+**F1 은 인계서 제안과 다르게 갔다.** advisory lock 은 `createAeoContentGapWorkOrder` 를 거치는 쓰기만 막는다 —
+같은 종류의 워크오더를 만드는 **두 번째 경로가 생기면** 그때 DB unique 인덱스로 올린다(⚠️ 그 전엔 불필요).
+F2 는 인계서의 "API 가 전체 이력을 반환" 이 틀렸다 — API 는 키워드별 최신 1건만 준다. 혼재는 키워드마다 최신 행의 버전이 다를 때 난다.
+
+### F3. 이력 축약 키 불일치 (Codex 교차검증에서 발견 → PR #136 에서 수정)
+
+"키워드별 최신 1건" 을 고르는 키가 세 곳에서 달랐다.
+
+| 소비자 | 이전 키 | 결과 |
+|---|---|---|
+| API `GET /sites/:id/aeo-readiness-reports` | `keywordId ?? locale+phrase` | keywordId 유무로 같은 키워드 이력이 두 줄 |
+| 진단서 F절 `aeoBody` | `phrase` | 같은 질문의 다른 locale 이 덮여 사라짐 + 버전 혼재 경고 소실 |
+| 워크오더 `createWorkOrdersFromAeoReadinessReports` | `phrase` | 새 ko-KR pass 가 en-US fail 을 덮어 공백 워크오더 누락 |
+
+- 세 곳 모두 `packages/types` 의 **`aeoReportKeywordKey` = `locale:phrase`** 를 쓴다. keywordId 를 키에서 뺀 근거: `Keyword` 는 `@@unique([siteId, phrase, locale])` 이고 phrase 를 바꾸는 경로가 없다(upsert 만).
+- 그 불변식을 지키려고 수동 `POST /sites/:id/aeo-readiness-reports` 는 keywordId 를 주면 phrase·locale 이 그 키워드와 **정확히 같아야** 저장한다(불일치 404). Prisma·메모리 리포지토리 둘 다.
+- 진단서는 locale 이 둘 이상일 때만 질문 옆에 `(locale)` 을 붙인다.
+- 머지 전 운영 DB 읽기 전용 확인(2026-10-12): 리포트 168건 — keywordId NULL 0 · 키워드와 철자 불일치 0 · 다중 locale 질문 0. 정리할 기존 행 없음.
+
+### 남은 결정 (작업 아님)
+
+- **키 정규화**: 지금은 문자열 완전 일치다. 대소문자·공백만 다른 phrase 를 같은 키워드로 볼지는 미결 — 운영 데이터에 불일치 0건이라 급하지 않다.
+
+---
+
+## (종결) 원래 남은 작업 2건 (Codex 적대 리뷰 2026-10-11)
 
 ### F1. 워크오더 멱등성 레이스 (high)
 
@@ -48,7 +82,7 @@
 
 ---
 
-## 보류한 minor 7건 (Claude 리뷰어)
+## (종결) 보류한 minor 7건 (Claude 리뷰어) — 전부 `4b7bc8e` 에서 반영
 
 1. `docs/GEO_SPEC.md:18` 이 `KEYWORD_INTENT_DEFINED` 를 문서화하고 `PAGE_ANSWERS_QUESTION` 이 없다
 2. `apps/web` 데모 리포트가 `rulesVersion "2"` + `KEYWORD_INTENT_DEFINED` checks — **v2 가 만들 수 없는 조합**이고 새 라벨("질문 적합성")이 데모에 안 보인다
