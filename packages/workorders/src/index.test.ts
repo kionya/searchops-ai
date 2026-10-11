@@ -651,6 +651,12 @@ function gapReport(
 }
 
 describe("AEO 콘텐츠 공백 워크오더", () => {
+  it("같은 phrase 라도 locale 이 다르면 따로 접는다 — 새 ko-KR pass 가 en-US fail 을 덮지 않는다", () => {
+    const enFail = { ...gapReport("botox", "fail"), locale: "en-US", evaluatedAt: "2026-10-01T00:00:00.000Z" };
+    const koPass = gapReport("botox", "pass");
+    expect(createWorkOrdersFromAeoReadinessReports([enFail, koPass], SITE_URL)).toHaveLength(1);
+  });
+
   it("공백 질문들을 묶어 정확히 1건을 만든다", () => {
     const orders = createWorkOrdersFromAeoReadinessReports(
       [gapReport("보톡스 가격", "fail"), gapReport("보톡스 부작용", "fail")],
@@ -713,6 +719,17 @@ describe("AEO 콘텐츠 공백 워크오더", () => {
 
     expect(order?.instructions.length).toBeLessThanOrEqual(aeoContentGapQuestionLimit + 2);
     expect(order?.problem).toContain("나머지 15개");
+  });
+
+  it("평가 대상 페이지도 같은 상한으로 자른다", () => {
+    const scattered = Array.from({ length: 25 }, (_, index) =>
+      gapReport(`질문 ${index} 보톡스`, "fail", `https://example-clinic.com/p${index}`),
+    );
+    const problem = createWorkOrdersFromAeoReadinessReports(scattered, SITE_URL)[0]?.problem ?? "";
+
+    expect(problem).toContain("https://example-clinic.com/p9");
+    expect(problem).not.toContain("https://example-clinic.com/p10");
+    expect(problem.match(/나머지 15개/g)).toHaveLength(2); // 질문 · 페이지
   });
 
   // Review Focus 4: 판정 불가는 영구 fail 이라 고칠 방법이 없다 — 노이즈다.

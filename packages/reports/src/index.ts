@@ -13,7 +13,8 @@ import {
   KeywordSchema,
   KeywordVolumeTierSchema,
   SeoIssueSchema,
-  WorkOrderSchema
+  WorkOrderSchema,
+  aeoReportKeywordKey
 } from "@searchops/types";
 import { z } from "zod";
 
@@ -338,13 +339,19 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
   if (input.aeoReports.length === 0) {
     return `<p class="muted">AEO 진단 미실행 — aeo-core 준비도 리포트가 0건입니다(데이터 소스는 배선돼 있습니다).${internalOnly(input, " POST /sites/:id/aeo-readiness-reports 실행 후 채워집니다.")}</p>`;
   }
+  // API 목록과 같은 키로 접는다 — phrase 만 쓰면 같은 질문의 다른 locale 이 사라진다.
   const latest = new Map<string, ReportInput["aeoReports"][number]>();
   for (const report of input.aeoReports) {
-    const previous = latest.get(report.phrase);
+    const key = aeoReportKeywordKey(report);
+    const previous = latest.get(key);
     if (previous === undefined || report.evaluatedAt > previous.evaluatedAt) {
-      latest.set(report.phrase, report);
+      latest.set(key, report);
     }
   }
+  // locale 이 둘 이상이면 같은 phrase 가 한 칸에 두 번 찍힌다 — 그때만 locale 을 붙인다.
+  const multiLocale = new Set([...latest.values()].map((report) => report.locale)).size > 1;
+  const label = (report: ReportInput["aeoReports"][number]) =>
+    multiLocale ? `${report.phrase} (${report.locale})` : report.phrase;
 
   const versions = new Set([...latest.values()].map((report) => report.rulesVersion ?? null));
   const versionNote = versions.size > 1
@@ -359,10 +366,10 @@ function aeoBody(input: ReportInput, mask: MaskFn) {
     const key = `${report.pageUrl ?? ""}\t${report.score}\t${report.status}\t${failed}`;
     const group = groups.get(key);
     if (group === undefined) {
-      groups.set(key, { phrases: [report.phrase], report });
+      groups.set(key, { phrases: [label(report)], report });
       continue;
     }
-    group.phrases.push(report.phrase);
+    group.phrases.push(label(report));
   }
 
   const rows = [...groups.values()]

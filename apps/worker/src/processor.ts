@@ -938,8 +938,10 @@ function aeoMatchHaystack(snapshot: CrawlerPageSnapshot): string {
  * 질문 1건을 평가할 페이지를 고른다. 결정적이어야 하고 LLM 을 끼우지 않는다(AGENTS.md).
  *
  * 왜 필요한가: AEO 준비도 7룰 중 6룰이 페이지만 보는 순수 함수고(packages/aeo-core),
- * 유일한 키워드 의존 룰 KEYWORD_INTENT_DEFINED 는 항상 pass·100 이다. 그래서 페이지 1장을
- * 전 키워드에 재사용하면 점수가 수학적으로 전부 같아진다 — 실측에서 질문 8건이 모두 46점이었다.
+ * 유일한 키워드 의존 룰이던 KEYWORD_INTENT_DEFINED 는 항상 pass·100 이었다. 그래서 페이지 1장을
+ * 전 키워드에 재사용하면 점수가 수학적으로 전부 같아졌다 — 실측에서 질문 8건이 모두 46점이었다.
+ * 지금은 PAGE_ANSWERS_QUESTION 이 질문↔페이지를 보지만, 그 룰도 **고른 페이지**만 보므로
+ * 페이지 선택이 틀리면 판정도 틀린다.
  *
  * 매칭 실패(겹치는 토큰 0개)는 대표 페이지로 폴백하고 matched:false 로 알린다. 억지로
  * 아무 페이지나 붙이면 F 절이 '질문별로 다른 페이지를 쟀다'고 거짓말한다.

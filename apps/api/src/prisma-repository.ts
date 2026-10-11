@@ -922,6 +922,11 @@ export function createPrismaRepository(
 
         // 공백은 여러 리포트에 걸쳐 있어 1:1 unique 컬럼이 없다 — upsert 를 못 쓴다.
         // 사이트의 워크오더 중 근거 출처가 같은 1건을 찾아 갱신하거나 만든다.
+        // 찾기→만들기 사이에 잠금이 없으면 동시 요청이 각각 "없음" 을 보고 둘 다 insert 한다
+        // (Read Committed, 실측 동시 5건 → 5행). 사이트 단위로 직렬화한다 — 트랜잭션 잠금이라
+        // 커밋/롤백에 풀리고, 뒤 요청의 findMany 는 앞 요청이 커밋한 행을 본다.
+        // 검증: pnpm smoke:aeo-gap-race (실제 PG 동시 요청).
+        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`aeo-content-gap:${siteId}`}))`;
         const candidates = await transaction.workOrder.findMany({ where: { siteId } });
         const existing = candidates.find(
           (workOrder) =>
@@ -1676,10 +1681,14 @@ async function resolveAeoReadinessKeyword(
   report: AeoReadinessReport,
 ) {
   if (keywordId !== null) {
+    // phrase·locale 도 맞아야 한다 — 이력은 locale+phrase 로 접히므로(aeoReportKeywordKey)
+    // 키워드와 다른 철자로 저장된 리포트는 같은 키워드의 이력에서 떨어져 나와 남는다.
     return prisma.keyword.findFirst({
       select: { id: true },
       where: {
         id: keywordId,
+        locale: report.keyword.locale,
+        phrase: report.keyword.phrase,
         siteId
       }
     });

@@ -80,7 +80,7 @@ const sourceFieldByCheck = {
 export const demoAeoReadinessReports: AeoReadinessReport[] = [
   {
     checks: [
-      createCheck("KEYWORD_INTENT_DEFINED", "pass", 100, "commercial"),
+      createCheck("PAGE_ANSWERS_QUESTION", "pass", 100, "답변엔진 최적화 클리닉은 무엇을 하나요?"),
       createCheck("ANSWER_SUMMARY_PRESENT", "pass", 92, "답변 블록 있음"),
       createCheck("QUESTION_COVERAGE", "pass", 86, ["가격", "비교"]),
       createCheck("FAQ_SCHEMA_PRESENT", "warning", 68, []),
@@ -106,7 +106,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
   },
   {
     checks: [
-      createCheck("KEYWORD_INTENT_DEFINED", "pass", 100, "informational"),
+      createCheck("PAGE_ANSWERS_QUESTION", "pass", 100, "의료 SEO 체크리스트는 어떻게 쓰나요?"),
       createCheck("ANSWER_SUMMARY_PRESENT", "warning", 62, null),
       createCheck("QUESTION_COVERAGE", "pass", 78, ["체크리스트", "검토"]),
       createCheck("FAQ_SCHEMA_PRESENT", "fail", 0, []),
@@ -132,7 +132,7 @@ export const demoAeoReadinessReports: AeoReadinessReport[] = [
   },
   {
     checks: [
-      createCheck("KEYWORD_INTENT_DEFINED", "warning", 50, null),
+      createCheck("PAGE_ANSWERS_QUESTION", "fail", 0, []),
       createCheck("ANSWER_SUMMARY_PRESENT", "fail", 0, null),
       createCheck("QUESTION_COVERAGE", "fail", 20, []),
       createCheck("FAQ_SCHEMA_PRESENT", "fail", 0, []),
@@ -274,10 +274,16 @@ export function summarizeKeywordAeoDashboard(
     0,
   );
 
+  // 진단서 F절과 같은 정책 — 룰 버전이 섞이면 점수끼리 비교할 수 없으므로 단일 평균을 내지 않는다.
+  const mixedRulesVersions =
+    new Set(dashboard.reports.map((report) => report.rulesVersion ?? null)).size > 1;
+
   return {
     averageScore: dashboard.reports.length === 0
       ? "0"
-      : String(Math.round(totalScore / dashboard.reports.length)),
+      : mixedRulesVersions
+        ? "버전 혼재"
+        : String(Math.round(totalScore / dashboard.reports.length)),
     needsWork: dashboard.reports.filter((report) => report.status === "needs_work").length,
     notReady: dashboard.reports.filter((report) => report.status === "not_ready").length,
     ready: dashboard.reports.filter((report) => report.status === "ready").length,

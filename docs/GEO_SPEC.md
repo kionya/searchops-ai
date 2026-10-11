@@ -15,13 +15,15 @@ Outputs:
 - `ContentBriefDraft`: draft-only planning artifact generated from keyword, readiness, optional FAQ gaps, and optional page signals.
 
 Readiness checks:
-- `KEYWORD_INTENT_DEFINED`: keyword intent is explicit or inferred by deterministic lexicon rules.
+- `PAGE_ANSWERS_QUESTION`: the candidate page answers this keyword — pass (100) when a question heading or answer block covers every keyword token, warning (60) when only title/H1/H2 cover them, fail (0) otherwise. A keyword with no matchable tokens fails with `sourceField = keyword.phrase` (undecidable, not a content gap).
 - `ANSWER_SUMMARY_PRESENT`: page has a direct answer block, or at least fallback summary evidence.
 - `QUESTION_COVERAGE`: page covers question-led headings or answer blocks.
 - `FAQ_SCHEMA_PRESENT`: FAQPage schema exists when FAQ-style content is present.
 - `STRUCTURED_HEADINGS`: page has a primary heading and supporting H2 structure.
 - `CITABLE_SOURCE_PRESENT`: page can serve as a citable source with URL, title, and primary heading evidence.
 - `CONTENT_DEPTH`: page has enough supporting content for the query.
+
+Rules version: reports carry `rulesVersion` (`"2"` = `PAGE_ANSWERS_QUESTION`; `null` = legacy reports scored with the retired `KEYWORD_INTENT_DEFINED`, which always passed). Scores from different versions are not comparable — the report F section and the dashboard average refuse to mix them.
 
 Status thresholds:
 - `ready`: score >= 80.

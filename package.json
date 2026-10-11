@@ -20,6 +20,7 @@
     "format": "prettier --check .",
     "lint": "corepack pnpm -r lint",
     "lint:turbo": "turbo run lint",
+    "smoke:aeo-gap-race": "corepack pnpm --filter \"@searchops/api...\" build && node scripts/aeo-gap-race-smoke.mjs",
     "smoke:credential": "corepack pnpm --filter \"@searchops/worker...\" build && node scripts/credential-smoke.mjs",
     "smoke:richdoc": "corepack pnpm --filter \"@searchops/db...\" build && node scripts/richdoc-smoke.mjs",
     "smoke:web-db": "corepack pnpm --filter \"@searchops/db...\" build && node scripts/web-direct-db-smoke.mjs",

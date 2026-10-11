@@ -3782,6 +3782,25 @@ describe("api foundation", () => {
     ]);
   });
 
+  // 이력은 locale+phrase 로 접힌다 — 키워드와 다른 철자로 저장되면 같은 키워드의 이력에서 떨어져 남는다.
+  it("rejects AEO readiness reports whose phrase or locale differs from the given keywordId", async () => {
+    const server = buildApiServer({
+      repository: createMemoryRepository({
+        organizations: [seededOrganization],
+        sites: [seededSite],
+        keywords: [{ id: "kw_seed", siteId: "site_seed", phrase: "seo clinic", locale: "ko-KR", intent: null, purpose: "both", createdAt: "2026-05-20T00:00:00.000Z", monthlyVolumePc: null, monthlyVolumeMobile: null, volumeFetchedAt: null }],
+      }),
+    });
+    const post = (phrase: string) => server.inject({
+      method: "POST",
+      url: "/sites/site_seed/aeo-readiness-reports",
+      payload: { keywordId: "kw_seed", keyword: { phrase, locale: "ko-KR" }, evaluatedAt: "2026-05-23T00:00:00.000Z" },
+    });
+
+    expect((await post("SEO Clinic")).statusCode).toBe(404);
+    expect((await post("seo clinic")).statusCode).toBe(201);
+  });
+
   it("lists persisted AEO readiness report history", async () => {
     const server = buildAeoReadinessTestServer();
     const response = await server.inject({
