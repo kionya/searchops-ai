@@ -328,7 +328,7 @@ export async function listOrganizationSites(
 ): Promise<readonly Site[]> {
   const records = await prisma.site.findMany({
     orderBy: [{ createdAt: "asc" }, { domain: "asc" }],
-    where: { organizationId }
+    where: { archivedAt: null, organizationId }
   });
   return records.map((record) =>
     SiteSchema.parse({

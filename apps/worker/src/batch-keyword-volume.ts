@@ -20,7 +20,8 @@ async function main(): Promise<void> {
   try {
     const keywords = await prisma.keyword.findMany({
       orderBy: [{ siteId: "asc" }, { phrase: "asc" }],
-      select: { id: true, phrase: true, siteId: true }
+      select: { id: true, phrase: true, siteId: true },
+      where: { site: { archivedAt: null } }
     });
     if (keywords.length === 0) {
       console.log("[batch-keyword-volume] 키워드가 없다. 할 일 없음.");

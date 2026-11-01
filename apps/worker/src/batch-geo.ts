@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     const sites = await prisma.site.findMany({
       orderBy: { domain: "asc" },
       select: { competitors: true, country: true, domain: true, id: true, language: true, name: true, organizationId: true },
-      where: { geoMonitorEnabled: true }
+      where: { archivedAt: null, geoMonitorEnabled: true }
     });
     if (sites.length === 0) {
       console.log("[batch-geo] geoMonitorEnabled 사이트가 없다. 할 일 없음.");
