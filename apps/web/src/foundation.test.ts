@@ -370,8 +370,8 @@ describe("web foundation", () => {
             JSON.stringify({
               id: "site_api_clinic",
               organizationId: "org_demo",
-              domain: "gangnam.rejuel.com",
-              name: "리쥬엘의원 강남",
+              domain: "gowoonmom.co.kr",
+              name: "고운몸의원",
               industry: "medical",
               language: "ko",
               country: "KR",
@@ -391,9 +391,9 @@ describe("web foundation", () => {
       role: "viewer",
       userId: "user_demo",
     }, "site_api_clinic")).resolves.toMatchObject({
-      domain: "gangnam.rejuel.com",
+      domain: "gowoonmom.co.kr",
       id: "site_api_clinic",
-      name: "리쥬엘의원 강남"
+      name: "고운몸의원"
     });
   });
 
@@ -440,7 +440,7 @@ describe("web foundation", () => {
     expect(compliance.flags.every((flag) => flag.url?.includes(registeredSite.domain))).toBe(true);
     expect(serialized).toContain("test-clinic.co.kr");
     expect(serialized).not.toContain("example-clinic.com");
-    expect(serialized).not.toContain("site_demo_rejuel");
+    expect(serialized).not.toContain("site_demo_gowoonmom");
   });
 
   it("loads URL inventory and SEO issues from the API before falling back to fixtures", async () => {
@@ -1179,7 +1179,7 @@ describe("web foundation", () => {
     formData.append("providers", "chatgpt");
     formData.append(
       "queries",
-      "  강남 리쥬엘 후기 \n강남 물광주사 잘하는 곳\n강남 리쥬엘 후기\n\n강남 울쎄라 후기",
+      "  고운몸의원 후기 \n강남 물광주사 잘하는 곳\n고운몸의원 후기\n\n강남 울쎄라 후기",
     );
 
     const request = createGeoAnswerMonitorRequestFromForm(demoSite, formData, {
@@ -1187,7 +1187,7 @@ describe("web foundation", () => {
     });
 
     expect(request.queries).toEqual([
-      { locale: "ko-KR", query: "강남 리쥬엘 후기" },
+      { locale: "ko-KR", query: "고운몸의원 후기" },
       { locale: "ko-KR", query: "강남 물광주사 잘하는 곳" },
       { locale: "ko-KR", query: "강남 울쎄라 후기" }
     ]);
@@ -1196,9 +1196,9 @@ describe("web foundation", () => {
   it("extracts and merges GSC search queries into GEO defaults (impressions-ranked, deduped, capped)", () => {
     const gscRecord = (query: string, impressions: number) => ({
       provider: "gsc" as const,
-      siteUrl: "https://gangnam.rejuel.com/",
+      siteUrl: "https://gowoonmom.co.kr/",
       query,
-      page: "https://gangnam.rejuel.com/p",
+      page: "https://gowoonmom.co.kr/p",
       country: "KR",
       device: "mobile",
       clicks: 1,

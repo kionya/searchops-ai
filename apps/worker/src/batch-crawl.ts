@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     // 넘어가면 잘릴 수 있다. 그때는 사이트를 나눠 도는 matrix 로 쪼개라.
     const sites = await prisma.site.findMany({
       orderBy: { domain: "asc" },
-      select: { domain: true, id: true }
+      select: { archivedAt: true, domain: true, id: true }
     });
 
     // 계약에 적힌 id 가 DB 에 없으면 오타이거나 지워진 사이트다. 매일 조용히 누락되면
@@ -67,8 +67,8 @@ async function main(): Promise<void> {
       return;
     }
 
-    // 등록은 해두되 매일 긁지는 않을 사이트를 빼는 장치. Site 에 on/off 컬럼이 없어서
-    // (스키마 변경 + 화면 작업이 따라붙는다) 환경변수로 둔다.
+    // 등록은 해두되 매일 긁지는 않을 사이트를 빼는 장치는 둘이다 — 환경변수(임시 제외)와
+    // Site.archivedAt(보관: 사이트 목록·다른 배치에서도 빠진다).
     // ⚠️ 위 계약 검사(missing)는 필터 전 목록으로 한다. 스킵은 "크롤하지 않는다" 는
     // 뜻이지 "DB 에 없다" 는 뜻이 아니라서, 섞으면 richdoc 계약이 엉뚱하게 깨진다.
     const skipSiteIds = new Set(
@@ -77,11 +77,14 @@ async function main(): Promise<void> {
         .map((value) => value.trim())
         .filter((value) => value.length > 0),
     );
-    const crawlTargets = sites.filter((site) => !skipSiteIds.has(site.id));
+    // 보관(archivedAt)도 스킵과 같은 자리에서 뺀다 — 계약 검사(missing)는 필터 전 목록 그대로다.
+    const crawlTargets = sites.filter((site) => !skipSiteIds.has(site.id) && site.archivedAt === null);
     // 조용히 빠지면 "왜 이 사이트만 데이터가 안 늘지" 를 아무도 못 찾는다.
     for (const site of sites) {
       if (skipSiteIds.has(site.id)) {
         console.log(`[batch-crawl] 건너뜀(SEARCHOPS_CRAWL_SKIP_SITE_IDS): ${site.domain}`);
+      } else if (site.archivedAt !== null) {
+        console.log(`[batch-crawl] 건너뜀(보관된 사이트): ${site.domain}`);
       }
     }
     for (const id of skipSiteIds) {

@@ -3,7 +3,7 @@ import type { Site, WorkOrder, WorkOrderPriority, WorkOrderStatus } from "@searc
 import { scopeDemoFixtureToSite } from "./site-fixture-scope";
 
 export const demoSite: Site = {
-  id: "site_demo_rejuel",
+  id: "site_demo_gowoonmom",
   organizationId: "org_demo",
   domain: "example-clinic.com",
   name: "예시 클리닉",

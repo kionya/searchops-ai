@@ -10,7 +10,7 @@ import {
 } from "./processor.js";
 
 const html = `<!doctype html><html lang="ko"><head>
-<title>리쥬엘의원 리프팅 안내</title>
+<title>고운몸의원 리프팅 안내</title>
 <meta name="description" content="리프팅 시술 안내 페이지" />
 </head><body>
 <h1>리프팅 시술 안내</h1>
@@ -667,7 +667,7 @@ describe("후처리 실패 격리", () => {
 const NAV_BOILERPLATE =
   "스킨부스터 실리프팅 커뮤니티 시술후기 숏츠영상 공지사항 전후사진 리얼스토리 Login Join Keep your beauty for a long time";
 
-const PLAIN_FOOTER = "리쥬엘의원 서울특별시 강남구 대표번호 02-000-0000";
+const PLAIN_FOOTER = "고운몸의원 서울특별시 강남구 대표번호 02-000-0000";
 
 /** 사이트 공통 블록 검수는 크롤런당 1회, 이 URL 로만 올라간다. */
 const SITE_URL = payload.startUrl;
@@ -680,7 +680,7 @@ function navPage(
   const banner = options.banner === undefined ? "" : `<div class="promo">${options.banner}</div>`;
   return {
     url: `https://example.com${path}`,
-    html: `<!doctype html><html lang="ko"><head><title>리쥬엘의원 ${path}</title></head><body>
+    html: `<!doctype html><html lang="ko"><head><title>고운몸의원 ${path}</title></head><body>
 <div class="gnb">${(options.nav ?? NAV_BOILERPLATE).replace("{{path}}", path)}</div>
 <p>${body}</p>
 ${banner}

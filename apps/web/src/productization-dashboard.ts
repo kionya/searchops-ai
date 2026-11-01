@@ -9,6 +9,9 @@ import {
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 
+/** 대시보드 기본 링크가 여는 운영 사이트 — 고운몸의원(gowoonmom.co.kr). 2026-11-01 단독 운영 전환. */
+export const primarySiteId = "cmt26d1620000ld04dwpei9at";
+
 export type ProductizationDashboardSource = "api" | "fixture";
 export type ProductizationTone = "good" | "neutral" | "risk";
 
@@ -144,25 +147,25 @@ export const onboardingSteps: readonly OnboardingStep[] = [
     title: "사이트 등록",
   },
   {
-    href: "/sites/site_demo_rejuel/crawls",
+    href: `/sites/${primarySiteId}/crawls`,
     id: "crawl",
     status: "available",
     title: "첫 크롤링",
   },
   {
-    href: "/sites/site_demo_rejuel/issues",
+    href: `/sites/${primarySiteId}/issues`,
     id: "issues",
     status: "available",
     title: "SEO 이슈 검토",
   },
   {
-    href: "/sites/site_demo_rejuel/workorders",
+    href: `/sites/${primarySiteId}/workorders`,
     id: "workorder",
     status: "available",
     title: "첫 작업 지시서",
   },
   {
-    href: "/sites/site_demo_rejuel/connectors",
+    href: `/sites/${primarySiteId}/connectors`,
     id: "connectors",
     status: "optional",
     title: "커넥터 연결",

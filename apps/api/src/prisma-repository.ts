@@ -226,6 +226,8 @@ export function createPrismaRepository(
           domain: "asc"
         },
         where: {
+          // 보관된 사이트는 목록에서 뺀다. id 로 직접 여는 조회(getSite)는 그대로 된다 — 데이터는 남아 있다.
+          archivedAt: null,
           organizationId
         }
       });

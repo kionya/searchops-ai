@@ -75,7 +75,7 @@ Failure handling:
 ## 크롤 배치 (상시 워커 없이 운영)
 
 Purpose:
-- 상시 호스팅 없이 크롤을 주기 실행해 SeoIssue/WorkOrder를 만들고 리쥬엘 콘솔로 적재한다.
+- 상시 호스팅 없이 크롤을 주기 실행해 SeoIssue/WorkOrder를 만들고 richdoc 콘솔로 적재한다.
 
 2026-08 기준 무료 상시 호스팅이 사실상 사라져(Railway 무료 폐지, Koyeb 신규 차단 + Worker 금지,
 Render 무료에 워커 없음, Oracle A1 용량 경합) 상시 워커를 포기하고 배치로 전환했다.
@@ -88,13 +88,13 @@ Render 무료에 워커 없음, Oracle A1 용량 경합) 상시 워커를 포기
 - 크롤 대상은 **DB에 등록된 모든 `Site`**다. 웹에서 사이트를 등록하면 다음 실행에서 자동으로
   크롤된다 — 시크릿을 손대지 않는다.
 - `SEARCHOPS_RICHDOC_SITE_IDS`는 **적재(미러링) 대상만** 정한다. 목록 밖 사이트는 크롤은 되지만
-  리쥬엘 콘솔로는 안 넘어간다(브리지가 push 전에 거른다). 계약에 적힌 id가 DB에 없으면 배치가 실패한다.
+  richdoc 콘솔로는 안 넘어간다(브리지가 push 전에 거른다). 계약에 적힌 id가 DB에 없으면 배치가 실패한다.
   ⚠️ 예전에는 이 값이 크롤 대상까지 겸해서, 웹에서 등록한 사이트가 영원히 크롤되지 않았다.
 - 필요한 secret: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`,
   `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`, `SEARCHOPS_RICHDOC_SITE_IDS`
 
 ⚠️ **주기를 함부로 올리지 않는다.** `SeoIssue`의 유니크 키가 `crawlRunId`를 포함해서 크롤 1회마다
-이슈와 지시서 세트가 새로 생기고, 리쥬엘 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
+이슈와 지시서 세트가 새로 생기고, richdoc 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
 일 1회로 시작하고, 늘리려면 중복 정리 방식을 먼저 정한다.
 
 한 사이트가 실패해도 나머지는 계속 처리하고 마지막에 종료 코드 1로 알린다(설정 누락은 2).
@@ -106,7 +106,7 @@ API(`apps/api`)는 배포하지 않지만 코드는 그대로 둔다 — 배치�
 ## richdoc 계약 검증 (배포 플랫폼 불필요)
 
 Purpose:
-- richdoc-saas(리쥬엘) 연동 어댑터가 계약 정본 스키마를 실제로 만족하는지, 배포 없이 확인한다.
+- richdoc-saas(현 CAIO-saas) 연동 어댑터가 계약 정본 스키마를 실제로 만족하는지, 배포 없이 확인한다.
 - 계약 정본은 richdoc-saas 레포의 `supabase/searchops_contract.sql` 하나다. 이 레포에 사본을 만들지 않는다.
 
 로컬 검증 (자격증명 불필요, 로컬 postgres 가동 필요):

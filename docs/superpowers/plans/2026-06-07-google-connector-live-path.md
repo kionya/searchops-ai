@@ -62,7 +62,7 @@ corepack pnpm --filter @searchops/web lint
 
 - [x] **Step 2: Run browser smoke**
 
-Open `http://localhost:3000/sites/site_demo_rejuel/connectors` and confirm that `Google OAuth 연결`, `GSC`, `GA4`, `연결됨`, `미연결`, and provider-specific sync buttons render.
+Open `http://localhost:3000/sites/site_demo_gowoonmom/connectors` and confirm that `Google OAuth 연결`, `GSC`, `GA4`, `연결됨`, `미연결`, and provider-specific sync buttons render.
 
 - [ ] **Step 3: Run full verification and commit**
 

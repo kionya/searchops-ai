@@ -202,6 +202,6 @@ export {
 export const phaseOneSeedIds = {
   organizationId: "org_demo",
   userId: "user_demo_owner",
-  siteId: "site_demo_rejuel",
+  siteId: "site_demo_gowoonmom",
   crawlRunId: "crawl_demo_initial"
 } as const;

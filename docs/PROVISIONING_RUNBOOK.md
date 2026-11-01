@@ -93,8 +93,8 @@ Google OAuth 앱:
 
 richdoc-saas 연동 (셋 다 설정해야 활성화, API와 Worker 동일 값):
 
-- `SEARCHOPS_RICHDOC_SUPABASE_URL`: 리쥬엘 Supabase 프로젝트 URL
-- `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`: 리쥬엘 Supabase service_role key
+- `SEARCHOPS_RICHDOC_SUPABASE_URL`: richdoc Supabase 프로젝트 URL
+- `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`: richdoc Supabase service_role key
 - `SEARCHOPS_RICHDOC_SITE_IDS`: 밀어낼 Site.id 콤마 목록 (도메인 아님 — 테넌트 고정용)
 <!-- RAILWAY_API_ENV_END -->
 

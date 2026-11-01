@@ -10,7 +10,7 @@
 //     node scripts/richdoc-smoke.mjs
 //   전제: 로컬 postgres 가동(`pg_isready`), `corepack pnpm --filter @searchops/db build`
 //
-// 모드 2 — live (실제 리쥬엘 Supabase 연결/RLS/service key 확인, 배포 전 1회):
+// 모드 2 — live (실제 richdoc Supabase 연결/RLS/service key 확인, 배포 전 1회):
 //   SEARCHOPS_RICHDOC_SUPABASE_URL=... SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY=... \
 //     node scripts/richdoc-smoke.mjs --live
 //   마커 도메인(richdoc-smoke.invalid)만 쓰고 끝나면 지운다. --keep 으로 보존.

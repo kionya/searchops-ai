@@ -7,6 +7,7 @@ import { productName, SiteSchema, type Site } from "@searchops/types";
 
 import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { primarySiteId } from "./productization-dashboard";
 import { formatIndustryLabel } from "./korean-labels";
 import {
   ProviderAccountClientError,
@@ -35,7 +36,7 @@ export const appRouteItems = [
   { href: "/ops", label: "Ops", summary: "운영 관제 콘솔" },
   { href: "/ops/integrations", label: "Integrations", summary: "Provider 계정과 사이트 연결" },
   { href: "/onboarding", label: "Onboarding", summary: "초기 설정 흐름" },
-  { href: "/sites/site_demo_rejuel/connectors", label: "Connectors", summary: "live 동기화 제어" }
+  { href: `/sites/${primarySiteId}/connectors`, label: "Connectors", summary: "live 동기화 제어" }
 ] as const;
 
 export type SiteRouteSegment = (typeof siteRouteItems)[number]["segment"];

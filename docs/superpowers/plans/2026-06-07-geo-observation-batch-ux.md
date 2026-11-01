@@ -67,7 +67,7 @@ corepack pnpm --filter @searchops/web lint
 
 - [x] **Step 2: Run browser smoke**
 
-Open `http://localhost:3000/sites/site_demo_rejuel/geo` on desktop and mobile viewports. Confirm that fixture report creation, provider queue controls, work-order candidate preview, and observation source columns render.
+Open `http://localhost:3000/sites/site_demo_gowoonmom/geo` on desktop and mobile viewports. Confirm that fixture report creation, provider queue controls, work-order candidate preview, and observation source columns render.
 
 - [x] **Step 3: Run full verification and commit**
 

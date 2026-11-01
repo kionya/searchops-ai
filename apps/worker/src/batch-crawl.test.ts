@@ -12,10 +12,10 @@ const mocks = vi.hoisted(() => ({
   processAndPersistCrawlJob: vi.fn(async () => ({
     summary: { crawledPages: 1, failedPages: 0 },
   })),
-  readRichdocContract: vi.fn(() => ({ siteIds: [] })),
-  siteFindMany: vi.fn(async () => [
-    { domain: "keep.example", id: "site_keep" },
-    { domain: "demo.example", id: "site_demo" },
+  readRichdocContract: vi.fn((): { siteIds: string[] } => ({ siteIds: [] })),
+  siteFindMany: vi.fn(async (): Promise<{ archivedAt: Date | null; domain: string; id: string }[]> => [
+    { archivedAt: null, domain: "keep.example", id: "site_keep" },
+    { archivedAt: null, domain: "demo.example", id: "site_demo" },
   ]),
 }));
 
@@ -61,6 +61,23 @@ describe("batch crawl", () => {
       mocks.processAndPersistCrawlJob.mock.calls as unknown as readonly (readonly unknown[])[]
     ).map((call) => (call[0] as { siteId: string }).siteId);
     expect(crawledSiteIds).toEqual(["site_keep"]);
+  });
+
+  // 보관은 데이터를 남기고 크롤만 멈춘다. richdoc 계약에 남은 보관 사이트 id 는 "DB에 없음" 실패가 아니다.
+  it("skips archived sites without failing the richdoc contract check", async () => {
+    mocks.siteFindMany.mockResolvedValueOnce([
+      { archivedAt: null, domain: "keep.example", id: "site_keep" },
+      { archivedAt: new Date("2026-11-01T00:00:00.000Z"), domain: "old.example", id: "site_old" },
+    ]);
+    mocks.readRichdocContract.mockReturnValueOnce({ siteIds: ["site_old"] });
+
+    await import("./batch-crawl.js");
+
+    const crawledSiteIds = (
+      mocks.processAndPersistCrawlJob.mock.calls as unknown as readonly (readonly unknown[])[]
+    ).map((call) => (call[0] as { siteId: string }).siteId);
+    expect(crawledSiteIds).toEqual(["site_keep"]);
+    expect(process.exitCode).toBe(0);
   });
 
   // AEO·컴플라이언스는 크롤 결과를 지키려고 예외를 삼킨다. 그 실패가 배치까지 오지 않으면

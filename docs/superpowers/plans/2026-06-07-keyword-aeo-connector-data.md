@@ -63,7 +63,7 @@ corepack pnpm --filter @searchops/web lint
 
 - [x] **Step 2: Run browser smoke**
 
-Open `http://localhost:3000/sites/site_demo_rejuel/content` and confirm that `GSC 기반 키워드 발견`, `sync_demo_003`, `GSC 후보 갱신`, and discovery-row `초안 생성` actions render on desktop and mobile without horizontal overflow.
+Open `http://localhost:3000/sites/site_demo_gowoonmom/content` and confirm that `GSC 기반 키워드 발견`, `sync_demo_003`, `GSC 후보 갱신`, and discovery-row `초안 생성` actions render on desktop and mobile without horizontal overflow.
 
 - [ ] **Step 3: Run full verification and commit**
 

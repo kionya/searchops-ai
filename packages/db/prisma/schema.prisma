@@ -89,6 +89,8 @@ model Site {
   competitors    String[]       @default([])
   /// T3: 주간 GEO 배치(batch-geo) 대상 여부.
   geoMonitorEnabled Boolean     @default(false)
+  /// 보관 시각. NULL = 운영 중. 보관된 사이트는 데이터는 남되 야간 배치·사이트 목록에서 빠진다.
+  archivedAt     DateTime?
   createdAt      DateTime       @default(now())
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)

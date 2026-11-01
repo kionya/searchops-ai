@@ -68,6 +68,7 @@ async function main(): Promise<void> {
       },
       where: {
         externalResourceId: { not: null },
+        site: { archivedAt: null },
         status: { notIn: ["needs_configuration", "disabled"] }
       }
     });
