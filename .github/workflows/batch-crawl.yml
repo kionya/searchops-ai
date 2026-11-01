@@ -167,7 +167,7 @@ jobs:
                 || echo "::warning::이슈 #$number 를 닫지 못했다. 수동으로 닫아라."
             fi
           elif [ "$STATUS" = "failure" ]; then
-            body="배치 실패. 로그: $RUN_URL — 크롤/richdoc 적재/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '적재 실패' 와 '[batch-connector-sync]' 를 먼저 확인해라."
+            body="배치 실패. 로그: $RUN_URL — 크롤/richdoc 적재/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '크롤 차단 의심' · '적재 실패' · '[batch-connector-sync]' 를 먼저 확인해라."
             if [ -n "$number" ]; then
               gh issue comment "$number" --body "$body" \
                 || echo "::warning::이슈 알림 실패. 배치는 실제로 실패했다: $RUN_URL"

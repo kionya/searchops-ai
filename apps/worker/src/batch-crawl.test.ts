@@ -80,6 +80,22 @@ describe("batch crawl", () => {
     expect(process.exitCode).toBe(0);
   });
 
+  // 2026-10 고운몸: 호스팅이 해외 IP 에 쿠키 확인 페이지를 내줘 3주간 매일 "completed pages=1" 로
+  // 조용히 끝났다. 크롤 자체는 성공이라 아무 경보도 없었다 — 1페이지 이하는 차단 의심으로 실패 처리한다.
+  it("fails the batch when a site yields at most one page (likely blocked)", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.processAndPersistCrawlJob.mockImplementationOnce(async () => ({
+      status: "completed",
+      summary: { crawledPages: 1, failedPages: 0, pagesProcessed: 1 },
+    }));
+
+    await import("./batch-crawl.js");
+
+    expect(process.exitCode).toBe(1);
+    expect(errors.mock.calls.flat().join(" ")).toContain("크롤 차단 의심");
+    errors.mockRestore();
+  });
+
   // AEO·컴플라이언스는 크롤 결과를 지키려고 예외를 삼킨다. 그 실패가 배치까지 오지 않으면
   // 매일 밤 전패해도 워크플로가 초록불이라 "0건" 상태를 아무도 모른다.
   it("marks the batch run failed when postprocess steps fail silently", async () => {
