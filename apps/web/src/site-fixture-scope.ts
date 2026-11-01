@@ -12,7 +12,7 @@ const demoFixtureSite = {
   country: "KR",
   createdAt: "2026-05-19T00:00:00.000Z",
   domain: "example-clinic.com",
-  id: "site_demo_rejuel",
+  id: "site_demo_gowoonmom",
   industry: "medical",
   language: "ko",
   name: "예시 클리닉",

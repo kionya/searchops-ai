@@ -29,7 +29,7 @@ function createCapturingFetch(status = 201) {
   return { calls, fetchImpl };
 }
 
-const site = { domain: "rejuel.com" };
+const site = { domain: "gowoonmom.co.kr" };
 
 function createFakePrisma(overrides: {
   crawlRun?: unknown;
@@ -70,7 +70,7 @@ function createBridge(
     prisma,
     serviceRoleKey: "service-key",
     siteIds,
-    supabaseUrl: "https://rejuel.supabase.co/"
+    supabaseUrl: "https://richdoc.supabase.co/"
   });
 }
 
@@ -154,14 +154,14 @@ describe("syncCrawlRun", () => {
       crawlRun: crawlRunRow,
       seoIssues: [
         {
-          evidence: { observedValue: null, url: "https://rejuel.com/a" },
+          evidence: { observedValue: null, url: "https://gowoonmom.co.kr/a" },
           ruleId: "TITLE_MISSING",
           severity: "high",
           title: "타이틀 누락",
-          urlRecord: { url: "https://rejuel.com/a" }
+          urlRecord: { url: "https://gowoonmom.co.kr/a" }
         },
         {
-          evidence: { url: "https://rejuel.com/b" },
+          evidence: { url: "https://gowoonmom.co.kr/b" },
           ruleId: "META_DESCRIPTION_MISSING",
           severity: "low",
           title: "메타 설명 누락",
@@ -175,9 +175,9 @@ describe("syncCrawlRun", () => {
     await bridge.syncCrawlRun({ crawlRunId: "crawl-run-1", siteId: "site-1" });
 
     expect(calls.map((call) => call.url)).toEqual([
-      "https://rejuel.supabase.co/rest/v1/searchops_runs?on_conflict=id",
-      "https://rejuel.supabase.co/rest/v1/searchops_issues?on_conflict=site%2Cpage_url%2Crule_id",
-      "https://rejuel.supabase.co/rest/v1/searchops_work_orders?on_conflict=id"
+      "https://richdoc.supabase.co/rest/v1/searchops_runs?on_conflict=id",
+      "https://richdoc.supabase.co/rest/v1/searchops_issues?on_conflict=site%2Cpage_url%2Crule_id",
+      "https://richdoc.supabase.co/rest/v1/searchops_work_orders?on_conflict=id"
     ]);
     expect(calls[0]!.headers.authorization).toBe("Bearer service-key");
     expect(calls[0]!.headers.prefer).toBe("resolution=merge-duplicates,return=minimal");
@@ -188,7 +188,7 @@ describe("syncCrawlRun", () => {
         id: richdocUuidFromId("crawl-run-1"),
         issues_found: 2,
         pages_crawled: 12,
-        site: "rejuel.com",
+        site: "gowoonmom.co.kr",
         started_at: "2026-08-15T01:00:00.000Z",
         status: "done",
         summary: { pagesProcessed: 12 }
@@ -198,14 +198,14 @@ describe("syncCrawlRun", () => {
     const issueRows = calls[1]!.body as Array<Record<string, unknown>>;
     expect(issueRows).toHaveLength(2);
     expect(issueRows[0]).toMatchObject({
-      page_url: "https://rejuel.com/a",
+      page_url: "https://gowoonmom.co.kr/a",
       rule_id: "TITLE_MISSING",
       severity: "warning",
-      site: "rejuel.com",
+      site: "gowoonmom.co.kr",
       title: "타이틀 누락"
     });
     expect(issueRows[1]).toMatchObject({
-      page_url: "https://rejuel.com/b",
+      page_url: "https://gowoonmom.co.kr/b",
       severity: "info"
     });
     // Console-managed columns must be left untouched by the adapter.
@@ -218,9 +218,9 @@ describe("syncCrawlRun", () => {
     // 되돌리면 안 된다. 이슈의 status/first_seen 과 같은 규칙이다.
     expect(calls[2]!.body).toEqual([
       {
-        id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
+        id: richdocUuidFromId("wo:gowoonmom.co.kr:타이틀 누락 수정"),
         issue_count: 1,
-        site: "rejuel.com",
+        site: "gowoonmom.co.kr",
         title: "타이틀 누락 수정",
         updated_at: "2026-08-15T02:00:00.000Z"
       }
@@ -234,7 +234,7 @@ describe("syncCrawlRun", () => {
       ruleId: "TITLE_MISSING",
       severity: "critical",
       title: "타이틀 누락",
-      urlRecord: { url: "https://rejuel.com/a" }
+      urlRecord: { url: "https://gowoonmom.co.kr/a" }
     };
     const { prisma } = createFakePrisma({ crawlRun: crawlRunRow, seoIssues: [issue, { ...issue }] });
     const bridge = createBridge(prisma, fetchImpl);
@@ -278,7 +278,7 @@ describe("syncCrawlRun", () => {
           ruleId: "TITLE_MISSING",
           severity: "critical",
           title: "타이틀 누락",
-          urlRecord: { url: "https://rejuel.com/a" }
+          urlRecord: { url: "https://gowoonmom.co.kr/a" }
         }
       ]
     });
@@ -315,7 +315,7 @@ describe("syncSiteWorkOrders", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.body).toEqual([
       expect.objectContaining({
-        id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
+        id: richdocUuidFromId("wo:gowoonmom.co.kr:타이틀 누락 수정"),
         status: "applied"
       })
     ]);
@@ -339,7 +339,7 @@ describe("syncSiteWorkOrders", () => {
     expect(rows).toHaveLength(1);
     // 마지막에 올라간 값이 남으므로 최신 상태여야 한다.
     expect(rows[0]).toMatchObject({
-      id: richdocUuidFromId("wo:rejuel.com:타이틀 누락 수정"),
+      id: richdocUuidFromId("wo:gowoonmom.co.kr:타이틀 누락 수정"),
       status: "verified"
     });
   });

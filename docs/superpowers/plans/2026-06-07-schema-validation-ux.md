@@ -59,7 +59,7 @@ corepack pnpm --filter @searchops/web lint
 
 - [x] **Step 2: Run browser smoke**
 
-Open `http://localhost:3000/sites/site_demo_rejuel/schema` and confirm that `작업 지시서 생성`, `재검수`, and `Rich result 검증` render together for schema recommendation rows.
+Open `http://localhost:3000/sites/site_demo_gowoonmom/schema` and confirm that `작업 지시서 생성`, `재검수`, and `Rich result 검증` render together for schema recommendation rows.
 
 - [ ] **Step 3: Run full verification and commit**
 

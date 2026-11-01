@@ -13,7 +13,7 @@ export const seedFixture = {
     role: "owner"
   },
   site: {
-    id: "site_demo_rejuel",
+    id: "site_demo_gowoonmom",
     organizationId: "org_demo",
     domain: "example-clinic.com",
     name: "예시 클리닉",
@@ -24,14 +24,14 @@ export const seedFixture = {
   },
   crawlRun: {
     id: "crawl_demo_initial",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     status: "queued",
     summary: { pagesDiscovered: 0, pagesAnalyzed: 0 }
   },
   connectorSyncRun: {
     id: "sync_demo_initial",
     organizationId: "org_demo",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     status: "queued",
     providers: ["gsc", "ga4", "pagespeed", "bing", "cms"],
     requestedByUserId: "user_demo_owner",
@@ -39,14 +39,14 @@ export const seedFixture = {
   },
   keyword: {
     id: "keyword_demo_aeo",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
     intent: "commercial"
   },
   keywordDiscoveryCandidate: {
     id: "keyword_discovery_demo_aeo",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     keywordId: "keyword_demo_aeo",
     phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
@@ -69,7 +69,7 @@ export const seedFixture = {
   },
   contentBrief: {
     id: "brief_demo_aeo",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     keywordId: "keyword_demo_aeo",
     primaryKeyword: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
@@ -96,7 +96,7 @@ export const seedFixture = {
   },
   aeoReadinessReport: {
     id: "aeo_report_demo_initial",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     keywordId: "keyword_demo_aeo",
     phrase: "답변엔진 최적화 클리닉",
     locale: "ko-KR",
@@ -122,7 +122,7 @@ export const seedFixture = {
   },
   schemaRecommendation: {
     id: "schema_rec_demo_service",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     pageUrl: "https://example-clinic.com/services/aeo",
     type: "Service",
     priority: "p1",
@@ -154,7 +154,7 @@ export const seedFixture = {
   },
   geoVisibilityReport: {
     id: "geo_report_demo_initial",
-    siteId: "site_demo_rejuel",
+    siteId: "site_demo_gowoonmom",
     brandName: "예시 클리닉",
     domain: "example-clinic.com",
     locale: "ko-KR",

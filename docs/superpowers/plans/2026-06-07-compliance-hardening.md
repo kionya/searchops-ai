@@ -87,7 +87,7 @@ Run:
 
 ```bash
 corepack pnpm --filter @searchops/web dev
-# open http://localhost:3000/sites/site_demo_rejuel/compliance
+# open http://localhost:3000/sites/site_demo_gowoonmom/compliance
 corepack pnpm verify
 git diff --check
 git add packages/compliance/src/index.ts packages/compliance/src/index.test.ts apps/api/src/webhook-security.ts apps/api/src/webhook-security.test.ts apps/api/src/server.ts apps/api/src/server.test.ts apps/api/src/readiness.ts apps/web/src/compliance-dashboard.ts apps/web/src/foundation.test.ts 'apps/web/app/sites/[siteId]/compliance/page.tsx' docs/API_SPEC.md docs/COMPLIANCE_SPEC.md docs/ROADMAP.md docs/ROADMAP_EXECUTION_PLAN.md docs/RUNBOOKS.md docs/superpowers/plans/2026-06-07-compliance-hardening.md

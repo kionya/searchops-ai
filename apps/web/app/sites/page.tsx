@@ -146,7 +146,7 @@ function SiteRegistrationPanel({
       <form action={createSiteAction} className="searchops-registration-form">
         <label className="searchops-field">
           <span>사이트 이름</span>
-          <input name="name" placeholder="리쥬엘의원 강남" />
+          <input name="name" placeholder="고운몸의원" />
         </label>
         <label className="searchops-field">
           <span>도메인</span>

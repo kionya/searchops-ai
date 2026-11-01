@@ -94,7 +94,7 @@ devDependencies: skipped because NODE_ENV is set to production
 
 ---
 
-## richdoc(리쥬엘) 연동 + 배포 전략 전환
+## richdoc(CAIO-saas) 연동 + 배포 전략 전환
 
 Updated: 2026-08-17 (운영 가동 중 — 새 유니크 키 아래 배치 2회 검증 완료)
 Merged: `f28f295` (연동 어댑터 + 배포 전환) · `3cec287` (지시서 중복 근본 해결) ·
@@ -108,10 +108,10 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 ### 무엇을 만들었나
 
-- **richdoc 적재 어댑터** (`packages/db/src/richdoc.ts`): 크롤 완료 시 `searchops_runs`/`searchops_issues`, 지시서 변경 시 `searchops_work_orders`를 리쥬엘 Supabase로 PostgREST upsert. 계약 정본은 **richdoc-saas 레포**의 `supabase/searchops_contract.sql`이며 이 레포에 사본을 두지 않는다.
+- **richdoc 적재 어댑터** (`packages/db/src/richdoc.ts`): 크롤 완료 시 `searchops_runs`/`searchops_issues`, 지시서 변경 시 `searchops_work_orders`를 richdoc Supabase로 PostgREST upsert. 계약 정본은 **richdoc-saas 레포**의 `supabase/searchops_contract.sql`이며 이 레포에 사본을 두지 않는다.
 - allowlist는 도메인이 아니라 **`Site.id`**다. `Site.domain`은 조직별 unique라 도메인 기준이면 타 조직의 동명 사이트가 단일 테넌트 Supabase로 샌다(리뷰에서 major로 확정).
 - `issues.status`/`first_seen`은 콘솔 소유라 전송하지 않는다. 전 메서드 best-effort — 실패해도 크롤이나 API 요청을 깨지 않는다.
-- **계약 검증기** (`scripts/richdoc-smoke.mjs`): 임시 DB에 계약 SQL을 적용하고 미니 PostgREST 셰임 위에서 실제 어댑터를 돌려 23종 검증. 배포 플랫폼도 자격증명도 불필요(`pnpm smoke:richdoc`). `--live`로 실제 리쥬엘 대상 검증도 된다. `.github/workflows/richdoc-contract.yml`이 PR·main·매일 1회 실행해 **richdoc 쪽 계약 변경까지** 감지한다.
+- **계약 검증기** (`scripts/richdoc-smoke.mjs`): 임시 DB에 계약 SQL을 적용하고 미니 PostgREST 셰임 위에서 실제 어댑터를 돌려 23종 검증. 배포 플랫폼도 자격증명도 불필요(`pnpm smoke:richdoc`). `--live`로 실제 richdoc 대상 검증도 된다. `.github/workflows/richdoc-contract.yml`이 PR·main·매일 1회 실행해 **richdoc 쪽 계약 변경까지** 감지한다.
 - **백필** (`scripts/richdoc-backfill.mjs`): 크롤 없이 기존 데이터를 콘솔에 올린다. 재동기화용.
 
 ### 배포 전략을 왜 바꿨나
@@ -135,11 +135,11 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 
 ### 운영 상태 (2026-08-16 기준)
 
-- 리쥬엘 Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
-- GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, gangnam.rejuel.com).
+- richdoc Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
+- GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, 첫 운영 사이트 — 2026-11-01 보관).
 - Actions 스케줄 실행 성공. 2026-08-17 03:11 KST 배치 기준 SearchOps DB는 크롤런 5 / 이슈 30 / 지시서 28이며, 배치가 초록이므로 콘솔 적재 실패는 0건이다.
 - 사이트 추가는 웹의 등록 폼으로 한다 — 배치가 DB의 모든 `Site`를 크롤하므로 시크릿을 손댈 필요가 없다.
-  리쥬엘 콘솔로 **적재**까지 하려면 그때만 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id를 더한다.
+  richdoc 콘솔로 **적재**까지 하려면 그때만 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id를 더한다.
 
 ### 머지 전 리뷰에서 고친 것
 
@@ -167,7 +167,7 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 **검증 완료 (2026-08-17 03:11 KST 배치, run `31963805782`):**
 
 - `SeoIssue` 30건 = `(urlRecordId, ruleId)` distinct 30건 → 새 키 아래 중복 0. 10 → 30 증가는 중복이 아니라 커버리지 확대다(이전 크롤은 수동 5페이지, 스케줄 배치는 기본값 25페이지 = URL 25 × 규칙 2).
-- 워크플로가 초록 = richdoc 적재 실패 0건. 브리지의 `failureCount`를 종료 코드에 반영해 뒀으므로 이제 초록불이 실제 의미를 가진다. 리쥬엘 Supabase는 다른 조직이라 이 세션의 MCP로 직접 조회되지 않는다 — 종료 코드가 사실상의 검증 경로다.
+- 워크플로가 초록 = richdoc 적재 실패 0건. 브리지의 `failureCount`를 종료 코드에 반영해 뒀으므로 이제 초록불이 실제 의미를 가진다. richdoc Supabase는 다른 조직이라 이 세션의 MCP로 직접 조회되지 않는다 — 종료 코드가 사실상의 검증 경로다.
 
 잔여물 3건: `?type=filorga|exosome|rejuran` 쿼리 변형 URL의 `H1_MISSING` 이슈가 지시서 없이 남아 있다. 2026-06-23 크롤 유래이고 지시서는 수동 정리 때 지워졌으며, 해당 URL이 현재 25페이지 크롤 대상에 없어 재관측되지 않는다. 재크롤되면 지시서가 다시 생긴다. 버그 아님 — 정리하려면 그냥 지우면 된다.
 

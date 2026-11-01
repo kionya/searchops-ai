@@ -62,7 +62,7 @@ corepack pnpm --filter @searchops/web lint
 
 - [x] **Step 2: Run browser smoke**
 
-Open `http://localhost:3000/sites/site_demo_rejuel/connectors` and confirm that `PageSpeed live setup`, `SEARCHOPS_PAGESPEED_API_KEY`, `설정 필요`, and `PageSpeed만 실행` render with no console warnings or errors.
+Open `http://localhost:3000/sites/site_demo_gowoonmom/connectors` and confirm that `PageSpeed live setup`, `SEARCHOPS_PAGESPEED_API_KEY`, `설정 필요`, and `PageSpeed만 실행` render with no console warnings or errors.
 
 - [ ] **Step 3: Run full verification and commit**
 
