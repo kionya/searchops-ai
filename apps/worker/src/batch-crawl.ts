@@ -148,6 +148,17 @@ async function main(): Promise<void> {
         console.log(
           `[batch-crawl] ${site.domain} ${result.status} pages=${result.summary.pagesProcessed}`
         );
+        // 크롤은 "성공" 인데 1페이지 이하면 거의 항상 차단이다 — 호스팅의 봇 방어(쿠키 확인 페이지,
+        // 해외 IP 차단)가 200 으로 빈 페이지를 주면 링크가 0개라 시작 페이지에서 끝난다.
+        // 2026-10 고운몸이 이 상태로 3주간 조용히 "completed pages=1" 이었다.
+        // ponytail: 실제로 1페이지짜리 사이트면 매일 오탐이다 — 그런 사이트가 생기면 사이트별 예외를 둔다.
+        if (maxPages > 1 && result.summary.pagesProcessed <= 1) {
+          failures += 1;
+          console.error(
+            `[batch-crawl] ${site.domain} 크롤 차단 의심 — pages=${result.summary.pagesProcessed}/${maxPages}. ` +
+              "호스팅 봇 차단(해외 IP·쿠키 확인 페이지)을 먼저 확인해라."
+          );
+        }
       } catch (error) {
         // 한 사이트의 실패가 나머지를 막지 않게 한다. CrawlRun 은 failed 로 기록돼 있다.
         failures += 1;
