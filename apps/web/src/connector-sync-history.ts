@@ -13,10 +13,11 @@ import {
 import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { getCurrentProviderUser, type ProviderUserContext } from "./provider-accounts";
+import { getSiteConnectorSyncHistory } from "./site-database";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
 
-export type ConnectorSyncHistorySource = "api" | "fixture";
+export type ConnectorSyncHistorySource = "api" | "database" | "fixture";
 export type ConnectorSyncTriggerStatus = "failed" | "fixture" | "queued";
 export type ConnectorSyncRunTone = "complete" | "failed" | "partial" | "queued";
 export type ConnectorSyncResultTone = "failed" | "ok" | "partial" | "setup";
@@ -328,6 +329,24 @@ export async function loadConnectorSyncHistoryAsUser(
   const siteId = getFixtureSiteId(siteOrId);
   if (typeof siteOrId !== "string" && siteOrId.organizationId !== context.organizationId) {
     return emptyProtectedConnectorSyncHistory();
+  }
+  // 직접 DB 모드: 배치가 쓴 이력을 DB 에서 바로 읽는다. Render API 는 무료 플랜이라
+  // 잠들어 있으면 첫 요청이 8초 타임아웃을 넘겨 "불러오지 못했습니다" 만 뜨곤 했다.
+  try {
+    const history = await getSiteConnectorSyncHistory(siteId);
+    if (history !== null) {
+      return {
+        errorMessage: null,
+        resultsByRunId: groupConnectorSyncResultsByRun(history.results),
+        runs: history.runs,
+        source: "database"
+      };
+    }
+  } catch {
+    return {
+      ...emptyProtectedConnectorSyncHistory(),
+      errorMessage: "동기화 이력을 DB 에서 읽지 못했습니다. 웹 DB 역할의 읽기 권한을 확인하세요."
+    };
   }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {

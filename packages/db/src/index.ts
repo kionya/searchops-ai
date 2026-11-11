@@ -189,12 +189,18 @@ export {
 export {
   findUserMembershipByEmail,
   listOrganizationSites,
+  loadSiteConnectorSyncHistory,
   loadSiteDashboardSnapshot,
+  loadSiteDataFreshness,
+  loadSiteGeoVisibility,
   registerOrganizationSite,
   updateOrganizationWorkOrderStatus,
   type LoadSiteDashboardSnapshotInput,
   type RegisterOrganizationSiteInput,
+  type SiteConnectorSyncHistory,
   type SiteDashboardSnapshot,
+  type SiteDataFreshness,
+  type SiteGeoVisibility,
   type UpdateOrganizationWorkOrderStatusInput,
   type UserMembership
 } from "./site-dashboard.js";

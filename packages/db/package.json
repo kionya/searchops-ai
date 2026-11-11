@@ -31,6 +31,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "6.19.3",
+    "@searchops/geo-core": "workspace:*",
     "@searchops/types": "workspace:*",
     "pg": "^8.23.0"
   },

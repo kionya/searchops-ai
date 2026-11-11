@@ -11,6 +11,7 @@ import {
 
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { formatKstDateTime } from "./data-freshness";
 import { getSiteSnapshot } from "./site-database";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
@@ -444,7 +445,7 @@ export function formatDuration(seconds: number | null) {
 }
 
 export function formatDateTime(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
+  return isoDate ? formatKstDateTime(isoDate) : "대기 중";
 }
 
 export function getCrawlRunTone(status: string): CrawlRunTone {
@@ -538,7 +539,9 @@ function createCrawlRunRowsFromApi(
   crawlRuns: readonly CrawlRun[],
   issues: readonly SeoIssue[],
 ): CrawlRunRow[] {
-  return crawlRuns.map((crawlRun, index) => {
+  // 최신순. DB·API 둘 다 오래된 순으로 주는데, 그대로 두면 8월 기록이 맨 위에 "최근 크롤링" 으로 뜬다.
+  const newestFirst = [...crawlRuns].sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+  return newestFirst.map((crawlRun, index) => {
     const relatedIssues = issues.filter((issue) => issue.crawlRunId === crawlRun.id);
     const pagesCrawled = readNumericSummary(crawlRun.summary, ["pagesProcessed", "pagesCrawled", "pagesAnalyzed"]);
     const urlsDiscovered = readNumericSummary(crawlRun.summary, [

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { loadConnectorSyncHistoryAsUser } from "./connector-sync-history";
 import {
   loadSiteCrawlRunDashboard,
   loadSiteIssueDashboard,
@@ -63,7 +64,21 @@ const snapshot = {
   ]
 };
 
+const syncRun = {
+  endedAt: "2026-11-10T22:41:43.000Z",
+  fixture: false,
+  id: "sync_a1",
+  organizationId: "org_a",
+  providers: ["gsc"],
+  requestedByUserId: "batch",
+  siteId: "site_a1",
+  startedAt: "2026-11-10T22:41:09.000Z",
+  status: "completed",
+  summary: null
+};
+
 vi.mock("./site-database", () => ({
+  getSiteConnectorSyncHistory: vi.fn(async () => ({ results: [], runs: [syncRun] })),
   getSiteSnapshot: vi.fn(async () => snapshot),
   isDirectDatabaseMode: () => true
 }));
@@ -93,6 +108,32 @@ describe("직접 DB 모드 대시보드 로더", () => {
     expect(dashboard.source).toBe("database");
     expect(dashboard.rows).toHaveLength(1);
     expect(dashboard.rows[0]).toMatchObject({ id: "crawl_a1", issuesFound: 1, pagesCrawled: 2 });
+  });
+
+  it("크롤 이력은 최신순이고 맨 위만 '최근 크롤링' 이다", async () => {
+    const older = { ...snapshot.crawlRuns[0]!, id: "crawl_old", startedAt: "2026-08-01T00:00:00.000Z" };
+    snapshot.crawlRuns.unshift(older);
+    try {
+      const dashboard = await loadSiteCrawlRunDashboard("site_a1");
+      expect(dashboard.rows.map((row) => [row.id, row.label])).toEqual([
+        ["crawl_a1", "최근 크롤링"],
+        ["crawl_old", "크롤링"]
+      ]);
+    } finally {
+      snapshot.crawlRuns.shift();
+    }
+  });
+
+  it("커넥터 동기화 이력은 API 없이 DB 에서 읽는다", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const history = await loadConnectorSyncHistoryAsUser(
+      { accessToken: "token", organizationId: "org_a", role: "owner", userId: "user_a" },
+      "site_a1",
+    );
+    expect(history).toMatchObject({ errorMessage: null, source: "database" });
+    expect(history.runs.map((run) => run.id)).toEqual(["sync_a1"]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("URL 인벤토리에 이슈를 연결한다", async () => {

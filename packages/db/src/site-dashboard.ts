@@ -1,12 +1,24 @@
 import {
+  computeGeoTrend,
+  summarizeGeoCitationsByKind,
+  summarizeGeoObservationSources
+} from "@searchops/geo-core";
+import {
+  ConnectorSyncResultSchema,
+  ConnectorSyncRunSchema,
   CrawlRunSchema,
+  GeoVisibilityReportRecordSchema,
   SchemaRecommendationRecordSchema,
   SeoIssueSchema,
   SiteSchema,
   UrlRecordSchema,
   WorkOrderSchema,
   WorkOrderStatusSchema,
+  type ConnectorSyncResult,
+  type ConnectorSyncRun,
   type CrawlRun,
+  type GeoVisibilityReportRecord,
+  type GeoVisibilityTrendPoint,
   type SchemaRecommendationRecord,
   type SeoIssue,
   type Site,
@@ -53,8 +65,8 @@ export async function loadSiteDashboardSnapshot(
   prisma: SearchOpsPrismaClient,
   input: LoadSiteDashboardSnapshotInput,
 ): Promise<SiteDashboardSnapshot | null> {
-  const siteRecord = await prisma.site.findUnique({ where: { id: input.siteId } });
-  if (siteRecord === null || siteRecord.organizationId !== input.organizationId) {
+  const siteRecord = await loadScopedSiteRecord(prisma, input);
+  if (siteRecord === null) {
     return null;
   }
 
@@ -171,6 +183,189 @@ export async function loadSiteDashboardSnapshot(
       }),
     )
   };
+}
+
+// ── 스냅샷 밖 진입점 ─────────────────────────────────────────────────────────
+//
+// 아래 셋은 스냅샷에 넣지 않는다. 다른 테이블(GRANT 가 따로 필요)을 읽으므로, 권한이
+// 빠졌을 때 사이트 화면 전체가 아니라 그 패널만 죽어야 한다. 스코프 검사는 위 주석의
+// 약속대로 loadScopedSiteRecord 하나를 반드시 거친다.
+
+/** 조직 스코프 검사의 유일한 구현. 없는 사이트와 남의 사이트를 똑같이 null 로 돌려준다. */
+async function loadScopedSiteRecord(prisma: SearchOpsPrismaClient, input: LoadSiteDashboardSnapshotInput) {
+  const siteRecord = await prisma.site.findUnique({ where: { id: input.siteId } });
+  return siteRecord === null || siteRecord.organizationId !== input.organizationId ? null : siteRecord;
+}
+
+export interface SiteDataFreshness {
+  readonly lastCrawl: {
+    readonly startedAt: string;
+    readonly status: CrawlRun["status"];
+    readonly pagesProcessed: number | null;
+  } | null;
+  readonly lastConnectorSync: {
+    readonly startedAt: string;
+    readonly status: ConnectorSyncRun["status"];
+    readonly okProviders: number | null;
+    readonly totalProviders: number | null;
+  } | null;
+  readonly lastGeoEvaluatedAt: string | null;
+  readonly lastAeoEvaluatedAt: string | null;
+}
+
+/** 사이트 화면 상단 "데이터 반영 현황" — 각 파이프라인의 마지막 반영 시각. */
+export async function loadSiteDataFreshness(
+  prisma: SearchOpsPrismaClient,
+  input: LoadSiteDashboardSnapshotInput,
+): Promise<SiteDataFreshness | null> {
+  if ((await loadScopedSiteRecord(prisma, input)) === null) {
+    return null;
+  }
+  const where = { siteId: input.siteId };
+  const [crawl, sync, geo, aeo] = await Promise.all([
+    prisma.crawlRun.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true, status: true, summary: true }, where }),
+    // fixture=false 만: 대시보드 버튼이 만든 행은 워커가 없어 queued·fixture 로 영원히 남는다.
+    prisma.connectorSyncRun.findFirst({
+      orderBy: { startedAt: "desc" },
+      select: { startedAt: true, status: true, summary: true },
+      where: { ...where, fixture: false }
+    }),
+    prisma.geoVisibilityReport.findFirst({ orderBy: { evaluatedAt: "desc" }, select: { evaluatedAt: true }, where }),
+    prisma.aeoReadinessReport.findFirst({ orderBy: { evaluatedAt: "desc" }, select: { evaluatedAt: true }, where })
+  ]);
+  return {
+    lastAeoEvaluatedAt: aeo?.evaluatedAt.toISOString() ?? null,
+    lastConnectorSync: sync === null ? null : {
+      okProviders: readSummaryNumber(sync.summary, "okProviders"),
+      startedAt: sync.startedAt.toISOString(),
+      status: ConnectorSyncRunSchema.shape.status.parse(sync.status),
+      totalProviders: readSummaryNumber(sync.summary, "totalProviders")
+    },
+    lastCrawl: crawl === null ? null : {
+      pagesProcessed: readSummaryNumber(crawl.summary, "pagesProcessed"),
+      startedAt: crawl.startedAt.toISOString(),
+      status: CrawlRunSchema.shape.status.parse(crawl.status)
+    },
+    lastGeoEvaluatedAt: geo?.evaluatedAt.toISOString() ?? null
+  };
+}
+
+function readSummaryNumber(summary: unknown, key: string): number | null {
+  if (typeof summary !== "object" || summary === null) {
+    return null;
+  }
+  const value = (summary as Record<string, unknown>)[key];
+  return typeof value === "number" ? value : null;
+}
+
+export interface SiteConnectorSyncHistory {
+  readonly runs: readonly ConnectorSyncRun[];
+  readonly results: readonly ConnectorSyncResult[];
+}
+
+/** 커넥터 동기화 이력. 매핑은 apps/api/src/prisma-repository.ts 와 같은 zod 스키마로 한다. */
+export async function loadSiteConnectorSyncHistory(
+  prisma: SearchOpsPrismaClient,
+  input: LoadSiteDashboardSnapshotInput & { readonly limit?: number },
+): Promise<SiteConnectorSyncHistory | null> {
+  if ((await loadScopedSiteRecord(prisma, input)) === null) {
+    return null;
+  }
+  const runs = await prisma.connectorSyncRun.findMany({
+    orderBy: { startedAt: "desc" },
+    take: input.limit ?? 8,
+    where: { fixture: false, siteId: input.siteId }
+  });
+  // ponytail: 결과 records 까지 통째로 읽는다(8회분 약 220KB, gsc 가 대부분). 수 MB 가 되면
+  // 화면이 쓰는 최신 gsc 1건만 records 를 싣고 나머지는 recordCount 만 읽어라.
+  const results = await prisma.connectorSyncResult.findMany({
+    orderBy: { provider: "asc" },
+    where: { syncRunId: { in: runs.map((run) => run.id) } }
+  });
+  return {
+    results: results.map((record) =>
+      ConnectorSyncResultSchema.parse({
+        createdAt: record.createdAt.toISOString(),
+        fetchedAt: record.fetchedAt.toISOString(),
+        fixture: record.fixture,
+        id: record.id,
+        provider: record.provider,
+        recordCount: record.recordCount,
+        records: record.records,
+        status: record.status,
+        syncRunId: record.syncRunId
+      }),
+    ),
+    runs: runs.map((record) =>
+      ConnectorSyncRunSchema.parse({
+        endedAt: record.endedAt?.toISOString() ?? null,
+        fixture: record.fixture,
+        id: record.id,
+        organizationId: record.organizationId,
+        providers: record.providers,
+        requestedByUserId: record.requestedByUserId,
+        siteId: record.siteId,
+        startedAt: record.startedAt.toISOString(),
+        status: record.status,
+        summary: record.summary
+      }),
+    )
+  };
+}
+
+export interface SiteGeoVisibility {
+  readonly reports: readonly GeoVisibilityReportRecord[];
+  readonly trend: readonly GeoVisibilityTrendPoint[];
+}
+
+/** GEO 리포트 이력과 주간 추세. 매핑은 apps/api 의 toGeoVisibilityReportRecord 와 같다. */
+export async function loadSiteGeoVisibility(
+  prisma: SearchOpsPrismaClient,
+  input: LoadSiteDashboardSnapshotInput,
+): Promise<SiteGeoVisibility | null> {
+  if ((await loadScopedSiteRecord(prisma, input)) === null) {
+    return null;
+  }
+  const records = await prisma.geoVisibilityReport.findMany({
+    orderBy: [{ evaluatedAt: "desc" }, { createdAt: "desc" }, { brandName: "asc" }],
+    where: { siteId: input.siteId }
+  });
+  const reports = records.map((record): GeoVisibilityReportRecord => {
+    const parsed = GeoVisibilityReportRecordSchema.parse({
+      brandName: record.brandName,
+      checks: record.checks,
+      citationRate: record.citationRate,
+      citations: record.citations,
+      competitorCitationRate: record.competitorCitationRate,
+      createdAt: record.createdAt.toISOString(),
+      credentialSources: record.credentialSources,
+      domain: record.domain,
+      evaluatedAt: record.evaluatedAt.toISOString(),
+      generatedBy: record.generatedBy,
+      id: record.id,
+      locale: record.locale,
+      market: record.market,
+      mentionRate: record.mentionRate,
+      observations: record.observations,
+      providerCount: record.providerCount,
+      queryCount: record.queryCount,
+      score: record.score,
+      siteId: record.siteId,
+      status: record.status,
+      ...(record.sov === null ? {} : { sov: record.sov }),
+      ...(record.competitorMentions === null ? {} : { competitorMentions: record.competitorMentions }),
+      ...(record.runSeq === null ? {} : { runSeq: record.runSeq }),
+      ...(record.previousReportId === null ? {} : { previousReportId: record.previousReportId })
+    });
+    const derived = summarizeGeoObservationSources(parsed.observations);
+    return {
+      ...parsed,
+      citationsByKind: summarizeGeoCitationsByKind(parsed.citations, parsed.domain),
+      liveShare: derived.liveShare,
+      warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : derived.warnings
+    };
+  });
+  return { reports, trend: computeGeoTrend(reports) };
 }
 
 export interface RegisterOrganizationSiteInput {

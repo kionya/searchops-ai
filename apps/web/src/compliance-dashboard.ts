@@ -13,6 +13,7 @@ import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { formatStatusLabel } from "./korean-labels";
 import { demoSite } from "./work-order-board";
+import { formatKstDateTime } from "./data-freshness";
 
 export type ComplianceDashboardSource = "api" | "fixture";
 export type ComplianceTone = "good" | "neutral" | "risk";
@@ -600,7 +601,7 @@ export function getComplianceRecheckFeedback(
 }
 
 export function formatComplianceDate(isoDate: string) {
-  return isoDate.replace("T", " ").slice(0, 16);
+  return formatKstDateTime(isoDate);
 }
 
 export function formatComplianceRisk(riskLevel: string) {

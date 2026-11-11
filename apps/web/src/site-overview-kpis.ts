@@ -118,12 +118,39 @@ export async function loadSiteOverview(
   return {
     input: {
       crawlRuns: snapshot.crawlRuns,
-      geo: { aiAnswersChecked: 0, aiCitations: 0, aiMentions: 0, coveredNonBrandQueries: 0, nonBrandQueries: 0 },
+      geo: await loadLatestGeoSnapshot(site.id),
       issues: createIssueListRowsFromApi(snapshot.seoIssues),
       urls: createUrlInventoryRowsFromApi(snapshot.urlRecords, snapshot.seoIssues),
       workOrders: snapshot.workOrders
     },
     source: "database"
+  };
+}
+
+const emptyGeoSnapshot: GeoVisibilitySnapshot = {
+  aiAnswersChecked: 0,
+  aiCitations: 0,
+  aiMentions: 0,
+  coveredNonBrandQueries: 0,
+  nonBrandQueries: 0
+};
+
+/** 최신 GEO 리포트(주간 배치)를 개요 KPI 모양으로. 권한 누락·리포트 없음이면 0. */
+async function loadLatestGeoSnapshot(siteId: string): Promise<GeoVisibilitySnapshot> {
+  const { getSiteGeoVisibility } = await import("./site-database");
+  const latest = await getSiteGeoVisibility(siteId).then(
+    (geo) => geo?.reports[0],
+    () => undefined,
+  );
+  if (latest === undefined) {
+    return emptyGeoSnapshot;
+  }
+  const answers = latest.observations.length;
+  return {
+    ...emptyGeoSnapshot,
+    aiAnswersChecked: answers,
+    aiCitations: Math.round((latest.citationRate / 100) * answers),
+    aiMentions: Math.round((latest.mentionRate / 100) * answers)
   };
 }
 

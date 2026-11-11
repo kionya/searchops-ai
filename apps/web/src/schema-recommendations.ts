@@ -19,6 +19,7 @@ import { formatStatusLabel } from "./korean-labels";
 import { getSiteSnapshot } from "./site-database";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
+import { formatKstDateTime } from "./data-freshness";
 
 export type SchemaRecommendationDashboardSource = "api" | "database" | "fixture";
 export type SchemaRecommendationRecheckStatus = "failed" | "fixture" | "not_resolved" | "resolved";
@@ -559,7 +560,7 @@ export function formatSchemaRecommendationStatus(status: SchemaRecommendationSta
 }
 
 export function formatSchemaRecommendationDate(isoDate: string) {
-  return isoDate.replace("T", " ").slice(0, 16);
+  return formatKstDateTime(isoDate);
 }
 
 export function createResolvedSchemaSnapshot(
