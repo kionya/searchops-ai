@@ -154,11 +154,11 @@ export default async function GeoPage({ params, searchParams }: GeoPageProps) {
           <span
             style={{
               ...pillStyle,
-              background: dashboard.source === "api" ? "#ecfdf5" : "#eef2ff",
-              color: dashboard.source === "api" ? "#047857" : "#3730a3"
+              background: dashboard.source === "fixture" ? "#eef2ff" : "#ecfdf5",
+              color: dashboard.source === "fixture" ? "#3730a3" : "#047857"
             }}
           >
-            {dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
+            {dashboard.source === "database" ? "실데이터 (DB 직접)" : dashboard.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div className="searchops-table-scroll">

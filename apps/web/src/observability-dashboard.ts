@@ -6,6 +6,7 @@ import {
 
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { formatKstDateTime } from "./data-freshness";
 
 export type ObservabilityDashboardSource = "api" | "fixture";
 export type ObservabilityAlertTone = "critical" | "info" | "warning";
@@ -125,7 +126,7 @@ export function getObservabilityAlertTone(alert: OperationalAlert): Observabilit
 }
 
 export function formatOperationalDate(isoDate: string) {
-  return isoDate.replace("T", " ").slice(0, 16);
+  return formatKstDateTime(isoDate);
 }
 
 export function formatOperationalSeverity(severity: string) {

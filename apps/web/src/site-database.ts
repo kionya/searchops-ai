@@ -1,6 +1,11 @@
 import { cache } from "react";
 
-import type { SiteDashboardSnapshot } from "@searchops/db";
+import type {
+  SiteConnectorSyncHistory,
+  SiteDashboardSnapshot,
+  SiteDataFreshness,
+  SiteGeoVisibility
+} from "@searchops/db";
 import type { Site, WorkOrderStatus } from "@searchops/types";
 
 import { getCurrentProviderUser } from "./provider-accounts";
@@ -212,6 +217,45 @@ export const getSiteSnapshot = cache(
     const { db, prisma } = await getDb();
     return db.loadSiteDashboardSnapshot(prisma, { organizationId, siteId });
   },
+);
+
+/**
+ * 스냅샷 밖 읽기 셋. 조직 대조는 각각 @searchops/db 안에서 한다(getSiteSnapshot 과 같은 계약).
+ * 스냅샷과 테이블 GRANT 가 따로라, 권한이 빠지면 호출부가 그 패널만 실패로 그린다.
+ */
+async function readScoped<T>(
+  read: (
+    db: Awaited<ReturnType<typeof getDb>>["db"],
+    prisma: Awaited<ReturnType<typeof getDb>>["prisma"],
+    organizationId: string,
+  ) => Promise<T | null>,
+): Promise<T | null> {
+  if (!isDirectDatabaseMode()) {
+    return null;
+  }
+  let organizationId: string;
+  try {
+    organizationId = (await getCurrentProviderUser()).organizationId;
+  } catch {
+    return null;
+  }
+  const { db, prisma } = await getDb();
+  return read(db, prisma, organizationId);
+}
+
+export const getSiteDataFreshness = cache(
+  (siteId: string): Promise<SiteDataFreshness | null> =>
+    readScoped((db, prisma, organizationId) => db.loadSiteDataFreshness(prisma, { organizationId, siteId })),
+);
+
+export const getSiteConnectorSyncHistory = cache(
+  (siteId: string): Promise<SiteConnectorSyncHistory | null> =>
+    readScoped((db, prisma, organizationId) => db.loadSiteConnectorSyncHistory(prisma, { organizationId, siteId })),
+);
+
+export const getSiteGeoVisibility = cache(
+  (siteId: string): Promise<SiteGeoVisibility | null> =>
+    readScoped((db, prisma, organizationId) => db.loadSiteGeoVisibility(prisma, { organizationId, siteId })),
 );
 
 export const getOrganizationSites = cache(async (): Promise<readonly Site[] | null> => {

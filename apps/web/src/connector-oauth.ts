@@ -9,6 +9,7 @@ import { apiFetchAsUser } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import type { ProviderUserContext } from "./provider-accounts";
 import { demoSite } from "./work-order-board";
+import { formatKstDateTime } from "./data-freshness";
 
 export type ConnectorOAuthSource = "api" | "fixture";
 export type ConnectorOAuthTone = "connected" | "missing" | "risk";
@@ -176,5 +177,5 @@ export function formatConnectorOAuthDate(isoDate: string | null) {
     return "없음";
   }
 
-  return isoDate.replace("T", " ").slice(0, 16);
+  return formatKstDateTime(isoDate);
 }

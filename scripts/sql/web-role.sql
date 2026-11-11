@@ -57,7 +57,13 @@ grant select on
   public."UrlRecord",
   public."SeoIssue",
   public."WorkOrder",
-  public."SchemaRecommendation"
+  public."SchemaRecommendation",
+  -- 2026-11-11 추가: 데이터 반영 현황·커넥터 이력·GEO 화면을 API 없이 그린다.
+  -- 결과 행은 동기화된 지표뿐이고 자격증명은 없다(ProviderAccount·ConnectorOAuthCredential 은 여전히 닫혀 있다).
+  public."ConnectorSyncRun",
+  public."ConnectorSyncResult",
+  public."GeoVisibilityReport",
+  public."AeoReadinessReport"
 to searchops_web;
 
 -- 로그인한 사용자의 조직 소속을 확인하는 데만 쓴다(findUserMembershipByEmail).

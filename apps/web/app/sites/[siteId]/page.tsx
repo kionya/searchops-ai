@@ -57,7 +57,6 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
         }}
       >
         {overview.source === "database" ? "실데이터 (DB 직접)" : "데모 데이터"}
-        {overview.source === "database" ? " · GEO 지표는 수집 전이라 0입니다" : ""}
       </p>
       {initialCrawlFeedback ? (
         <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
@@ -97,9 +96,11 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
         </div>
       </section>
       <WorkOrderSummaryBand siteId={siteId} summary={workOrderSummary} />
-      <p style={{ color: "var(--so-muted)", fontSize: 14, marginTop: 14 }}>
-        실시간 API 조회가 연결되기 전까지 KPI 값은 {site.domain} 기준의 결정론적 fixture 데이터를 사용합니다.
-      </p>
+      {overview.source === "database" ? null : (
+        <p style={{ color: "var(--so-muted)", fontSize: 14, marginTop: 14 }}>
+          실데이터 경로가 없어 KPI 값은 {site.domain} 기준의 결정론적 fixture 데이터를 사용합니다.
+        </p>
+      )}
     </section>
   );
 }
@@ -202,14 +203,14 @@ function kpiCards(kpis: SiteOverviewKpis) {
     {
       label: "AI 언급률",
       value: kpis.aiMentionRate,
-      detail: "AI 답변 내 브랜드 언급률 자리표시자입니다.",
-      tone: "placeholder"
+      detail: "최근 GEO 리포트에서 AI 답변이 브랜드를 언급한 비율입니다.",
+      tone: "neutral"
     },
     {
       label: "AI 인용률",
       value: kpis.aiCitationRate,
-      detail: "AI 답변 내 URL 인용률 자리표시자입니다.",
-      tone: "placeholder"
+      detail: "최근 GEO 리포트에서 AI 답변이 우리 URL을 인용한 비율입니다.",
+      tone: "neutral"
     }
   ] as const;
 }

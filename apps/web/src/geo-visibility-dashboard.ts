@@ -18,13 +18,15 @@ import {
 } from "@searchops/types";
 
 import { apiFetch } from "./api-client";
+import { getSiteGeoVisibility } from "./site-database";
 import { getApiBaseUrl } from "./api-base-url";
 import { type ConnectorSyncHistoryData } from "./connector-sync-history";
 import { formatStatusLabel } from "./korean-labels";
 import { scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
+import { formatKstDateTime } from "./data-freshness";
 
-export type GeoVisibilityDashboardSource = "api" | "fixture";
+export type GeoVisibilityDashboardSource = "api" | "database" | "fixture";
 export type GeoVisibilityTone = "good" | "neutral" | "risk";
 export type GeoVisibilityCreateStatus = "created" | "failed" | "fixture";
 export type GeoAnswerMonitorQueueStatus = "failed" | "fixture" | "queued";
@@ -217,6 +219,18 @@ export const demoGeoVisibilityReports: GeoVisibilityReportRecord[] = [
 export async function loadGeoVisibilityDashboard(
   site: Site,
 ): Promise<GeoVisibilityDashboardData> {
+  // 직접 DB 모드면 주간 배치가 쓴 리포트를 DB 에서 바로 읽는다(API 미경유).
+  try {
+    const geo = await getSiteGeoVisibility(site.id);
+    if (geo !== null) {
+      return { errorMessage: null, reports: geo.reports, source: "database" };
+    }
+  } catch {
+    return {
+      ...createDemoGeoVisibilityDashboard(site),
+      errorMessage: "GEO 리포트를 DB 에서 읽지 못했습니다. 웹 DB 역할의 읽기 권한을 확인하세요."
+    };
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return createDemoGeoVisibilityDashboard(site);
@@ -250,6 +264,14 @@ export async function loadGeoVisibilityDashboard(
 
 /** T3: 주간 배치 run 추세. API 가 없거나 실패하면 빈 배열(스파크라인 숨김). */
 export async function loadGeoVisibilityTrend(site: Site, runs = 12): Promise<GeoVisibilityTrendPoint[]> {
+  try {
+    const geo = await getSiteGeoVisibility(site.id);
+    if (geo !== null) {
+      return geo.trend.slice(-runs);
+    }
+  } catch {
+    return [];
+  }
   const apiBaseUrl = getApiBaseUrl();
   if (apiBaseUrl === null) {
     return [];
@@ -785,7 +807,7 @@ export function formatGeoLiveShare(liveShare: number | undefined) {
 }
 
 export function formatGeoDate(isoDate: string) {
-  return isoDate.replace("T", " ").slice(0, 16);
+  return formatKstDateTime(isoDate);
 }
 
 export function formatGeoWorkOrderCandidatePriority(

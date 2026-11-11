@@ -683,7 +683,7 @@ describe("web foundation", () => {
     });
     expect(getDeadLetterStatusTone("active")).toBe("running");
     expect(getDeadLetterStatusTone("completed")).toBe("done");
-    expect(formatDeadLetterDate("2026-05-25T00:00:00.000Z")).toBe("2026-05-25 00:00");
+    expect(formatDeadLetterDate("2026-05-25T00:00:00.000Z")).toBe("2026-05-25 09:00") // KST;
   });
 
   it("loads dead-letter operations through the API response contract", async () => {
@@ -777,7 +777,7 @@ describe("web foundation", () => {
     });
     expect(dashboard.source).toBe("fixture");
     expect(getObservabilityAlertTone(demoOperationalMetricsExport.alerts[0]!)).toBe("critical");
-    expect(formatOperationalDate("2026-05-26T00:00:00.000Z")).toBe("2026-05-26 00:00");
+    expect(formatOperationalDate("2026-05-26T00:00:00.000Z")).toBe("2026-05-26 09:00") // KST;
     expect(formatUptime(125)).toBe("2분 5초");
   });
 
@@ -1038,7 +1038,7 @@ describe("web foundation", () => {
     expect(getGeoVisibilityStatusTone("not_visible")).toBe("risk");
     expect(formatGeoStatus("not_visible")).toBe("미노출");
     expect(formatGeoProvider("chatgpt")).toBe("ChatGPT");
-    expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 00:00");
+    expect(formatGeoDate("2026-05-24T00:00:00.000Z")).toBe("2026-05-24 09:00") // KST;
     expect(buildSparklinePoints([])).toBe("");
     expect(buildSparklinePoints([50])).toBe("0,14");
     expect(buildSparklinePoints([0, 100, 50], 100, 20)).toBe("0,20 50,0 100,10");
@@ -1389,7 +1389,7 @@ describe("web foundation", () => {
       totalFaqQuestions: 3
     });
     expect(getContentBriefStatusTone("draft")).toBe("draft");
-    expect(formatContentBriefDate("2026-05-23T00:00:00.000Z")).toBe("2026-05-23 00:00");
+    expect(formatContentBriefDate("2026-05-23T00:00:00.000Z")).toBe("2026-05-23 09:00") // KST;
   });
 
   it("loads content brief history through the API response contract", async () => {

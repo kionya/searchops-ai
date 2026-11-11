@@ -9,6 +9,7 @@ import {
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
 import { defaultOrganizationId } from "./site-registry";
+import { formatKstDateTime } from "./data-freshness";
 
 export type InviteOperationsSource = "api" | "fixture";
 export type InviteWriteStatus = "ok" | "failed" | "fixture" | "conflict" | "not_found";
@@ -229,5 +230,5 @@ export function getInviteRevokeFeedback(
 }
 
 export function formatInviteDate(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "-";
+  return isoDate ? formatKstDateTime(isoDate) : "-";
 }

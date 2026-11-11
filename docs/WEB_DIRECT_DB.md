@@ -121,12 +121,21 @@ alter  role searchops_web login password '<비밀번호>';  -- 이미 있던 경
 grant usage on schema public to searchops_web;
 grant select on
   public."Site", public."CrawlRun", public."UrlRecord",
-  public."SeoIssue", public."WorkOrder", public."SchemaRecommendation"
+  public."SeoIssue", public."WorkOrder", public."SchemaRecommendation",
+  public."ConnectorSyncRun", public."ConnectorSyncResult",
+  public."GeoVisibilityReport", public."AeoReadinessReport"
 to searchops_web;
 grant select ("id", "organizationId", "email", "role") on public."User" to searchops_web;
 grant insert on public."Site" to searchops_web;
 grant update ("status", "updatedAt") on public."WorkOrder" to searchops_web;
 alter default privileges in schema public revoke all on tables from searchops_web;
+```
+
+**이미 역할이 있다면(2026-11-11 이전 설치)** 아래 한 문장만 추가로 실행하면 된다 — 데이터 반영 현황·커넥터 이력·GEO 화면이 이 테이블을 읽는다. 빠져 있으면 그 패널만 "읽기 권한을 확인하세요" 로 뜨고 나머지 화면은 그대로 동작한다.
+
+```sql
+grant select on public."ConnectorSyncRun", public."ConnectorSyncResult",
+  public."GeoVisibilityReport", public."AeoReadinessReport" to searchops_web;
 ```
 
 `create role` 이 "already exists" 로 실패해도 그 줄만 건너뛰고 나머지를 실행하면 된다 — `alter role` 이 비밀번호를 어차피 다시 설정한다.

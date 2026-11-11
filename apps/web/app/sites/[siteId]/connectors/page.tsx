@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import type {
   ConnectorLiveSetupCheck,
+  ConnectorSyncRun,
   ProviderAccountSummary,
   SiteConnector,
   SiteConnectorProvider,
@@ -28,13 +29,11 @@ import {
   createGoogleOAuthStartPath,
 } from "../../../../src/connector-oauth";
 import {
-  connectorProviderOptions,
   formatConnectorProvider,
   formatConnectorProviders,
   formatSyncDuration,
   summarizeConnectorCommandCenter,
   summarizeConnectorOperations,
-  getConnectorSyncTriggerFeedback,
   getConnectorSyncResultTone,
   getConnectorSyncRunErrorMessage,
   getConnectorSyncRunProviderErrorMessages,
@@ -49,20 +48,16 @@ import {
 import { loadProtectedConnectorPageData } from "../../../../src/connector-page-data";
 import {
   canManageProviderAccounts,
-  canRunConnectorSync,
   filterGoogleProviderAccounts,
   formatProviderAccountProvider,
   getCurrentProviderUser,
 } from "../../../../src/provider-accounts";
 import {
   deleteSiteConnectorAction,
-  runConnectorSyncAction,
   saveSiteConnectorAction,
 } from "./actions";
 import {
   ConnectorBindingSubmitButton,
-  ConnectorSyncSubmitButton,
-  ProviderSyncSubmitButton,
 } from "./submit-button";
 import bindingStyles from "./bindings.module.css";
 
@@ -111,12 +106,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
   const commandSummary = summarizeConnectorCommandCenter(operationGuidance);
   const allResults = Object.values(history.resultsByRunId).flat();
   const runsById = new Map(history.runs.map((run) => [run.id, run]));
-  const triggerFeedback = getConnectorSyncTriggerFeedback(
-    triggerSearchParams.sync,
-    triggerSearchParams.runId,
-  );
   const canManageBindings = canManageProviderAccounts(userContext.role);
-  const canRunSync = canRunConnectorSync(userContext.role);
 
   return (
     <section aria-label="커넥터 커맨드 센터">
@@ -133,11 +123,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         pageSpeedCheck={pageSpeedSetupCheck}
         summary={summary}
       />
-      <ConnectorOperationsPanel
-        canRunSync={canRunSync}
-        operations={operationGuidance}
-        siteId={siteId}
-      />
+      <ConnectorOperationsPanel operations={operationGuidance} />
       <ProviderBindingsPanel
         accounts={pageData.accounts}
         bindingStatus={triggerSearchParams.binding}
@@ -161,11 +147,7 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
         pageSpeedCheck={pageSpeedSetupCheck}
         source={liveSetupData.source}
       />
-      <ConnectorSyncTriggerPanel
-        canRunSync={canRunSync}
-        siteId={siteId}
-        triggerFeedback={triggerFeedback}
-      />
+      <AutoSyncStatusPanel latestRun={history.runs[0] ?? null} />
       <section aria-label="커넥터 동기화 실행" className="searchops-table-section">
         <header className="searchops-table-head">
           <div>
@@ -177,18 +159,18 @@ export default async function ConnectorsPage({ params, searchParams }: Connector
             </p>
             {history.errorMessage ? (
               <p style={{ color: "#b91c1c", fontSize: 14, margin: "6px 0 0" }}>
-                API 연결 실패: {history.errorMessage}
+                {history.errorMessage}
               </p>
             ) : null}
           </div>
           <span
             style={{
               ...pillStyle,
-              background: history.source === "api" ? "#ecfdf5" : "#eef2ff",
-              color: history.source === "api" ? "#047857" : "#3730a3"
+              background: history.source === "fixture" ? "#eef2ff" : "#ecfdf5",
+              color: history.source === "fixture" ? "#3730a3" : "#047857"
             }}
           >
-            {history.source === "api" ? "API 데이터" : "데모 데이터"}
+            {history.source === "database" ? "실데이터 (DB 직접)" : history.source === "api" ? "API 데이터" : "데모 데이터"}
           </span>
         </header>
         <div className="searchops-table-scroll">
@@ -366,11 +348,11 @@ function ConnectorCommandCenterPanel({
           <span
             style={{
               ...pillStyle,
-              background: historySource === "api" ? "#ecfdf5" : "#eef2ff",
-              color: historySource === "api" ? "#047857" : "#3730a3"
+              background: historySource === "fixture" ? "#eef2ff" : "#ecfdf5",
+              color: historySource === "fixture" ? "#3730a3" : "#047857"
             }}
           >
-            {historySource === "api" ? "Sync API 데이터" : "Sync 데모 데이터"}
+            {historySource === "database" ? "Sync 실데이터 (DB)" : historySource === "api" ? "Sync API 데이터" : "Sync 데모 데이터"}
           </span>
           <span
             style={{
@@ -413,15 +395,10 @@ function ConnectorCommandCenterPanel({
 }
 
 function ConnectorOperationsPanel({
-  canRunSync,
-  operations,
-  siteId
+  operations
 }: {
-  readonly canRunSync: boolean;
   readonly operations: readonly ConnectorOperationGuidance[];
-  readonly siteId: string;
 }) {
-  const action = runConnectorSyncAction.bind(null, siteId);
 
   return (
     <section aria-label="Provider 운영 상태" style={providerCommandSectionStyle}>
@@ -429,7 +406,7 @@ function ConnectorOperationsPanel({
         <div>
           <h3 style={{ fontSize: 18, margin: 0 }}>Provider command cards</h3>
           <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
-            Provider별 최근 결과, 기록 수, 다음 조치를 확인하고 단독 실행합니다.
+            Provider별 최근 결과, 기록 수, 다음 조치를 확인합니다. 동기화는 매일 03시(KST) 배치가 자동으로 합니다.
           </p>
         </div>
       </header>
@@ -456,16 +433,9 @@ function ConnectorOperationsPanel({
             <p style={{ color: "var(--so-muted)", fontSize: 13, lineHeight: 1.45, margin: "6px 0 0" }}>
               {item.nextAction}
             </p>
-            {canRunSync ? (
-              <form action={action} style={{ marginTop: 14 }}>
-                <input name="providers" type="hidden" value={item.provider} />
-                <ProviderSyncSubmitButton label={item.retryLabel} style={providerCardButtonStyle} />
-              </form>
-            ) : (
-              <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 14 }}>
-                조회 전용
-              </span>
-            )}
+            <span style={{ ...mutedTextStyle, display: "block", fontSize: 13, marginTop: 14 }}>
+              매일 03시(KST) 자동 동기화
+            </span>
           </article>
         ))}
       </div>
@@ -773,59 +743,24 @@ function formatSiteConnectorStatus(status: SiteConnector["status"]): string {
   }[status];
 }
 
-function ConnectorSyncTriggerPanel({
-  canRunSync,
-  siteId,
-  triggerFeedback
-}: {
-  readonly canRunSync: boolean;
-  readonly siteId: string;
-  readonly triggerFeedback: ReturnType<typeof getConnectorSyncTriggerFeedback>;
-}) {
-  const action = runConnectorSyncAction.bind(null, siteId);
-
+// "지금 동기화" 버튼을 없앴다. 버튼은 BullMQ 큐에 넣기만 하는데 큐를 소비할 워커가 어디에도
+// 떠 있지 않아 작업이 영원히 queued 로 남았다(docs/API_DEPLOYMENT.md "즉시 동기화").
+// 실제 동기화는 batch-crawl 워크플로가 매일 한다. 워커를 띄우면 버튼을 되살려라.
+function AutoSyncStatusPanel({ latestRun }: { readonly latestRun: ConnectorSyncRun | null }) {
   return (
-    <section aria-label="커넥터 동기화 실행" style={triggerPanelStyle}>
+    <section aria-label="커넥터 자동 동기화" style={triggerPanelStyle}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>커넥터 동기화 실행</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>자동 동기화</h3>
         <p style={{ ...mutedTextStyle, fontSize: 14, marginTop: 6 }}>
-          선택한 provider에 대해 결정론적 데모 기반 동기화 작업을 대기열에 등록합니다.
+          매일 03시(KST) 배치가 GA4·Search Console·PageSpeed·Bing 을 자동으로 동기화합니다.
+          {latestRun === null
+            ? " 아직 동기화 기록이 없습니다."
+            : ` 마지막 실행: ${formatDateTime(latestRun.startedAt)} (${formatStatusLabel(latestRun.status)}).`}
         </p>
-        {triggerFeedback ? (
-          <p style={{ ...triggerFeedbackStyle[triggerFeedback.tone], margin: "10px 0 0" }}>
-            {triggerFeedback.message}
-          </p>
-        ) : null}
+        <p style={{ ...mutedTextStyle, fontSize: 13, margin: "6px 0 0" }}>
+          즉시 동기화가 필요하면 GitHub Actions 의 batch-crawl 워크플로를 수동 실행하세요.
+        </p>
       </div>
-      {canRunSync ? (
-        <>
-          <form action={action} style={triggerFormStyle}>
-            <fieldset style={providerFieldsetStyle}>
-              <legend style={providerLegendStyle}>Provider</legend>
-              {connectorProviderOptions.map((provider) => (
-                <label key={provider} style={providerOptionStyle}>
-                  <input defaultChecked name="providers" type="checkbox" value={provider} />
-                  <span>{formatConnectorProvider(provider)}</span>
-                </label>
-              ))}
-            </fieldset>
-            <ConnectorSyncSubmitButton />
-          </form>
-          <div style={quickProviderActionsStyle}>
-            {connectorProviderOptions.map((provider) => (
-              <form action={action} key={provider}>
-                <input name="providers" type="hidden" value={provider} />
-                <ProviderSyncSubmitButton
-                  label={`${formatConnectorProvider(provider)}만 실행`}
-                  style={quickProviderButtonStyle}
-                />
-              </form>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p style={{ ...mutedTextStyle, fontSize: 14, margin: 0 }}>조회 전용</p>
-      )}
     </section>
   );
 }
@@ -1112,81 +1047,10 @@ const triggerPanelStyle = {
   padding: 16
 } as const;
 
-const triggerFormStyle = {
-  alignItems: "end",
-  display: "grid",
-  gap: 12,
-  justifyItems: "end"
-} as const;
 
-const quickProviderActionsStyle = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 8,
-  gridColumn: "1 / -1",
-  justifyContent: "end"
-} as const;
 
-const quickProviderButtonStyle = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ef",
-  borderRadius: 8,
-  color: "var(--so-ink)",
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 700,
-  minHeight: 32,
-  padding: "6px 10px"
-} as const;
 
-const providerCardButtonStyle = {
-  ...quickProviderButtonStyle,
-  width: "100%"
-} as const;
 
-const providerFieldsetStyle = {
-  border: 0,
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 8,
-  justifyContent: "end",
-  margin: 0,
-  maxWidth: 420,
-  padding: 0
-} as const;
 
-const providerLegendStyle = {
-  color: "var(--so-muted)",
-  fontSize: 13,
-  fontWeight: 700,
-  marginBottom: 8,
-  width: "100%"
-} as const;
 
-const providerOptionStyle = {
-  alignItems: "center",
-  border: "1px solid #dbe4ef",
-  borderRadius: 8,
-  color: "var(--so-ink)",
-  display: "inline-flex",
-  fontSize: 14,
-  fontWeight: 700,
-  gap: 6,
-  minHeight: 34,
-  padding: "7px 9px"
-} as const;
 
-const triggerFeedbackStyle = {
-  info: {
-    color: "#3730a3",
-    fontSize: 14
-  },
-  success: {
-    color: "#047857",
-    fontSize: 14
-  },
-  warning: {
-    color: "#b91c1c",
-    fontSize: 14
-  }
-} as const;

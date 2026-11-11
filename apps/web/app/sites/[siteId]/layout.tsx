@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { getApiBaseUrl } from "../../../src/api-base-url";
+import { DataFreshnessPanel } from "../../../src/data-freshness-panel";
 import {
   loadDashboardSiteAsUser,
   resolveDashboardSite,
@@ -42,5 +43,10 @@ export default async function SiteDashboardLayout({ children, params }: SiteDash
     );
   }
 
-  return <SiteDashboardFrame site={site}>{children}</SiteDashboardFrame>;
+  return (
+    <SiteDashboardFrame site={site}>
+      <DataFreshnessPanel siteId={site.id} />
+      {children}
+    </SiteDashboardFrame>
+  );
 }

@@ -14,6 +14,7 @@ import { getApiBaseUrl } from "./api-base-url";
 import { formatGenerationModeLabel, formatIntentLabel, formatPublishPolicyLabel, formatStatusLabel } from "./korean-labels";
 import { getFixtureSite, getFixtureSiteId, scopeDemoFixtureToSite } from "./site-fixture-scope";
 import { demoSite } from "./work-order-board";
+import { formatKstDateTime } from "./data-freshness";
 
 export type ContentBriefHistorySource = "api" | "fixture";
 export type ContentBriefCreateStatus = "created" | "failed" | "fixture";
@@ -298,7 +299,7 @@ export function formatContentBriefPublishPolicy(policy: string | null | undefine
 }
 
 export function formatContentBriefDate(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "시간 정보 없음";
+  return isoDate ? formatKstDateTime(isoDate) : "시간 정보 없음";
 }
 
 

@@ -9,6 +9,7 @@ import {
 
 import { apiFetch } from "./api-client";
 import { getApiBaseUrl } from "./api-base-url";
+import { formatKstDateTime } from "./data-freshness";
 
 export type DeadLetterOperationsSource = "api" | "fixture";
 export type DeadLetterClearStatus = "cleared" | "failed" | "fixture";
@@ -356,7 +357,7 @@ export function getDeadLetterStatusTone(status: DeadLetterJobStatus): DeadLetter
 }
 
 export function formatDeadLetterDate(isoDate: string | null) {
-  return isoDate ? isoDate.replace("T", " ").slice(0, 16) : "대기 중";
+  return isoDate ? formatKstDateTime(isoDate) : "대기 중";
 }
 
 function normalizeDeadLetterPlanToken(value: string) {
