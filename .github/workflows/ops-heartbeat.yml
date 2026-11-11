@@ -1,9 +1,11 @@
 name: ops-heartbeat
 
-# 운영 가동 감지 + fire-on-read 알림 구동.
-# 1) GET /health 가 200 인지 확인 (프로세스 다운 감지 → 실패 시 GitHub 알림)
-# 2) HS256 시크릿으로 단명(5분) owner 토큰을 발급해 GET /ops/metrics-export 호출
-#    → 어댑터의 fire-on-read 알림 평가/발송을 주기적으로 구동
+# 운영 API(Render) 가동 감지. GET /health 가 200 이 아니면 실패 → GitHub 실패 알림 메일.
+#
+# 2026-11-11: 예전 2단계(HS256 토큰으로 /ops/metrics-export 호출)는 뺐다. Render API 는
+# SEARCHOPS_IDP_JWKS_JSON(Supabase) 로 검증해 HS256 토큰을 받지 않으므로 매번 401 이었고,
+# 알림 웹훅(SEARCHOPS_OBSERVABILITY_ALERT_WEBHOOK_URL)도 설정돼 있지 않아 구동할 대상이 없다.
+# 웹훅을 붙이면 JWKS 로 통과하는 토큰 경로와 함께 되살려라(git 기록에 원본이 있다).
 # 주의: schedule 워크플로는 기본 브랜치(main)에서만 동작하며, GitHub 부하에 따라
 #       수 분 지연될 수 있고 60일 무활동 시 비활성화될 수 있음.
 
@@ -23,14 +25,12 @@ jobs:
   heartbeat:
     runs-on: ubuntu-latest
     env:
-      # 배포 대상 URL. Railway 중단 후 Oracle VM 으로 이전 중이라 하드코딩하지 않는다.
+      # 배포 대상 URL(현재 https://searchops-api.onrender.com). 호스트를 옮길 수 있어 하드코딩하지 않는다.
       #   gh variable set SEARCHOPS_API_BASE --repo kionya/searchops-ai --body 'https://<host>'
       # 미설정이면 배포 전으로 보고 조용히 건너뛴다(죽은 URL 을 5분마다 두드리지 않기 위해).
       API_BASE: ${{ vars.SEARCHOPS_API_BASE }}
     steps:
-      - name: Probe /health (liveness) + drive fire-on-read alerts
-        env:
-          SECRET: ${{ secrets.SEARCHOPS_IDP_JWT_HS256_SECRET }}
+      - name: Probe /health (liveness)
         run: |
           set -euo pipefail
 
@@ -39,29 +39,17 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${SECRET:-}" ]; then
-            echo "::error::SEARCHOPS_IDP_JWT_HS256_SECRET repo secret 미설정"
-            exit 1
-          fi
-
-          # 1) 프로세스 다운 감지: /health 는 정적 {ok:true} 200 (DB/Redis 검사 안 함)
-          h=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$API_BASE/health" || echo "000")
-          echo "health=$h"
-          if [ "$h" != "200" ]; then
-            echo "::error::API /health 비정상 (got $h) — 프로세스 다운/네트워크 장애 의심"
-            exit 1
-          fi
-
-          # 2) fire-on-read 구동용 단명 owner 토큰 발급 (issue-token.mjs 와 동일 클레임)
-          TOKEN=$(SECRET="$SECRET" node -e 'const{createHmac}=require("crypto");const s=process.env.SECRET;const seg=o=>Buffer.from(JSON.stringify(o)).toString("base64url");const now=Math.floor(Date.now()/1e3);const head=seg({alg:"HS256",typ:"JWT"});const pay=seg({sub:"ci_heartbeat",organization_id:"org_demo",role:"owner",exp:now+300});const data=head+"."+pay;const sig=createHmac("sha256",s).update(data).digest("base64url");process.stdout.write(data+"."+sig)')
-          echo "::add-mask::$TOKEN"
-
-          # 3) /ops/metrics-export 호출 → 5xx/429/dead-letter 조건 평가 + 알림 웹훅 발송 구동
-          m=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -H "Authorization: Bearer $TOKEN" "$API_BASE/ops/metrics-export" || echo "000")
-          echo "metrics-export=$m"
-          if [ "$m" != "200" ]; then
-            echo "::error::/ops/metrics-export 비정상 (got $m) — 인증/엔진/웹훅 전달 실패 의심"
-            exit 1
-          fi
-
-          echo "ops-heartbeat ok: health=$h metrics-export=$m"
+          # Render 무료 플랜은 유휴 15분 뒤 잠들고, 깨어나는 데 30~60초 걸린다(실측 30초+).
+          # 예약 실행은 GitHub 사정으로 몇 시간씩 벌어져 대부분 콜드스타트를 맞으므로
+          # 90초 기다리고 한 번 더 시도한다. 그래도 200 이 아니면 진짜 장애로 본다.
+          for attempt in 1 2; do
+            h=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "$API_BASE/health" || echo "000")
+            echo "attempt=$attempt health=$h"
+            if [ "$h" = "200" ]; then
+              echo "ops-heartbeat ok"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::API /health 비정상 (got $h) — 프로세스 다운/네트워크 장애 의심"
+          exit 1
