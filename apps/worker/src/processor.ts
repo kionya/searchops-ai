@@ -1176,6 +1176,9 @@ async function persistComplianceFromCrawlResult(
   }
 
   let evaluatedPageCount = 0;
+  // 고쳐진 페이지의 플래그 정리는 2xx 로 읽어 실제 검수한 페이지만, 차단 의심(1쪽 이하) 크롤은 빼고 한다.
+  // 건너뛴 페이지(본문 짧음·공통 블록뿐)는 이번에 검수하지 않았으므로 닫지 않는다.
+  const reconcileUrls: string[] = [];
   for (const [index, snapshot] of result.snapshots.entries()) {
     const page = payload.pages[index];
     if (page === undefined) {
@@ -1218,6 +1221,10 @@ async function persistComplianceFromCrawlResult(
           source: "crawl"
         }),
       );
+      const statusCode = page.statusCode;
+      if (result.snapshots.length > 1 && statusCode !== null && statusCode !== undefined && statusCode >= 200 && statusCode < 300) {
+        reconcileUrls.push(snapshot.url);
+      }
     } catch (error) {
       console.error(`[crawl-postprocess] 컴플라이언스 페이지 건너뜀: ${snapshot.url}`, error);
     }
@@ -1251,6 +1258,7 @@ async function persistComplianceFromCrawlResult(
 
   // 플래그를 만들 뿐이다. 승인·반려·게재 차단은 사람이 한다(draft-only).
   return persistComplianceFlags(complianceFlagClient, {
+    reconcileUrls,
     reports,
     siteId: result.siteId
   });
