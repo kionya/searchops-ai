@@ -190,7 +190,13 @@ export interface CrawlAnalysisPersistenceClient {
   };
   schemaRecommendation: {
     upsert(args: SchemaRecommendationUpsertArgs): Promise<unknown>;
+    updateMany(args: SchemaRecommendationResolveArgs): Promise<unknown>;
   };
+}
+
+export interface SchemaRecommendationResolveArgs {
+  data: { status: "resolved" | "open" };
+  where: { siteId: string; pageUrl: string; status: "open" | "resolved"; type: { notIn: string[] } | { in: string[] } };
 }
 
 export interface PersistCrawlAnalysisInput {
@@ -245,6 +251,9 @@ export function createPrismaCrawlAnalysisPersistenceClient(
     schemaRecommendation: {
       async upsert(args) {
         return prisma.schemaRecommendation.upsert(args);
+      },
+      async updateMany(args) {
+        return prisma.schemaRecommendation.updateMany(args);
       }
     },
     seoIssue: {
@@ -392,6 +401,19 @@ export async function persistCrawlAnalysisResult(
         }),
       );
       schemaRecommendationsUpserted += 1;
+    }
+    // 이번 크롤이 읽은 페이지에서 더 이상 나오지 않는 열린 추천은 고쳐진 것이다. converted·dismissed 는 사람 결정이라 두고,
+    // 크롤하지 않은 페이지(수집 한도 밖)의 추천도 건드리지 않는다.
+    const types = set.recommendations.map((recommendation) => recommendation.type);
+    await client.schemaRecommendation.updateMany({
+      data: { status: "resolved" },
+      where: { pageUrl: set.pageUrl, siteId: input.siteId, status: "open", type: { notIn: types } }
+    });
+    if (types.length > 0) {
+      await client.schemaRecommendation.updateMany({
+        data: { status: "open" },
+        where: { pageUrl: set.pageUrl, siteId: input.siteId, status: "resolved", type: { in: types } }
+      });
     }
   }
 

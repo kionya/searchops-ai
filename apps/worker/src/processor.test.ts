@@ -348,6 +348,9 @@ describe("processCrawlJob", () => {
         async upsert(args) {
           schemaRecommendationUpserts.push(args);
           return args;
+        },
+        async updateMany(args) {
+          return args;
         }
       }
     };
@@ -446,6 +449,9 @@ describe("processCrawlJob", () => {
       schemaRecommendation: {
         async upsert(args) {
           schemaRecommendationUpserts.push(args);
+          return args;
+        },
+        async updateMany(args) {
           return args;
         }
       }

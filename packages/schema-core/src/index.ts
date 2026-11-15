@@ -581,9 +581,7 @@ function visitJsonLdNode(value: unknown, foundTypes: Set<SchemaJsonLdType>) {
   }
 
   for (const typeValue of extractTypeValues(value["@type"])) {
-    const normalizedType = normalizeSchemaType(typeValue);
-
-    if (normalizedType) {
+    for (const normalizedType of normalizeSchemaTypes(typeValue)) {
       foundTypes.add(normalizedType);
     }
   }
@@ -605,14 +603,45 @@ function extractTypeValues(value: unknown): readonly string[] {
   return [];
 }
 
-function normalizeSchemaType(value: string): SchemaJsonLdType | null {
-  const cleaned = value
+// schema.org 하위 타입 → 지원 상위 타입. 하위 타입은 상위 타입 요건을 채운다(MedicalWebPage 는 WebPage).
+// ponytail: 실제로 본 타입만 둔다 — 새 하위 타입이 거짓 추천을 내면 여기에 한 줄 추가.
+const schemaParentTypes: Readonly<Record<string, readonly SchemaJsonLdType[]>> = {
+  aboutpage: ["WebPage"],
+  blogposting: ["Article"],
+  collectionpage: ["WebPage"],
+  contactpage: ["WebPage"],
+  dentist: ["LocalBusiness"],
+  faqpage: ["WebPage"],
+  hospital: ["LocalBusiness"],
+  itempage: ["WebPage"],
+  medicalbusiness: ["LocalBusiness"],
+  medicalclinic: ["LocalBusiness"],
+  medicalscholarlyarticle: ["Article"],
+  medicalwebpage: ["WebPage"],
+  newsarticle: ["Article"],
+  physician: ["LocalBusiness"],
+  profilepage: ["WebPage"],
+  qapage: ["WebPage"]
+};
+
+function normalizeSchemaTypes(value: string): readonly SchemaJsonLdType[] {
+  const own = normalizeSchemaType(value);
+  const parents = schemaParentTypes[schemaTypeName(value)?.toLowerCase() ?? ""] ?? [];
+  return own === null ? parents : [own, ...parents];
+}
+
+function schemaTypeName(value: string): string | undefined {
+  return value
     .trim()
     .replace(/^https?:\/\/schema\.org\//iu, "")
     .replace(/^schema:/iu, "")
     .split(/[#/]/u)
     .filter(Boolean)
     .at(-1);
+}
+
+function normalizeSchemaType(value: string): SchemaJsonLdType | null {
+  const cleaned = schemaTypeName(value);
 
   if (!cleaned) {
     return null;

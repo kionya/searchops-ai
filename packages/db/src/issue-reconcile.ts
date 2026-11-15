@@ -54,6 +54,12 @@ export interface IssueReconcileClient {
   closedLoopAuditEvent: {
     create(args: { data: AuditData }): Promise<unknown>;
   };
+  schemaRecommendation: {
+    updateMany(args: {
+      data: { status: "resolved" };
+      where: { siteId: string; pageUrl: { in: string[] }; status: "open" };
+    }): Promise<unknown>;
+  };
 }
 
 export function createPrismaIssueReconcileClient(prisma: SearchOpsPrismaClient): IssueReconcileClient {
@@ -147,6 +153,11 @@ export async function closeIssuesForGoneUrls(
   const issues = await client.seoIssue.findMany({
     include: { urlRecord: true, workOrders: true },
     where: { urlRecord: { siteId: input.siteId, url: { in: [...input.urls] } } }
+  });
+  // 사라진 주소의 JSON-LD 추천도 의미가 없다(converted·dismissed 는 사람 결정이라 둔다).
+  await client.schemaRecommendation.updateMany({
+    data: { status: "resolved" },
+    where: { pageUrl: { in: [...input.urls] }, siteId: input.siteId, status: "open" }
   });
   let closed = 0;
   for (const row of issues) {
