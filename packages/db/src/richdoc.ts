@@ -152,6 +152,24 @@ export function createRichdocContractBridge(
     }
   }
 
+  async function patch(table: string, filter: string, body: unknown) {
+    const response = await fetchImpl(`${baseUrl}/rest/v1/${table}?${filter}`, {
+      body: JSON.stringify(body),
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/json",
+        prefer: "return=minimal"
+      },
+      method: "PATCH",
+      signal: AbortSignal.timeout(requestTimeoutMs)
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`richdoc_patch_failed table=${table} status=${response.status} detail=${detail.slice(0, 300)}`);
+    }
+  }
+
   // includeStatus=false 면 status 를 payload 에서 빼 콘솔이 정한 상태를 보존한다.
   // 이슈가 status/first_seen 을 빼는 것과 같은 규칙이다. 계약의 지시서 상태값
   // (in_progress|applied)은 크롤러가 만들 수 없는 값이라 사람이 콘솔에서 정한다.
@@ -269,6 +287,19 @@ export function createRichdocContractBridge(
           });
         }
         await upsert("searchops_issues", "site,page_url,rule_id", [...issueRows.values()]);
+
+        // 이번 완료 수집에서 다시 안 보인 open 이슈는 fixed 로 닫는다 — 안 그러면 사라진 이슈가
+        // 콘솔 '미해결'에 영원히 쌓인다(2026-11-15 39건 중 35건이 지난 기록). 사람이 옮긴 상태
+        // (in_order 등)는 건드리지 않는다. 실패·0페이지 수집이면 안 본 페이지를 해결로 오판하므로 건너뛴다.
+        const pages = readNumber(crawlRun.summary, "pagesProcessed") ?? 0;
+        if (toRichdocRunStatus(crawlRun.status) === "done" && pages > 0) {
+          const seenAt = (crawlRun.endedAt ?? crawlRun.startedAt).toISOString();
+          await patch(
+            "searchops_issues",
+            `site=eq.${encodeURIComponent(domain)}&status=eq.open&last_seen=lt.${encodeURIComponent(seenAt)}`,
+            { status: "fixed" },
+          );
+        }
 
         // 크롤 경로는 상태를 보내지 않는다 — 매일 도는 이 경로가 콘솔 상태를 덮으면
         // 사람이 in_progress 로 옮긴 지시서가 다음 날 아침 open 으로 되돌아간다.

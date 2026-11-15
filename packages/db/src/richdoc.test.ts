@@ -13,6 +13,7 @@ import type { SearchOpsPrismaClient } from "./client.js";
 interface CapturedRequest {
   readonly body: unknown;
   readonly headers: Record<string, string>;
+  readonly method: string | undefined;
   readonly url: string;
 }
 
@@ -22,6 +23,7 @@ function createCapturingFetch(status = 201) {
     calls.push({
       body: JSON.parse(String(init?.body)),
       headers: { ...(init?.headers as Record<string, string>) },
+      method: init?.method,
       url: String(url)
     });
     return new Response(null, { status });
@@ -147,6 +149,17 @@ describe("contract value mapping", () => {
   });
 });
 
+describe("syncCrawlRun stale issues", () => {
+  it("does not close stale issues when the crawl failed or processed no pages", async () => {
+    for (const run of [{ ...crawlRunRow, status: "failed" }, { ...crawlRunRow, summary: { pagesProcessed: 0 } }]) {
+      const { calls, fetchImpl } = createCapturingFetch();
+      const { prisma } = createFakePrisma({ crawlRun: run, seoIssues: [], workOrders: [] });
+      await createBridge(prisma, fetchImpl).syncCrawlRun({ crawlRunId: "crawl-run-1", siteId: "site-1" });
+      expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+    }
+  });
+});
+
 describe("syncCrawlRun", () => {
   it("upserts run, issues and work orders for an allowlisted site", async () => {
     const { calls, fetchImpl } = createCapturingFetch();
@@ -177,8 +190,12 @@ describe("syncCrawlRun", () => {
     expect(calls.map((call) => call.url)).toEqual([
       "https://richdoc.supabase.co/rest/v1/searchops_runs?on_conflict=id",
       "https://richdoc.supabase.co/rest/v1/searchops_issues?on_conflict=site%2Cpage_url%2Crule_id",
+      "https://richdoc.supabase.co/rest/v1/searchops_issues?site=eq.gowoonmom.co.kr&status=eq.open&last_seen=lt.2026-08-15T01%3A10%3A00.000Z",
       "https://richdoc.supabase.co/rest/v1/searchops_work_orders?on_conflict=id"
     ]);
+    // 이번 완료 수집에서 다시 안 보인 open 이슈는 fixed 로 닫는다(지난 기록이 콘솔에 쌓이지 않게)
+    expect(calls[2]!.method).toBe("PATCH");
+    expect(calls[2]!.body).toEqual({ status: "fixed" });
     expect(calls[0]!.headers.authorization).toBe("Bearer service-key");
     expect(calls[0]!.headers.prefer).toBe("resolution=merge-duplicates,return=minimal");
 
@@ -216,7 +233,7 @@ describe("syncCrawlRun", () => {
     // 영원히 '오늘 만들어진 것'으로 보인다.
     // status 도 보내지 않는다 — 매일 도는 크롤이 콘솔에서 사람이 옮긴 진행 상태를
     // 되돌리면 안 된다. 이슈의 status/first_seen 과 같은 규칙이다.
-    expect(calls[2]!.body).toEqual([
+    expect(calls[3]!.body).toEqual([
       {
         id: richdocUuidFromId("wo:gowoonmom.co.kr:타이틀 누락 수정"),
         issue_count: 1,
