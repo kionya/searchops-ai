@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     summary: { crawledPages: 1, failedPages: 0 },
   })),
   readRichdocContract: vi.fn((): { siteIds: string[] } => ({ siteIds: [] })),
-  reconcileSiteIssues: vi.fn(async () => ({ ignored: 0, reopened: 0, resolved: 0, skipped: false })),
+  reconcileSiteIssues: vi.fn(async (_client: unknown, _input: unknown) => ({ ignored: 0, reopened: 0, resolved: 0, skipped: false })),
   siteFindMany: vi.fn(async (): Promise<{ archivedAt: Date | null; domain: string; id: string }[]> => [
     { archivedAt: null, domain: "keep.example", id: "site_keep" },
     { archivedAt: null, domain: "demo.example", id: "site_demo" },
