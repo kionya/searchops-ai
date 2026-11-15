@@ -15,6 +15,7 @@
     "@prisma/adapter-pg": "^6.19.3",
     "@searchops/db": "workspace:*",
     "@searchops/types": "workspace:*",
+    "@searchops/workorders": "workspace:*",
     "@supabase/ssr": "0.12.1",
     "@supabase/supabase-js": "2.110.3",
     "@types/node": "^22.15.18",

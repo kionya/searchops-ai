@@ -58,6 +58,13 @@ export default async function SiteOverviewPage({ params, searchParams }: SiteOve
       >
         {overview.source === "database" ? "실데이터 (DB 직접)" : "데모 데이터"}
       </p>
+      {overview.source === "database" ? (
+        <p style={{ margin: "0 0 14px" }}>
+          <Link className="searchops-button" href={`/sites/${siteId}/today`}>
+            오늘의 할 일 보기
+          </Link>
+        </p>
+      ) : null}
       {initialCrawlFeedback ? (
         <section className="searchops-registration-feedback info" style={{ marginBottom: 14 }}>
           <span>{initialCrawlFeedback.message}</span>
