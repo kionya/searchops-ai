@@ -414,6 +414,7 @@ describe("crawl persistence helpers", () => {
       schemaRecommendationSets: [
         { generatedBy: "deterministic", pageUrl: "https://example.com/fixed", recommendations: [], siteId: "site_1" }
       ],
+      schemaReconcilePageUrls: ["https://example.com/fixed", "https://example.com/a"],
       seoIssueWorkOrders: [],
       siteId: "site_1"
     });
@@ -462,6 +463,7 @@ describe("crawl persistence helpers", () => {
       schemaRecommendationSets: [
         { generatedBy: "deterministic", pageUrl: "https://example.com/a", recommendations: [recommendation], siteId: "site_1" }
       ],
+      schemaReconcilePageUrls: ["https://example.com/fixed", "https://example.com/a"],
       seoIssueWorkOrders: [],
       siteId: "site_1"
     });
