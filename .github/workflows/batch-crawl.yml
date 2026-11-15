@@ -4,6 +4,7 @@ name: batch-crawl
 # 크롤 → SeoIssue/WorkOrder 생성 → richdoc(aicaio-saas) Supabase 적재까지 한 프로세스에서 끝난다.
 # 크롤 대상은 DB에 등록된 모든 Site 다. SEARCHOPS_RICHDOC_SITE_IDS 는 적재 대상만 정한다.
 # Redis 를 쓰지 않는다(apps/worker/src/batch-crawl.ts 주석 참고).
+# 크롤 뒤에는 커넥터 동기화 → 키워드 검색량 → 옛 주소 점검(batch-redirect-check) 순으로 돈다.
 #
 # 필요한 secret:
 #   DATABASE_URL, DIRECT_DATABASE_URL
@@ -140,6 +141,15 @@ jobs:
           SEARCHOPS_NAVER_SEARCHAD_ACCESS_LICENSE: ${{ secrets.SEARCHOPS_NAVER_SEARCHAD_ACCESS_LICENSE }}
           SEARCHOPS_NAVER_SEARCHAD_SECRET_KEY: ${{ secrets.SEARCHOPS_NAVER_SEARCHAD_SECRET_KEY }}
         run: node apps/worker/dist/batch-keyword-volume.js
+
+      # 리뉴얼 옛 주소 점검(단계 0) — 검색·방문 기록에 남은 옛 주소를 다시 열어 404 를 할 일로 만든다.
+      # 응답 없는 주소가 절반을 넘으면 할 일을 바꾸지 않고 실패로 끝낸다(사이트 장애를 404 로 오인하지 않게).
+      - name: Run legacy redirect check
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: node apps/worker/dist/batch-redirect-check.js
 
       # Actions 기본 알림은 메일함에 묻힌다. 이슈는 열려 있는 동안 레포 상태로 남고
       # 댓글마다 다시 알림이 온다. 같은 제목의 열린 이슈에 댓글만 달아 매일 실패해도 쌓이지 않는다.

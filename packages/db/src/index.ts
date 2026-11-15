@@ -181,6 +181,16 @@ export {
   type IssueReconcileClient,
   type ReconcileIssueRow
 } from "./issue-reconcile.js";
+export {
+  createPrismaLegacyUrlClient,
+  createPrismaSourceWorkOrderClient,
+  loadLegacyUrlCandidates,
+  normalizeSiteUrl,
+  upsertSourceWorkOrder,
+  type LegacyUrlClient,
+  type SourceWorkOrderClient,
+  type SourceWorkOrderDraft
+} from "./legacy-urls.js";
 
 export {
   buildGeoVisibilityReportCreateArgs,
