@@ -1,7 +1,7 @@
 // richdoc 계약 자체 검증 — 배포 플랫폼(Railway 등) 없이 로컬에서 실행한다.
 //
 // 실제 어댑터(packages/db/dist/richdoc.js)를 가짜 Prisma로 구동해 계약
-// (richdoc-saas/supabase/searchops_contract.sql)이 적용된 Postgres에 적재하고,
+// (aicaio-saas/supabase/searchops_contract.sql)이 적용된 Postgres에 적재하고,
 // 그 결과를 다시 읽어 계약 준수를 검증한다. vitest는 요청 "모양"만 보지만
 // 이 스크립트는 실제 스키마의 NOT NULL/unique/기본값/타입까지 통과시킨다.
 //
@@ -15,7 +15,7 @@
 //     node scripts/richdoc-smoke.mjs --live
 //   마커 도메인(richdoc-smoke.invalid)만 쓰고 끝나면 지운다. --keep 으로 보존.
 //
-// 옵션: --contract <path>  계약 SQL 경로 (기본 ../richdoc-saas/supabase/searchops_contract.sql)
+// 옵션: --contract <path>  계약 SQL 경로 (기본 ../aicaio-saas/supabase/searchops_contract.sql)
 
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -45,7 +45,7 @@ const contractSql = resolve(
   here,
   contractArg ??
     process.env.RICHDOC_CONTRACT_SQL ??
-    "../../richdoc-saas/supabase/searchops_contract.sql",
+    "../../aicaio-saas/supabase/searchops_contract.sql",
 );
 
 // .invalid TLD(RFC 2606)라 실데이터와 절대 충돌하지 않는다.

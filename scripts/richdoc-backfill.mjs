@@ -1,4 +1,4 @@
-// 크롤 없이 기존 데이터를 richdoc(CAIO-saas) Supabase 로 밀어넣는다.
+// 크롤 없이 기존 데이터를 richdoc(aicaio-saas) Supabase 로 밀어넣는다.
 //
 // 쓰는 때:
 //   - 배치 도입 전에 쌓여 있던 크롤런/이슈/지시서를 콘솔에 처음 올릴 때

@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 
 import type { SearchOpsPrismaClient } from "./client.js";
 
-// Outbound adapter for the richdoc-saas integration contract
-// (richdoc-saas/supabase/searchops_contract.sql is the canonical spec).
+// Outbound adapter for the aicaio-saas integration contract
+// (aicaio-saas/supabase/searchops_contract.sql is the canonical spec).
 // Writes searchops_runs / searchops_issues / searchops_work_orders into the
-// richdoc (CAIO-saas) Supabase via PostgREST upserts using the service-role key.
+// richdoc (aicaio-saas) Supabase via PostgREST upserts using the service-role key.
 // Every public method is best-effort: it logs and resolves on failure so the
 // caller's main operation (crawl job, API mutation) never fails because of it.
 // ponytail: syncs are unserialized full-snapshot upserts, so two rapid
