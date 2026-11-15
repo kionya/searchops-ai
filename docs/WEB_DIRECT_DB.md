@@ -138,6 +138,12 @@ grant select on public."ConnectorSyncRun", public."ConnectorSyncResult",
   public."GeoVisibilityReport", public."AeoReadinessReport" to searchops_web;
 ```
 
+**2026-11-15 이후 추가(오늘의 할 일 화면)** — [의도한 설정이에요] 버튼이 이 컬럼 하나만 쓴다. 빠져 있으면 그 버튼만 실패하고 나머지는 그대로다.
+
+```sql
+grant update ("ignoredIssueKeys") on public."Site" to searchops_web;
+```
+
 `create role` 이 "already exists" 로 실패해도 그 줄만 건너뛰고 나머지를 실행하면 된다 — `alter role` 이 비밀번호를 어차피 다시 설정한다.
 
 ⚠️ `permission denied to alter role` 이 나면 에디터가 **역할 임시 전환(impersonation)** 상태다. `select current_user` 가 `authenticated` 를 돌려주면 그 상태이고, 위의 `reset role;` 이 그걸 푼다.

@@ -833,6 +833,7 @@ export const WorkOrderSchema = z.object({
   seoIssueId: IdSchema.nullable(),
   schemaRecommendationId: IdSchema.nullable().optional(),
   geoVisibilityReportId: IdSchema.nullable().optional(),
+  sourceKey: z.string().nullable().optional(),
   status: WorkOrderStatusSchema,
   priority: WorkOrderPrioritySchema,
   title: z.string().min(1),
