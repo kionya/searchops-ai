@@ -128,7 +128,11 @@ export async function loadTodayBoard(
     add(row.pagePath, row.sessions);
   }
 
-  const candidates = rows.flatMap((row) => toCandidate(row));
+  // [의도한 설정이에요] 를 누른 항목은 다음 크롤 정리를 기다리지 않고 바로 뺀다(리뷰 I3).
+  const ignored = new Set(site.ignoredIssueKeys);
+  const candidates = rows
+    .flatMap((row) => toCandidate(row))
+    .filter((candidate) => candidate.ruleId === null || candidate.url === null || !ignored.has(`${candidate.ruleId}|${candidate.url}`));
   // 후보의 url 은 이슈 정체성(UrlRecord.url 원본, 무시 키와 같은 값)이라 정규화하지 않는다.
   // 원본이 apex 등으로 정규화 키와 다르면 같은 트래픽을 원본 키로도 볼 수 있게 한다.
   for (const candidate of candidates) {

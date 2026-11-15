@@ -12,8 +12,8 @@ export interface LegacyUrlClient {
     findFirst(args: {
       where: { siteId: string; status: "completed" };
       orderBy: { startedAt: "desc" };
-      select: { id: true };
-    }): Promise<{ id: string } | null>;
+      select: { id: true; summary: true };
+    }): Promise<{ id: string; summary: unknown } | null>;
   };
   urlRecord: {
     findMany(args: { where: { siteId: string }; select: { url: true; crawlRunId: true } }): Promise<readonly { url: string; crawlRunId: string }[]>;
@@ -57,16 +57,21 @@ export function normalizeSiteUrl(raw: string, domain: string): string | null {
 export async function loadLegacyUrlCandidates(
   client: LegacyUrlClient,
   input: { readonly siteId: string; readonly since: Date },
-): Promise<readonly { readonly url: string; readonly traffic: number }[]> {
+): Promise<readonly { readonly url: string; readonly traffic: number }[] | null> {
   const site = await client.site.findUnique({ where: { id: input.siteId } });
   if (site === null) {
     return [];
   }
   const latest = await client.crawlRun.findFirst({
     orderBy: { startedAt: "desc" },
-    select: { id: true },
+    select: { id: true, summary: true },
     where: { siteId: input.siteId, status: "completed" }
   });
+  // 최신 크롤이 없거나 차단 의심(1쪽 이하)이면 "지금 있는 페이지" 를 알 수 없다. 이때 비교하면
+  // 새 사이트 페이지 전부가 옛 주소로 보인다(리뷰 C1) — null 로 점검 자체를 건너뛰게 한다.
+  if (latest === null || pagesProcessed(latest.summary) <= 1) {
+    return null;
+  }
   const records = await client.urlRecord.findMany({ select: { crawlRunId: true, url: true }, where: { siteId: input.siteId } });
   const current = new Set(
     records.filter((record) => record.crawlRunId === latest?.id).map((record) => normalizeSiteUrl(record.url, site.domain)),
@@ -179,7 +184,8 @@ export async function upsertSourceWorkOrder(
   if (input.mode === "create_once") {
     return "unchanged";
   }
-  if (existing.status === "done") {
+  // [했어요](in_review) 뒤에도 문제가 그대로면 다시 연다 — 확인 대기로 영원히 남지 않게.
+  if (existing.status === "done" || existing.status === "in_review") {
     await client.workOrder.update({ data: { ...content, status: "open" }, where: { id: existing.id } });
     await audit(client, input, existing.id, "work_order_reopened", "open", `다시 확인 필요: ${input.sourceKey} 문제가 다시 보인다.`);
     return "reopened";
@@ -210,4 +216,12 @@ async function audit(
       workOrderId
     }
   });
+}
+
+function pagesProcessed(summary: unknown): number {
+  if (typeof summary === "object" && summary !== null && "pagesProcessed" in summary) {
+    const value = (summary as { pagesProcessed: unknown }).pagesProcessed;
+    return typeof value === "number" ? value : 0;
+  }
+  return 0;
 }

@@ -17,7 +17,7 @@ export interface ReconcileIssueRow {
   readonly ruleId: string;
   readonly status: string;
   readonly crawlRunId: string;
-  readonly urlRecord: { readonly url: string; readonly crawlRunId: string } | null;
+  readonly urlRecord: { readonly url: string; readonly crawlRunId: string; readonly statusCode: number } | null;
   readonly workOrders: readonly ReconcileWorkOrderRow[];
 }
 
@@ -119,8 +119,10 @@ export async function reconcileSiteIssues(
       continue;
     }
 
-    // 이번 크롤이 이 URL 을 읽었는데 같은 규칙이 다시 안 걸렸다 = 고쳐졌다.
-    if (row.urlRecord.crawlRunId === input.crawlRunId && row.status === "open") {
+    // 이번 크롤이 이 URL 을 정상 응답(2xx)으로 읽었는데 같은 규칙이 다시 안 걸렸다 = 고쳐졌다.
+    // 오류 페이지(429·5xx)를 읽은 날은 규칙이 엉뚱하게 빠지므로 판단하지 않는다.
+    const readOk = row.urlRecord.statusCode >= 200 && row.urlRecord.statusCode < 300;
+    if (row.urlRecord.crawlRunId === input.crawlRunId && readOk && row.status === "open") {
       await client.seoIssue.update({ data: { status: "resolved" }, where: { id: row.id } });
       for (const order of row.workOrders.filter((item) => closableStatuses.has(item.status))) {
         await closeWorkOrder(client, order, `${row.ruleId} no longer detected on ${url}.`, {

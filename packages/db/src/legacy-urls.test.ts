@@ -46,7 +46,7 @@ describe("loadLegacyUrlCandidates", () => {
       },
       crawlRun: {
         async findFirst() {
-          return { id: "crawl_new" };
+          return { id: "crawl_new", summary: { pagesProcessed: 25 } };
         }
       },
       site: {
@@ -64,6 +64,15 @@ describe("loadLegacyUrlCandidates", () => {
       }
     };
   }
+
+  it("returns null when the latest crawl looks blocked", async () => {
+    const blocked = client();
+    blocked.crawlRun.findFirst = async () => ({ id: "crawl_new", summary: { pagesProcessed: 1 } });
+    await expect(loadLegacyUrlCandidates(blocked, { since: new Date("2026-08-17T00:00:00Z"), siteId: "site_1" })).resolves.toBeNull();
+    const none = client();
+    none.crawlRun.findFirst = async () => null;
+    await expect(loadLegacyUrlCandidates(none, { since: new Date("2026-08-17T00:00:00Z"), siteId: "site_1" })).resolves.toBeNull();
+  });
 
   it("unions connector pages and old url records minus the latest crawl, ranked by traffic", async () => {
     const candidates = await loadLegacyUrlCandidates(client(), { since: new Date("2026-08-17T00:00:00Z"), siteId: "site_1" });
@@ -130,8 +139,16 @@ describe("upsertSourceWorkOrder", () => {
     expect(calls.events[0]).toMatchObject({ eventType: "work_order_reopened", source: "worker:redirect-check" });
   });
 
-  it("track updates content of an open row without touching status", async () => {
+  // 리뷰 I2: [했어요](in_review) 뒤에도 404 가 그대로면 다시 열어야 한다.
+  it("track reopens in_review row when the problem is still there", async () => {
     const { calls, client } = fake({ id: "wo_1", status: "in_review" });
+    await expect(upsertSourceWorkOrder(client, { ...base, draft, mode: "track" })).resolves.toBe("reopened");
+    expect(calls.updates[0]?.data).toMatchObject({ status: "open" });
+    expect(calls.events[0]).toMatchObject({ eventType: "work_order_reopened" });
+  });
+
+  it("track updates content of an open row without touching status", async () => {
+    const { calls, client } = fake({ id: "wo_1", status: "in_progress" });
     await expect(upsertSourceWorkOrder(client, { ...base, draft, mode: "track" })).resolves.toBe("updated");
     expect(calls.updates[0]?.data).not.toHaveProperty("status");
     expect(calls.events).toEqual([]);

@@ -4,8 +4,11 @@ import type { SourceWorkOrderDraft } from "@searchops/db";
 
 export type LegacyUrlOutcome = "ok" | "home_only" | "broken" | "unknown";
 
-export const legacyCandidateLimit = 200;
+// 2026-11-15 고운몸 실측 후보 255개. 잘리면 그날의 broken 0 을 "해결"로 믿지 않는다(아래).
+export const legacyCandidateLimit = 400;
 const concurrency = 4;
+// 응답 없는 주소가 이만큼 쌓이면 사이트 장애로 보고 멈춘다 — 잡 타임아웃(30분) 전에 끝내기 위해서.
+const unknownStopCount = 20;
 const tableRows = 30;
 
 export function classifyLegacyUrl(
@@ -15,8 +18,12 @@ export function classifyLegacyUrl(
   if ("error" in result) {
     return "unknown";
   }
-  if (result.statusCode !== 200) {
+  // 없어진 주소는 404/410 뿐이다. 403·429·5xx·남은 3xx 는 차단·과부하일 수 있어 판단을 미룬다(리뷰 C1).
+  if (result.statusCode === 404 || result.statusCode === 410) {
     return "broken";
+  }
+  if (result.statusCode !== 200) {
+    return "unknown";
   }
   const original = new URL(originalUrl).pathname;
   const final = new URL(result.finalUrl).pathname;
@@ -28,6 +35,8 @@ interface Check {
   readonly url: string;
   readonly traffic: number;
   readonly outcome: LegacyUrlOutcome;
+  /** 최종 주소가 원래 주소와 다르다(리다이렉트됨). 판단 근거로만 쓴다. */
+  readonly redirected?: boolean;
 }
 
 export function buildLegacyWorkOrderDrafts(
@@ -109,7 +118,8 @@ export const checklistDrafts: Record<"sitemap-naver" | "sitemap-google", SourceW
 };
 
 export interface RedirectCheckDeps {
-  loadCandidates(siteId: string): Promise<readonly { readonly url: string; readonly traffic: number }[]>;
+  /** null = 최신 크롤이 없거나 차단 의심이라 이번엔 점검하지 않는다. */
+  loadCandidates(siteId: string): Promise<readonly { readonly url: string; readonly traffic: number }[] | null>;
   fetch(url: string): Promise<{ readonly finalUrl: string; readonly statusCode: number }>;
   upsert(input: {
     readonly organizationId: string;
@@ -134,23 +144,32 @@ export async function runRedirectCheckForSite(
   deps: RedirectCheckDeps,
   site: { readonly id: string; readonly domain: string; readonly organizationId: string },
 ): Promise<RedirectCheckResult> {
-  const candidates = (await deps.loadCandidates(site.id)).slice(0, legacyCandidateLimit);
+  const loaded = await deps.loadCandidates(site.id);
+  if (loaded === null) {
+    return { aborted: true, broken: 0, checked: 0, homeOnly: 0, ok: 0, unknown: 0 };
+  }
+  const truncated = loaded.length > legacyCandidateLimit;
+  const candidates = loaded.slice(0, legacyCandidateLimit);
   const checks: Check[] = [];
+  let stopped = false;
   for (let index = 0; index < candidates.length; index += concurrency) {
-    const batch = candidates.slice(index, index + concurrency);
-    checks.push(
-      ...(await Promise.all(
-        batch.map(async (candidate) => {
-          let outcome: LegacyUrlOutcome;
-          try {
-            outcome = classifyLegacyUrl(candidate.url, await deps.fetch(candidate.url));
-          } catch (error) {
-            outcome = classifyLegacyUrl(candidate.url, { error });
-          }
-          return { ...candidate, outcome };
-        }),
-      )),
+    const batch = await Promise.all(
+      candidates.slice(index, index + concurrency).map(async (candidate): Promise<Check> => {
+        try {
+          const response = await deps.fetch(candidate.url);
+          return { ...candidate, outcome: classifyLegacyUrl(candidate.url, response), redirected: response.finalUrl !== candidate.url };
+        } catch (error) {
+          return { ...candidate, outcome: classifyLegacyUrl(candidate.url, { error }) };
+        }
+      }),
     );
+    checks.push(...batch);
+    const unknownSoFar = checks.filter((check) => check.outcome === "unknown").length;
+    // 첫 묶음이 전부 응답 없음이거나 응답 없음이 쌓이면 사이트 장애다 — 더 기다리지 않는다.
+    if ((index === 0 && batch.every((check) => check.outcome === "unknown")) || unknownSoFar >= unknownStopCount) {
+      stopped = true;
+      break;
+    }
   }
   const count = (outcome: LegacyUrlOutcome) => checks.filter((check) => check.outcome === outcome).length;
   const result = {
@@ -165,17 +184,24 @@ export async function runRedirectCheckForSite(
     return result;
   }
   // 사이트 전체가 응답하지 않는 날(차단·장애)에 "옛 주소 N개 404" 를 만들면 거짓 경보다.
-  if (result.unknown * 2 > checks.length) {
+  if (stopped || result.unknown * 2 > checks.length) {
     return { ...result, aborted: true };
   }
 
   const drafts = buildLegacyWorkOrderDrafts(site.domain, checks);
   const base = { organizationId: site.organizationId, siteId: site.id };
-  await deps.upsert({ ...base, draft: drafts.broken, mode: "track", sourceKey: `legacy-redirect:${site.id}:broken` });
+  // 후보가 잘린 날 broken 0 은 "못 본 것"일 수 있어 열린 할 일을 닫지 않는다(리뷰 I5).
+  if (drafts.broken !== null || !truncated) {
+    await deps.upsert({ ...base, draft: drafts.broken, mode: "track", sourceKey: `legacy-redirect:${site.id}:broken` });
+  }
   await deps.upsert({ ...base, draft: drafts.homeOnly, mode: "track", sourceKey: `legacy-redirect:${site.id}:home_only` });
   for (const key of ["sitemap-naver", "sitemap-google"] as const) {
     await deps.upsert({ ...base, draft: checklistDrafts[key], mode: "create_once", sourceKey: `checklist:${site.id}:${key}` });
   }
-  await deps.closeGone(checks.filter((check) => check.outcome !== "unknown").map((check) => check.url));
+  // 닫는 건 실제로 없어졌거나(404/410) 다른 주소로 넘어간 것만. 그대로 200 인 주소는 살아 있는
+  // 페이지라(수집 한도 밖 새 페이지 등) 그 문제를 "주소 폐기"로 닫으면 안 된다(리뷰 C1).
+  await deps.closeGone(
+    checks.filter((check) => check.outcome === "broken" || (check.outcome !== "unknown" && check.redirected === true)).map((check) => check.url),
+  );
   return result;
 }

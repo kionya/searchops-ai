@@ -43,11 +43,14 @@ async function main(): Promise<void> {
           },
           site,
         );
-        if (result.aborted) {
+        if (result.aborted && result.checked === 0) {
+          // 크롤 차단은 batch-crawl 이 이미 실패로 알린다. 여기서 또 실패로 세지 않는다.
+          console.warn(`[batch-redirect-check] ${site.domain} 최신 크롤이 없거나 차단 의심이라 이번엔 건너뛴다.`);
+        } else if (result.aborted) {
           failures += 1;
           console.error(
             `[batch-redirect-check] ${site.domain} 응답 없는 주소가 절반을 넘어 할 일을 바꾸지 않았다 ` +
-              `(unknown=${result.unknown}/${result.checked}). 사이트 장애·차단을 먼저 확인해라.`,
+              `(unknown=${result.unknown}/${result.checked}, 응답 없음이 쌓여 중단). 사이트 장애·차단을 먼저 확인해라.`,
           );
         } else {
           console.log(

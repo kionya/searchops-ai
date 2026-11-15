@@ -87,6 +87,12 @@ describe("loadTodayBoard", () => {
     expect(board?.site).toEqual({ domain: "gowoonmom.co.kr", id: "site_1", ignoredIssueKeys: [], name: "고운몸의원" });
   });
 
+  // 리뷰 I3: [의도한 설정이에요] 를 누른 항목은 다음 배치를 기다리지 않고 바로 빠진다.
+  it("hides candidates whose issue key is ignored", async () => {
+    const board = await loadTodayBoard(createClient({ ignoredIssueKeys: [`H1_MISSING|${W}/body/head-filler`] }).client, input);
+    expect(board?.candidates.map((candidate) => candidate.id)).toEqual(["wo_2"]);
+  });
+
   it("sums latest gsc snapshot and builds traffic by url", async () => {
     const board = await loadTodayBoard(createClient().client, input);
     expect(board?.search).toEqual({ clicks: 4, fetchedAt: "2026-11-14T21:47:00.000Z", impressions: 697 });

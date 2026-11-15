@@ -17,7 +17,7 @@ function issue(overrides: Partial<ReconcileIssueRow> & { readonly id: string }):
     crawlRunId: "crawl_old",
     ruleId: "H1_MISSING",
     status: "open",
-    urlRecord: { crawlRunId: RUN, url: `https://www.gowoonmom.co.kr/${overrides.id}` },
+    urlRecord: { crawlRunId: RUN, statusCode: 200, url: `https://www.gowoonmom.co.kr/${overrides.id}` },
     workOrders: [{ id: `wo_${overrides.id}`, organizationId: "org", siteId: SITE, status: "open" }],
     ...overrides
   };
@@ -88,9 +88,18 @@ describe("reconcileSiteIssues", () => {
     });
   });
 
+  // 리뷰 I4: 오류 페이지(429·5xx 등)를 읽고 규칙이 안 걸렸다고 "고쳐짐"으로 치면 안 된다.
+  it("does not resolve issues on a url that answered with an error status", async () => {
+    const { calls, client } = createClient({
+      issues: [issue({ id: "a", urlRecord: { crawlRunId: RUN, statusCode: 429, url: "https://www.gowoonmom.co.kr/a" } })]
+    });
+    await expect(reconcileSiteIssues(client, { crawlRunId: RUN, siteId: SITE })).resolves.toMatchObject({ resolved: 0 });
+    expect(calls.workOrderUpdates).toEqual([]);
+  });
+
   it("leaves issue on url outside this crawl untouched", async () => {
     const { calls, client } = createClient({
-      issues: [issue({ id: "old", urlRecord: { crawlRunId: "crawl_old", url: "https://www.gowoonmom.co.kr/web/sub/doctor" } })]
+      issues: [issue({ id: "old", urlRecord: { crawlRunId: "crawl_old", statusCode: 200, url: "https://www.gowoonmom.co.kr/web/sub/doctor" } })]
     });
     await expect(reconcileSiteIssues(client, { crawlRunId: RUN, siteId: SITE })).resolves.toMatchObject({ resolved: 0 });
     expect(calls.issueUpdates).toEqual([]);
@@ -148,7 +157,7 @@ describe("reconcileSiteIssues", () => {
           crawlRunId: RUN,
           id: "ebook",
           ruleId: "NOINDEX_ON_IMPORTANT_PAGE",
-          urlRecord: { crawlRunId: RUN, url: EBOOK },
+          urlRecord: { crawlRunId: RUN, statusCode: 200, url: EBOOK },
           workOrders: [{ id: "wo_ebook", organizationId: "org", siteId: SITE, status: "done" }]
         })
       ]
@@ -162,7 +171,7 @@ describe("reconcileSiteIssues", () => {
   it("closes open work order of a newly ignored issue with reason intended", async () => {
     const { calls, client } = createClient({
       ignoredIssueKeys: [issueKey("NOINDEX_ON_IMPORTANT_PAGE", EBOOK)],
-      issues: [issue({ crawlRunId: RUN, id: "ebook", ruleId: "NOINDEX_ON_IMPORTANT_PAGE", urlRecord: { crawlRunId: RUN, url: EBOOK } })]
+      issues: [issue({ crawlRunId: RUN, id: "ebook", ruleId: "NOINDEX_ON_IMPORTANT_PAGE", urlRecord: { crawlRunId: RUN, statusCode: 200, url: EBOOK } })]
     });
     await reconcileSiteIssues(client, { crawlRunId: RUN, siteId: SITE });
     expect(calls.workOrderUpdates).toEqual([{ data: { status: "done" }, where: { id: "wo_ebook" } }]);
@@ -175,9 +184,9 @@ describe("closeIssuesForGoneUrls", () => {
     const gone = "https://www.gowoonmom.co.kr/web/sub/doctor";
     const { calls, client } = createClient({
       issues: [
-        issue({ id: "x", urlRecord: { crawlRunId: "crawl_old", url: gone } }),
-        issue({ id: "y", ruleId: "IMAGE_ALT_MISSING", urlRecord: { crawlRunId: "crawl_old", url: gone } }),
-        issue({ id: "z", status: "resolved", urlRecord: { crawlRunId: "crawl_old", url: gone }, workOrders: [{ id: "wo_z", organizationId: "org", siteId: SITE, status: "done" }] })
+        issue({ id: "x", urlRecord: { crawlRunId: "crawl_old", statusCode: 200, url: gone } }),
+        issue({ id: "y", ruleId: "IMAGE_ALT_MISSING", urlRecord: { crawlRunId: "crawl_old", statusCode: 200, url: gone } }),
+        issue({ id: "z", status: "resolved", urlRecord: { crawlRunId: "crawl_old", statusCode: 200, url: gone }, workOrders: [{ id: "wo_z", organizationId: "org", siteId: SITE, status: "done" }] })
       ]
     });
     await expect(closeIssuesForGoneUrls(client, { siteId: SITE, urls: [gone] })).resolves.toBe(2);
