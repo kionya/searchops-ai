@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { JsonLdRecommendation } from "@searchops/types";
+
 import {
   buildUrlRecordUpsertArgs,
   markCrawlRunFailed,
@@ -240,6 +242,9 @@ describe("crawl persistence helpers", () => {
         async upsert(args) {
           schemaRecommendationUpserts.push(args);
           return args;
+        },
+        async updateMany(args) {
+          return args;
         }
       }
     };
@@ -381,6 +386,91 @@ describe("crawl persistence helpers", () => {
         siteId: "site_1",
         type: "WebPage"
       }
+    });
+  });
+
+  // 2026-11-15 고운몸: 추천은 upsert 로만 쌓여 JSON-LD 를 고친 페이지의 추천이 영영 열려 있었다.
+  // 이번 크롤이 읽은 페이지에서 더 이상 나오지 않는 열린 추천은 해결로 닫는다.
+  it("resolves open schema recommendations no longer generated for a crawled page", async () => {
+    const updates: unknown[] = [];
+    const client: CrawlAnalysisPersistenceClient = {
+      schemaRecommendation: {
+        async updateMany(args) {
+          updates.push(args);
+          return { count: 1 };
+        },
+        async upsert(args) {
+          return args;
+        }
+      },
+      seoIssue: { async upsert() { return { id: "issue_1" }; } },
+      site: { async findUnique() { return { id: "site_1", organizationId: "org_1" }; } },
+      urlRecord: { async findUnique() { return { id: "url_1" }; } },
+      workOrder: { async upsert(args) { return args; } }
+    };
+
+    await persistCrawlAnalysisResult(client, {
+      crawlRunId: "crawl_1",
+      schemaRecommendationSets: [
+        { generatedBy: "deterministic", pageUrl: "https://example.com/fixed", recommendations: [], siteId: "site_1" }
+      ],
+      schemaReconcilePageUrls: ["https://example.com/fixed", "https://example.com/a"],
+      seoIssueWorkOrders: [],
+      siteId: "site_1"
+    });
+
+    expect(updates).toEqual([
+      {
+        data: { status: "resolved" },
+        where: { pageUrl: "https://example.com/fixed", siteId: "site_1", status: "open", type: { notIn: [] } }
+      }
+    ]);
+  });
+
+  // 해결로 닫힌 추천의 문제가 다시 보이면 다시 연다 — 사람이 정한 converted·dismissed 는 두고.
+  it("reopens resolved schema recommendations that are generated again", async () => {
+    const updates: unknown[] = [];
+    const client: CrawlAnalysisPersistenceClient = {
+      schemaRecommendation: {
+        async updateMany(args) {
+          updates.push(args);
+          return { count: 0 };
+        },
+        async upsert(args) {
+          return args;
+        }
+      },
+      seoIssue: { async upsert() { return { id: "issue_1" }; } },
+      site: { async findUnique() { return { id: "site_1", organizationId: "org_1" }; } },
+      urlRecord: { async findUnique() { return { id: "url_1" }; } },
+      workOrder: { async upsert(args) { return args; } }
+    };
+    const recommendation: JsonLdRecommendation = {
+      evidence: { expectedType: "WebPage", observedTypes: [], sourceField: "jsonLd", url: "https://example.com/a" },
+      generatedBy: "deterministic",
+      instructions: ["Add WebPage JSON-LD."],
+      jsonLd: { "@context": "https://schema.org", "@type": "WebPage", name: "A" },
+      priority: "p2",
+      reason: "missing",
+      recommendedFields: [],
+      requiredFields: ["name"],
+      type: "WebPage",
+      url: "https://example.com/a"
+    };
+
+    await persistCrawlAnalysisResult(client, {
+      crawlRunId: "crawl_1",
+      schemaRecommendationSets: [
+        { generatedBy: "deterministic", pageUrl: "https://example.com/a", recommendations: [recommendation], siteId: "site_1" }
+      ],
+      schemaReconcilePageUrls: ["https://example.com/fixed", "https://example.com/a"],
+      seoIssueWorkOrders: [],
+      siteId: "site_1"
+    });
+
+    expect(updates).toContainEqual({
+      data: { status: "open" },
+      where: { pageUrl: "https://example.com/a", siteId: "site_1", status: "resolved", type: { in: ["WebPage"] } }
     });
   });
 

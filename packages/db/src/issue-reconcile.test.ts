@@ -28,7 +28,12 @@ function createClient(input: {
   readonly crawl?: { status: string; summary: unknown } | null;
   readonly ignoredIssueKeys?: readonly string[];
 }) {
-  const calls = { events: [] as Record<string, unknown>[], issueUpdates: [] as unknown[], workOrderUpdates: [] as unknown[] };
+  const calls = {
+    events: [] as Record<string, unknown>[],
+    issueUpdates: [] as unknown[],
+    schemaUpdates: [] as unknown[],
+    workOrderUpdates: [] as unknown[]
+  };
   const client: IssueReconcileClient = {
     closedLoopAuditEvent: {
       async create(args) {
@@ -51,6 +56,12 @@ function createClient(input: {
       async update(args) {
         calls.issueUpdates.push(args);
         return args;
+      }
+    },
+    schemaRecommendation: {
+      async updateMany(args) {
+        calls.schemaUpdates.push(args);
+        return { count: 0 };
       }
     },
     site: {
@@ -195,6 +206,16 @@ describe("closeIssuesForGoneUrls", () => {
       { data: { status: "done" }, where: { id: "wo_y" } }
     ]);
     expect(calls.events[0]).toMatchObject({ metadata: { reason: "url_gone" } });
+  });
+
+  // 옛 사이트 주소(/web/sub/...)의 JSON-LD 추천 26건+ 이 주소가 사라진 뒤에도 열려 있었다.
+  it("resolves open schema recommendations of gone urls", async () => {
+    const gone = "https://www.gowoonmom.co.kr/web/sub/doctor";
+    const { calls, client } = createClient({ issues: [] });
+    await closeIssuesForGoneUrls(client, { siteId: SITE, urls: [gone] });
+    expect(calls.schemaUpdates).toEqual([
+      { data: { status: "resolved" }, where: { pageUrl: { in: [gone] }, siteId: SITE, status: "open" } }
+    ]);
   });
 
   it("does nothing for an empty url list", async () => {

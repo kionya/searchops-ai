@@ -131,6 +131,31 @@ describe("JSON-LD type extraction", () => {
     expect(hasSchemaType(snapshot, "FAQPage")).toBe(true);
     expect(hasSchemaType(snapshot, "Article")).toBe(false);
   });
+
+  // 2026-11-15 고운몸: MedicalWebPage·BlogPosting·MedicalClinic 을 갖춘 페이지에
+  // "WebPage/Article/LocalBusiness 없음" 추천이 50건 넘게 열려 있었다. 하위 타입은 상위 타입을 채운다.
+  it("counts schema.org subtypes as their supported parent types", () => {
+    const snapshot = createSnapshot({
+      jsonLd: [
+        {
+          parsed: { "@graph": [{ "@type": "MedicalWebPage" }, { "@type": "BlogPosting" }, { "@type": "MedicalClinic" }] },
+          raw: "{}"
+        }
+      ]
+    });
+
+    expect(extractJsonLdTypes(snapshot)).toEqual(["WebPage", "Article", "LocalBusiness", "MedicalClinic"]);
+  });
+
+  it("does not recommend WebPage for a page that already has MedicalWebPage", () => {
+    const snapshot = createSnapshot({
+      jsonLd: [{ parsed: { "@type": "https://schema.org/MedicalWebPage" }, raw: "{}" }]
+    });
+
+    expect(
+      recommendJsonLdForSnapshot(createContext(snapshot)).recommendations.map((recommendation) => recommendation.type),
+    ).not.toContain("WebPage");
+  });
 });
 
 describe("JSON-LD recommendation rules", () => {

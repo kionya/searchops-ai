@@ -815,8 +815,21 @@ async function persistCrawlAnalysisFromCrawlResult(
       })
     : [];
 
+  // 추천 정리는 차단 의심(1쪽 이하) 크롤과 오류 응답 페이지를 빼고 한다 — issue-reconcile 과 같은 기준.
+  // snapshots 는 processCrawlJob 에서 payload.pages 와 같은 순서로 만들어진다.
+  const schemaReconcilePageUrls =
+    result.snapshots.length <= 1
+      ? []
+      : result.snapshots
+          .filter((_, index) => {
+            const statusCode = payload.pages[index]?.statusCode;
+            return statusCode !== null && statusCode !== undefined && statusCode >= 200 && statusCode < 300;
+          })
+          .map((snapshot) => snapshot.url);
+
   return persistCrawlAnalysisResult(crawlAnalysisClient, {
     crawlRunId: result.crawlRunId,
+    schemaReconcilePageUrls,
     schemaRecommendationSets,
     seoIssueWorkOrders: seoIssues.map((issue, index) => ({
       issue,

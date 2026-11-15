@@ -348,6 +348,9 @@ describe("processCrawlJob", () => {
         async upsert(args) {
           schemaRecommendationUpserts.push(args);
           return args;
+        },
+        async updateMany(args) {
+          return args;
         }
       }
     };
@@ -395,6 +398,54 @@ describe("processCrawlJob", () => {
         siteId: "site_1"
       }
     });
+  });
+
+  // 리뷰(PR #147): 오류 응답·차단 크롤에서 추천을 "고쳐짐"으로 닫거나 다시 열면 안 된다.
+  it("reconciles schema recommendations only for pages read with 2xx in a multi-page crawl", async () => {
+    const reconciled: string[] = [];
+    const crawlAnalysisClient: CrawlAnalysisPersistenceClient = {
+      schemaRecommendation: {
+        async updateMany(args) {
+          reconciled.push(args.where.pageUrl);
+          return args;
+        },
+        async upsert(args) {
+          return args;
+        }
+      },
+      seoIssue: { async upsert() { return { id: "issue_1" }; } },
+      site: { async findUnique() { return { id: "site_1", organizationId: "org_1" }; } },
+      urlRecord: { async findUnique() { return { id: "url_1" }; } },
+      workOrder: { async upsert(args) { return args; } }
+    };
+    const persistenceClient: CrawlPersistenceClient = {
+      crawlRun: { async update(args) { return args; } },
+      urlRecord: { async upsert(args) { return args; } }
+    };
+    const run = (pages: { url: string; statusCode: number }[]) =>
+      processAndPersistCrawlJob(
+        {
+          crawlRunId: "crawl_reconcile",
+          maxPages: 25,
+          pages: pages.map((page) => ({ ...page, html: analysisHtml })),
+          requestedByUserId: "user_1",
+          siteDomain: "example.com",
+          siteId: "site_1",
+          startUrl: "https://example.com/"
+        },
+        persistenceClient,
+        { crawlAnalysisClient },
+      );
+
+    await run([
+      { statusCode: 200, url: "https://example.com/" },
+      { statusCode: 503, url: "https://example.com/busy" }
+    ]);
+    expect(new Set(reconciled)).toEqual(new Set(["https://example.com/"]));
+
+    reconciled.length = 0;
+    await run([{ statusCode: 200, url: "https://example.com/" }]);
+    expect(reconciled).toEqual([]);
   });
 
   it("respects disabled crawl analysis artifact options", async () => {
@@ -446,6 +497,9 @@ describe("processCrawlJob", () => {
       schemaRecommendation: {
         async upsert(args) {
           schemaRecommendationUpserts.push(args);
+          return args;
+        },
+        async updateMany(args) {
           return args;
         }
       }
