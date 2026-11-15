@@ -14,7 +14,7 @@ name: batch-crawl
 #   SEARCHOPS_CREDENTIAL_STORAGE_MODE, SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY(_ID)
 #   SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID, SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET
 #   선택: SEARCHOPS_BING_API_KEY, SEARCHOPS_PAGESPEED_API_KEY
-#   선택(아침 요약): SEARCHOPS_TELEGRAM_BOT_TOKEN(기존 봇), SEARCHOPS_TELEGRAM_OWNER_CHAT_ID(원장님 1:1 채팅)
+#   선택(아침 요약): SEARCHOPS_TELEGRAM_BOT_TOKEN(기존 봇), SEARCHOPS_TELEGRAM_OWNER_CHAT_ID(원장님 1:1 채팅, 없으면 SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID)
 #   repo 변수(선택): SEARCHOPS_WEB_BASE_URL — 요약 링크의 웹 주소(기본 https://searchops.totopapa.com)
 #         이 둘은 사이트별 설정이 없다. 키를 넣으면 커넥터가 설정된 모든 사이트에
 #         자동으로 붙는다(SiteConnector 행을 만들 필요 없다). 키가 없으면 그 provider
@@ -162,7 +162,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
           SEARCHOPS_TELEGRAM_BOT_TOKEN: ${{ secrets.SEARCHOPS_TELEGRAM_BOT_TOKEN }}
-          SEARCHOPS_TELEGRAM_OWNER_CHAT_ID: ${{ secrets.SEARCHOPS_TELEGRAM_OWNER_CHAT_ID }}
+          # 원장님 1:1 id 가 없으면 기존 SearchOps 알림방으로 보낸다(2026-11-15 원장님 결정)
+          SEARCHOPS_TELEGRAM_OWNER_CHAT_ID: ${{ secrets.SEARCHOPS_TELEGRAM_OWNER_CHAT_ID || secrets.SEARCHOPS_TELEGRAM_PRODUCT_CHAT_ID }}
           SEARCHOPS_WEB_BASE_URL: ${{ vars.SEARCHOPS_WEB_BASE_URL }}
           BATCH_STATUS: ${{ job.status }}
         run: node apps/worker/dist/batch-digest.js
