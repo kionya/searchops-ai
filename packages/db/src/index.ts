@@ -173,6 +173,14 @@ export {
   type WorkOrderRecheckOutcome,
   type WorkOrderRecheckPersistenceClient
 } from "./work-order-recheck.js";
+export {
+  closeIssuesForGoneUrls,
+  createPrismaIssueReconcileClient,
+  issueKey,
+  reconcileSiteIssues,
+  type IssueReconcileClient,
+  type ReconcileIssueRow
+} from "./issue-reconcile.js";
 
 export {
   buildGeoVisibilityReportCreateArgs,

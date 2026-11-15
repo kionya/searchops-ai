@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createPrismaComplianceFlagPersistenceClient: vi.fn(() => ({})),
   createPrismaCrawlAnalysisPersistenceClient: vi.fn(() => ({})),
   createPrismaCrawlPersistenceClient: vi.fn(() => ({})),
+  createPrismaIssueReconcileClient: vi.fn(() => ({})),
   createPrismaSchemaRecommendationRecheckPersistenceClient: vi.fn(() => ({})),
   createRichdocContractBridge: vi.fn(() => ({})),
   createSearchOpsPrismaClient: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     summary: { crawledPages: 1, failedPages: 0 },
   })),
   readRichdocContract: vi.fn((): { siteIds: string[] } => ({ siteIds: [] })),
+  reconcileSiteIssues: vi.fn(async () => ({ ignored: 0, reopened: 0, resolved: 0, skipped: false })),
   siteFindMany: vi.fn(async (): Promise<{ archivedAt: Date | null; domain: string; id: string }[]> => [
     { archivedAt: null, domain: "keep.example", id: "site_keep" },
     { archivedAt: null, domain: "demo.example", id: "site_demo" },
@@ -24,11 +26,13 @@ vi.mock("@searchops/db", () => ({
   createPrismaComplianceFlagPersistenceClient: mocks.createPrismaComplianceFlagPersistenceClient,
   createPrismaCrawlAnalysisPersistenceClient: mocks.createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient: mocks.createPrismaCrawlPersistenceClient,
+  createPrismaIssueReconcileClient: mocks.createPrismaIssueReconcileClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient:
     mocks.createPrismaSchemaRecommendationRecheckPersistenceClient,
   createRichdocContractBridge: mocks.createRichdocContractBridge,
   createSearchOpsPrismaClient: mocks.createSearchOpsPrismaClient,
   parseRichdocContractConfigFromEnv: mocks.readRichdocContract,
+  reconcileSiteIssues: mocks.reconcileSiteIssues,
 }));
 vi.mock("./processor.js", () => ({
   processAndPersistCrawlJob: mocks.processAndPersistCrawlJob,
@@ -78,6 +82,26 @@ describe("batch crawl", () => {
     ).map((call) => (call[0] as { siteId: string }).siteId);
     expect(crawledSiteIds).toEqual(["site_keep"]);
     expect(process.exitCode).toBe(0);
+  });
+
+  // 2026-11-15: 이슈가 upsert 로만 쌓여 열린 지시서 57건 중 실제 문제는 4건이었다. 크롤마다 정리한다.
+  it("reconciles issues of each crawled site with its crawl run", async () => {
+    await import("./batch-crawl.js");
+
+    expect(mocks.reconcileSiteIssues).toHaveBeenCalledTimes(2);
+    expect(mocks.reconcileSiteIssues.mock.calls[0]?.[1]).toEqual({ crawlRunId: "crawl_1", siteId: "site_keep" });
+  });
+
+  it("marks the batch failed but keeps going when reconcile throws", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.reconcileSiteIssues.mockRejectedValueOnce(new Error("reconcile failed"));
+
+    await import("./batch-crawl.js");
+
+    expect(mocks.processAndPersistCrawlJob).toHaveBeenCalledTimes(2);
+    expect(process.exitCode).toBe(1);
+    expect(errors.mock.calls.flat().join(" ")).toContain("후처리 실패(reconcile)");
+    errors.mockRestore();
   });
 
   // 2026-10 고운몸: 호스팅이 해외 IP 에 쿠키 확인 페이지를 내줘 3주간 매일 "completed pages=1" 로

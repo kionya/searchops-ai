@@ -16,10 +16,12 @@ import {
   createPrismaComplianceFlagPersistenceClient,
   createPrismaCrawlAnalysisPersistenceClient,
   createPrismaCrawlPersistenceClient,
+  createPrismaIssueReconcileClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   createRichdocContractBridge,
   createSearchOpsPrismaClient,
-  parseRichdocContractConfigFromEnv
+  parseRichdocContractConfigFromEnv,
+  reconcileSiteIssues
 } from "@searchops/db";
 
 import { processAndPersistCrawlJob } from "./processor.js";
@@ -105,6 +107,7 @@ async function main(): Promise<void> {
     const schemaRecommendationRecheckClient =
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
     const richdocBridge = createRichdocContractBridge({ prisma, ...contract });
+    const issueReconcileClient = createPrismaIssueReconcileClient(prisma);
 
     for (const site of crawlTargets) {
       const startUrl = `https://${site.domain}/`;
@@ -148,6 +151,20 @@ async function main(): Promise<void> {
         console.log(
           `[batch-crawl] ${site.domain} ${result.status} pages=${result.summary.pagesProcessed}`
         );
+        // 고쳐졌거나 다시 나온 문제를 지시서 상태에 반영한다. 크롤 결과는 이미 저장됐으므로
+        // 여기서 실패해도 크롤은 성공이고, 배치만 실패로 표시한다.
+        try {
+          const reconciled = await reconcileSiteIssues(issueReconcileClient, { crawlRunId: crawlRun.id, siteId: site.id });
+          console.log(
+            `[batch-crawl] ${site.domain} 정리 ` +
+              (reconciled.skipped
+                ? "건너뜀(크롤 미완료·차단 의심)"
+                : `resolved=${reconciled.resolved} reopened=${reconciled.reopened} ignored=${reconciled.ignored}`)
+          );
+        } catch (error) {
+          failures += 1;
+          console.error(`[batch-crawl] ${site.domain} 후처리 실패(reconcile)`, error);
+        }
         // 크롤은 "성공" 인데 1페이지 이하면 거의 항상 차단이다 — 호스팅의 봇 방어(쿠키 확인 페이지,
         // 해외 IP 차단)가 200 으로 빈 페이지를 주면 링크가 0개라 시작 페이지에서 끝난다.
         // 2026-10 고운몸이 이 상태로 3주간 조용히 "completed pages=1" 이었다.
