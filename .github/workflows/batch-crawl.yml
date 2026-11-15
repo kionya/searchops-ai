@@ -14,6 +14,8 @@ name: batch-crawl
 #   SEARCHOPS_CREDENTIAL_STORAGE_MODE, SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY(_ID)
 #   SEARCHOPS_GOOGLE_OAUTH_CLIENT_ID, SEARCHOPS_GOOGLE_OAUTH_CLIENT_SECRET
 #   선택: SEARCHOPS_BING_API_KEY, SEARCHOPS_PAGESPEED_API_KEY
+#   선택(아침 요약): SEARCHOPS_TELEGRAM_BOT_TOKEN(기존 봇), SEARCHOPS_TELEGRAM_OWNER_CHAT_ID(원장님 1:1 채팅)
+#   repo 변수(선택): SEARCHOPS_WEB_BASE_URL — 요약 링크의 웹 주소(기본 https://searchops.totopapa.com)
 #         이 둘은 사이트별 설정이 없다. 키를 넣으면 커넥터가 설정된 모든 사이트에
 #         자동으로 붙는다(SiteConnector 행을 만들 필요 없다). 키가 없으면 그 provider
 #         만 조용히 빠진다.
@@ -150,6 +152,20 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
         run: node apps/worker/dist/batch-redirect-check.js
+
+      # 원장님 텔레그램 아침 요약(설계 1d). 앞 단계가 실패해도 돈다 — 실패 사실도 요약에 한 줄 들어간다.
+      # 알림 실패는 배치를 실패로 뒤집지 않는다. secret 이 없으면 스크립트가 스스로 건너뛴다.
+      - name: Send daily digest
+        if: always()
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          SEARCHOPS_TELEGRAM_BOT_TOKEN: ${{ secrets.SEARCHOPS_TELEGRAM_BOT_TOKEN }}
+          SEARCHOPS_TELEGRAM_OWNER_CHAT_ID: ${{ secrets.SEARCHOPS_TELEGRAM_OWNER_CHAT_ID }}
+          SEARCHOPS_WEB_BASE_URL: ${{ vars.SEARCHOPS_WEB_BASE_URL }}
+          BATCH_STATUS: ${{ job.status }}
+        run: node apps/worker/dist/batch-digest.js
 
       # Actions 기본 알림은 메일함에 묻힌다. 이슈는 열려 있는 동안 레포 상태로 남고
       # 댓글마다 다시 알림이 온다. 같은 제목의 열린 이슈에 댓글만 달아 매일 실패해도 쌓이지 않는다.

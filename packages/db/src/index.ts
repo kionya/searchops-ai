@@ -201,6 +201,7 @@ export {
   type TodayBoardCandidate,
   type TodayBoardClient
 } from "./today-board.js";
+export { summarizeDataFreshness, type FreshnessItem, type FreshnessTone } from "./data-freshness-summary.js";
 
 export {
   buildGeoVisibilityReportCreateArgs,

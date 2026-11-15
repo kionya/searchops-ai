@@ -9,7 +9,8 @@ export interface TelegramNotifierOptions {
 
 export interface TelegramNotifier {
   readonly chatId: string;
-  sendMessage(text: string): Promise<void>;
+  /** silent: 소리 없이 보낸다(새벽 요약 등 — disable_notification). */
+  sendMessage(text: string, options?: { readonly silent?: boolean }): Promise<void>;
 }
 
 export function createTelegramNotifier(
@@ -22,10 +23,15 @@ export function createTelegramNotifier(
   const fetchFn = fetchImpl ?? fetch;
   return {
     chatId,
-    async sendMessage(text) {
+    async sendMessage(text, options) {
       // ponytail: 4096자 상한은 텔레그램 쪽 제한. 넘기면 잘라 보낸다 — 분할 전송은 요약이 길어질 때.
       const response = await fetchFn(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        body: JSON.stringify({ chat_id: chatId, disable_web_page_preview: true, text: text.slice(0, 4096) }),
+        body: JSON.stringify({
+          chat_id: chatId,
+          ...(options?.silent === true ? { disable_notification: true } : {}),
+          disable_web_page_preview: true,
+          text: text.slice(0, 4096)
+        }),
         headers: { "content-type": "application/json" },
         method: "POST"
       });
