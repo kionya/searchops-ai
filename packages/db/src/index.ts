@@ -191,6 +191,16 @@ export {
   type SourceWorkOrderClient,
   type SourceWorkOrderDraft
 } from "./legacy-urls.js";
+export {
+  addIgnoredIssueKey,
+  createPrismaTodayBoardClient,
+  loadTodayBoard,
+  searchChanges,
+  type GscRow,
+  type TodayBoard,
+  type TodayBoardCandidate,
+  type TodayBoardClient
+} from "./today-board.js";
 
 export {
   buildGeoVisibilityReportCreateArgs,

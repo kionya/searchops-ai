@@ -4,7 +4,8 @@ import type {
   SiteConnectorSyncHistory,
   SiteDashboardSnapshot,
   SiteDataFreshness,
-  SiteGeoVisibility
+  SiteGeoVisibility,
+  TodayBoard
 } from "@searchops/db";
 import type { Site, WorkOrderStatus } from "@searchops/types";
 
@@ -258,6 +259,13 @@ export const getSiteGeoVisibility = cache(
     readScoped((db, prisma, organizationId) => db.loadSiteGeoVisibility(prisma, { organizationId, siteId })),
 );
 
+export const getTodayBoard = cache(
+  (siteId: string): Promise<TodayBoard | null> =>
+    readScoped((db, prisma, organizationId) =>
+      db.loadTodayBoard(db.createPrismaTodayBoardClient(prisma), { organizationId, siteId }),
+    ),
+);
+
 export const getOrganizationSites = cache(async (): Promise<readonly Site[] | null> => {
   if (!isDirectDatabaseMode()) {
     return null;
@@ -326,4 +334,13 @@ export async function setWorkOrderStatus(
   }
   const { db, prisma } = await getDb();
   return db.updateOrganizationWorkOrderStatus(prisma, { organizationId, status, workOrderId });
+}
+
+/** 오늘의 할 일의 [의도한 설정이에요]. 조직 대조는 @searchops/db 의 addIgnoredIssueKey 안에서 한다. */
+export async function markIssueIntended(siteId: string, key: string): Promise<boolean> {
+  return (
+    (await readScoped((db, prisma, organizationId) =>
+      db.addIgnoredIssueKey(db.createPrismaTodayBoardClient(prisma), { key, organizationId, siteId }),
+    )) ?? false
+  );
 }
