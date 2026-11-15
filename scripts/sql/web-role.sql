@@ -84,6 +84,9 @@ grant insert on public."Site" to searchops_web;
 -- 조용히 고쳐 쓰는 것을 막는다. updatedAt 은 Prisma 의 @updatedAt 이 같이 쓴다.
 grant update ("status", "updatedAt") on public."WorkOrder" to searchops_web;
 
+-- 오늘의 할 일 화면의 [의도한 설정이에요] — 이 컬럼만 바꾼다(2026-11-15).
+grant update ("ignoredIssueKeys") on public."Site" to searchops_web;
+
 -- DELETE 는 어느 테이블에도 주지 않는다. 웹에서 지우는 기능이 없고, 없어야 한다.
 
 -- 앞으로 만들어질 테이블에 기본 권한이 새지 않게 한다. Prisma 마이그레이션이 새 테이블을

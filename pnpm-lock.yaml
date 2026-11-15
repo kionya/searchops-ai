@@ -108,6 +108,9 @@ importers:
       '@searchops/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@searchops/workorders':
+        specifier: workspace:*
+        version: link:../../packages/workorders
       '@supabase/ssr':
         specifier: 0.12.1
         version: 0.12.1(@supabase/supabase-js@2.110.3)

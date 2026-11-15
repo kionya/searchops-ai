@@ -26,4 +26,15 @@ describe("telegram notifier (T7)", () => {
     status = 500;
     await expect(notifier?.sendMessage("x")).rejects.toThrow("HTTP 500: {\"description\":\"Bad Request: chat not found\"}");
   });
+
+  it("sends disable_notification when silent", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const notifier = createTelegramNotifier({ botToken: "tok", chatId: "42", fetchImpl });
+    await notifier?.sendMessage("새벽", { silent: true });
+    expect(bodies[0]).toEqual({ chat_id: "42", disable_notification: true, disable_web_page_preview: true, text: "새벽" });
+  });
 });

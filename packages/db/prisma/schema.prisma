@@ -91,6 +91,8 @@ model Site {
   geoMonitorEnabled Boolean     @default(false)
   /// 보관 시각. NULL = 운영 중. 보관된 사이트는 데이터는 남되 야간 배치·사이트 목록에서 빠진다.
   archivedAt     DateTime?
+  /// 사용자가 "의도한 설정"이라 확인한 이슈 키(`<RULE_ID>|<정규화 URL>`). 크롤 뒤 정리가 다시 열지 않는다.
+  ignoredIssueKeys String[]     @default([])
   createdAt      DateTime       @default(now())
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -304,6 +306,8 @@ model WorkOrder {
   seoIssueId         String? @unique
   schemaRecommendationId String? @unique
   geoVisibilityReportId String? @unique
+  /// 이슈 하나에 매이지 않는 지시서의 정체성(예: legacy-redirect:<siteId>:broken, checklist:<siteId>:sitemap-naver).
+  sourceKey          String? @unique
   status             String    @default("open")
   priority           String    @default("p2")
   title              String

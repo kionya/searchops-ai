@@ -173,6 +173,35 @@ export {
   type WorkOrderRecheckOutcome,
   type WorkOrderRecheckPersistenceClient
 } from "./work-order-recheck.js";
+export {
+  closeIssuesForGoneUrls,
+  createPrismaIssueReconcileClient,
+  issueKey,
+  reconcileSiteIssues,
+  type IssueReconcileClient,
+  type ReconcileIssueRow
+} from "./issue-reconcile.js";
+export {
+  createPrismaLegacyUrlClient,
+  createPrismaSourceWorkOrderClient,
+  loadLegacyUrlCandidates,
+  normalizeSiteUrl,
+  upsertSourceWorkOrder,
+  type LegacyUrlClient,
+  type SourceWorkOrderClient,
+  type SourceWorkOrderDraft
+} from "./legacy-urls.js";
+export {
+  addIgnoredIssueKey,
+  createPrismaTodayBoardClient,
+  loadTodayBoard,
+  searchChanges,
+  type GscRow,
+  type TodayBoard,
+  type TodayBoardCandidate,
+  type TodayBoardClient
+} from "./today-board.js";
+export { summarizeDataFreshness, type FreshnessItem, type FreshnessTone } from "./data-freshness-summary.js";
 
 export {
   buildGeoVisibilityReportCreateArgs,
