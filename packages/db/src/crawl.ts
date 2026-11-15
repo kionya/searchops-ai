@@ -774,8 +774,9 @@ export interface ComplianceFlagUpdateArgs {
     readonly id: string;
   };
   readonly data: {
-    readonly evidence: Prisma.InputJsonValue;
-    readonly message: string;
+    readonly evidence?: Prisma.InputJsonValue;
+    readonly message?: string;
+    readonly status?: "open" | "resolved";
   };
 }
 
@@ -801,6 +802,8 @@ export interface ComplianceFlagPersistenceClient {
 export interface PersistComplianceFlagsInput {
   siteId: string;
   reports: readonly ComplianceReviewReport[];
+  /** 이번 크롤에서 2xx 로 읽고 검수한 페이지. 여기 있는데 이번에 안 걸린 열린 플래그는 resolved 로 닫는다. */
+  reconcileUrls?: readonly string[];
 }
 
 export interface PersistComplianceFlagsOutput {
@@ -808,6 +811,9 @@ export interface PersistComplianceFlagsOutput {
   complianceFlagsSkipped: number;
   /** 이미 열려 있던 플래그의 근거 문장을 최신 본문으로 덮어쓴 횟수. */
   complianceFlagsRefreshed: number;
+  /** 문구가 사라져 닫은 플래그 + 다시 나타나 연 플래그. */
+  complianceFlagsResolved: number;
+  complianceFlagsReopened: number;
 }
 
 export function createPrismaComplianceFlagPersistenceClient(
@@ -888,6 +894,8 @@ export async function persistComplianceFlags(
   let complianceFlagsCreated = 0;
   let complianceFlagsSkipped = 0;
   let complianceFlagsRefreshed = 0;
+  let complianceFlagsReopened = 0;
+  const currentKeys = new Set<string>();
   for (const raw of input.reports) {
     const report = ComplianceReviewReportSchema.parse(raw);
     if (report.input.siteId !== input.siteId) {
@@ -896,6 +904,7 @@ export async function persistComplianceFlags(
 
     for (const flag of report.flags) {
       const key = complianceFlagDedupeKey(report.input.url, flag.ruleId);
+      currentKeys.add(key);
       const previous = seen.get(key);
       if (previous !== undefined) {
         complianceFlagsSkipped += 1;
@@ -911,6 +920,18 @@ export async function persistComplianceFlags(
             where: { id: previous.id }
           });
           complianceFlagsRefreshed += 1;
+        } else if (previous.status === "resolved") {
+          // 닫힌 뒤 같은 문구가 다시 나왔다. 오탐 기각(dismissed)·검토 중(in_review)은 사람 판정이라 건드리지 않는다.
+          await client.complianceFlag.update({
+            data: {
+              evidence: flag.evidence as unknown as Prisma.InputJsonValue,
+              message: flag.message,
+              status: "open"
+            },
+            where: { id: previous.id }
+          });
+          seen.set(key, { ...previous, status: "open" });
+          complianceFlagsReopened += 1;
         }
         continue;
       }
@@ -947,5 +968,26 @@ export async function persistComplianceFlags(
     }
   }
 
-  return { complianceFlagsCreated, complianceFlagsRefreshed, complianceFlagsSkipped };
+  // 이번에 다시 읽은 페이지에서 더 이상 안 걸리는 열린 플래그는 고쳐진 것이다.
+  const reconcileUrls = new Set(input.reconcileUrls ?? []);
+  let complianceFlagsResolved = 0;
+  for (const flag of existing) {
+    if (
+      flag.status === "open" &&
+      flag.url !== null &&
+      reconcileUrls.has(flag.url) &&
+      !currentKeys.has(complianceFlagDedupeKey(flag.url, flag.ruleId))
+    ) {
+      await client.complianceFlag.update({ data: { status: "resolved" }, where: { id: flag.id } });
+      complianceFlagsResolved += 1;
+    }
+  }
+
+  return {
+    complianceFlagsCreated,
+    complianceFlagsReopened,
+    complianceFlagsRefreshed,
+    complianceFlagsResolved,
+    complianceFlagsSkipped
+  };
 }

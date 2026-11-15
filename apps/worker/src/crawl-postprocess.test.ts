@@ -591,6 +591,57 @@ describe("크롤 후처리 의료광고법 검수", () => {
     expect((refreshed?.evidence as { excerpt: string }).excerpt).not.toContain("완치");
   });
 
+  // 고친 페이지의 옛 경고가 영원히 열려 있으면 운영자가 확인하러 가도 아무것도 없다(2026-11 /videos·/ebook).
+  describe("고쳐진 페이지 정리", () => {
+    const fixedHtml = html.replace("완치 를 약속드립니다", "진료 시간 안내");
+    const withHome = (homeHtml: string, statusCode = 200) => ({
+      ...multiPagePayload,
+      pages: [{ url: "https://example.com/", html: homeHtml, statusCode }, ...multiPagePayload.pages.slice(1)]
+    });
+    const guarantee = (compliance: ReturnType<typeof createComplianceClient>) =>
+      compliance.created.filter((row) => row.ruleId === "GUARANTEED_RESULT_CLAIM");
+
+    it("문구가 사라진 페이지의 열린 플래그는 다음 크롤에서 resolved 가 된다", async () => {
+      const compliance = createComplianceClient("medical");
+      await processAndPersistCrawlJob(withHome(html), createCrawlClient(), { complianceFlagClient: compliance.client });
+      expect(guarantee(compliance).map((row) => row.status)).toEqual(["open"]);
+
+      await processAndPersistCrawlJob(withHome(fixedHtml), createCrawlClient(), { complianceFlagClient: compliance.client });
+
+      expect(guarantee(compliance).map((row) => row.status)).toEqual(["resolved"]);
+    });
+
+    it("오류 응답 페이지나 1쪽 크롤(차단 의심)에서는 닫지 않는다", async () => {
+      const cases: [string, typeof payload][] = [
+        ["503", withHome(fixedHtml, 503)],
+        ["1쪽", { ...payload, pages: [{ url: "https://example.com/", html: fixedHtml, statusCode: 200 }] }]
+      ];
+      for (const [label, second] of cases) {
+        const compliance = createComplianceClient("medical");
+        await processAndPersistCrawlJob(withHome(html), createCrawlClient(), { complianceFlagClient: compliance.client });
+
+        await processAndPersistCrawlJob(second, createCrawlClient(), { complianceFlagClient: compliance.client });
+
+        expect(guarantee(compliance).map((row) => row.status), label).toEqual(["open"]);
+      }
+    });
+
+    it("닫힌 뒤 문구가 다시 나오면 다시 연다 — 오탐 기각(dismissed)은 그대로 둔다", async () => {
+      for (const [from, expected] of [
+        ["resolved", "open"],
+        ["dismissed", "dismissed"]
+      ] as const) {
+        const compliance = createComplianceClient("medical");
+        await processAndPersistCrawlJob(withHome(html), createCrawlClient(), { complianceFlagClient: compliance.client });
+        compliance.setStatus(guarantee(compliance)[0]!.id, from);
+
+        await processAndPersistCrawlJob(withHome(html), createCrawlClient(), { complianceFlagClient: compliance.client });
+
+        expect(guarantee(compliance).map((row) => row.status), from).toEqual([expected]);
+      }
+    });
+  });
+
   it("generateComplianceFlags=false 면 아무것도 만들지 않는다", async () => {
     const compliance = createComplianceClient("medical");
 
