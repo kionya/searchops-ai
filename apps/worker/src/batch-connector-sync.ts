@@ -10,8 +10,8 @@
 //   - parseSearchOpsEnv 를 쓰지 않는다 (REDIS_URL 을 필수로 요구해 즉시 죽는다)
 //
 // ⚠️ 이 프로세스에는 SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY 가 필요하다. 연동 토큰이
-// 그 키로 암호화돼 있기 때문이다. GitHub Secret 으로 준다 — 이미 DATABASE_URL 과
-// richdoc service_role 키를 갖고 있어 신뢰 경계가 같다. 웹(Vercel)에는 여전히 두지 않는다.
+// 그 키로 암호화돼 있기 때문이다. GitHub Secret 으로 준다 — 이미 DATABASE_URL 을
+// 갖고 있어 신뢰 경계가 같다. 웹(Vercel)에는 여전히 두지 않는다.
 
 import { randomUUID } from "node:crypto";
 

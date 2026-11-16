@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 워크스페이스 패키지는 레포 루트에서 이름으로 해석되지 않는다(richdoc-smoke 와 같은 이유).
+// 워크스페이스 패키지는 레포 루트에서 이름으로 해석되지 않는다.
 // 빌드 산출물을 경로로 직접 임포트한다.
 const here = dirname(fileURLToPath(import.meta.url));
 const dbDist = resolve(here, "../packages/db/dist/index.js");

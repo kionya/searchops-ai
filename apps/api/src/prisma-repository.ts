@@ -49,7 +49,7 @@ import {
   type WorkOrder,
   type WorkOrderDraft
 } from "@searchops/types";
-import type { Prisma, RichdocContractBridge, SearchOpsPrismaClient } from "@searchops/db";
+import type { Prisma, SearchOpsPrismaClient } from "@searchops/db";
 
 import {
   connectorSyncEnqueueFailureSummary,
@@ -107,18 +107,7 @@ type ComplianceFlagWithWorkOrder = NonNullable<ComplianceFlagRecord> & {
   workOrder: NonNullable<WorkOrderRecord> | null;
 };
 
-export function createPrismaRepository(
-  prisma: SearchOpsPrismaClient,
-  options: { readonly richdocBridge?: RichdocContractBridge } = {},
-): SearchOpsRepository {
-  const richdocBridge = options.richdocBridge;
-  // Best-effort mirror of work orders into the richdoc console after a
-  // mutation commits; bridge methods log internally and never reject.
-  const queueRichdocWorkOrderSync = (siteId: string | null) => {
-    if (richdocBridge !== undefined && siteId !== null) {
-      void richdocBridge.syncSiteWorkOrders({ siteId });
-    }
-  };
+export function createPrismaRepository(prisma: SearchOpsPrismaClient): SearchOpsRepository {
   return {
     async listOrganizations() {
       const organizations = await prisma.organization.findMany({
@@ -967,9 +956,6 @@ export function createPrismaRepository(
 
         return { workOrder: toWorkOrder(workOrder) };
       });
-      if (result !== null) {
-        queueRichdocWorkOrderSync(siteId);
-      }
       return result;
     },
 
@@ -1003,9 +989,6 @@ export function createPrismaRepository(
           workOrder: toWorkOrder(workOrder)
         };
       });
-      if (result !== null) {
-        queueRichdocWorkOrderSync(result.workOrder.siteId);
-      }
       return result;
     },
 
@@ -1108,9 +1091,6 @@ export function createPrismaRepository(
           workOrder: toWorkOrder(workOrder)
         };
       });
-      if (result !== null) {
-        queueRichdocWorkOrderSync(result.workOrder.siteId);
-      }
       return result;
     },
 
@@ -1153,9 +1133,6 @@ export function createPrismaRepository(
           workOrder
         };
       });
-      if (result !== null && result.workOrder !== null) {
-        queueRichdocWorkOrderSync(result.workOrder.siteId);
-      }
       return result;
     },
 
@@ -1246,9 +1223,6 @@ export function createPrismaRepository(
           workOrder: toWorkOrder(workOrder)
         };
       });
-      if (result !== null) {
-        queueRichdocWorkOrderSync(result.workOrder.siteId);
-      }
       return result;
     },
 
@@ -1307,9 +1281,6 @@ export function createPrismaRepository(
           workOrder
         };
       });
-      if (result !== null && result.workOrder !== null) {
-        queueRichdocWorkOrderSync(result.workOrder.siteId);
-      }
       return result;
     },
 
@@ -1361,7 +1332,6 @@ export function createPrismaRepository(
           where: { id }
         }),
       );
-      queueRichdocWorkOrderSync(workOrder.siteId);
       return workOrder;
     },
 
@@ -1392,7 +1362,6 @@ export function createPrismaRepository(
               }
             });
 
-      queueRichdocWorkOrderSync(workOrder.siteId);
       return {
         workOrder: toWorkOrder(workOrder),
         seoIssue: toNullableSeoIssue(seoIssue)

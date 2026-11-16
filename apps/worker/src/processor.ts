@@ -58,7 +58,6 @@ import {
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
-  type RichdocContractBridge,
   type WorkOrderRecheckPersistenceClient,
   type SchemaRichResultValidationPersistenceClient,
   type SchemaRecommendationRecheckPersistenceClient
@@ -115,11 +114,10 @@ export interface ProcessAndPersistCrawlJobOptions {
   /** T8: recheckWorkOrderId 가 있는 크롤 뒤 워크오더 상태 전이·감사 이벤트. */
   readonly workOrderRecheckClient?: WorkOrderRecheckPersistenceClient;
   readonly crawlSite?: (input: CrawlSiteInput) => Promise<CrawlJobPageInput[]>;
-  readonly richdocBridge?: RichdocContractBridge;
   readonly schemaRecommendationRecheckClient?: SchemaRecommendationRecheckPersistenceClient;
   /**
    * 크롤 잡을 깨지 않고 삼킨 후처리(AEO·컴플라이언스) 실패를 배치 실행으로 올린다.
-   * 없으면 전패해도 워크플로가 초록불이라 0건 상태를 아무도 모른다(richdocBridge.failureCount 와 같은 취지).
+   * 없으면 전패해도 워크플로가 초록불이라 0건 상태를 아무도 모른다.
    */
   readonly onPostprocessFailure?: (label: string, error: unknown) => void;
 }
@@ -748,19 +746,11 @@ export async function processAndPersistCrawlJob(
         workOrderId: payload.recheckWorkOrderId
       });
     }
-    await options.richdocBridge?.syncCrawlRun({
-      crawlRunId: payload.crawlRunId,
-      siteId: payload.siteId
-    });
     return result;
   } catch (error) {
     await markCrawlRunFailed(persistenceClient, {
       crawlRunId: payload.crawlRunId,
       error
-    });
-    await options.richdocBridge?.syncCrawlRun({
-      crawlRunId: payload.crawlRunId,
-      siteId: payload.siteId
     });
     throw error;
   }
