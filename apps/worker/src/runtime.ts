@@ -8,12 +8,10 @@ import {
   createPrismaWorkOrderRecheckPersistenceClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
   createPrismaSchemaRichResultValidationPersistenceClient,
-  createRichdocContractBridge,
   createSearchOpsPrismaClient,
   type ConnectorSyncPersistenceClient,
   type CrawlPersistenceClient,
   type GeoVisibilityPersistenceClient,
-  type RichdocContractConfig,
   type SchemaRichResultValidationPersistenceClient,
   type SearchOpsPrismaClient
 } from "@searchops/db";
@@ -73,7 +71,6 @@ export interface CreateCrawlWorkerOptions {
   readonly failedAt?: () => Date;
   readonly queueName?: string;
   readonly processorOptions?: ProcessAndPersistCrawlJobOptions;
-  readonly richdocContract?: RichdocContractConfig;
 }
 
 export interface CreateConnectorSyncWorkerOptions {
@@ -277,9 +274,6 @@ export function createCrawlWorker(options: CreateCrawlWorkerOptions) {
     crawlAnalysisClient,
     schemaRecommendationRecheckClient,
     workOrderRecheckClient: createPrismaWorkOrderRecheckPersistenceClient(prisma),
-    ...(options.richdocContract === undefined
-      ? {}
-      : { richdocBridge: createRichdocContractBridge({ prisma, ...options.richdocContract }) }),
     ...options.processorOptions
   };
   const queueName = options.queueName ?? crawlQueueName;

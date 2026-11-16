@@ -508,8 +508,7 @@ function buildSeoIssueUpsertArgs(input: {
     },
     update: {
       // 마지막 관측 런으로 갱신한다. 이게 없으면 이슈가 첫 런에 고정되어
-      // richdoc 어댑터의 crawlRunId 스코프 조회에서 빠지고, 콘솔의 last_seen 이
-      // 멈추면서 issues_found 가 0으로 보고된다.
+      // 크롤런 단위 조회(이슈 정리 등)에서 빠진다.
       crawlRunId: input.crawlRunId,
       evidence: toPrismaJson(input.issue.evidence),
       severity: input.issue.severity,
