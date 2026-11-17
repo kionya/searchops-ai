@@ -28,7 +28,7 @@ const runsPerSite = Number(argv.includes("--runs") ? argv[argv.indexOf("--runs")
 const db = await import(dbPath);
 const contract = db.parseRichdocContractConfigFromEnv(process.env);
 if (contract === undefined) {
-  console.error("SEARCHOPS_RICHDOC_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS 가 모두 필요하다.");
+  console.error("SEARCHOPS_CONSOLE_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS 가 모두 필요하다.");
   process.exit(2);
 }
 

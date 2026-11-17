@@ -87,11 +87,11 @@ Render 무료에 워커 없음, Oracle A1 용량 경합) 상시 워커를 포기
   배치 경로에서 임포트하면 안 된다.
 - 크롤 대상은 **DB에 등록된 모든 `Site`**다. 웹에서 사이트를 등록하면 다음 실행에서 자동으로
   크롤된다 — 시크릿을 손대지 않는다.
-- `SEARCHOPS_RICHDOC_SITE_IDS`는 **적재(미러링) 대상만** 정한다. 목록 밖 사이트는 크롤은 되지만
+- `SEARCHOPS_CONSOLE_SITE_IDS`는 **적재(미러링) 대상만** 정한다. 목록 밖 사이트는 크롤은 되지만
   richdoc 콘솔로는 안 넘어간다(브리지가 push 전에 거른다). 계약에 적힌 id가 DB에 없으면 배치가 실패한다.
   ⚠️ 예전에는 이 값이 크롤 대상까지 겸해서, 웹에서 등록한 사이트가 영원히 크롤되지 않았다.
-- 필요한 secret: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`,
-  `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`, `SEARCHOPS_RICHDOC_SITE_IDS`
+- 필요한 secret: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_CONSOLE_SUPABASE_URL`,
+  `SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY`, `SEARCHOPS_CONSOLE_SITE_IDS`
 
 ⚠️ **주기를 함부로 올리지 않는다.** `SeoIssue`의 유니크 키가 `crawlRunId`를 포함해서 크롤 1회마다
 이슈와 지시서 세트가 새로 생기고, richdoc 콘솔의 지시서가 실행 횟수에 비례해 쌓인다.
@@ -118,7 +118,7 @@ Purpose:
    다른 위치면 `--contract <path>` 또는 `RICHDOC_CONTRACT_SQL`로 지정한다.
 
 실연결 검증 (배포 직전 1회):
-1. `SEARCHOPS_RICHDOC_SUPABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY`를 설정한다.
+1. `SEARCHOPS_CONSOLE_SUPABASE_URL`, `SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY`를 설정한다.
 2. `node scripts/richdoc-smoke.mjs --live`
 3. 마커 도메인 `richdoc-smoke.invalid` 행만 쓰고 종료 시 삭제한다. 눈으로 확인하려면 `--keep`.
 4. 실패하면 계약 SQL 미적용, service_role key 오류, RLS 설정 중 하나를 의심한다.

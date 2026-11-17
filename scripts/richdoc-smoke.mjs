@@ -11,7 +11,7 @@
 //   전제: 로컬 postgres 가동(`pg_isready`), `corepack pnpm --filter @searchops/db build`
 //
 // 모드 2 — live (실제 richdoc Supabase 연결/RLS/service key 확인, 배포 전 1회):
-//   SEARCHOPS_RICHDOC_SUPABASE_URL=... SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY=... \
+//   SEARCHOPS_CONSOLE_SUPABASE_URL=... SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY=... \
 //     node scripts/richdoc-smoke.mjs --live
 //   마커 도메인(richdoc-smoke.invalid)만 쓰고 끝나면 지운다. --keep 으로 보존.
 //
@@ -176,11 +176,11 @@ function createLocalTarget() {
 // ----------------------------------------------------------------- live target
 
 function createLiveTarget() {
-  const baseUrl = process.env.SEARCHOPS_RICHDOC_SUPABASE_URL?.replace(/\/+$/, "");
-  const key = process.env.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY;
+  const baseUrl = process.env.SEARCHOPS_CONSOLE_SUPABASE_URL?.replace(/\/+$/, "");
+  const key = process.env.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY;
   if (!baseUrl || !key) {
     throw new Error(
-      "--live 에는 SEARCHOPS_RICHDOC_SUPABASE_URL / SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY 가 필요하다.",
+      "--live 에는 SEARCHOPS_CONSOLE_SUPABASE_URL / SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY 가 필요하다.",
     );
   }
   const headers = { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" };
@@ -275,7 +275,7 @@ try {
   const supabaseUrl = await target.start();
   const bridge = createRichdocContractBridge({
     prisma,
-    serviceRoleKey: process.env.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY ?? "local-smoke",
+    serviceRoleKey: process.env.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY ?? "local-smoke",
     siteIds: [SITE_ID],
     supabaseUrl
   });
@@ -357,7 +357,7 @@ try {
   state.workOrder = { ...state.workOrder, id: "smoke-attacker-wo", title: LEAK };
   const guarded = createRichdocContractBridge({
     prisma,
-    serviceRoleKey: process.env.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY ?? "local-smoke",
+    serviceRoleKey: process.env.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY ?? "local-smoke",
     siteIds: [SITE_ID], // attacker-site 는 목록에 없다
     supabaseUrl
   });

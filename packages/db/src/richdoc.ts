@@ -37,13 +37,13 @@ export interface RichdocContractBridge {
 }
 
 export function parseRichdocContractConfigFromEnv(env: {
-  readonly SEARCHOPS_RICHDOC_SUPABASE_URL?: string | undefined;
-  readonly SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY?: string | undefined;
-  readonly SEARCHOPS_RICHDOC_SITE_IDS?: string | undefined;
+  readonly SEARCHOPS_CONSOLE_SUPABASE_URL?: string | undefined;
+  readonly SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY?: string | undefined;
+  readonly SEARCHOPS_CONSOLE_SITE_IDS?: string | undefined;
 }): RichdocContractConfig | undefined {
-  const supabaseUrl = env.SEARCHOPS_RICHDOC_SUPABASE_URL;
-  const serviceRoleKey = env.SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY;
-  const siteIds = (env.SEARCHOPS_RICHDOC_SITE_IDS ?? "")
+  const supabaseUrl = env.SEARCHOPS_CONSOLE_SUPABASE_URL;
+  const serviceRoleKey = env.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY;
+  const siteIds = (env.SEARCHOPS_CONSOLE_SITE_IDS ?? "")
     .split(",")
     .map((siteId) => siteId.trim())
     .filter((siteId) => siteId.length > 0);

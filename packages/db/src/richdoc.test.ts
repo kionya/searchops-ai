@@ -111,15 +111,15 @@ describe("parseRichdocContractConfigFromEnv", () => {
     expect(parseRichdocContractConfigFromEnv({})).toBeUndefined();
     expect(
       parseRichdocContractConfigFromEnv({
-        SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: "k",
-        SEARCHOPS_RICHDOC_SUPABASE_URL: "https://x.supabase.co"
+        SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY: "k",
+        SEARCHOPS_CONSOLE_SUPABASE_URL: "https://x.supabase.co"
       }),
     ).toBeUndefined();
     expect(
       parseRichdocContractConfigFromEnv({
-        SEARCHOPS_RICHDOC_SITE_IDS: " site-1 , site-2 ,",
-        SEARCHOPS_RICHDOC_SUPABASE_SERVICE_ROLE_KEY: "k",
-        SEARCHOPS_RICHDOC_SUPABASE_URL: "https://x.supabase.co"
+        SEARCHOPS_CONSOLE_SITE_IDS: " site-1 , site-2 ,",
+        SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY: "k",
+        SEARCHOPS_CONSOLE_SUPABASE_URL: "https://x.supabase.co"
       }),
     ).toEqual({
       serviceRoleKey: "k",

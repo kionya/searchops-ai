@@ -7,7 +7,7 @@
 //   - ./runtime.js 를 임포트하지 않는다 (최상단에서 bullmq 를 끌고 온다)
 //   - parseSearchOpsEnv 를 쓰지 않는다 (REDIS_URL 을 필수로 요구해 즉시 죽는다)
 //
-// 크롤 대상은 DB 에 등록된 모든 Site 다. SEARCHOPS_RICHDOC_SITE_IDS 는 적재(미러링)
+// 크롤 대상은 DB 에 등록된 모든 Site 다. SEARCHOPS_CONSOLE_SITE_IDS 는 적재(미러링)
 // 대상만 정한다 — 두 의미를 한 값에 겹쳐 쓰다가 웹에서 등록한 사이트가 영원히 크롤되지
 // 않는 사고가 났다. 자세한 경위는 main() 안 findMany 위 주석.
 
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const contract = parseRichdocContractConfigFromEnv(process.env);
   if (contract === undefined) {
     console.error(
-      "[batch-crawl] SEARCHOPS_RICHDOC_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS 가 모두 필요하다."
+      "[batch-crawl] SEARCHOPS_CONSOLE_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS 가 모두 필요하다."
     );
     process.exitCode = 2;
     return;
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   const prisma = createSearchOpsPrismaClient();
   try {
-    // 등록된 사이트를 전부 크롤한다. 예전에는 SEARCHOPS_RICHDOC_SITE_IDS 에 있는 것만
+    // 등록된 사이트를 전부 크롤한다. 예전에는 SEARCHOPS_CONSOLE_SITE_IDS 에 있는 것만
     // 크롤했는데, 그 목록은 "richdoc 에 미러링할 사이트" 라는 다른 뜻이다. 두 의미를 겹쳐
     // 쓰는 바람에 웹에서 새 사이트를 등록해도 영원히 크롤되지 않았다 — 시크릿을 손으로
     // 고치기 전까지는. 적재 대상 제한은 브리지가 알아서 한다(packages/db 의 richdoc.ts 가
