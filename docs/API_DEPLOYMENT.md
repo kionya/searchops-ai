@@ -21,7 +21,7 @@ API (별도 호스트)     ← 암호화 키 여기. 커넥터 CRUD + Google OAu
 GitHub Actions (배치) ← 암호화 키 여기(Secret). 크롤 + 커넥터 동기화
 ```
 
-배치가 키를 갖는 것은 새 위험이 아니다 — 이미 `DATABASE_URL` 을 갖고 있어 신뢰 경계가 같다.
+배치가 키를 갖는 것은 새 위험이 아니다 — 이미 `DATABASE_URL` 과 richdoc service_role 키를 갖고 있어 신뢰 경계가 같다.
 
 ## 필요한 것
 
@@ -227,6 +227,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 
 ```
 SEARCHOPS_BING_API_KEY, SEARCHOPS_PAGESPEED_API_KEY
+SEARCHOPS_CONSOLE_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS
 SEARCHOPS_RATE_LIMIT_ENABLED (기본: production 이면 켜짐)
 ```
 

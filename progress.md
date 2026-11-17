@@ -136,10 +136,10 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 ### 운영 상태 (2026-08-16 기준)
 
 - richdoc Supabase(`trmbkdrzvtolvolchoad`)에 계약 SQL 적용 완료, 실데이터 적재 확인.
-- GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_RICHDOC_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, 첫 운영 사이트 — 2026-11-01 보관).
+- GitHub secret 5종 등록: `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SEARCHOPS_CONSOLE_SUPABASE_URL`, `_SERVICE_ROLE_KEY`, `_SITE_IDS`(= `cmq3bbygu0001oj01ux3843ke`, 첫 운영 사이트 — 2026-11-01 보관).
 - Actions 스케줄 실행 성공. 2026-08-17 03:11 KST 배치 기준 SearchOps DB는 크롤런 5 / 이슈 30 / 지시서 28이며, 배치가 초록이므로 콘솔 적재 실패는 0건이다.
 - 사이트 추가는 웹의 등록 폼으로 한다 — 배치가 DB의 모든 `Site`를 크롤하므로 시크릿을 손댈 필요가 없다.
-  richdoc 콘솔로 **적재**까지 하려면 그때만 `SEARCHOPS_RICHDOC_SITE_IDS`에 Site.id를 더한다.
+  richdoc 콘솔로 **적재**까지 하려면 그때만 `SEARCHOPS_CONSOLE_SITE_IDS`에 Site.id를 더한다.
 
 ### 머지 전 리뷰에서 고친 것
 
@@ -232,7 +232,7 @@ Live: web = https://searchops-ai-web.vercel.app · **api/worker = 배포 안 함
 - **상태 이동은 `update` 가 아니라 `updateMany`.** `update` 는 unique where 만 받아 `organizationId` 를 조건에 못 넣고, 결국 "읽어서 확인하고 나서 쓴다" 가 된다 — 잊을 수 있는 코드다. `updateMany` 는 조직 조건이 `UPDATE` 문 안에 있어 잊을 수가 없다.
 - **보드의 죽은 "재검수" 버튼을 상태 select 로 바꿨다.** 그 버튼은 `type="button"` 에 핸들러가 없어 눌러도 아무 일이 없었다. 재검수는 큐가 없어 못 하지만 상태 이동은 되므로, 되는 것을 놓았다.
 
-**배치의 크롤 대상도 같이 고쳤다.** `SEARCHOPS_RICHDOC_SITE_IDS`(= richdoc 미러링 대상)를 크롤 대상으로도 겸해 쓰고 있어서, 웹에서 사이트를 등록해도 시크릿을 손으로 고치기 전까지 **영원히 크롤되지 않았다.** 이제 배치는 DB 의 모든 `Site` 를 크롤하고, 그 시크릿은 적재 대상만 정한다(브리지가 push 전에 거른다). 등록 → 다음 배치 → 데이터가 자동으로 이어진다.
+**배치의 크롤 대상도 같이 고쳤다.** `SEARCHOPS_CONSOLE_SITE_IDS`(= richdoc 미러링 대상)를 크롤 대상으로도 겸해 쓰고 있어서, 웹에서 사이트를 등록해도 시크릿을 손으로 고치기 전까지 **영원히 크롤되지 않았다.** 이제 배치는 DB 의 모든 `Site` 를 크롤하고, 그 시크릿은 적재 대상만 정한다(브리지가 push 전에 거른다). 등록 → 다음 배치 → 데이터가 자동으로 이어진다.
 
 **전환 중 겪은 사고: turbo 캐시가 Prisma 엔진을 지웠다.** `packages/db/src/generated/prisma` 는 gitignore 대상인데 turbo `build.outputs` 에 없었다. `packages/db` 가 캐시 히트하면 `dist/**` 만 복원되고 엔진이 사라지는데, **소스가 안 바뀐 커밋에서만** 그렇게 되므로 간헐적으로만 재현된다(web 만 캐시 미스인 커밋에서 터졌다). 게다가 복사 스크립트가 엔진이 없을 때 `exit 0` 이라 **엔진 없는 람다가 초록불로 배포**됐고, 로그인한 사용자만 500 을 봤다. `outputs` 에 넣어 원인을 막고, 복사 스크립트가 빌드를 세우게 해 같은 부류가 다시 조용히 나가지 않게 했다.
 

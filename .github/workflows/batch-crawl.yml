@@ -1,13 +1,14 @@
 name: batch-crawl
 
 # 상시 워커 대신 크롤을 주기적으로 한 번씩 돌린다. 배포 플랫폼 없이 GitHub Actions 무료 러너만 쓴다.
-# 크롤 → SeoIssue/WorkOrder 생성까지 한 프로세스에서 끝난다.
-# 크롤 대상은 DB에 등록된 모든 Site 다.
+# 크롤 → SeoIssue/WorkOrder 생성 → richdoc(aicaio-saas) Supabase 적재까지 한 프로세스에서 끝난다.
+# 크롤 대상은 DB에 등록된 모든 Site 다. SEARCHOPS_CONSOLE_SITE_IDS 는 적재 대상만 정한다.
 # Redis 를 쓰지 않는다(apps/worker/src/batch-crawl.ts 주석 참고).
 # 크롤 뒤에는 커넥터 동기화 → 키워드 검색량 → 옛 주소 점검(batch-redirect-check) 순으로 돈다.
 #
 # 필요한 secret:
 #   DATABASE_URL, DIRECT_DATABASE_URL
+#   SEARCHOPS_CONSOLE_SUPABASE_URL, SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY, SEARCHOPS_CONSOLE_SITE_IDS
 #
 # 커넥터(GSC/GA4) 동기화까지 하려면 추가로 (없으면 그 스텝만 건너뛴다):
 #   SEARCHOPS_CREDENTIAL_STORAGE_MODE, SEARCHOPS_CREDENTIAL_ENCRYPTION_KEY(_ID)
@@ -51,15 +52,19 @@ jobs:
     timeout-minutes: 30
 
     # 시크릿은 job 레벨에 두지 않는다. 여기 두면 pnpm install 의 서드파티 postinstall
-    # 스크립트까지 운영 DB 자격증명을 상속한다. 실제로 쓰는 스텝에만 준다.
+    # 스크립트까지 운영 DB 자격증명과 service_role 키를 상속한다. 실제로 쓰는 스텝에만 준다.
 
     steps:
       - name: Fail fast when secrets are missing
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEARCHOPS_CONSOLE_SUPABASE_URL: ${{ secrets.SEARCHOPS_CONSOLE_SUPABASE_URL }}
+          SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY }}
+          SEARCHOPS_CONSOLE_SITE_IDS: ${{ secrets.SEARCHOPS_CONSOLE_SITE_IDS }}
         run: |
           missing=""
-          for v in DATABASE_URL; do
+          for v in DATABASE_URL SEARCHOPS_CONSOLE_SUPABASE_URL \
+                   SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY SEARCHOPS_CONSOLE_SITE_IDS; do
             [ -z "${!v:-}" ] && missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -92,6 +97,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          SEARCHOPS_CONSOLE_SUPABASE_URL: ${{ secrets.SEARCHOPS_CONSOLE_SUPABASE_URL }}
+          SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SEARCHOPS_CONSOLE_SUPABASE_SERVICE_ROLE_KEY }}
+          SEARCHOPS_CONSOLE_SITE_IDS: ${{ secrets.SEARCHOPS_CONSOLE_SITE_IDS }}
           SEARCHOPS_BATCH_MAX_PAGES: ${{ inputs.max_pages || '25' }}
           # 등록은 해두되 매일 긁지 않을 Site.id 를 쉼표로 나열한다. 없으면 전부 크롤한다.
           # 건너뛴 사이트는 로그에 이름이 찍힌다 — 조용히 빠지면 아무도 못 찾는다.
@@ -187,7 +195,7 @@ jobs:
                 || echo "::warning::이슈 #$number 를 닫지 못했다. 수동으로 닫아라."
             fi
           elif [ "$STATUS" = "failure" ]; then
-            body="배치 실패. 로그: $RUN_URL — 크롤/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '크롤 차단 의심' · '[batch-connector-sync]' 를 먼저 확인해라."
+            body="배치 실패. 로그: $RUN_URL — 크롤/richdoc 적재/커넥터 동기화 중 어느 하나만 실패해도 종료 코드가 1이다. 로그에서 '크롤 차단 의심' · '적재 실패' · '[batch-connector-sync]' 를 먼저 확인해라."
             if [ -n "$number" ]; then
               gh issue comment "$number" --body "$body" \
                 || echo "::warning::이슈 알림 실패. 배치는 실제로 실패했다: $RUN_URL"

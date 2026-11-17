@@ -7,7 +7,9 @@
 //   - ./runtime.js 를 임포트하지 않는다 (최상단에서 bullmq 를 끌고 온다)
 //   - parseSearchOpsEnv 를 쓰지 않는다 (REDIS_URL 을 필수로 요구해 즉시 죽는다)
 //
-// 크롤 대상은 DB 에 등록된 모든 Site 다.
+// 크롤 대상은 DB 에 등록된 모든 Site 다. SEARCHOPS_CONSOLE_SITE_IDS 는 적재(미러링)
+// 대상만 정한다 — 두 의미를 한 값에 겹쳐 쓰다가 웹에서 등록한 사이트가 영원히 크롤되지
+// 않는 사고가 났다. 자세한 경위는 main() 안 findMany 위 주석.
 
 import {
   createPrismaAeoReadinessPersistenceClient,
@@ -16,7 +18,9 @@ import {
   createPrismaCrawlPersistenceClient,
   createPrismaIssueReconcileClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient,
+  createRichdocContractBridge,
   createSearchOpsPrismaClient,
+  parseRichdocContractConfigFromEnv,
   reconcileSiteIssues
 } from "@searchops/db";
 
@@ -27,9 +31,23 @@ import { processAndPersistCrawlJob } from "./processor.js";
 const maxPages = Math.min(100, Math.max(1, Number(process.env.SEARCHOPS_BATCH_MAX_PAGES) || 25));
 
 async function main(): Promise<void> {
+  const contract = parseRichdocContractConfigFromEnv(process.env);
+  if (contract === undefined) {
+    console.error(
+      "[batch-crawl] SEARCHOPS_CONSOLE_SUPABASE_URL / _SERVICE_ROLE_KEY / _SITE_IDS 가 모두 필요하다."
+    );
+    process.exitCode = 2;
+    return;
+  }
+
   const prisma = createSearchOpsPrismaClient();
   try {
-    // 등록된 사이트를 전부 크롤한다.
+    // 등록된 사이트를 전부 크롤한다. 예전에는 SEARCHOPS_CONSOLE_SITE_IDS 에 있는 것만
+    // 크롤했는데, 그 목록은 "richdoc 에 미러링할 사이트" 라는 다른 뜻이다. 두 의미를 겹쳐
+    // 쓰는 바람에 웹에서 새 사이트를 등록해도 영원히 크롤되지 않았다 — 시크릿을 손으로
+    // 고치기 전까지는. 적재 대상 제한은 브리지가 알아서 한다(packages/db 의 richdoc.ts 가
+    // siteIds 에 없는 사이트는 push 하지 않는다).
+    //
     // ponytail: 사이트 수만큼 순차로 돈다. 워크플로 타임아웃이 30분이라 사이트가 10개를
     // 넘어가면 잘릴 수 있다. 그때는 사이트를 나눠 도는 matrix 로 쪼개라.
     const sites = await prisma.site.findMany({
@@ -37,7 +55,17 @@ async function main(): Promise<void> {
       select: { archivedAt: true, domain: true, id: true }
     });
 
+    // 계약에 적힌 id 가 DB 에 없으면 오타이거나 지워진 사이트다. 매일 조용히 누락되면
+    // 아무도 모르므로 여기서 실패로 만든다.
+    // SITE_IDS 항목은 Site.id 또는 도메인(예: www.gowoonmom.co.kr) — 운영 DB 를 열지 않고도 설정할 수 있게
+    // 도메인을 여기서 id 로 바꾼다. 못 찾은 항목은 그대로 두어 아래 missing 검사에 걸리게 한다.
+    const siteIds = contract.siteIds.map((x) => sites.find((site) => site.id === x || site.domain === x)?.id ?? x);
+    const missing = siteIds.filter((id) => !sites.some((site) => site.id === id));
     let failures = 0;
+    if (missing.length > 0) {
+      failures += missing.length;
+      console.error(`[batch-crawl] DB에 없는 Site.id: ${missing.join(", ")}`);
+    }
     if (sites.length === 0) {
       console.error("[batch-crawl] 크롤할 사이트가 없다.");
       process.exitCode = 2;
@@ -46,12 +74,15 @@ async function main(): Promise<void> {
 
     // 등록은 해두되 매일 긁지는 않을 사이트를 빼는 장치는 둘이다 — 환경변수(임시 제외)와
     // Site.archivedAt(보관: 사이트 목록·다른 배치에서도 빠진다).
+    // ⚠️ 위 계약 검사(missing)는 필터 전 목록으로 한다. 스킵은 "크롤하지 않는다" 는
+    // 뜻이지 "DB 에 없다" 는 뜻이 아니라서, 섞으면 richdoc 계약이 엉뚱하게 깨진다.
     const skipSiteIds = new Set(
       (process.env.SEARCHOPS_CRAWL_SKIP_SITE_IDS ?? "")
         .split(",")
         .map((value) => value.trim())
         .filter((value) => value.length > 0),
     );
+    // 보관(archivedAt)도 스킵과 같은 자리에서 뺀다 — 계약 검사(missing)는 필터 전 목록 그대로다.
     const crawlTargets = sites.filter((site) => !skipSiteIds.has(site.id) && site.archivedAt === null);
     // 조용히 빠지면 "왜 이 사이트만 데이터가 안 늘지" 를 아무도 못 찾는다.
     for (const site of sites) {
@@ -78,6 +109,7 @@ async function main(): Promise<void> {
     const complianceFlagClient = createPrismaComplianceFlagPersistenceClient(prisma);
     const schemaRecommendationRecheckClient =
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
+    const richdocBridge = createRichdocContractBridge({ prisma, ...contract, siteIds });
     const issueReconcileClient = createPrismaIssueReconcileClient(prisma);
 
     for (const site of crawlTargets) {
@@ -115,6 +147,7 @@ async function main(): Promise<void> {
               failures += 1;
               console.error(`[batch-crawl] ${site.domain} 후처리 실패(${label})`, error);
             },
+            richdocBridge,
             schemaRecommendationRecheckClient
           }
         );
@@ -153,7 +186,13 @@ async function main(): Promise<void> {
       }
     }
 
-    if (failures > 0) {
+    // 브리지는 적재 실패를 삼킨다(크롤 결과를 깨지 않기 위해). 배치는 미러링이 산출물의
+    // 전부이므로 여기서 따로 확인한다 — 없으면 키 회전이나 계약 미적용으로 적재가 전부
+    // 실패해도 워크플로가 매일 초록불로 끝난다.
+    if (richdocBridge.failureCount > 0) {
+      console.error(`[batch-crawl] richdoc 적재 실패 ${richdocBridge.failureCount}건`);
+    }
+    if (failures > 0 || richdocBridge.failureCount > 0) {
       process.exitCode = 1;
     }
   } finally {

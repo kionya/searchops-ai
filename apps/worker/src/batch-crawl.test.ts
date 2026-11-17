@@ -8,10 +8,12 @@ const mocks = vi.hoisted(() => ({
   createPrismaCrawlPersistenceClient: vi.fn(() => ({})),
   createPrismaIssueReconcileClient: vi.fn(() => ({})),
   createPrismaSchemaRecommendationRecheckPersistenceClient: vi.fn(() => ({})),
+  createRichdocContractBridge: vi.fn(() => ({})),
   createSearchOpsPrismaClient: vi.fn(),
   processAndPersistCrawlJob: vi.fn(async () => ({
     summary: { crawledPages: 1, failedPages: 0 },
   })),
+  readRichdocContract: vi.fn((): { siteIds: string[] } => ({ siteIds: [] })),
   reconcileSiteIssues: vi.fn(async (_client: unknown, _input: unknown) => ({ ignored: 0, reopened: 0, resolved: 0, skipped: false })),
   siteFindMany: vi.fn(async (): Promise<{ archivedAt: Date | null; domain: string; id: string }[]> => [
     { archivedAt: null, domain: "keep.example", id: "site_keep" },
@@ -27,7 +29,9 @@ vi.mock("@searchops/db", () => ({
   createPrismaIssueReconcileClient: mocks.createPrismaIssueReconcileClient,
   createPrismaSchemaRecommendationRecheckPersistenceClient:
     mocks.createPrismaSchemaRecommendationRecheckPersistenceClient,
+  createRichdocContractBridge: mocks.createRichdocContractBridge,
   createSearchOpsPrismaClient: mocks.createSearchOpsPrismaClient,
+  parseRichdocContractConfigFromEnv: mocks.readRichdocContract,
   reconcileSiteIssues: mocks.reconcileSiteIssues,
 }));
 vi.mock("./processor.js", () => ({
@@ -63,12 +67,13 @@ describe("batch crawl", () => {
     expect(crawledSiteIds).toEqual(["site_keep"]);
   });
 
-  // 보관은 데이터를 남기고 크롤만 멈춘다.
-  it("skips archived sites without failing the batch", async () => {
+  // 보관은 데이터를 남기고 크롤만 멈춘다. richdoc 계약에 남은 보관 사이트 id 는 "DB에 없음" 실패가 아니다.
+  it("skips archived sites without failing the richdoc contract check", async () => {
     mocks.siteFindMany.mockResolvedValueOnce([
       { archivedAt: null, domain: "keep.example", id: "site_keep" },
       { archivedAt: new Date("2026-11-01T00:00:00.000Z"), domain: "old.example", id: "site_old" },
     ]);
+    mocks.readRichdocContract.mockReturnValueOnce({ siteIds: ["site_old"] });
 
     await import("./batch-crawl.js");
 
