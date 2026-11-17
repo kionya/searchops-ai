@@ -57,7 +57,10 @@ async function main(): Promise<void> {
 
     // 계약에 적힌 id 가 DB 에 없으면 오타이거나 지워진 사이트다. 매일 조용히 누락되면
     // 아무도 모르므로 여기서 실패로 만든다.
-    const missing = contract.siteIds.filter((id) => !sites.some((site) => site.id === id));
+    // SITE_IDS 항목은 Site.id 또는 도메인(예: www.gowoonmom.co.kr) — 운영 DB 를 열지 않고도 설정할 수 있게
+    // 도메인을 여기서 id 로 바꾼다. 못 찾은 항목은 그대로 두어 아래 missing 검사에 걸리게 한다.
+    const siteIds = contract.siteIds.map((x) => sites.find((site) => site.id === x || site.domain === x)?.id ?? x);
+    const missing = siteIds.filter((id) => !sites.some((site) => site.id === id));
     let failures = 0;
     if (missing.length > 0) {
       failures += missing.length;
@@ -106,7 +109,7 @@ async function main(): Promise<void> {
     const complianceFlagClient = createPrismaComplianceFlagPersistenceClient(prisma);
     const schemaRecommendationRecheckClient =
       createPrismaSchemaRecommendationRecheckPersistenceClient(prisma);
-    const richdocBridge = createRichdocContractBridge({ prisma, ...contract });
+    const richdocBridge = createRichdocContractBridge({ prisma, ...contract, siteIds });
     const issueReconcileClient = createPrismaIssueReconcileClient(prisma);
 
     for (const site of crawlTargets) {
