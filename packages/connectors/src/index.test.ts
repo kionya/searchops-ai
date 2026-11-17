@@ -963,6 +963,25 @@ describe("connectors foundation", () => {
     });
   });
 
+  // 2026-11-15~ PageSpeed 가 매일 400 인데 로그에 "HTTP 400" 만 남아 원인을 알 수 없었다.
+  it("logs the provider's error message with the HTTP status", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const adapter = createLivePageSpeedConnectorAdapter({
+      apiKey: "pagespeed_key",
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({ error: { code: 400, message: "Lighthouse returned error: FAILED_DOCUMENT_REQUEST." } }),
+          { status: 400 },
+        )) as typeof fetch,
+      siteDomain: "www.example.com"
+    });
+
+    await expect(adapter.sync({ fetchedAt: "2026-11-17T00:00:00.000Z" })).rejects.toThrow();
+
+    expect(warn.mock.calls.flat().join(" ")).toContain("FAILED_DOCUMENT_REQUEST");
+    warn.mockRestore();
+  });
+
   it("wraps PageSpeed API key calls behind the connector boundary", async () => {
     const calls: string[] = [];
     const adapter = createLivePageSpeedConnectorAdapter({
