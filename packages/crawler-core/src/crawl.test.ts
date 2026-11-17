@@ -219,3 +219,37 @@ describe("crawlSite", () => {
     ]);
   });
 });
+
+describe("crawlSite — 페이지 한 장의 응답 실패", () => {
+  const html = (title: string, links = "") => ({
+    body: page(title, links),
+    contentType: "text/html",
+    statusCode: 200,
+    truncated: false
+  });
+
+  // 2026-11-17: 한 페이지가 10초 안에 응답하지 않아 25쪽 크롤 전체가 실패로 끝났다.
+  it("한 번 다시 시도하고, 그래도 실패한 페이지만 빼고 나머지를 읽는다", async () => {
+    const calls = new Map<string, number>();
+    const fetchUrlImpl = async (input: FetchUrlInput): Promise<FetchUrlResult> => {
+      const count = (calls.get(input.url) ?? 0) + 1;
+      calls.set(input.url, count);
+      if (input.url.endsWith("/robots.txt")) {
+        return { ...html(""), contentType: "text/plain", statusCode: 404, url: input.url, finalUrl: input.url, body: "" };
+      }
+      if (input.url === "https://example.com/slow") {
+        throw new DOMException("This operation was aborted", "AbortError");
+      }
+      if (input.url === "https://example.com/flaky" && count === 1) {
+        throw new TypeError("fetch failed");
+      }
+      const links = input.url === "https://example.com/" ? '<a href="/slow">s</a><a href="/flaky">f</a><a href="/ok">o</a>' : "";
+      return { ...html(input.url, links), url: input.url, finalUrl: input.url };
+    };
+
+    const pages = await crawlSite({ fetchUrlImpl, maxPages: 10, siteDomain: "example.com", startUrl: "https://example.com/" });
+
+    expect(pages.map((p) => p.url)).toEqual(["https://example.com/", "https://example.com/flaky", "https://example.com/ok"]);
+    expect(calls.get("https://example.com/slow")).toBe(2);
+  });
+});

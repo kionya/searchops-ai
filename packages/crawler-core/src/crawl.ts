@@ -53,10 +53,15 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
       continue;
     }
 
-    const fetched = await fetchUrlImpl({
-      ...createFetchOptions(input),
-      url: normalized
-    });
+    // 한 페이지가 응답하지 않는다고 크롤 전체를 버리지 않는다 — 한 번 더 시도하고, 그래도 안 되면 그 페이지만 뺀다.
+    // 다 막히면 읽은 쪽 수가 줄어 배치의 "크롤 차단 의심"(1쪽 이하)으로 드러난다.
+    let fetched: FetchUrlResult;
+    try {
+      fetched = await fetchWithOneRetry(fetchUrlImpl, { ...createFetchOptions(input), url: normalized });
+    } catch (error) {
+      console.warn(`[crawl] 응답 없음, 건너뜀: ${normalized} (${error instanceof Error ? error.message : String(error)})`);
+      continue;
+    }
     const finalUrl = normalizeUrl(fetched.finalUrl, normalized);
     if (!isUrlAllowedForCrawl(finalUrl, input.siteDomain)) {
       continue;
@@ -91,6 +96,17 @@ export async function crawlSite(input: CrawlSiteInput): Promise<CrawlJobPageInpu
   }
 
   return pages;
+}
+
+async function fetchWithOneRetry(
+  fetchUrlImpl: (input: FetchUrlInput) => Promise<FetchUrlResult>,
+  input: FetchUrlInput,
+): Promise<FetchUrlResult> {
+  try {
+    return await fetchUrlImpl(input);
+  } catch {
+    return fetchUrlImpl(input);
+  }
 }
 
 async function fetchRobotsTxt(input: CrawlSiteInput & {

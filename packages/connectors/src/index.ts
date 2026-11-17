@@ -2215,13 +2215,15 @@ function parseRetryAfterMs(response: Response): number | null {
   return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
 }
 
-function assertFetchOk(response: Response, serviceName: string) {
+async function assertFetchOk(response: Response, serviceName: string) {
   if (!response.ok) {
+    // 상태 코드만으로는 400 의 원인(예: Lighthouse 가 페이지를 못 읽음)을 알 수 없다. 응답 본문 앞부분만 로그에 남긴다.
+    const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 300);
     // 저장되는 오류는 정본 표(@searchops/types)로 정규화돼 코드 하나만 남는다.
     // provider_rate_limited 에는 429(쿼터)·5xx(장애)·타임아웃이 전부 들어와서,
     // 처방이 정반대인데도 밖에서 구분할 방법이 없었다. 상태 코드는 값이 아니므로
     // 로그에만 남긴다 — serviceName 인자는 원래 이걸 위해 있었고 안 쓰이고 있었다.
-    console.warn(`[connector] ${serviceName} HTTP ${response.status}`);
+    console.warn(`[connector] ${serviceName} HTTP ${response.status}${detail === "" ? "" : ` ${detail}`}`);
     throw new ConnectorHttpError(response.status);
   }
 }

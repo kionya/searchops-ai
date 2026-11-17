@@ -27,7 +27,8 @@ name: batch-crawl
 
 on:
   schedule:
-    - cron: "0 18 * * *" # UTC 18:00 = KST 03:00
+    # 정각은 GitHub 스케줄 혼잡으로 크게 밀린다(2026-11-17 03:00 예정이 10:11 에 돌아 낮 시간 사이트 지연에 걸림).
+    - cron: "23 18 * * *" # UTC 18:23 = KST 03:23
   workflow_dispatch:
     inputs:
       max_pages:
