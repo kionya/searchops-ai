@@ -18,6 +18,7 @@
 // 옵션: --contract <path>  계약 SQL 경로 (기본 ../aicaio-saas/supabase/searchops_contract.sql)
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -110,7 +111,20 @@ function createLocalTarget() {
     return name;
   };
 
-  // 어댑터가 쓰는 PostgREST 동작(POST + on_conflict + merge-duplicates)만 옮긴 셰임.
+  // PostgREST 필터(col=eq.v, col=lt.v) → SQL. 어댑터가 쓰는 연산자만 옮긴다.
+  const filterOps = { eq: "=", lt: "<" };
+  const whereFromFilters = (searchParams) =>
+    [...searchParams]
+      .map(([col, raw]) => {
+        const [op, ...rest] = raw.split(".");
+        if (!(op in filterOps)) {
+          throw new Error(`셰임이 모르는 필터 연산자: ${raw}`);
+        }
+        return `${ident(col)} ${filterOps[op]} '${rest.join(".").replace(/'/g, "''")}'`;
+      })
+      .join(" and ") || "true";
+
+  // 어댑터가 쓰는 PostgREST 동작(POST + on_conflict + merge-duplicates, PATCH + 필터)만 옮긴 셰임.
   // JSON 에 있는 키만 INSERT 하므로, 어댑터가 일부러 생략한 컬럼(issues.status,
   // first_seen)은 계약의 DEFAULT 가 그대로 적용된다 — 그 동작까지 검증 대상이다.
   const server = createServer((req, res) => {
@@ -120,6 +134,18 @@ function createLocalTarget() {
       try {
         const { pathname, searchParams } = new URL(req.url, "http://localhost");
         const table = ident(pathname.replace("/rest/v1/", ""));
+        if (req.method === "PATCH") {
+          const body = JSON.parse(Buffer.concat(chunks).toString());
+          const cols = Object.keys(body).map(ident);
+          psql([
+            "-c",
+            `update public.${table} set (${cols.join(", ")}) =
+               (select ${cols.join(", ")} from jsonb_populate_record(null::public.${table}, ${quoteJson(body)}::jsonb))
+             where ${whereFromFilters(searchParams)}`
+          ]);
+          res.writeHead(204).end();
+          return;
+        }
         const rows = JSON.parse(Buffer.concat(chunks).toString());
         const cols = Object.keys(rows[0]).map(ident);
         const conflict = searchParams.get("on_conflict").split(",").map(ident);
@@ -155,6 +181,14 @@ function createLocalTarget() {
     },
     async patchIssueStatus(status) {
       psql(["-c", `update public.searchops_issues set status = '${status}' where site = '${DOMAIN}'`]);
+    },
+    async insertIssue(row) {
+      const cols = Object.keys(row).map(ident);
+      psql([
+        "-c",
+        `insert into public.searchops_issues (${cols.join(", ")})
+         select ${cols.join(", ")} from jsonb_populate_record(null::public.searchops_issues, ${quoteJson(row)}::jsonb)`
+      ]);
     },
     async patchWorkOrderStatus(status) {
       psql([
@@ -205,6 +239,9 @@ function createLiveTarget() {
     },
     async patchIssueStatus(status) {
       await rest("PATCH", `searchops_issues?site=eq.${DOMAIN}`, { status });
+    },
+    async insertIssue(row) {
+      await rest("POST", "searchops_issues", [row]);
     },
     async patchWorkOrderStatus(status) {
       await rest("PATCH", `searchops_work_orders?site=eq.${DOMAIN}`, { status });
@@ -313,6 +350,16 @@ try {
   await target.patchIssueStatus("in_order");
   await target.patchWorkOrderStatus("in_progress");
 
+  // 지난 수집에만 있던 open 이슈 — 다음 완료 수집에서 다시 안 보이면 fixed 로 닫혀야 한다(#148).
+  const { id: _issueId, ...issueTemplate } = issue ?? {};
+  await target.insertIssue({
+    ...issueTemplate,
+    ...(_issueId === undefined ? {} : { id: randomUUID() }),
+    last_seen: "2000-01-01T00:00:00.000Z",
+    page_url: `https://${DOMAIN}/gone`,
+    status: "open"
+  });
+
   // ---- 2차 적재: upsert(idempotency) + 콘솔 관리 컬럼 보존 ----
   await new Promise((done) => setTimeout(done, 1100));
   state.issue.severity = "critical";
@@ -326,7 +373,10 @@ try {
   const runs = await target.read("searchops_runs", `site = '${DOMAIN}'`, `site=eq.${DOMAIN}`);
   check("runs 재적재해도 1행 (idempotent)", runs.length === 1, runs.length);
 
-  const issues = await target.read("searchops_issues", `site = '${DOMAIN}'`, `site=eq.${DOMAIN}`);
+  const allIssues = await target.read("searchops_issues", `site = '${DOMAIN}'`, `site=eq.${DOMAIN}`);
+  const stale = allIssues.find((row) => row.page_url === `https://${DOMAIN}/gone`);
+  check("다시 안 보인 open 이슈 → fixed (PATCH)", stale?.status === "fixed", stale?.status);
+  const issues = allIssues.filter((row) => row !== stale);
   check("issues 재적재해도 1행 (idempotent)", issues.length === 1, issues.length);
   check("issues.severity 갱신 → critical", issues[0]?.severity === "critical", issues[0]?.severity);
   check("콘솔 관리 status(in_order) 보존", issues[0]?.status === "in_order", issues[0]?.status);
@@ -367,7 +417,7 @@ try {
   const afterIssues = await target.read("searchops_issues", `site = '${DOMAIN}'`, `site=eq.${DOMAIN}`);
   check(
     "타 조직 Site.id 데이터가 같은 도메인 이슈로 새지 않음",
-    afterIssues.length === 1 && afterIssues[0]?.title !== LEAK,
+    afterIssues.length === allIssues.length && afterIssues.every((row) => row.title !== LEAK),
     afterIssues.map((row) => row.title),
   );
   const attackerUuid = richdocUuidFromId("smoke-attacker-run");
