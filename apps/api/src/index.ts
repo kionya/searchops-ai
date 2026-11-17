@@ -1,8 +1,10 @@
 import { parseSearchOpsEnv } from "@searchops/types";
 import {
   createPrismaProviderCredentialStore,
+  createRichdocContractBridge,
   createSearchOpsPrismaClient,
-  parseCredentialKeyring
+  parseCredentialKeyring,
+  parseRichdocContractConfigFromEnv
 } from "@searchops/db";
 
 import {
@@ -198,6 +200,7 @@ const secretRotationExecutor =
         endpointUrl: env.SEARCHOPS_SECRET_ROTATION_WEBHOOK_URL
       });
 
+const richdocContract = parseRichdocContractConfigFromEnv(env);
 // ?? 는 빈 문자열을 통과시켜 Number("")=0 → 랜덤 포트 바인딩이 된다.
 // 플랫폼이 PORT를 빈 값으로 주입하는 경우가 있어 || 로 떨어뜨린다.
 const port = Number(process.env.PORT) || 4000;
@@ -227,7 +230,12 @@ const server = buildApiServer({
   databaseProbe: async () => {
     await prisma.$queryRaw`select 1`;
   },
-  repository: createPrismaRepository(prisma)
+  repository: createPrismaRepository(
+    prisma,
+    richdocContract === undefined
+      ? {}
+      : { richdocBridge: createRichdocContractBridge({ prisma, ...richdocContract }) },
+  )
 });
 
 server.addHook("onClose", async () => {

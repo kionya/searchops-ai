@@ -3,7 +3,7 @@ import {
   createLiveSchemaRichResultValidatorAdapter,
   shouldEnableConnectorLiveRuntime
 } from "@searchops/connectors";
-import { parseCredentialKeyring } from "@searchops/db";
+import { parseCredentialKeyring, parseRichdocContractConfigFromEnv } from "@searchops/db";
 import { parseSearchOpsEnv } from "@searchops/types";
 
 import { workerJobNames } from "./jobs.js";
@@ -61,9 +61,11 @@ const workerPollTuning = {
     ? {}
     : { stalledInterval: env.SEARCHOPS_WORKER_STALLED_INTERVAL_MS })
 };
+const richdocContract = parseRichdocContractConfigFromEnv(env);
 const crawlRuntime = createCrawlWorker({
   redisUrl: env.REDIS_URL,
-  ...workerPollTuning
+  ...workerPollTuning,
+  ...(richdocContract === undefined ? {} : { richdocContract })
 });
 const connectorSyncRuntime = createConnectorSyncWorker({
   redisUrl: env.REDIS_URL,

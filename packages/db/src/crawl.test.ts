@@ -347,7 +347,7 @@ describe("crawl persistence helpers", () => {
         }
       },
       update: {
-        // 마지막 관측 런 갱신이 빠지면 크롤런 단위 조회에서 이슈가 사라진다.
+        // 마지막 관측 런 갱신이 빠지면 richdoc 미러의 크롤런 조회에서 이슈가 사라진다.
         crawlRunId: "crawl_1",
         status: "open"
       },
