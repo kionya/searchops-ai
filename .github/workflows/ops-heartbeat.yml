@@ -1,4 +1,5 @@
-name: ops-heartbeat
+# GitHub 실패 알림 메일·앱 푸시 제목에 이 이름이 그대로 나온다 — 수집 실패로 오해하지 않게 한국어로 적는다.
+name: "웹 화면 서버 점검 (수집과 무관)"
 
 # 운영 API(Render) 가동 감지. GET /health 가 200 이 아니면 실패 → GitHub 실패 알림 메일.
 #
@@ -23,6 +24,7 @@ concurrency:
 
 jobs:
   heartbeat:
+    name: 웹 화면 서버 응답 확인
     runs-on: ubuntu-latest
     env:
       # 배포 대상 URL(현재 https://searchops-api.onrender.com). 호스트를 옮길 수 있어 하드코딩하지 않는다.
@@ -51,5 +53,5 @@ jobs:
             fi
             sleep 10
           done
-          echo "::error::API /health 비정상 (got $h) — 프로세스 다운/네트워크 장애 의심"
+          echo "::error::웹 화면 서버(API /health)가 응답하지 않음 (got $h) — 데이터 수집(매일 수집 배치)과는 무관. 다음 점검에서 회복되면 무시해도 된다."
           exit 1
