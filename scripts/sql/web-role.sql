@@ -93,6 +93,9 @@ grant update ("ignoredIssueKeys") on public."Site" to searchops_web;
 -- 만들어도 이 역할은 자동으로 접근권을 얻지 않는다.
 alter default privileges in schema public revoke all on tables from searchops_web;
 
+-- RLS 는 scripts/sql/lock-data-api.sql 이 켠다. 새 테이블을 GRANT 했으면 그 스크립트도 한 번 다시 실행해라
+-- (그 테이블에 RLS·searchops_web 정책이 붙어야 이 역할이 읽을 수 있다).
+
 do $$
 begin
   if exists (select from pg_roles where rolname = 'searchops_web_readonly') then
