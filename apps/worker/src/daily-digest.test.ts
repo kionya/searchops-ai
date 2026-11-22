@@ -48,10 +48,27 @@ describe("composeDailyDigest", () => {
       }),
     );
     expect(text.split("🚨")).toHaveLength(2);
-    expect(text).toContain("🚨 어젯밤 크롤이 1페이지만 읽었어요 — 차단 의심");
+    expect(text).toContain("🚨 수집 문제: 어젯밤 크롤이 1페이지만 읽었어요 — 차단 의심");
     expect(text).not.toContain("옛 주소 32개가 열리지 않아요");
-    expect(text).toContain("계속되는 경고 1건");
+    expect(text).toContain("🔧 아직 안 고쳐진 홈페이지 문제 1건");
     expect(warningKeys).toEqual(["legacy-broken", "crawl-blocked"]);
+  });
+
+  it("marks homepage problems with 🔧, not the collection alarm", () => {
+    const fresh = composeDailyDigest(
+      input({ warnings: [{ key: "legacy-broken", text: "옛 주소 1개가 열리지 않음(404) — 새 주소로 연결 필요" }] }),
+    ).text;
+    expect(fresh).toContain("🔧 홈페이지 수정 필요: 옛 주소 1개가 열리지 않음(404) — 새 주소로 연결 필요");
+    expect(fresh).not.toContain("🚨");
+
+    const continuing = composeDailyDigest(
+      input({
+        previousWarningKeys: ["crawl-blocked"],
+        warnings: [{ key: "crawl-blocked", text: "어젯밤 크롤이 1페이지만 읽었어요 — 차단 의심" }]
+      }),
+    ).text;
+    expect(continuing).toContain("🚨 계속되는 수집 문제 1건");
+    expect(continuing).not.toContain("🔧");
   });
 
   it("adds batch failure line and change lines", () => {

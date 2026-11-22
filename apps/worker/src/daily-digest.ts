@@ -37,11 +37,17 @@ export function composeDailyDigest(input: DigestInput): { readonly text: string;
   const parts = kstParts(input.now);
   const previous = new Set(input.previousWarningKeys);
   const fresh = input.warnings.filter((warning) => !previous.has(warning.key));
-  const continuing = input.warnings.length - fresh.length;
+  const continuing = input.warnings.filter((warning) => previous.has(warning.key));
   const lines = [`[${input.siteName}] ${parts.month}월 ${parts.day}일 아침 요약`];
-  lines.push(...fresh.map((warning) => `🚨 ${warning.text}`));
-  if (continuing > 0) {
-    lines.push(`계속되는 경고 ${continuing}건`);
+  // 홈페이지에 고칠 것(🔧)과 수집이 안 된 것(🚨)을 섞으면 원장님이 수집 오류로 읽는다(2026-11-22).
+  lines.push(...fresh.map((warning) => (isSiteWarning(warning) ? `🔧 홈페이지 수정 필요: ${warning.text}` : `🚨 수집 문제: ${warning.text}`)));
+  const continuingSite = continuing.filter(isSiteWarning).length;
+  const continuingCollection = continuing.length - continuingSite;
+  if (continuingCollection > 0) {
+    lines.push(`🚨 계속되는 수집 문제 ${continuingCollection}건`);
+  }
+  if (continuingSite > 0) {
+    lines.push(`🔧 아직 안 고쳐진 홈페이지 문제 ${continuingSite}건`);
   }
   if (input.batchStatus === "failure") {
     lines.push("⚠️ 어젯밤 배치가 실패했습니다 — 일부 숫자가 어제 것일 수 있어요");
@@ -58,6 +64,9 @@ export function composeDailyDigest(input: DigestInput): { readonly text: string;
   lines.push(input.todayUrl);
   return { silent: isQuietHourKst(input.now), text: lines.join("\n"), warningKeys: input.warnings.map((warning) => warning.key) };
 }
+
+/** 수집은 정상인데 홈페이지 쪽을 고쳐야 하는 경고. 나머지는 전부 수집 문제다. */
+const isSiteWarning = (warning: DigestWarning) => warning.key === "legacy-broken";
 
 const toneText: Partial<Record<FreshnessTone, string>> = { failed: "실패", stale: "지연" };
 
