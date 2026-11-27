@@ -89,15 +89,32 @@ encrypted in the local database; do not put those per-site values in `.env.worke
 `corepack pnpm check:connector-live` stays DB-free. It validates runtime and platform env only; use
 authenticated `/ops/readiness` or `/ops/integrations` to inspect organization/site connector state.
 
-Build and validate before restarting the launch agents:
+Apply pending migrations, then build and validate before restarting the launch agents. Follow the
+same order as the release workflow in `docs/RUNBOOKS.md` ("Migration Verification"). The `prisma`
+CLI behind `db:migrate:status`/`db:migrate:deploy` does not read `.env.api.local` on its own — there
+is no `.env` file at the repo root or in `packages/db`, and `schema.prisma` resolves `directUrl` from
+the plain `DIRECT_DATABASE_URL` env var. Run each command in a subshell that loads `.env.api.local`
+first, so the target DB is always the one in that file:
 
 ```bash
+( set -a; . ./.env.api.local; set +a; corepack pnpm db:migrate:status )
+# If pending migrations are listed: take and verify a backup first (see the Database Backup
+# And Restore runbook in docs/RUNBOOKS.md) before deploying.
+( set -a; . ./.env.api.local; set +a; corepack pnpm db:migrate:deploy )
+( set -a; . ./.env.api.local; set +a; corepack pnpm db:migrate:status )
 corepack pnpm --filter @searchops/api build
 corepack pnpm --filter @searchops/worker build
 bash -n scripts/dev/launch-common.sh
 bash -n scripts/dev/caio-launch-api.sh
 bash -n scripts/dev/caio-launch-worker.sh
 ```
+
+Never load `.env.prod.local` for this — these commands must only ever target the DB named in
+`.env.api.local`. Run the `( set -a; . ./.env.api.local; ... )` form exactly as shown, every time,
+even if `DATABASE_URL`/`DIRECT_DATABASE_URL` look already set in your shell: sourcing the file
+inside the subshell overrides any inherited value for that command, which is what keeps a stray
+export from a previous `.env.prod.local` session from redirecting `migrate:deploy` to the wrong
+database.
 
 The wrapper paths intentionally remain unchanged so existing SearchOps launch agents can continue
 to invoke them. Renaming the external launch agent labels or plist files is a separate machine-level
